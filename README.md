@@ -8,6 +8,10 @@ handoff, and keep weekly tasks moving.
 AxisCare remains the system of record for caregivers, clients and visits. This
 dashboard is the layer on top that makes the day navigable.
 
+> **Working on this through Claude?** Read [CLAUDE.md](CLAUDE.md) first. It lists
+> every AxisCare field that actually exists, so nothing has to be guessed, and it
+> explains which parts need the lead developer.
+
 **Status: MVP.** Deployed for internal use, link-access only, no login.
 See [Security posture](#security-posture) before real client data is entered.
 
@@ -32,6 +36,8 @@ See [Security posture](#security-posture) before real client data is entered.
 ## What's in the repo
 
 ```
+CLAUDE.md                      Read first. What AxisCare actually provides,
+                               and who owns which part of the system.
 index.html                     The entire dashboard. One file, no framework,
                                no bundler, no npm dependencies.
 config.js                      Supabase keys. Regenerated on every deploy.
@@ -317,6 +323,76 @@ at any URL. Widen it deliberately:
 AXISCARE_ALLOWED_PATHS = /api/caregivers,/api/clients,/api/visits,/api/schedules
 ```
 
+### Why the dashboard still shows demo caregivers
+
+**Deliberate, as of 2026-08-21.** The proxy works; the UI is simply not wired to
+it yet. Reviewed and left on demo data on purpose — the reasoning is below so
+the decision can be re-taken with the facts rather than re-researched.
+
+#### The roster
+
+643 caregivers, **180 active** — 170 `Active`, 7 `Temporarily Unavailable`,
+3 `On Vacation Leave`. Note `status.active` is `true` for all three labels, so
+filtering on it alone will include people who are not currently schedulable.
+Paginate via `results.nextPage` (100/page = 7 pages).
+
+#### What AxisCare can fill
+
+| Dashboard field | AxisCare source | Coverage on active |
+|---|---|---|
+| `name`, `gender`, phone, email | direct fields | 98–99% |
+| `base` (home city) | `mailingAddress.city` | 98% |
+| `skills` | `classes[]` — `ALZ` Alzheimer's, `HLE` Hoyer lift, `ELC` hospice, `CNA`, `SS` Spanish, `FES` English | 60% |
+| `avail` / `hours` | `classes[]` — `WKDY`, `WKND`, `MRNNG`, `AFTRNN`, `NOVRN`, `AD`, `LH`, `SH`, `LV` | 60% |
+| `restrictions` | `classes[]` — `OWP` pets, `CFC`/`CMC` client gender, `OWC` couples, `DL`/`WDL` licence | 60% |
+| travel radius | `acceptableDrivingDistance` | **20%** |
+| `reliability`, `callOffs30`, `declinesStreak`, `weekHrs`, `priorClients` | **nothing** | **0%** |
+
+#### The blocker worth understanding
+
+That last row is why this was not just switched on. Those values are currently
+**invented** — `reliability: 96`, `callOffs30: 0`, `weekHrs: 30` are hardcoded
+demo numbers. Attached to a fictional "Rosa Delgado" that is obviously sample
+data. Attached to a **real caregiver's name** it reads as fact, and a scheduler
+could staff a high-risk client on a fabricated reliability score. Real
+identities plus invented performance metrics is worse than honest demo data.
+
+#### How to do it properly when the time comes
+
+`/api/visits` makes those metrics genuinely derivable. Every visit carries both
+scheduled and actual times plus clock-in/out with GPS:
+
+```
+scheduledStartDate / scheduledEndDate    what was planned
+startDate / endDate                      what actually happened
+clockIn / clockOut  { time, method, coordinates, location }
+verified, removed, type, service, chargeRate
+```
+
+From a rolling window (~90 visits/week at current volume) you can compute real
+punctuality, no-shows, weekly hours, and prior-client history. Wiring visits
+also makes Today, Open Shifts and Find Coverage real, since all three are
+built on visits rather than on caregiver records.
+
+#### Two gotchas already found
+
+- **City strings are dirty.** `CAMARILLO`, `Camarilllo`, `"Oxnard "`, `oxnard`
+  are distinct values today. Normalise case and whitespace, and expect ~40% of
+  active caregivers to live outside Ventura County (Canoga Park, Los Angeles,
+  Lancaster, Lemoore…), so they are absent from the app's `CITY` distance map.
+- **40% of active caregivers carry no `classes` tags at all**, so they yield no
+  skills or availability. They should still appear in the roster with empty
+  skills — hiding real staff would be worse than showing an incomplete profile.
+
+#### One implementation note
+
+Hydration must happen **before** `CLOUD.boot()` takes its baseline snapshot,
+otherwise the overlay will record the entire real roster as user edits. The
+order has to be: seed → fetch AxisCare → `BASE = snapshot()` → replay overlay.
+Also note several derivations parse the numeric part of the seed id
+(`parseInt(c.id.slice(1))` on `'c7'`), so AxisCare ids need either the same
+shape or those call sites updated.
+
 ### Response shapes
 
 Results are nested under `results`, keyed by resource, and the shape is not
@@ -481,6 +557,41 @@ oversight:
 - Deletes are blocked at the database level. Nothing on the internet can drop
   the row.
 - The AxisCare token is the one true secret, and it never leaves the server.
+- **The AxisCare proxy has no caller authentication** — see below. This one is
+  different in kind from the others, so it is written up separately.
+
+### Accepted risk: the AxisCare proxy is open
+
+`/.netlify/functions/axiscare` checks that the path is on its allowlist and
+that the method is GET. It does **not** check who is calling. Anyone who knows
+the site URL can open, for example:
+
+```
+https://<site>.netlify.app/.netlify/functions/axiscare?action=get&path=/api/clients&q_limit=100
+```
+
+and receive real client records — confirmed to include `firstName`,
+`lastName`, `dateOfBirth`, `residentialAddress`, `telephonyPhone` and
+`allergies`. That is PHI, and unlike the Supabase item above it is real data
+rather than demo data.
+
+**Reviewed and accepted on 2026-08-21** while the app is in active development
+and the URL is known only to the team. The protection today is that the URL is
+undiscovered, not that access is restricted — a Netlify site is publicly
+reachable, and nobody has to open the dashboard to reach the function.
+
+**Revisit when any of these becomes true** — the first one to happen is the
+trigger:
+
+- The site URL is shared beyond the immediate team, or linked anywhere
+- The dashboard starts rendering real AxisCare data (rather than demo data)
+- The app moves from development into day-to-day scheduling use
+
+**The fix, when that time comes** (about ten minutes): require a shared secret
+on the function — `?s=<secret>` read from a Netlify environment variable, the
+same pattern `WEBHOOK_SHARED_SECRET` uses on the Client Concierge dashboard.
+While no UI code calls the proxy, the secret never has to exist in the browser,
+which makes it a real control rather than a cosmetic one.
 
 This is acceptable while the app runs on **fictional demo data** for internal
 evaluation. It stops being acceptable the moment real caregiver names, client

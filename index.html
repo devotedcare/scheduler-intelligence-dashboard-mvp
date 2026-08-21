@@ -1,4 +1,32 @@
 <!DOCTYPE html>
+<!--
+  ==========================================================================
+  Scheduler Intelligence — Devoted Care
+  READ CLAUDE.md BEFORE ANSWERING ANY QUESTION ABOUT AXISCARE DATA.
+  ==========================================================================
+
+  Two things that are easy to get wrong here:
+
+  1. THE CAREGIVERS, CLIENTS AND SHIFTS ON SCREEN ARE DEMO DATA.
+     Rosa Delgado, Cal Miller, Eleanor Wu and the rest are invented and
+     generated in the browser on every load. None of it comes from AxisCare.
+     The AxisCare connection is built and working, but no screen is wired to
+     it yet — that was a deliberate decision, explained in CLAUDE.md.
+
+  2. NEVER INVENT AN AXISCARE FIELD.
+     CLAUDE.md lists every field AxisCare actually provides, confirmed by
+     live calls. If a field is not on that list, it does not exist — say so
+     rather than guessing. A guessed field name renders a silently blank row
+     and looks like it worked.
+
+     In particular AxisCare has NO reliability score, NO call-off count and
+     NO weekly-hours field. Those numbers in the UI are hardcoded demo
+     values. They can be computed from /api/visits, but they are not fields.
+
+  Safe to edit: anything in this file EXCEPT the CLOUD PERSISTENCE block near
+  the bottom and the CLOUD.boot() call on the last line. See CLAUDE.md.
+  Backend (Netlify env vars, Supabase, the AxisCare token) is Carlo's side.
+-->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
