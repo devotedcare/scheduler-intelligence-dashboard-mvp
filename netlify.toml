@@ -1,0 +1,84 @@
+# ==============================================================
+# Netlify configuration — Devoted Care Scheduler Intelligence
+#
+# There is no bundler and no framework. The "build" is a single
+# Node script that writes config.js from environment variables.
+# ==============================================================
+
+[build]
+  command   = "node scripts/build-config.js"
+  publish   = "."
+  functions = "netlify/functions"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+[functions]
+  node_bundler = "esbuild"
+
+# --------------------------------------------------------------
+# Keep repo plumbing off the public site. Nothing here contains a
+# secret (the AxisCare token only ever exists as a Netlify env var),
+# but there is no reason to serve build scripts and SQL either.
+# --------------------------------------------------------------
+[[redirects]]
+  from = "/scripts/*"
+  to = "/404.html"
+  status = 404
+  force = true
+
+[[redirects]]
+  from = "/supabase/*"
+  to = "/404.html"
+  status = 404
+  force = true
+
+[[redirects]]
+  from = "/netlify/*"
+  to = "/404.html"
+  status = 404
+  force = true
+
+# The dashboard used to be served as scheduler-intelligence.html.
+# Keep old links working.
+[[redirects]]
+  from = "/scheduler-intelligence.html"
+  to = "/"
+  status = 301
+  force = true
+
+# --------------------------------------------------------------
+# Caching. index.html and config.js must never go stale, or a
+# redeploy will not reach people who already have the tab open.
+# --------------------------------------------------------------
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/config.js"
+  [headers.values]
+    Cache-Control = "no-store"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options   = "nosniff"
+    X-Frame-Options          = "SAMEORIGIN"
+    Referrer-Policy          = "strict-origin-when-cross-origin"
+    Permissions-Policy       = "geolocation=(), microphone=(), camera=(), payment=()"
+
+    # A Content-Security-Policy is left commented out on purpose.
+    #
+    # The dashboard is one large inline <script> and uses inline
+    # onclick= handlers throughout, so a CSP here needs
+    # 'unsafe-inline' to work at all — which removes most of its
+    # value. It also risks breaking the print / PDF views, which
+    # build a document with window.open() + document.write().
+    #
+    # If you do want it, uncomment the line below and then test
+    # every print button (Forms, Medication List, Caregiver Resume,
+    # Quick Guides) before trusting it.
+    #
+    # Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://*.supabase.co wss://*.supabase.co; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
