@@ -53,7 +53,7 @@ on conflict (id) do nothing;
 -- AND WRITE THIS ROW. That is an accepted trade-off while the data
 -- is fictional demo data. Before real caregiver names, client names,
 -- care notes or medication lists are entered, switch to the locked
--- down policies in section 4.
+-- down policies in section 3.
 -- --------------------------------------------------------------
 alter table public.scheduler_state enable row level security;
 
@@ -83,52 +83,7 @@ create policy "anon update scheduler state"
 
 
 -- --------------------------------------------------------------
--- 3. Optional: keep a short history so a bad save can be undone
---
--- Uncomment to enable. Costs one extra row per save.
--- --------------------------------------------------------------
--- create table if not exists public.scheduler_state_history (
---   id          bigserial primary key,
---   workspace   text        not null,
---   overlay     jsonb       not null,
---   rev         bigint      not null,
---   updated_by  text,
---   saved_at    timestamptz not null default now()
--- );
---
--- create index if not exists scheduler_state_history_ws_idx
---   on public.scheduler_state_history (workspace, saved_at desc);
---
--- create or replace function public.scheduler_state_snapshot()
--- returns trigger language plpgsql security definer as $$
--- begin
---   insert into public.scheduler_state_history (workspace, overlay, rev, updated_by)
---   values (old.id, old.overlay, old.rev, old.updated_by);
---   delete from public.scheduler_state_history
---    where id in (
---      select id from public.scheduler_state_history
---       where workspace = old.id
---       order by saved_at desc offset 50
---    );
---   return new;
--- end $$;
---
--- drop trigger if exists scheduler_state_snapshot_trg on public.scheduler_state;
--- create trigger scheduler_state_snapshot_trg
---   before update on public.scheduler_state
---   for each row execute function public.scheduler_state_snapshot();
---
--- To roll back to the previous save:
---   update public.scheduler_state s
---      set overlay = h.overlay, rev = s.rev + 1
---     from (select overlay from public.scheduler_state_history
---            where workspace = 'devoted_care'
---            order by saved_at desc limit 1) h
---    where s.id = 'devoted_care';
-
-
--- --------------------------------------------------------------
--- 4. When you are ready to require a login
+-- 3. When you are ready to require a login
 --
 -- Run this block to revoke anonymous access. You must also add a
 -- sign-in screen to the app first, or nobody will be able to save.
@@ -143,7 +98,7 @@ create policy "anon update scheduler state"
 
 
 -- --------------------------------------------------------------
--- 5. Handy checks
+-- 4. Handy checks
 -- --------------------------------------------------------------
 -- Confirm RLS is on and see the active policies:
 --   select relname, relrowsecurity from pg_class where relname = 'scheduler_state';

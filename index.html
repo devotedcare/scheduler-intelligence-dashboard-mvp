@@ -5630,20 +5630,9 @@ function renderSearchFilters(sq){
   return `<div class="flt-sec"><button class="flt-toggle" onclick="state.covReqOpen=!state.covReqOpen;render()"><span class="flt-caret">${reqOpen?'\u25be':'\u25b8'}</span> Caregiver requirements <span class="flt-sum">${reqSummary}</span></button>${reqBody}</div>
     <div class="flt-sec"><button class="flt-toggle" onclick="state.covAdvanced=!state.covAdvanced;render()"><span class="flt-caret">${advOpen?'\u25be':'\u25b8'}</span> Advanced filters${sq.skills.length?` <span class="flt-sum">${sq.skills.length} care need${sq.skills.length===1?'':'s'}</span>`:''}</button>${advBody}</div>`;
 }
-function renderSearchForm(sq){
-  const cityOpts=`<option value="">Any city</option>`+Object.keys(CITY).map(c=>`<option value="${c}" ${sq.city===c?'selected':''}>${c}</option>`).join('');
-  const dayChips=REC_DAYS.map(d=>`<span class="sk big ${sq.days.includes(d)?'on':''}" onclick="toggleSearchDay('${d}')">${d}</span>`).join('');
-  const timeBtns=TIME_CATS.map(([lab,s,e])=>`<button class="cov-preset ${sq.timeCat===lab?'on':''}" onclick="setSearchTimeCat('${lab}')">${lab}</button>`).join('')
-    + `<button class="cov-preset ${sq.timeCat==='specific'?'on':''}" onclick="setSearchTimeCat('specific')">Specific Time</button>`;
-  const specInputs = sq.timeCat==='specific'
-    ? `<div class="cov-timerow"><span class="ctr-l">Start</span><input type="time" value="${toTimeInput(sq.start)}" onchange="setSearch('start',this.value)"><span class="ctr-to">End</span><input type="time" value="${toTimeInput(sq.end)}" onchange="setSearch('end',this.value)"></div>` : '';
-  return `<div class="cov-form">
-    <div class="cov-dayblock"><div class="cov-lbl">Days \u2014 tap any combination</div><div class="cov-daychips">${dayChips}</div></div>
-    <div class="cov-dayblock"><div class="cov-lbl">Time</div><div class="cov-presets">${timeBtns}</div>${specInputs}</div>
-    <div class="cov-row"><div class="cov-field"><label>City / location</label><select onchange="setSearch('city',this.value)">${cityOpts}</select></div></div>
-    ${renderSearchFilters(sq)}
-  </div>`;
-}
+/* The old renderSearchForm() lived here. It was shadowed by the
+   declaration further down (the last function declaration wins), so
+   it never ran. Removed 2026-08-21 — behaviour is unchanged. */
 function availCount(sq,s,e){ return state.caregivers.filter(cg=>{
     if(!caregiverPassesFilters(cg,sq.filters,{clientId:sq.clientId})) return false;
     if(sq.skills.some(sk=>!cg.skills.includes(sk))) return false;
@@ -8689,11 +8678,22 @@ const CLOUD = (function(){
 /* =========================================================
    AXISCARE  —  read-only client for the Netlify proxy
    ---------------------------------------------------------
-   Scaffold only. The UI still renders demo data; this exists
-   so the token stays server-side and the wiring is testable
-   before we map real fields. From the browser console:
+   The token stays server-side; this just talks to our own
+   Netlify function. The UI still renders demo data — mapping
+   real AxisCare records into the views is the next step.
+
+   Verified live against site 7060 (2026-08-21). AxisCare needs
+   a Bearer token AND an X-AxisCare-Api-Version header; the
+   function adds both. Paths include the /api prefix.
+
+   From the browser console:
        await AxisCare.status()
-       await AxisCare.get('/caregivers')
+       await AxisCare.ping()
+       await AxisCare.get('/api/caregivers', { limit: 1 })
+       await AxisCare.get('/api/visits', { startDate:'2026-08-21', endDate:'2026-08-22' })
+
+   Note: /api/visits and /api/schedules REQUIRE startDate and
+   endDate (or updatedSinceDate / ids) or they return 422.
    ========================================================= */
 const AxisCare = (function(){
   'use strict';
@@ -8714,6 +8714,8 @@ const AxisCare = (function(){
   return {
     /* Is the function deployed and are the env vars present? Never returns the token. */
     status: function(){ return call({ action:'status' }); },
+    /* Actually call AxisCare and confirm the token + version work end to end. */
+    ping:   function(){ return call({ action:'ping' }); },
     /* Proxy a GET to AxisCare. `path` must match the allowlist inside the function. */
     get: function(path, query){
       var p={ action:'get', path:path };

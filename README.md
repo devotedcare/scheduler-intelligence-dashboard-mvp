@@ -19,7 +19,7 @@ See [Security posture](#security-posture) before real client data is entered.
 - [How the data model works](#how-the-data-model-works) ← read this one
 - [Setup part 1 — Supabase](#setup-part-1--supabase)
 - [Setup part 2 — Netlify](#setup-part-2--netlify)
-- [Setup part 3 — AxisCare](#setup-part-3--axiscare-optional-for-now)
+- [Setup part 3 — AxisCare](#setup-part-3--axiscare)
 - [Environment variables](#environment-variables)
 - [Running it locally](#running-it-locally)
 - [Operating notes](#operating-notes)
@@ -218,54 +218,118 @@ Roughly five minutes.
 
 ---
 
-## Setup part 3 — AxisCare (optional for now)
+## Setup part 3 — AxisCare
 
-The proxy is deployed and testable, but **the dashboard still renders demo
-data**. Nothing in the UI calls AxisCare yet — mapping real fields is the next
-piece of work, and it needs a sample response to build against.
+**Connection solved and verified live on 2026-08-21.** The proxy talks to
+AxisCare successfully. What remains is mapping AxisCare records into the
+dashboard's views — the UI still renders demo data until that is done.
 
 **Why a proxy at all.** Two reasons, both hard blockers:
 
-1. The token would be readable by anyone who views source if it were in
+1. The token would be readable by anyone who views source if it lived in
    `index.html` or `config.js`.
 2. A browser cannot call the AxisCare API directly regardless — the request is
-   cross-origin and will be blocked unless AxisCare explicitly allows your
-   Netlify domain.
+   cross-origin and gets blocked.
 
 So the browser calls `/.netlify/functions/axiscare`, which runs on Netlify's
 server where the token lives as an environment variable, and that calls AxisCare.
 
-**To wire it up:**
+### How AxisCare's API actually works
 
-1. Add to Netlify environment variables:
-   ```
-   AXISCARE_BASE_URL   = https://…        (no trailing slash)
-   AXISCARE_TOKEN      = …                (the secret)
-   AXISCARE_AUTH_STYLE = bearer           (or: header, query)
-   ```
-2. Redeploy.
-3. Open the site, then the browser console:
+Taken from the OpenAPI spec AxisCare publishes at
+[`/api/documentation.html`](https://7060.axiscare.com/api/documentation.html)
+(the page is a Stoplight viewer; the machine-readable source is at
+`/api/stoplight/reference/api.yaml`), and confirmed with live calls.
 
-   ```js
-   await AxisCare.status()
-   // { ok: true, configured: true, tokenSet: true, tokenLength: 64, mode: 'ready', … }
+| | |
+|---|---|
+| Base | `https://7060.axiscare.com` — the site root. Paths already include `/api`. |
+| Auth | `Authorization: Bearer <token>` — always. There is no other scheme. |
+| **Version** | `X-AxisCare-Api-Version: 2023-10-01` — a **required header**, not a path segment. |
+| Methods | This proxy forwards GET only, so it can never mutate AxisCare. |
 
-   await AxisCare.get('/caregivers')
-   ```
+Two things that cost real time when unknown, so they are worth stating plainly:
 
-   `status()` never returns the token itself — only whether it is present and
-   how long it is.
+- **Paths are unversioned.** It is `/api/caregivers`, not `/api/v1/caregivers`.
+  Any version-looking segment produces `400 "Unsupported version"`.
+- **The version check runs before authentication.** A missing or wrong version
+  header returns the same 400 whether the token is valid, invalid or absent —
+  so a wrong version silently masks every other problem, including a bad token.
 
-4. Paste one real response back to me and I'll map the fields into the
-   caregiver, client and shift models.
+`2023-10-01` is the version for every endpoint. `List Caregivers` additionally
+accepts `2026-02-06`.
 
-**If `get()` returns a 400 about the allowlist**, the path is not in the
-permitted list. That guard stops the function becoming an open proxy that
-anyone could point at any URL. Add your paths:
+### Endpoints available to this account
+
+Confirmed reachable: `caregivers`, `clients`, `visits`, `schedules`,
+`contacts`, `applicants`, `call-logs`, `adls`, `organizations`,
+`taggingCategories`, `classes`. (`/api/tokens/expiring` exists in the spec but
+returns 403 for this token, and is not on the proxy allowlist.)
+
+**`/api/visits` and `/api/schedules` require a date range** or they return 422:
 
 ```
-AXISCARE_ALLOWED_PATHS = /caregivers,/clients,/visits,/schedules
+/api/visits      needs  startDate + endDate,  or updatedSinceDate,  or visitIds
+/api/schedules   needs  startDate + endDate,  or scheduleIds
 ```
+
+Visits are the important ones for this dashboard — a visit carries client,
+caregiver, scheduled start/end and actual start/end, which is what Open Shifts,
+Find Coverage and the Today view are built on.
+
+### Configure it
+
+Add to Netlify environment variables (names match the Client Concierge
+dashboard, so both projects configure AxisCare identically):
+
+```
+AXISCARE_SITE_URL    = https://7060.axiscare.com
+AXISCARE_API_TOKEN   = …                          (the secret)
+AXISCARE_API_VERSION = 2023-10-01                 (optional — this is the default)
+```
+
+Redeploy, then from the browser console on the live site:
+
+```js
+await AxisCare.status()
+// { ok:true, configured:true, siteUrl:'https://7060.axiscare.com',
+//   apiVersion:'2023-10-01', tokenSet:true, tokenLength:36, mode:'ready' }
+
+await AxisCare.ping()
+// { ok:true, message:'AxisCare responded successfully — token and version are correct.' }
+
+await AxisCare.get('/api/caregivers', { limit: 1 })
+await AxisCare.get('/api/visits', { startDate:'2026-08-21', endDate:'2026-08-22' })
+```
+
+`status()` reports whether the token is present and its length; it never
+returns the token. `ping()` makes a real call so you can tell a configuration
+problem from a credentials problem.
+
+Query parameters are passed as the second argument and forwarded to AxisCare
+(internally as `q_*` on the function URL).
+
+**If a request is refused with an allowlist error**, the path is not permitted.
+That guard is what stops the function becoming an open proxy anyone could aim
+at any URL. Widen it deliberately:
+
+```
+AXISCARE_ALLOWED_PATHS = /api/caregivers,/api/clients,/api/visits,/api/schedules
+```
+
+### Response shapes
+
+Results are nested under `results`, keyed by resource, and the shape is not
+uniform — worth knowing before writing mappers:
+
+```
+/api/caregivers  ->  results.caregivers  is an OBJECT keyed by id  { "3": {...} }
+/api/clients     ->  results.clients     is an ARRAY               [ {...} ]
+/api/visits      ->  results.visits      is an ARRAY               [ {...} ]
+```
+
+Paginated endpoints return `results.nextPage`. The Client Concierge dashboard
+normalises this with `j?.results?.data ?? j?.results ?? []`.
 
 ---
 
@@ -280,14 +344,20 @@ All set in Netlify → Site configuration → Environment variables.
 | `SCHEDULER_WORKSPACE` | no | `devoted_care` | Change to run an isolated second copy |
 | `SCHEDULER_TABLE` | no | `scheduler_state` | |
 | `SCHEDULER_POLL_MS` | no | `20000` | Min 8000 |
-| `AXISCARE_BASE_URL` | for AxisCare | — | Server-side only |
-| `AXISCARE_TOKEN` | for AxisCare | — | Server-side only. Never reaches the browser. |
-| `AXISCARE_AUTH_STYLE` | no | `bearer` | `bearer` \| `header` \| `query` |
-| `AXISCARE_TOKEN_HEADER` | no | `X-API-Key` | Used when style is `header` |
-| `AXISCARE_TOKEN_PARAM` | no | `token` | Used when style is `query` |
+| `AXISCARE_SITE_URL` | for AxisCare | — | `https://7060.axiscare.com`. Server-side only. |
+| `AXISCARE_API_TOKEN` | for AxisCare | — | Server-side only. Never reaches the browser. |
+| `AXISCARE_API_VERSION` | no | `2023-10-01` | Sent as `X-AxisCare-Api-Version`. Required by AxisCare; a wrong value 400s *before* auth. |
 | `AXISCARE_ALLOWED_PATHS` | no | built-in list | Comma-separated path prefixes |
 
 Changing any of these requires a **redeploy** — they are read at build time.
+
+> The Supabase **database password** is not in this table on purpose. It is only
+> for direct Postgres access; this dashboard uses the REST API with the anon key.
+> Do not add it to Netlify.
+
+> Auth is always Bearer for AxisCare, so there is no auth-style switch.
+> `AXISCARE_AUTH_STYLE`, `AXISCARE_TOKEN_HEADER` and `AXISCARE_TOKEN_PARAM`
+> existed while the scheme was unknown and were removed on 2026-08-21.
 
 ---
 
@@ -369,8 +439,26 @@ there is nothing to mark Done. Manual tasks always persist.
 Pop-ups are blocked for the site. Allow them in the address bar.
 
 **`AxisCare.get()` returns 503 "not configured".**
-`AXISCARE_BASE_URL` or `AXISCARE_TOKEN` is missing. `await AxisCare.status()`
+`AXISCARE_SITE_URL` or `AXISCARE_API_TOKEN` is missing. `await AxisCare.status()`
 shows which.
+
+**AxisCare returns 400 "Unsupported version".**
+`AXISCARE_API_VERSION` is wrong — it should be `2023-10-01`. Note this check
+runs *before* authentication, so a wrong version produces the same 400 whether
+the token is good or not. Fix the version first, then judge the token.
+
+**AxisCare returns 422.**
+The endpoint needs query parameters you did not send. `/api/visits` and
+`/api/schedules` both require a date range. AxisCare's own message says exactly
+what is missing and is passed through as `axisError`:
+
+```js
+await AxisCare.get('/api/visits', { startDate:'2026-08-21', endDate:'2026-08-22' })
+```
+
+**AxisCare returns 401 / 403.**
+Now it really is the token. Run `await AxisCare.ping()` — it distinguishes a
+configuration problem from a credentials problem.
 
 **Everything is stale after a deploy.**
 Hard-refresh (Ctrl-F5). `index.html` and `config.js` are sent with
@@ -413,8 +501,10 @@ unauthenticated public URL is a disclosure.
 Next, in the order that unblocks the most:
 
 1. **AxisCare read integration** — replace seeded caregivers, clients and shifts
-   with live data. Needs a sample API response to map against. The proxy is
-   already deployed and waiting.
+   with live data. The connection is solved and verified; what remains is
+   mapping AxisCare records into the app's models. Start with `/api/visits`
+   over a date window, since Open Shifts, Find Coverage and Today are all built
+   on visits.
 2. **Authentication** — required before real client data. See above.
 3. **Per-user identity** — replace the "on shift" dropdown with real accounts so
    `updated_by` means something.
