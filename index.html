@@ -94,7 +94,7 @@
   .brand .sub{font-size:9px;color:#6C849A;text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-top:2px}
 
   .nav{padding:10px 9px 14px;flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain}
-  .nav-grp{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;padding:8px 10px;margin-bottom:1px;border:none;border-radius:var(--r);background:none;font-family:inherit;font-size:13px;font-weight:650;color:#BDD0DE;cursor:pointer;text-align:left}.nav-grp:hover{background:rgba(255,255,255,.06);color:#E4EEF5}.nav-grp.open{color:#E4EEF5}.nav-caret{font-size:10px;line-height:1;color:#7790A4;flex:0 0 auto}.nav-grp:hover .nav-caret,.nav-grp.open .nav-caret{color:#9BBDD4}.nav a.sub{padding-left:22px;font-size:12.5px}.ig-list{display:flex;flex-direction:column;gap:8px}.ig-row{display:flex;align-items:center;gap:12px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:10px 13px}.ig-main{flex:1;min-width:0}.ig-t{font-size:13.5px;font-weight:700;color:var(--ink)}.ig-c{font-size:11.5px;color:var(--ink-soft);margin-top:2px}
+  .nav-grp{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;padding:8px 10px;margin-bottom:1px;border:none;border-radius:var(--r);background:none;font-family:inherit;font-size:13px;font-weight:650;color:#BDD0DE;cursor:pointer;text-align:left}.nav-grp:hover{background:rgba(255,255,255,.06);color:#E4EEF5}.nav-grp.open{color:#E4EEF5}.nav-caret{font-size:10px;line-height:1;color:#7790A4;flex:0 0 auto}.nav-grp:hover .nav-caret,.nav-grp.open .nav-caret{color:#9BBDD4}.nav a.sub{padding-left:22px;font-size:12.5px}.ig-head{display:flex;justify-content:flex-end;margin-bottom:12px}.ig-opt{border:1px solid var(--line);border-radius:var(--r);padding:11px 13px;margin-top:12px}.ig-opt-t{font-size:13px;font-weight:700;color:var(--ink)}.ig-opt-d{font-size:12px;color:var(--ink-soft);margin:3px 0 9px;line-height:1.4}.ig-opt input[type=file]{margin-bottom:9px;padding:6px}.ig-list{display:flex;flex-direction:column;gap:8px}.ig-row{display:flex;align-items:center;gap:12px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:10px 13px}.ig-main{flex:1;min-width:0}.ig-t{font-size:13.5px;font-weight:700;color:var(--ink)}.ig-c{font-size:11.5px;color:var(--ink-soft);margin-top:2px}
   .nav a{
     display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:var(--r);
     color:#A9BECE;text-decoration:none;font-weight:550;font-size:13px;cursor:pointer;
@@ -7635,7 +7635,7 @@ function generateGuideDraft(title, keywords){ const input=((title||'')+' '+(keyw
 const DC_CONTACT=[{label:'Scheduling',phone:'(805) 312-7736'},{label:'Client Support',phone:'(805) 419-6909'},{label:'Billing',phone:'(805) 910-1371'}];
 function gEsc(s){ return (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function gGid(){ return 'g'+Date.now()+Math.floor(Math.random()*1000); }
-function mkGuide(o){ return {id:o.id||gGid(), title:o.title, type:o.type||null, category:o.category, clientName:o.clientName||'', topic:o.topic||'', steps:o.steps||[], reminders:o.reminders||[], mistakes:o.mistakes||[], whenCall:o.whenCall||[], contact:o.contact!==false, createdBy:o.createdBy||'Office', createdAt:o.createdAt||new Date(), updatedAt:o.updatedAt||new Date()}; }
+function mkGuide(o){ return {id:o.id||gGid(), file:o.file||null, title:o.title, type:o.type||null, category:o.category, clientName:o.clientName||'', topic:o.topic||'', steps:o.steps||[], reminders:o.reminders||[], mistakes:o.mistakes||[], whenCall:o.whenCall||[], contact:o.contact!==false, createdBy:o.createdBy||'Office', createdAt:o.createdAt||new Date(), updatedAt:o.updatedAt||new Date()}; }
 
 if(!state.guides){ state.guides=[
   mkGuide({title:'How to Contact the Office', category:'Office & Communication', topic:'Reach the right Devoted Care team fast.',
@@ -7719,11 +7719,72 @@ function viewGuides(){ return state.guidesMode==='edit' ? guideEditor() : guideL
    guides and opens each straight into its infographic. */
 function viewInfographics(){
   const list=(state.guides||[]).slice().sort((a,b)=>a.title.localeCompare(b.title));
-  if(!list.length) return emptyState('No infographics yet','Infographics are generated from Caregiver Quick Guides.');
-  return `<div class="ig-list">`+list.map(g=>`<div class="ig-row">
-    <div class="ig-main"><div class="ig-t">${gEsc(g.title)}</div><div class="ig-c">${gEsc(g.category||'')}</div></div>
-    <button class="btn sm pri" onclick="previewGuide('${g.id}','info')">Open infographic</button>
+  const head=`<div class="ig-head"><button class="btn pri sm" onclick="openIgCreate()">+ Create Infographic</button></div>`;
+  if(!list.length) return head+emptyState('No infographics yet','Create one, or add a Caregiver Quick Guide.');
+  return head+`<div class="ig-list">`+list.map(g=>`<div class="ig-row">
+    <div class="ig-main"><div class="ig-t">${gEsc(g.title)}</div><div class="ig-c">${gEsc(g.category||'')}${g.file?' \u00b7 uploaded file':''}</div></div>
+    <button class="btn sm pri" onclick="${g.file?`openIgFile('${g.id}')`:`previewGuide('${g.id}','info')`}">Open infographic</button>
   </div>`).join('')+`</div>`;
+}
+/* Uploaded infographics are stored on the guide record as a data URL. */
+function openIgFile(id){
+  const g=guideById(id); if(!g||!g.file) return;
+  const w=window.open(); if(!w) return toast('Allow pop-ups to open the file');
+  w.document.write(g.file.type.indexOf('image/')===0
+    ? `<title>${gEsc(g.title)}</title><img src="${g.file.data}" style="max-width:100%">`
+    : `<title>${gEsc(g.title)}</title><embed src="${g.file.data}" type="${g.file.type}" style="width:100%;height:100vh">`);
+}
+const IG_MAX_MB=2;
+function openIgCreate(){
+  mEl.innerHTML=`<div class="mh"><span class="mt">Create Infographic</span><button class="mc" onclick="closeModal()">\u00d7</button></div>
+   <div class="mb">
+     <div class="field"><label>Title</label><input class="ein" id="igTitle" placeholder="e.g. Fall Prevention"></div>
+     <div class="field"><label>Category</label><select class="ein" id="igCat">${GUIDE_CATEGORIES.map(c=>`<option>${gEsc(c)}</option>`).join('')}</select></div>
+     <div class="field"><label>Topic / description</label><textarea class="ein" id="igTopic" rows="3" placeholder="What should this cover?"></textarea></div>
+     <div class="ig-opt">
+       <div class="ig-opt-t">Generate a draft from the topic</div>
+       <div class="ig-opt-d">Builds a starting draft from the guide library so you can review and edit it before saving.</div>
+       <button class="btn pri" onclick="igGenerate()">Generate draft</button>
+     </div>
+     <div class="ig-opt">
+       <div class="ig-opt-t">Upload an existing infographic</div>
+       <div class="ig-opt-d">Image or PDF, up to ${IG_MAX_MB}MB. It is saved with the board and shared with the other schedulers.</div>
+       <input class="ein" type="file" id="igFile" accept="image/*,application/pdf">
+       <button class="btn" onclick="igUpload()">Upload and save</button>
+     </div>
+   </div>
+   <div class="mf"><button class="btn" onclick="closeModal()">Cancel</button></div>`;
+  mbg.classList.add('show');
+}
+function igFields(){
+  const v=id=>{ const el=document.getElementById(id); return el?el.value.trim():''; };
+  return {title:v('igTitle'), cat:v('igCat')||GUIDE_CATEGORIES[0], topic:v('igTopic')};
+}
+/* Draft -> the existing guide editor, previewed as an infographic, saved from there. */
+function igGenerate(){
+  const f=igFields();
+  if(!f.title) return toast('Enter a title');
+  state.guideEditId=null;
+  const d=generateGuideDraft(f.title, f.topic);
+  d.title=f.title; d.category=f.cat; if(f.topic) d.topic=f.topic;
+  state.guideDraft=d;
+  state.guideCreateStep=null; state.guideEditFmt='info'; state.guidesMode='edit'; state.igReturn=true;
+  closeModal(); toast('Draft ready \u2014 review and edit, then save');
+  go('guides');
+}
+function igUpload(){
+  const f=igFields(), el=document.getElementById('igFile'), file=el&&el.files&&el.files[0];
+  if(!f.title) return toast('Enter a title');
+  if(!file) return toast('Choose a file to upload');
+  if(file.size > IG_MAX_MB*1024*1024) return toast('File is over '+IG_MAX_MB+'MB \u2014 choose a smaller one');
+  const r=new FileReader();
+  r.onload=()=>{
+    state.guides.unshift(mkGuide({title:f.title, category:f.cat, topic:f.topic,
+      file:{name:file.name, type:file.type||'application/pdf', data:r.result}}));
+    closeModal(); toast('Infographic saved to library'); render();
+  };
+  r.onerror=()=>toast('Could not read that file');
+  r.readAsDataURL(file);
 }
 function guideLibrary(){
   const catOpts=['all'].concat(GUIDE_CATEGORIES).map(c=>`<option value="${gEsc(c)}"${state.guideCat===c?' selected':''}>${c==='all'?'All categories':gEsc(c)}</option>`).join('');
@@ -7896,7 +7957,7 @@ function runAiDraft(){ const t=(state.aiTitle||'').trim(); if(!t) return toast('
 function pickGuideType(k){ if(state.guideDraft){ state.guideDraft.type=k; } render(); }
 function changeGuideType(){ if(state.guideDraft){ state.guideDraft.type=null; } render(); }
 function editGuide(id){ closeModal(); const g=guideById(id); if(!g) return; state.guideEditId=id; const ty=g.type||GUIDE_SEED_TYPES[g.title]||'whatif'; state.guideDraft={type:ty,title:g.title,category:g.category,clientName:g.clientName||'',topic:g.topic||'',stepsText:(g.steps||[]).join('\n'),remindersText:(g.reminders||[]).join('\n'),mistakesText:(g.mistakes||[]).join('\n'),whenCallText:(g.whenCall||[]).join('\n'),contact:g.contact!==false}; state.guideCreateStep=null; state.guidesMode='edit'; render(); }
-function guideDraftToObj(){ const d=state.guideDraft||{}; const lines=t=>(t||'').split('\n').map(s=>s.trim()).filter(Boolean); const ex=guideById(state.guideEditId); return {id:state.guideEditId||gGid(), type:d.type||'whatif', title:(d.title||'').trim(), category:d.category||GUIDE_CATEGORIES[0], clientName:(d.clientName||'').trim(), topic:(d.topic||'').trim(), steps:lines(d.stepsText), reminders:lines(d.remindersText), mistakes:lines(d.mistakesText), whenCall:lines(d.whenCallText), contact:!!d.contact, createdBy:(ex&&ex.createdBy)||'Office', createdAt:(ex&&ex.createdAt)||new Date(), updatedAt:new Date()}; }
+function guideDraftToObj(){ const d=state.guideDraft||{}; const lines=t=>(t||'').split('\n').map(s=>s.trim()).filter(Boolean); const ex=guideById(state.guideEditId); return {id:state.guideEditId||gGid(), file:(ex&&ex.file)||null, type:d.type||'whatif', title:(d.title||'').trim(), category:d.category||GUIDE_CATEGORIES[0], clientName:(d.clientName||'').trim(), topic:(d.topic||'').trim(), steps:lines(d.stepsText), reminders:lines(d.remindersText), mistakes:lines(d.mistakesText), whenCall:lines(d.whenCallText), contact:!!d.contact, createdBy:(ex&&ex.createdBy)||'Office', createdAt:(ex&&ex.createdAt)||new Date(), updatedAt:new Date()}; }
 function gd_set(field, val){ if(!state.guideDraft) return; state.guideDraft[field]=val; renderGuidePreview(); }
 function gd_toggleContact(v){ if(!state.guideDraft) return; state.guideDraft.contact=v; renderGuidePreview(); }
 function renderGuidePreview(){ const el=document.getElementById('gdPreview'); if(el) el.innerHTML=(state.guideEditFmt==='info'?infographicBody:guideBody)(guideDraftToObj()); }
@@ -7909,7 +7970,9 @@ function saveGuide(){
   if(!obj.steps.length && !obj.reminders.length && !obj.mistakes.length && !obj.whenCall.length) return toast('Add at least one step, reminder, mistake, or call-the-office trigger');
   if(state.guideEditId){ const i=state.guides.findIndex(x=>x.id===state.guideEditId); if(i>=0) state.guides[i]=obj; toast('Guide updated'); }
   else { state.guides.unshift(obj); toast('Guide saved to library'); }
-  state.guidesMode='library'; state.guideDraft=null; state.guideEditId=null; state.guideCreateStep=null; render();
+  state.guidesMode='library'; state.guideDraft=null; state.guideEditId=null; state.guideCreateStep=null;
+  if(state.igReturn){ state.igReturn=false; state.view='infographics'; }
+  render();
 }
 function deleteGuide(){ if(!state.guideEditId) return; state.guides=state.guides.filter(g=>g.id!==state.guideEditId); toast('Guide deleted'); state.guidesMode='library'; state.guideDraft=null; state.guideEditId=null; state.guideCreateStep=null; render(); }
 function guideEditor(){
