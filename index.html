@@ -94,7 +94,7 @@
   .brand .sub{font-size:9px;color:#6C849A;text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-top:2px}
 
   .nav{padding:10px 9px 14px;flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain}
-  .nav-grp{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;padding:5px 9px;margin:12px 0 3px;border:none;background:none;font-family:inherit;font-size:9.5px;text-transform:uppercase;letter-spacing:1px;color:#56708A;font-weight:700;cursor:pointer;text-align:left}.nav-grp:first-child{margin-top:2px}.nav-grp:hover{color:#8FA8BE}.nav-caret{font-size:9px;line-height:1;opacity:.85}
+  .nav-grp{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;padding:8px 10px;margin-bottom:1px;border:none;border-radius:var(--r);background:none;font-family:inherit;font-size:13px;font-weight:650;color:#BDD0DE;cursor:pointer;text-align:left}.nav-grp:hover{background:rgba(255,255,255,.06);color:#E4EEF5}.nav-grp.open{color:#E4EEF5}.nav-caret{font-size:10px;line-height:1;color:#7790A4;flex:0 0 auto}.nav-grp:hover .nav-caret,.nav-grp.open .nav-caret{color:#9BBDD4}.nav a.sub{padding-left:22px;font-size:12.5px}.ig-list{display:flex;flex-direction:column;gap:8px}.ig-row{display:flex;align-items:center;gap:12px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:10px 13px}.ig-main{flex:1;min-width:0}.ig-t{font-size:13.5px;font-weight:700;color:var(--ink)}.ig-c{font-size:11.5px;color:var(--ink-soft);margin-top:2px}
   .nav a{
     display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:var(--r);
     color:#A9BECE;text-decoration:none;font-weight:550;font-size:13px;cursor:pointer;
@@ -2680,7 +2680,7 @@ const NAVGROUPS=[
   {name:'Scheduler Hub', items:[
     {id:'guides', label:'Caregiver Quick Guides'},
     {id:'forms', label:'Forms & Resources'},
-    {id:'assistant', label:'AI Assistant'},
+    {id:'infographics', label:'Infographics'},
   ]},
   {name:'Reports', items:[
     {id:'reports', label:'Reports'},
@@ -2694,12 +2694,9 @@ function badgeFor(id){
   if(id==='forms'){ const m=missingFormsAll().length; return m?{n:m,cls:'crit'}:null; }
   return null;
 }
-/* Groups collapse independently; a group holding the current page stays open
-   so the active item can never be hidden. */
-function navGroupOpen(g){
-  if(g.items.some(x=>x.id===state.view)) return true;
-  return (state.navOpen||{})[g.name]!==false;
-}
+/* Every group is a dropdown, closed until clicked. Only the group names show
+   on load; state.navOpen remembers what you opened while you navigate. */
+function navGroupOpen(g){ return (state.navOpen||{})[g.name]===true; }
 function toggleNavGroup(name){
   const g=NAVGROUPS.find(x=>x.name===name); if(!g) return;
   state.navOpen=state.navOpen||{};
@@ -2710,13 +2707,13 @@ function navLink(it){
   const b=badgeFor(it.id);
   const pill = b && b.n>0 ? `<span class="pill ${b.cls}">${b.n}</span>` : '';
   const click = it.id==='coverage' ? 'openCoverageGeneral()' : `go('${it.id}')`;
-  return `<a class="${state.view===it.id?'active':''}" onclick="${click}">${it.label}${pill}</a>`;
+  return `<a class="sub ${state.view===it.id?'active':''}" onclick="${click}">${it.label}${pill}</a>`;
 }
 function renderNav(){
   let html='';
   NAVGROUPS.forEach(g=>{
     const open=navGroupOpen(g);
-    html+=`<button class="nav-grp" onclick="toggleNavGroup('${g.name}')">${g.name}<span class="nav-caret">${open?'\u25be':'\u25b8'}</span></button>`;
+    html+=`<button class="nav-grp${open?' open':''}" onclick="toggleNavGroup('${g.name}')">${g.name}<span class="nav-caret">${open?'\u25be':'\u25b8'}</span></button>`;
     if(open) html+=g.items.map(navLink).join('');
   });
   document.getElementById('nav').innerHTML=html;
@@ -2741,7 +2738,7 @@ function render(){
   else at.innerHTML='';
   const v=document.getElementById('view');
   v.innerHTML = ({today:viewToday,open:viewOpen,coverage:viewCoverage,staff:viewStaffClient,calloff:viewCallOff,
-    avail:viewAvail,log:viewLog,handoff:viewHandoff,assistant:viewAssistant,tasks:viewTasks,reports:viewReports,forms:viewForms,meds:viewMeds,guides:viewGuides,carenotes:viewCareNotes}[state.view])();
+    avail:viewAvail,log:viewLog,handoff:viewHandoff,assistant:viewAssistant,tasks:viewTasks,reports:viewReports,forms:viewForms,meds:viewMeds,guides:viewGuides,infographics:viewInfographics,carenotes:viewCareNotes}[state.view])();
 }
 
 /* ============ TODAY ============ */
@@ -7718,6 +7715,16 @@ function setGuideCat(v){ state.guideCat=v; renderGuideList(); }
 function renderGuideList(){ const el=document.getElementById('guideList'); if(el) el.innerHTML=guideCardsHtml(); }
 
 function viewGuides(){ return state.guidesMode==='edit' ? guideEditor() : guideLibrary(); }
+/* Infographics are the visual format of a quick guide, so this lists the same
+   guides and opens each straight into its infographic. */
+function viewInfographics(){
+  const list=(state.guides||[]).slice().sort((a,b)=>a.title.localeCompare(b.title));
+  if(!list.length) return emptyState('No infographics yet','Infographics are generated from Caregiver Quick Guides.');
+  return `<div class="ig-list">`+list.map(g=>`<div class="ig-row">
+    <div class="ig-main"><div class="ig-t">${gEsc(g.title)}</div><div class="ig-c">${gEsc(g.category||'')}</div></div>
+    <button class="btn sm pri" onclick="previewGuide('${g.id}','info')">Open infographic</button>
+  </div>`).join('')+`</div>`;
+}
 function guideLibrary(){
   const catOpts=['all'].concat(GUIDE_CATEGORIES).map(c=>`<option value="${gEsc(c)}"${state.guideCat===c?' selected':''}>${c==='all'?'All categories':gEsc(c)}</option>`).join('');
   return `<div class="gq-intro"><b>Caregiver Quick Guides.</b> A growing library of short, professional visual guides for caregivers. When a caregiver asks a question, find the guide and print it, download a PDF, or send it by text, email, or link \u2014 instead of explaining the same thing again.</div>
