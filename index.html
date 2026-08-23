@@ -94,7 +94,7 @@
   .brand .sub{font-size:9px;color:#6C849A;text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-top:2px}
 
   .nav{padding:10px 9px 14px;flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain}
-  .nav-grp{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;padding:8px 10px;margin-bottom:1px;border:none;border-radius:var(--r);background:none;font-family:inherit;font-size:13px;font-weight:650;color:#BDD0DE;cursor:pointer;text-align:left}.nav-grp:hover{background:rgba(255,255,255,.06);color:#E4EEF5}.nav-grp.open{color:#E4EEF5}.nav-caret{font-size:10px;line-height:1;color:#7790A4;flex:0 0 auto}.nav-grp:hover .nav-caret,.nav-grp.open .nav-caret{color:#9BBDD4}.nav a.sub{padding-left:22px;font-size:12.5px}.ig-head{display:flex;justify-content:flex-end;margin-bottom:12px}.ig-opt{border:1px solid var(--line);border-radius:var(--r);padding:11px 13px;margin-top:12px}.ig-opt-t{font-size:13px;font-weight:700;color:var(--ink)}.ig-opt-d{font-size:12px;color:var(--ink-soft);margin:3px 0 9px;line-height:1.4}.ig-opt input[type=file]{margin-bottom:9px;padding:6px}.ig-list{display:flex;flex-direction:column;gap:8px}.ig-row{display:flex;align-items:center;gap:12px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:10px 13px}.ig-main{flex:1;min-width:0}.ig-t{font-size:13.5px;font-weight:700;color:var(--ink)}.ig-c{font-size:11.5px;color:var(--ink-soft);margin-top:2px}
+  .nav-grp{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;padding:8px 10px;margin-bottom:1px;border:none;border-radius:var(--r);background:none;font-family:inherit;font-size:13px;font-weight:650;color:#BDD0DE;cursor:pointer;text-align:left}.nav-grp:hover{background:rgba(255,255,255,.06);color:#E4EEF5}.nav-grp.open{color:#E4EEF5}.nav-caret{font-size:10px;line-height:1;color:#7790A4;flex:0 0 auto}.nav-grp:hover .nav-caret,.nav-grp.open .nav-caret{color:#9BBDD4}.nav a.sub{padding-left:22px;font-size:12.5px}.at-head{display:flex;justify-content:flex-end;margin-bottom:12px}.at-wrap{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:var(--r)}.at-tbl{width:100%;border-collapse:collapse;min-width:760px}.at-tbl th{background:var(--panel-head);text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--ink-faint);font-weight:800;padding:8px 11px;border-bottom:1px solid var(--line)}.at-tbl td{padding:9px 11px;border-bottom:1px solid var(--line-soft);font-size:13px;color:var(--ink);vertical-align:middle}.at-tbl tr:last-child td{border-bottom:none}.at-tbl .c-cg{width:16%}.at-tbl .c-d{width:12%}.at-tbl .c-t{width:13%}.at-tbl .c-cv{width:11%}.at-tbl .c-by{width:14%}.at-tbl .c-a{width:104px}.at-cg{font-weight:700}.at-note{color:var(--ink-soft)}.at-dash{color:var(--ink-faint)}.at-act{white-space:nowrap;text-align:right}.at-act .btn{margin-left:4px}.at-p{display:inline-block;font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;border-radius:12px;padding:2px 9px;border:1px solid}.at-p.neu{color:var(--neutral-tx);background:var(--neutral-bg);border-color:#D3DAE1}.at-p.ok{color:var(--good-tx);background:var(--good-bg);border-color:#BBD9C7}.at-p.bad{color:var(--crit-tx);background:var(--crit-bg);border-color:#EEC2BC}.at-p.warn{color:var(--soon-tx);background:var(--soon-bg);border-color:#EBD5A6}.at-row2{display:grid;grid-template-columns:1fr 1fr;gap:11px}.ig-head{display:flex;justify-content:flex-end;margin-bottom:12px}.ig-opt{border:1px solid var(--line);border-radius:var(--r);padding:11px 13px;margin-top:12px}.ig-opt-t{font-size:13px;font-weight:700;color:var(--ink)}.ig-opt-d{font-size:12px;color:var(--ink-soft);margin:3px 0 9px;line-height:1.4}.ig-opt input[type=file]{margin-bottom:9px;padding:6px}.ig-list{display:flex;flex-direction:column;gap:8px}.ig-row{display:flex;align-items:center;gap:12px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:10px 13px}.ig-main{flex:1;min-width:0}.ig-t{font-size:13.5px;font-weight:700;color:var(--ink)}.ig-c{font-size:11.5px;color:var(--ink-soft);margin-top:2px}
   .nav a{
     display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:var(--r);
     color:#A9BECE;text-decoration:none;font-weight:550;font-size:13px;cursor:pointer;
@@ -2384,11 +2384,20 @@ state.turnoverData={
   prevEarly:{ d30:4, d60:7, d90:9 }
 };
 // New-client placement follow-ups (each at its current stage)
+function _atD(off){ const d=new Date(NOW); d.setDate(d.getDate()+(off||0)); return toDateInput(d); }
 state.placements=[
   {id:'p1', cgId:'c9', clientId:'cl1', stage:'approval', assignedTo:'Sunshine', due:0},
   {id:'p2', cgId:'c7', clientId:'cl5', stage:'firstshift', assignedTo:'Mae', due:1},
   {id:'p3', cgId:'c8', clientId:'cl6', stage:'profile', assignedTo:'Sunshine', due:1}
 ];
+/* Attendance events logged by the desk. Demo rows, like the rest of the board. */
+state.attendance=[
+  {id:'at1', cg:'Ana Beltran',   date:_atD(0),  type:'Late Call-Off', note:'Sick \u2014 called 2 hrs before shift', coverNeeded:true,  coverStatus:'Open',       coveredBy:''},
+  {id:'at2', cg:'Marites Santos',date:_atD(0),  type:'No Show',       note:'No clock-in, no contact',              coverNeeded:true,  coverStatus:'Covered',    coveredBy:'Lily Tran'},
+  {id:'at3', cg:'Rosa Delgado',  date:_atD(3),  type:'Request Off',   note:'Family event \u2014 approved',          coverNeeded:true,  coverStatus:'Open',       coveredBy:''},
+  {id:'at4', cg:'James Okafor',  date:_atD(-1), type:'Absence',       note:'Car trouble',                          coverNeeded:false, coverStatus:'Not needed', coveredBy:''},
+];
+
 // Open operational follow-ups requiring scheduler communication
 state.followUps=[
   {id:'fam_cl2', title:'Return family callback', relType:'client', relId:'cl2', priority:'high', assignedTo:'Sunshine', due:0, reason:'Eleanor Wu\u2019s daughter called about the morning schedule \u2014 call her back'},
@@ -2672,6 +2681,7 @@ const NAVGROUPS=[
   ]},
   {name:'Operations', items:[
     {id:'handoff', label:'Shift Handoff'},
+    {id:'attendance', label:'Attendance'},
     {id:'tasks', label:'Weekly Tasks'},
   ]},
   {name:'Caregivers', items:[
@@ -2742,7 +2752,7 @@ function render(){
   else at.innerHTML='';
   const v=document.getElementById('view');
   v.innerHTML = ({today:viewToday,open:viewOpen,coverage:viewCoverage,staff:viewStaffClient,calloff:viewCallOff,
-    avail:viewAvail,log:viewLog,handoff:viewHandoff,assistant:viewAssistant,tasks:viewTasks,reports:viewReports,forms:viewForms,meds:viewMeds,guides:viewGuides,infographics:viewInfographics,carenotes:viewCareNotes}[state.view])();
+    avail:viewAvail,log:viewLog,handoff:viewHandoff,assistant:viewAssistant,tasks:viewTasks,reports:viewReports,forms:viewForms,meds:viewMeds,guides:viewGuides,infographics:viewInfographics,attendance:viewAttendance,carenotes:viewCareNotes}[state.view])();
 }
 
 /* ============ TODAY ============ */
@@ -7721,6 +7731,68 @@ function renderGuideList(){ const el=document.getElementById('guideList'); if(el
 function viewGuides(){ return state.guidesMode==='edit' ? guideEditor() : guideLibrary(); }
 /* Infographics are the visual format of a quick guide, so this lists the same
    guides and opens each straight into its infographic. */
+/* ============ ATTENDANCE TRACKING ============ */
+const ATT_TYPES=['Absence','Request Off','No Show','Late Call-Off'];
+const ATT_STATUS=['Open','Covered','Not needed'];
+const ATT_TONE={'Absence':'neu','Request Off':'ok','No Show':'bad','Late Call-Off':'warn'};
+function attDateText(d){ return d ? new Date(d+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}) : '\u2014'; }
+function attById(id){ return (state.attendance||[]).find(a=>a.id===id); }
+function viewAttendance(){
+  const rows=(state.attendance||[]).slice().sort((a,b)=> (b.date||'').localeCompare(a.date||''));
+  const head=`<div class="at-head"><button class="btn pri sm" onclick="openAttEntry(null)">+ Log attendance</button></div>`;
+  if(!rows.length) return head+emptyState('No attendance events logged','Absences, requests off, no-shows and late call-offs will appear here.');
+  const body=rows.map(a=>{
+    const cov = !a.coverNeeded ? '<span class="at-p neu">Not needed</span>'
+      : (a.coverStatus==='Covered' ? '<span class="at-p ok">Covered</span>' : '<span class="at-p bad">Needed</span>');
+    return `<tr>
+      <td class="at-cg">${gEsc(a.cg||'')}</td>
+      <td>${attDateText(a.date)}</td>
+      <td><span class="at-p ${ATT_TONE[a.type]||'neu'}">${gEsc(a.type||'')}</span></td>
+      <td class="at-note">${gEsc(a.note||'')}</td>
+      <td>${cov}</td>
+      <td>${gEsc(a.coveredBy||'')||'<span class="at-dash">\u2014</span>'}</td>
+      <td class="at-act"><button class="btn xs" onclick="openAttEntry('${a.id}')">Edit</button><button class="btn xs" onclick="delAttEntry('${a.id}')">Delete</button></td>
+    </tr>`;
+  }).join('');
+  return head+`<div class="at-wrap"><table class="at-tbl">
+    <thead><tr><th class="c-cg">Caregiver</th><th class="c-d">Date</th><th class="c-t">Type</th><th>Reason / note</th><th class="c-cv">Coverage</th><th class="c-by">Covered by</th><th class="c-a"></th></tr></thead>
+    <tbody>${body}</tbody></table></div>`;
+}
+function openAttEntry(id){
+  const a=id?attById(id):null;
+  const cgOpts=n=>state.caregivers.map(c=>`<option${c.name===n?' selected':''}>${gEsc(c.name)}</option>`).join('');
+  mEl.innerHTML=`<div class="mh"><span class="mt">${a?'Edit':'Log'} attendance</span><button class="mc" onclick="closeModal()">\u00d7</button></div>
+   <div class="mb">
+     <div class="at-row2">
+       <div class="field"><label>Caregiver</label><select class="ein" id="atCg"><option value=""></option>${cgOpts(a&&a.cg)}</select></div>
+       <div class="field"><label>Date</label><input class="ein" type="date" id="atDate" value="${a?a.date:toDateInput(NOW)}"></div>
+     </div>
+     <div class="field"><label>Type</label><select class="ein" id="atType">${ATT_TYPES.map(t=>`<option${a&&a.type===t?' selected':''}>${t}</option>`).join('')}</select></div>
+     <div class="field"><label>Reason / note</label><input class="ein" id="atNote" value="${gEsc(a&&a.note||'')}" placeholder="Short note"></div>
+     <div class="at-row2">
+       <div class="field"><label>Coverage needed</label><select class="ein" id="atNeed"><option value="yes"${a&&!a.coverNeeded?'':' selected'}>Yes</option><option value="no"${a&&!a.coverNeeded?' selected':''}>No</option></select></div>
+       <div class="field"><label>Coverage status</label><select class="ein" id="atStatus">${ATT_STATUS.map(t=>`<option${a&&a.coverStatus===t?' selected':''}>${t}</option>`).join('')}</select></div>
+     </div>
+     <div class="field"><label>Covered by <span class="opt">if applicable</span></label><select class="ein" id="atBy"><option value=""></option>${cgOpts(a&&a.coveredBy)}</select></div>
+   </div>
+   <div class="mf"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn pri" onclick="saveAttEntry(${a?`'${a.id}'`:'null'})">Save</button></div>`;
+  mbg.classList.add('show');
+}
+function saveAttEntry(id){
+  const v=x=>{ const el=document.getElementById(x); return el?el.value.trim():''; };
+  const cg=v('atCg'); if(!cg) return toast('Choose a caregiver');
+  const need=v('atNeed')==='yes';
+  const rec={cg, date:v('atDate'), type:v('atType'), note:v('atNote'),
+    coverNeeded:need, coverStatus: need?v('atStatus'):'Not needed', coveredBy:v('atBy')};
+  state.attendance=state.attendance||[];
+  if(id){ const i=state.attendance.findIndex(x=>x.id===id); if(i>=0) state.attendance[i]=Object.assign({id}, rec); toast('Attendance updated'); }
+  else { state.attendance.unshift(Object.assign({id:'at'+Date.now()}, rec)); toast('Attendance logged'); }
+  closeModal(); render();
+}
+function delAttEntry(id){
+  state.attendance=(state.attendance||[]).filter(x=>x.id!==id);
+  toast('Entry removed'); render();
+}
 function viewInfographics(){
   const list=(state.guides||[]).slice().sort((a,b)=>a.title.localeCompare(b.title));
   const head=`<div class="ig-head"><button class="btn pri sm" onclick="openIgCreate()">+ Create Infographic</button></div>`;
@@ -8360,6 +8432,7 @@ const CLOUD = (function(){
     { path:'followUps',         key:'id' },
     { path:'placements',        key:'id' },
     { path:'escalations',       key:'id' },
+    { path:'attendance',        key:'id' },
     { path:'guides',            key:'id' },
     { path:'guideSends',        key:'id' },
     { path:'customForms',       key:'id' },
