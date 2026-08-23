@@ -94,16 +94,14 @@
   .brand .sub{font-size:9px;color:#6C849A;text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-top:2px}
 
   .nav{padding:16px 9px 8px;flex:1;overflow:auto}
-  .nav-group{font-size:9.5px;text-transform:uppercase;letter-spacing:1px;color:#56708A;font-weight:700;padding:13px 9px 5px}
+  .nav-group{font-size:9.5px;text-transform:uppercase;letter-spacing:1px;color:#56708A;font-weight:700;padding:13px 9px 5px}.nav-hub{display:flex;align-items:center;justify-content:space-between;gap:9px;width:100%;padding:8px 10px;margin-bottom:1px;border:none;border-radius:var(--r);background:none;font-family:inherit;font-size:9.5px;text-transform:uppercase;letter-spacing:1px;color:#56708A;font-weight:700;cursor:pointer;text-align:left;margin-top:13px}.nav-hub:hover{color:#8FA8BE}.nav-caret{font-size:9px;line-height:1}.nav-subs{margin-bottom:2px}.nav a.sub{padding-left:19px}
   .nav a{
     display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:var(--r);
     color:#A9BECE;text-decoration:none;font-weight:550;font-size:13px;cursor:pointer;
     position:relative;margin-bottom:1px;
   }
-  .nav a .ico{width:16px;height:16px;flex:0 0 auto;color:#7790A4}
   .nav a:hover{background:rgba(255,255,255,.06);color:#E4EEF5}
   .nav a.active{background:var(--navy-700);color:#fff;font-weight:700;box-shadow:inset 3px 0 0 var(--accent)}
-  .nav a.active .ico{color:var(--accent)}
   .nav a .pill{margin-left:auto;font-size:10.5px;font-weight:800;min-width:19px;height:18px;border-radius:var(--r);display:flex;align-items:center;justify-content:center;padding:0 5px;font-variant-numeric:tabular-nums}
   .nav a .pill.crit{background:var(--crit-solid);color:#fff}
   .nav a .pill.soon{background:var(--soon-solid);color:#fff}
@@ -1122,7 +1120,7 @@
   .es-empty{font-size:12.5px;color:var(--ink-faint);padding:8px 2px}
 
   /* ===== sidebar brand (text only) ===== */
-  .brand-txt{padding:16px 16px 12px;border-bottom:1px solid var(--navy-700);color:#EAF2F8;font-weight:800;font-size:15px;letter-spacing:-.2px;line-height:1.15}
+  .brand-txt{padding:18px 16px 14px;border-bottom:1px solid var(--navy-700);color:#EAF2F8;font-weight:800;font-size:19px;letter-spacing:-.3px;line-height:1.15}
   .brand-txt span{display:block;font-size:9.5px;color:#7C95AB;text-transform:uppercase;letter-spacing:1.2px;font-weight:700;margin-top:3px}
   /* ===== dashboard header ===== */
   .dash-head{margin-bottom:16px}
@@ -2665,17 +2663,24 @@ const ic = (k,sz=17) => `<svg class="ico" width="${sz}" height="${sz}" viewBox="
 
 /* ============ NAV ============ */
 const NAVITEMS=[
-  {id:'today', label:'Today', icon:'home'},
-  {id:'open', label:'Open Shifts', icon:'shifts'},
-  {id:'coverage', label:'Find Coverage', icon:'coverage'},
-  {id:'carenotes', label:'Care Notes Review', icon:'review'},
-  {id:'avail', label:'Caregivers', icon:'avail'},
-  {id:'handoff', label:'Shift Handoff', icon:'handoff'},
-  {id:'tasks', label:'Weekly Tasks', icon:'tasks'},
-  {id:'reports', label:'Reports', icon:'report'},
-  {id:'forms', label:'Forms & Resources', icon:'forms'},
-  {id:'guides', label:'Caregiver Quick Guides', icon:'guide'},
-  {id:'assistant', label:'AI Assistant', icon:'spark'},
+  {grp:'Scheduling'},
+  {id:'today', label:'Today'},
+  {id:'open', label:'Open Shifts'},
+  {id:'coverage', label:'Find Coverage'},
+  {grp:'Operations'},
+  {id:'handoff', label:'Shift Handoff'},
+  {id:'tasks', label:'Weekly Tasks'},
+  {grp:'Caregivers'},
+  {id:'carenotes', label:'Care Notes Review'},
+  {id:'avail', label:'Caregivers'},
+  /* Collapsible. Scheduler resources live here; new ones just get added to items. */
+  {hub:'Scheduler Hub', items:[
+    {id:'guides', label:'Caregiver Quick Guides'},
+    {id:'forms', label:'Forms & Resources'},
+    {id:'assistant', label:'AI Assistant'},
+  ]},
+  {grp:'Reports'},
+  {id:'reports', label:'Reports'},
 ];
 function badgeFor(id){
   if(id==='open') return {n:openShifts().length, cls: startingSoonUncovered().length?'crit':'neut'};
@@ -2685,14 +2690,31 @@ function badgeFor(id){
   if(id==='forms'){ const m=missingFormsAll().length; return m?{n:m,cls:'crit'}:null; }
   return null;
 }
+function navHub(){ return NAVITEMS.find(it=>it.hub); }
+/* Open by default; always open while you are on one of its pages. */
+function hubOpen(){
+  const h=navHub();
+  if(h && h.items.some(x=>x.id===state.view)) return true;
+  return state.hubOpen!==false;
+}
+function toggleHub(){ state.hubOpen=!hubOpen(); render(); }
+function navLink(it, sub){
+  const b=badgeFor(it.id);
+  const pill = b && b.n>0 ? `<span class="pill ${b.cls}">${b.n}</span>` : '';
+  const click = it.id==='coverage' ? 'openCoverageGeneral()' : `go('${it.id}')`;
+  return `<a class="${sub?'sub ':''}${state.view===it.id?'active':''}" onclick="${click}">${it.label}${pill}</a>`;
+}
 function renderNav(){
   let html='';
   NAVITEMS.forEach(it=>{
     if(it.grp){ html+=`<div class="nav-group">${it.grp}</div>`; return; }
-    const b=badgeFor(it.id);
-    const pill = b && b.n>0 ? `<span class="pill ${b.cls}">${b.n}</span>` : '';
-    const click = it.id==='coverage' ? 'openCoverageGeneral()' : `go('${it.id}')`;
-    html+=`<a class="${state.view===it.id?'active':''}" onclick="${click}">${ic(it.icon)} ${it.label} ${pill}</a>`;
+    if(it.hub){
+      const open=hubOpen();
+      html+=`<button class="nav-hub" onclick="toggleHub()">${it.hub}<span class="nav-caret">${open?'\u25be':'\u25b8'}</span></button>`;
+      if(open) html+=`<div class="nav-subs">${it.items.map(x=>navLink(x,true)).join('')}</div>`;
+      return;
+    }
+    html+=navLink(it,false);
   });
   document.getElementById('nav').innerHTML=html;
 }
