@@ -2663,7 +2663,9 @@ const ic = (k,sz=17) => `<svg class="ico" width="${sz}" height="${sz}" viewBox="
 
 /* ============ NAV ============ */
 const NAVGROUPS=[
-  {name:'Scheduling', items:[
+  {link:{id:'assistant', label:'Ask AI'}},
+  /* open:true - expanded on load, still collapsible */
+  {name:'Scheduling', open:true, items:[
     {id:'today', label:'Today'},
     {id:'open', label:'Open Shifts'},
     {id:'coverage', label:'Find Coverage'},
@@ -2682,9 +2684,7 @@ const NAVGROUPS=[
     {id:'forms', label:'Forms & Resources'},
     {id:'infographics', label:'Infographics'},
   ]},
-  {name:'Reports', items:[
-    {id:'reports', label:'Reports'},
-  ]},
+  {link:{id:'reports', label:'Reports'}},
 ];
 function badgeFor(id){
   if(id==='open') return {n:openShifts().length, cls: startingSoonUncovered().length?'crit':'neut'};
@@ -2694,27 +2694,31 @@ function badgeFor(id){
   if(id==='forms'){ const m=missingFormsAll().length; return m?{n:m,cls:'crit'}:null; }
   return null;
 }
-/* Every group is a dropdown, closed until clicked. Only the group names show
-   on load; state.navOpen remembers what you opened while you navigate. */
-function navGroupOpen(g){ return (state.navOpen||{})[g.name]===true; }
+/* Dropdowns remember what you opened (state.navOpen). Groups start closed
+   unless they are marked open:true, and either way can be toggled. */
+function navGroupOpen(g){
+  const v=(state.navOpen||{})[g.name];
+  return g.open ? v!==false : v===true;
+}
 function toggleNavGroup(name){
   const g=NAVGROUPS.find(x=>x.name===name); if(!g) return;
   state.navOpen=state.navOpen||{};
   state.navOpen[name]=!navGroupOpen(g);
   render();
 }
-function navLink(it){
+function navLink(it, sub){
   const b=badgeFor(it.id);
   const pill = b && b.n>0 ? `<span class="pill ${b.cls}">${b.n}</span>` : '';
   const click = it.id==='coverage' ? 'openCoverageGeneral()' : `go('${it.id}')`;
-  return `<a class="sub ${state.view===it.id?'active':''}" onclick="${click}">${it.label}${pill}</a>`;
+  return `<a class="${sub?'sub ':''}${state.view===it.id?'active':''}" onclick="${click}">${it.label}${pill}</a>`;
 }
 function renderNav(){
   let html='';
   NAVGROUPS.forEach(g=>{
+    if(g.link){ html+=navLink(g.link,false); return; }
     const open=navGroupOpen(g);
     html+=`<button class="nav-grp${open?' open':''}" onclick="toggleNavGroup('${g.name}')">${g.name}<span class="nav-caret">${open?'\u25be':'\u25b8'}</span></button>`;
-    if(open) html+=g.items.map(navLink).join('');
+    if(open) html+=g.items.map(it=>navLink(it,true)).join('');
   });
   document.getElementById('nav').innerHTML=html;
 }
