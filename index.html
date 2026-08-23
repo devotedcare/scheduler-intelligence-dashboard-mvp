@@ -3422,7 +3422,8 @@ function tasksPanel(){
     const createdBy=t.createdBy||(t.source==='system'?'System':'\u2014');
     const asg=taskAssignees(t);
     const asgHtml=asg.length?`<b>${asg.map(esc).join(', ')}</b>`:`<span class="tk-unassigned">Unassigned</span>`;
-    const own=`<div class="tk-own">Created by <b>${createdBy}</b> <span class="tk-dot">\u00b7</span> Assigned to ${asgHtml}</div>`;
+    /* System-generated tasks show only who created them, not an assignee. */
+    const own=`<div class="tk-own">Created by <b>${createdBy}</b>${t.source==='system'?'':` <span class="tk-dot">\u00b7</span> Assigned to ${asgHtml}`}</div>`;
     return `<div class="tk-card ${overdue?'is-over':''}">
       <div class="tk-main">
         <div class="tk-top"><span class="tk-pri ${t.priority}">${t.priority}</span>${src}<span class="tk-title">${t.title}</span></div>
