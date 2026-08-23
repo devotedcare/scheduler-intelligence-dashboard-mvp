@@ -93,8 +93,8 @@
   .brand .name{font-weight:800;color:#EAF2F8;font-size:14px;letter-spacing:-.2px;line-height:1.05}
   .brand .sub{font-size:9px;color:#6C849A;text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-top:2px}
 
-  .nav{padding:16px 9px 8px;flex:1;overflow:auto}
-  .nav-group{font-size:9.5px;text-transform:uppercase;letter-spacing:1px;color:#56708A;font-weight:700;padding:13px 9px 5px}.nav-hub{display:flex;align-items:center;justify-content:space-between;gap:9px;width:100%;padding:8px 10px;margin-bottom:1px;border:none;border-radius:var(--r);background:none;font-family:inherit;font-size:9.5px;text-transform:uppercase;letter-spacing:1px;color:#56708A;font-weight:700;cursor:pointer;text-align:left;margin-top:13px}.nav-hub:hover{color:#8FA8BE}.nav-caret{font-size:9px;line-height:1}.nav-subs{margin-bottom:2px}.nav a.sub{padding-left:19px}
+  .nav{padding:10px 9px 14px;flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain}
+  .nav-grp{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;padding:5px 9px;margin:12px 0 3px;border:none;background:none;font-family:inherit;font-size:9.5px;text-transform:uppercase;letter-spacing:1px;color:#56708A;font-weight:700;cursor:pointer;text-align:left}.nav-grp:first-child{margin-top:2px}.nav-grp:hover{color:#8FA8BE}.nav-caret{font-size:9px;line-height:1;opacity:.85}
   .nav a{
     display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:var(--r);
     color:#A9BECE;text-decoration:none;font-weight:550;font-size:13px;cursor:pointer;
@@ -1120,7 +1120,7 @@
   .es-empty{font-size:12.5px;color:var(--ink-faint);padding:8px 2px}
 
   /* ===== sidebar brand (text only) ===== */
-  .brand-txt{padding:18px 16px 14px;border-bottom:1px solid var(--navy-700);color:#EAF2F8;font-weight:800;font-size:19px;letter-spacing:-.3px;line-height:1.15}
+  .brand-txt{flex:0 0 auto;padding:18px 16px 14px;border-bottom:1px solid var(--navy-700);color:#EAF2F8;font-weight:800;font-size:19px;letter-spacing:-.3px;line-height:1.15}
   .brand-txt span{display:block;font-size:9.5px;color:#7C95AB;text-transform:uppercase;letter-spacing:1.2px;font-weight:700;margin-top:3px}
   /* ===== dashboard header ===== */
   .dash-head{margin-bottom:16px}
@@ -1927,7 +1927,7 @@
 <div class="app">
   <!-- SIDEBAR -->
   <aside class="sidebar">
-    <div class="brand-txt">Scheduler Dashboard</div>
+    <div class="brand-txt">Scheduler</div>
     <nav class="nav" id="nav"></nav>
   </aside>
 
@@ -2662,25 +2662,29 @@ const I = {
 const ic = (k,sz=17) => `<svg class="ico" width="${sz}" height="${sz}" viewBox="0 0 24 24">${I[k]||''}</svg>`;
 
 /* ============ NAV ============ */
-const NAVITEMS=[
-  {grp:'Scheduling'},
-  {id:'today', label:'Today'},
-  {id:'open', label:'Open Shifts'},
-  {id:'coverage', label:'Find Coverage'},
-  {grp:'Operations'},
-  {id:'handoff', label:'Shift Handoff'},
-  {id:'tasks', label:'Weekly Tasks'},
-  {grp:'Caregivers'},
-  {id:'carenotes', label:'Care Notes Review'},
-  {id:'avail', label:'Caregivers'},
-  /* Collapsible. Scheduler resources live here; new ones just get added to items. */
-  {hub:'Scheduler Hub', items:[
+const NAVGROUPS=[
+  {name:'Scheduling', items:[
+    {id:'today', label:'Today'},
+    {id:'open', label:'Open Shifts'},
+    {id:'coverage', label:'Find Coverage'},
+  ]},
+  {name:'Operations', items:[
+    {id:'handoff', label:'Shift Handoff'},
+    {id:'tasks', label:'Weekly Tasks'},
+  ]},
+  {name:'Caregivers', items:[
+    {id:'carenotes', label:'Care Notes Review'},
+    {id:'avail', label:'Caregivers'},
+  ]},
+  /* Scheduler resources. New ones are just appended here. */
+  {name:'Scheduler Hub', items:[
     {id:'guides', label:'Caregiver Quick Guides'},
     {id:'forms', label:'Forms & Resources'},
     {id:'assistant', label:'AI Assistant'},
   ]},
-  {grp:'Reports'},
-  {id:'reports', label:'Reports'},
+  {name:'Reports', items:[
+    {id:'reports', label:'Reports'},
+  ]},
 ];
 function badgeFor(id){
   if(id==='open') return {n:openShifts().length, cls: startingSoonUncovered().length?'crit':'neut'};
@@ -2690,31 +2694,30 @@ function badgeFor(id){
   if(id==='forms'){ const m=missingFormsAll().length; return m?{n:m,cls:'crit'}:null; }
   return null;
 }
-function navHub(){ return NAVITEMS.find(it=>it.hub); }
-/* Open by default; always open while you are on one of its pages. */
-function hubOpen(){
-  const h=navHub();
-  if(h && h.items.some(x=>x.id===state.view)) return true;
-  return state.hubOpen!==false;
+/* Groups collapse independently; a group holding the current page stays open
+   so the active item can never be hidden. */
+function navGroupOpen(g){
+  if(g.items.some(x=>x.id===state.view)) return true;
+  return (state.navOpen||{})[g.name]!==false;
 }
-function toggleHub(){ state.hubOpen=!hubOpen(); render(); }
-function navLink(it, sub){
+function toggleNavGroup(name){
+  const g=NAVGROUPS.find(x=>x.name===name); if(!g) return;
+  state.navOpen=state.navOpen||{};
+  state.navOpen[name]=!navGroupOpen(g);
+  render();
+}
+function navLink(it){
   const b=badgeFor(it.id);
   const pill = b && b.n>0 ? `<span class="pill ${b.cls}">${b.n}</span>` : '';
   const click = it.id==='coverage' ? 'openCoverageGeneral()' : `go('${it.id}')`;
-  return `<a class="${sub?'sub ':''}${state.view===it.id?'active':''}" onclick="${click}">${it.label}${pill}</a>`;
+  return `<a class="${state.view===it.id?'active':''}" onclick="${click}">${it.label}${pill}</a>`;
 }
 function renderNav(){
   let html='';
-  NAVITEMS.forEach(it=>{
-    if(it.grp){ html+=`<div class="nav-group">${it.grp}</div>`; return; }
-    if(it.hub){
-      const open=hubOpen();
-      html+=`<button class="nav-hub" onclick="toggleHub()">${it.hub}<span class="nav-caret">${open?'\u25be':'\u25b8'}</span></button>`;
-      if(open) html+=`<div class="nav-subs">${it.items.map(x=>navLink(x,true)).join('')}</div>`;
-      return;
-    }
-    html+=navLink(it,false);
+  NAVGROUPS.forEach(g=>{
+    const open=navGroupOpen(g);
+    html+=`<button class="nav-grp" onclick="toggleNavGroup('${g.name}')">${g.name}<span class="nav-caret">${open?'\u25be':'\u25b8'}</span></button>`;
+    if(open) html+=g.items.map(navLink).join('');
   });
   document.getElementById('nav').innerHTML=html;
 }
