@@ -128,6 +128,14 @@
   .dot{width:7px;height:7px;border-radius:50%;background:var(--good-solid)}
   .axis-note{display:flex;align-items:center;gap:6px;background:var(--navy-900);color:#C7D6E2;border-radius:var(--r);padding:5px 10px;font-size:10.5px;font-weight:650}
   .axis-note svg{color:var(--accent)}
+  .sample-badge{display:inline-block;font-size:9.5px;font-weight:800;letter-spacing:.7px;padding:1px 5px;border-radius:3px;background:var(--soon-bg);color:var(--soon-tx);vertical-align:middle;margin-left:6px}
+  .demo-banner{display:flex;align-items:center;gap:8px;font-size:12.5px;line-height:1.5;padding:8px 12px;margin:0 0 14px;border-radius:3px;background:var(--soon-bg);color:var(--soon-tx);border:1px solid rgba(120,81,9,.18)}
+  .demo-banner b{font-weight:700}
+  .demo-banner.live{background:var(--good-bg);color:var(--good-tx);border-color:rgba(20,84,47,.18)}
+  .demo-banner.err{background:var(--crit-bg);color:var(--crit-tx);border-color:rgba(137,22,16,.20)}
+  .demo-banner button{margin-left:auto;flex:none;font:inherit;font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:3px;border:1px solid currentColor;background:transparent;color:inherit;cursor:pointer}
+  .demo-banner button:hover{background:rgba(0,0,0,.06)}
+  .demo-banner .db-ic{font-size:13px;flex:none}
   .syncpill{display:flex;align-items:center;gap:6px;font-size:10px;font-weight:800;letter-spacing:.8px;text-transform:uppercase;padding:5px 9px;border-radius:var(--r);cursor:default;white-space:nowrap}
   .syncpill .sdot{width:7px;height:7px;border-radius:50%;background:currentColor;flex:none}
   .syncpill.s-synced{color:var(--good-tx);background:var(--good-bg)}
@@ -2743,7 +2751,7 @@ function render(){
   if(state.view==='today'){ const n=todayAttnCount(); at.innerHTML = n?`<span class="tb-attn-pill crit"><span class="cdot"></span>${n} need${n===1?'s':''} attention</span>`:`<span class="tb-attn-pill good"><span class="cdot"></span>All clear</span>`; }
   else at.innerHTML='';
   const v=document.getElementById('view');
-  v.innerHTML = ({today:viewToday,open:viewOpen,coverage:viewCoverage,staff:viewStaffClient,calloff:viewCallOff,
+  v.innerHTML = demoNotice() + ({today:viewToday,open:viewOpen,coverage:viewCoverage,staff:viewStaffClient,calloff:viewCallOff,
     avail:viewAvail,log:viewLog,handoff:viewHandoff,assistant:viewAssistant,tasks:viewTasks,reports:viewReports,forms:viewForms,meds:viewMeds,guides:viewGuides,infographics:viewInfographics,attendance:viewAttendance,carenotes:viewCareNotes}[state.view])();
 }
 
@@ -3013,7 +3021,7 @@ function buildPriorityBoard(){
   // sort strictly by score (risk x time), then soonest impact
   items.sort((a,b)=> b.score-a.score || a.tti-b.tti);
   const handled=[]; // filled today / resolved
-  state.shifts.forEach(s=>{ if(s.filledToday){ handled.push({text:`${clById(s.clientId).name} \u2014 covered by ${cgById(s.assigned).name}`}); } });
+  state.shifts.forEach(s=>{ if(s.filledToday){ const _cl=clById(s.clientId), _cg=cgById(s.assigned); if(_cl&&_cg) handled.push({text:`${_cl.name} \u2014 covered by ${_cg.name}`}); } });
   return {
     p1:items.filter(i=>i.tier===1),
     p2:items.filter(i=>i.tier===2),
@@ -4601,19 +4609,21 @@ function autoOfferTiers(shiftId){
   return {best,possible,donot};
 }
 function aoReasonSummary(e,shiftId){ const cg=e.cg, cl=clById(shiftById(shiftId).clientId); const dist=miles(cg.base, cl.city);
-  const bits=[dist+'mi', cg.weekHrs+'h/wk'+(cg.weekHrs>=38?' \u00b7 OT risk':''), cg.reliability+'%'];
+  const bits=[dist+'mi'];
+  if(hasVal(cg.weekHrs)) bits.push(cg.weekHrs+'h/wk'+(cg.weekHrs>=38?' \u00b7 OT risk':''));
+  if(hasVal(cg.reliability)) bits.push(cg.reliability+'%');
   if(cg.driver) bits.push('driver'); if(cg.priorClients.indexOf(cl.id)>=0) bits.push('prior client');
   if(cg.recentDeclines>=3) bits.push('recent declines'); return bits.join(' \u00b7 '); }
 function aoSelectReasons(e, shiftId){
   const cg=e.cg, s=shiftById(shiftId), cl=clById(s.clientId), dist=miles(cg.base, cl.city), pos=[], caution=[];
   pos.push('Available');
   if(dist<=10) pos.push('Within 10 miles'); else if(dist<=22) pos.push(dist+' miles away'); else caution.push(dist+' miles away');
-  if(cg.weekHrs<38) pos.push('No overtime risk'); else if(cg.weekHrs<40) caution.push('Near overtime ('+cg.weekHrs+'h)'); else caution.push('At 40 hrs \u2014 overtime');
+  if(hasVal(cg.weekHrs)){ if(cg.weekHrs<38) pos.push('No overtime risk'); else if(cg.weekHrs<40) caution.push('Near overtime ('+cg.weekHrs+'h)'); else caution.push('At 40 hrs \u2014 overtime'); }
   const req=cl.reqSkills||[];
   if(req.length && req.every(sk=>cg.skills.includes(sk))) pos.push('Skills match');
   if(cg.priorClients.indexOf(cl.id)>=0) pos.push('Has worked with this client');
   if(cg.prefCities.indexOf(cl.city)>=0) pos.push('Prefers this area');
-  if(cg.reliability>=95) pos.push(cg.reliability+'% reliable'); else if(cg.reliability<85) caution.push(cg.reliability+'% reliable');
+  if(hasVal(cg.reliability)){ if(cg.reliability>=95) pos.push(cg.reliability+'% reliable'); else if(cg.reliability<85) caution.push(cg.reliability+'% reliable'); }
   if(cg.tempNote && /extra|open/i.test(cg.tempNote)) pos.push('Wants extra shifts');
   if(cg.recentDeclines>=3) caution.push('Declined recently');
   return {pos, caution};
@@ -5184,7 +5194,7 @@ function staffCard(e, sq){
     cg.base + (sq.city?` \u00b7 ${e.dist}mi (${e.drive}min)`:''),
     `${cg.reliability}% reliable`,
     `Driver ${cg.driver?'Yes':'No'}`,
-    `${cg.weekHrs}h/wk \u00b7 ~${e.capacity}h open${cg.weekHrs>=38?' \u00b7 OT risk':''}`
+    (hasVal(cg.weekHrs) ? `${cg.weekHrs}h/wk \u00b7 ~${e.capacity}h open${cg.weekHrs>=38?' \u00b7 OT risk':''}` : 'Hours worked not tracked')
   ].join(' \u00b7 ');
   const exp = e.experience.length?`<div class="sc-exp">Worked similar cases: ${e.experience.join(', ')}</div>`:'';
   const conf = e.conflicts.length
@@ -5987,7 +5997,7 @@ function viewAvail(){
   let cgs=state.caregivers.filter(c=>cgTabPred(tab,c) && (!dirOpen || dirMatch(c))).sort((a,b)=>a.name.localeCompare(b.name));
   const nF=dirOpen?((d.gender?1:0)+(d.lang?1:0)+(d.driver?1:0)+(d.city?1:0)+(d.hours?1:0)+(d.q?1:0)):0;
   const row=(c)=>{ const st=availVerifyStatus(c); const sk=c.skills.filter(s=>s!=='Companion').slice(0,3).join(', '); return `<div class="cglist-row dir" onclick="openCaregiver('${c.id}')">
-      <div class="cgd-main"><span class="cglr-name">${c.name}</span><span class="cgd-meta">${c.base} \u00b7 ${c.languages.join('/')} \u00b7 ${c.driver?'Driver':'No car'}${sk?' \u00b7 '+sk:''}</span></div>
+      <div class="cgd-main"><span class="cglr-name">${c.name}</span>${sampleTag(c)}<span class="cgd-meta">${c.base} \u00b7 ${c.languages.join('/')} \u00b7 ${c.driver?'Driver':'No car'}${sk?' \u00b7 '+sk:''}</span></div>
       <span class="cgst cgst-${st.key}"><span class="cgst-dot"></span>${st.label}</span>${ic('chev',15)}</div>`; };
   return `<div class="cgtab-grid">${cards}</div>
     <div class="cg-listhead"><span class="cg-listh-l">${tabLabel(tab)} <span class="cg-listh-n">${cgs.length}</span>${nF?` <span class="cg-listh-f">\u00b7 ${nF} filter${nF>1?'s':''} applied</span>`:''}</span>
@@ -6475,7 +6485,7 @@ function saveAvailability(id){
   state.cgAvailEdit=null; toast('Availability updated'); render();
 }
 function yn(on){ return on?`<span class="ws-yn yes">${ic('check',12)} Yes</span>`:`<span class="ws-yn no">No</span>`; }
-function fmtUpdated(d){ return d.toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})+' '+d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}); }
+function fmtUpdated(d){ if(!hasVal(d)) return 'Not tracked'; d=(d instanceof Date)?d:new Date(d); if(isNaN(d.getTime())) return 'Not tracked'; return d.toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})+' '+d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}); }
 function viewCaregiverWorkspace(c){
   if(state.cgEdit===c.id) return cgEditForm(c);
   if(state.cgAvailEdit===c.id) return cgAvailForm(c);
@@ -6509,8 +6519,8 @@ function viewCaregiverWorkspace(c){
   const employmentBody=empRow('Hire date', fmtDate(ops.hireDate))
     + empRow('Length of employment', fmtTenure(ops.hireDate))
     + empRow('Employment status', ops.employmentStatus, statusTone)
-    + empRow('Total hours worked', ops.totalHoursWorked.toLocaleString()+' h')
-    + empRow('Scheduled this week', scheduled+'h')
+    + empRow('Total hours worked', hasVal(ops.totalHoursWorked) ? ops.totalHoursWorked.toLocaleString()+' h' : 'Not tracked')
+    + empRow('Scheduled this week', nt(scheduled,'h'))
     + empRow('Desired weekly hours', ops.minHours+'\u2013'+ops.maxHours+'h')
     + empRow('Hours gap', gap>0?gap+'h available':(gap<0?Math.abs(gap)+'h over':'Full'), gap>0?'good':(gap<0?'crit':''))
     + empRow('Has active client', hasCase?'Yes':'No', hasCase?'good':'soon')
@@ -6528,7 +6538,7 @@ function viewCaregiverWorkspace(c){
   if(availDue(c)) alerts.push({t:'Availability verification due',sev:'soon'});
   const ast=attendanceStats(c);
   if(ast.concern) alerts.push({t:'Attendance concern',sev:'crit'});
-  if(c.reliability<85) alerts.push({t:'Performance concern \u2014 '+c.reliability+'% reliability',sev:'crit'});
+  if(hasVal(c.reliability) && c.reliability<85) alerts.push({t:'Performance concern \u2014 '+c.reliability+'% reliability',sev:'crit'});
   (ops.flags||[]).forEach(f=>{ if(/schedule change|returning from leave|pending|document|complaint|reliability|frequent|transportation|late/i.test(f)) alerts.push({t:f, sev:/document|complaint|reliability|concern/i.test(f)?'crit':'soon'}); });
   const seen=new Set();
   const alertList=alerts.filter(a=>{ if(seen.has(a.t))return false; seen.add(a.t); return true; });
@@ -6563,7 +6573,7 @@ function viewCaregiverWorkspace(c){
         <button class="btn sm" onclick="printProfile('${c.id}')">${ic('log',13)} Print</button>
       </div>
     </div>
-    <div class="ws-updated">Last Updated: <b>${fmtUpdated(ops.lastUpdated)}</b> \u00b7 Updated by <b>${ops.lastUpdatedBy}</b></div>
+    <div class="ws-updated">Last Updated: <b>${fmtUpdated(ops.lastUpdated)}</b> \u00b7 Updated by <b>${ops.lastUpdatedBy || "Not tracked"}</b></div>
     <div class="ws-card span2"><div class="ws-h ws-h-flex"><span>Availability Calendar \u2014 overview \u00b7 generated from Availability Management + AxisCare</span><span class="cal-viewonly">View only</span></div>${cgCalendar(c)}</div>
     ${availRulesSummary(c)}
     ${availVerifyPanel(c)}
@@ -6632,7 +6642,7 @@ function attendancePanel(c){
     ? `<div class="att-flag">${ic('alerts',13)} Attendance Concern \u2014 ${concernText}</div>`
     : `<div class="att-ok">${ic('check',13)} No current attendance concerns</div>`;
   return `<div class="ws-card span2 att-panel ${st.concern?'concern':''}">
-    <div class="ws-h">Reliability / Attendance <span class="att-rel">${c.reliability}% reliability score</span></div>
+    <div class="ws-h">Reliability / Attendance <span class="att-rel">${hasVal(c.reliability) ? c.reliability+'% reliability score' : 'Reliability not tracked \u2014 no AxisCare source'}</span></div>
     <div class="att-status">${banner}</div>
     <div class="att-grid att-grid4">
       ${f('Call-Off With Notice', st.withNotice)}
@@ -6722,6 +6732,102 @@ function confirmAvail(id, method){
   state.cgConfirmOpen=null; render(); toast('Availability confirmed via '+method+' \u2014 next check '+(availNextDue(c)?fmtDate(availNextDue(c)):'\u2014'));
 }
 function cancelEditCaregiver(){ state.cgEdit=null; render(); window.scrollTo(0,0); }
+/* ---- AxisCare data gaps ------------------------------------------
+   AxisCare has no reliability score, hours-worked, call-off count or
+   availability-verification history (see CLAUDE.md). Those fields are
+   null on caregivers imported from AxisCare.
+
+   Two traps this guards against:
+     · null + '%'  renders the string "null%"
+     · null < 85   is TRUE, so an untracked caregiver would be flagged
+       as a performance concern on evidence that does not exist.
+   Use hasVal() before judging, and nt() when displaying. */
+/* ---- telling sample data from live data --------------------------
+   Caregivers come from AxisCare; shifts, clients, care notes and
+   medication lists are still demo records. Anyone reading a screen
+   should be able to tell which is which without being told. */
+function isSample(c){ return !!c && c.source !== 'axiscare'; }
+function sampleTag(c){ return isSample(c) ? '<span class="sample-badge" title="Sample record kept for testing — not from AxisCare">SAMPLE</span>' : ''; }
+/* Screens with no AxisCare source at all. These are not "empty" —
+   the data does not exist to fetch, which is a different message. */
+var NO_AXIS_SOURCE={
+
+  meds:'AxisCare\u2019s API cannot supply medication lists. This is a limitation in AxisCare itself, confirmed on the Client Concierge dashboard, and no redeploy or re-sync would change it.',
+  attendance:'AxisCare records no attendance history for a caregiver. Punctuality and no-shows are derivable from visit clock-in times, which is not built yet.',
+  log:'The contact log is this dashboard\u2019s own record of who was called. Nothing is imported from AxisCare.'
+};
+
+function retryAxis(){
+  if(typeof ROSTER==='undefined') return;
+  toast('Reconnecting to AxisCare\u2026');
+  ROSTER.hydrate().then(function(){ render(); });
+}
+
+/* One banner, telling the truth about where this screen's data came from. */
+function demoNotice(){
+  var st = null;
+  try { st = (typeof ROSTER!=='undefined' && ROSTER.status) ? ROSTER.status() : null; } catch(e){}
+  var demo = false;
+  try { demo = (typeof ROSTER!=='undefined' && ROSTER.demoOn) ? ROSTER.demoOn() : false; } catch(e){}
+
+  /* 1. could not reach AxisCare — say so, and say why the screen is bare */
+  if(st && st.ok===false && !demo){
+    return '<div class="demo-banner err"><span class="db-ic">\u26A0</span><span>'+
+      '<b>Couldn\u2019t reach AxisCare.</b> '+esc(st.reason||'')+'. '+
+      'Nothing is shown rather than showing stale or invented data.'+
+      '</span><button onclick="retryAxis()">Retry</button></div>';
+  }
+
+  /* 2. sample data deliberately switched on */
+  if(demo){
+    return '<div class="demo-banner"><span class="db-ic">\u26A0</span><span>'+
+      '<b>Sample data is switched on.</b> The people and shifts below are invented. '+
+      'Run <code>DEMO.off()</code> in the console to clear it.'+
+      '</span></div>';
+  }
+
+  /* 3. part of the load failed */
+  if(st && st.ok && st.problems && st.problems.length){
+    return '<div class="demo-banner"><span class="db-ic">\u26A0</span><span>'+
+      '<b>Some AxisCare data didn\u2019t load.</b> '+esc(st.problems.join('; '))+
+      '</span><button onclick="retryAxis()">Retry</button></div>';
+  }
+
+  /* 4. this screen has no AxisCare source to begin with */
+  var ns = NO_AXIS_SOURCE[state.view];
+  if(ns) return '<div class="demo-banner"><span class="db-ic">\u2139</span><span>'+ns+'</span></div>';
+
+  /* 4b. care notes come from the sync mirror, not AxisCare directly */
+  if(state.view==='carenotes' && st && st.ok){
+    var n = st.careNotes || 0;
+    if(!n) return '<div class="demo-banner"><span class="db-ic">\u2139</span><span>'+
+      '<b>No care notes synced yet.</b> A caregiver\u2019s shift note is only available on '+
+      'AxisCare\u2019s per-visit call, so notes are swept into the database on a schedule '+
+      'rather than fetched live. The sweep runs every 15 minutes; a first full sweep of the '+
+      'week takes a few runs.</span></div>';
+    return '<div class="demo-banner live"><span class="db-ic">\u2713</span><span><b>'+n+
+      ' care notes synced from AxisCare.</b> Swept on a schedule \u2014 the note text is only '+
+      'on the per-visit call, so a live fetch would be one request per visit.</span></div>';
+  }
+
+  /* 5. the caregiver roster, confirmed live */
+  if(state.view==='avail' && st && st.ok && st.loaded){
+    return '<div class="demo-banner live"><span class="db-ic">\u2713</span><span><b>'+st.loaded+
+      ' caregivers live from AxisCare.</b> Reliability, hours worked and call-off figures read '+
+      '\u201cNot tracked\u201d \u2014 AxisCare has no source for them.</span></div>';
+  }
+
+  /* 6. open shifts, with the window they were found in */
+  if(state.view==='open' && st && st.ok && st.shiftScan){
+    return '<div class="demo-banner live"><span class="db-ic">\u2713</span><span>'+
+      '<b>Live from AxisCare.</b> Open shifts are visits with no caregiver assigned, '+
+      'scanned from '+esc(st.shiftScan.from)+' to '+esc(st.shiftScan.to)+'.</span></div>';
+  }
+
+  return '';
+}
+function hasVal(v){ return !(v===null || v===undefined || v==='' || (typeof v==='number' && isNaN(v))); }
+function nt(v, suffix, dash){ return hasVal(v) ? (v + (suffix||'')) : (dash || 'Not tracked'); }
 function esc(s){ return (s||'').replace(/"/g,'&quot;'); }
 function cgEditForm(c){
   const ops=c.ops, days=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'], em=ops.emergency, vac=ops.vacationDates||{};
@@ -6771,7 +6877,7 @@ function saveCaregiver(id){
   if(document.getElementById('blk_'+state.clients[0].id)){ const prev=ops.clientRestr||[]; ops.clientRestr=state.clients.filter(cl=>gC('blk_'+cl.id)).map(cl=>{ const ex=prev.find(r=>r.client===cl.id); return {client:cl.id, reason:(gV('blkr_'+cl.id)||'').trim()||'Do not assign', addedBy: ex?ex.addedBy:state.onShift, addedDate: ex?ex.addedDate:new Date()}; }); }
   ops.summary=ops.persona.summary||ops.summary;
   ops.lastUpdated=new Date(); ops.lastUpdatedBy=state.onShift;
-  state.cgEdit=null; render(); window.scrollTo(0,0); toast('Workspace updated \u2014 logged to '+ops.lastUpdatedBy);
+  state.cgEdit=null; render(); window.scrollTo(0,0); toast('Workspace updated \u2014 logged to '+(ops.lastUpdatedBy||state.onShift||'the scheduler'));
 }
 function cgYears(c){ return 1+(parseInt(c.id.slice(1))%6); }
 function resumeSummaryText(c){
@@ -7128,7 +7234,7 @@ function aiNoSchedule(){
   return {title:`${list.length} caregiver${list.length>1?'s':''} with no active schedule`, html:aiRows(rows)};
 }
 function aiNotRecent(){
-  const list=state.caregivers.filter(c=>c.active===false || c.weekHrs<12).sort((a,b)=>a.weekHrs-b.weekHrs);
+  const list=state.caregivers.filter(c=>c.active===false || (hasVal(c.weekHrs) && c.weekHrs<12)).sort((a,b)=>a.weekHrs-b.weekHrs);
   if(!list.length) return {title:'Caregivers not working recently', html:aiEmpty('Everyone has recent hours.')};
   const rows=list.map(c=>aiRow(aiCgLink(c)+(c.active===false?' <span class="ai-tag">Inactive</span>':''), c.active===false?'Not active':`${c.weekHrs}h this week`+(c.ops.lastClient&&clById(c.ops.lastClient)?' \u00b7 last with '+clById(c.ops.lastClient).name:'')));
   return {title:`${list.length} caregiver${list.length>1?'s':''} with little or no recent work`, html:aiRows(rows)};
@@ -7209,7 +7315,7 @@ function aiCoverageRisks(){
 }
 function aiCaregiver(c){
   const s=attendanceStats(c);
-  const rows=[aiRow('Reliability', c.reliability+'%'),aiRow('Hours this week', c.weekHrs+'h'),aiRow('Skills', c.skills.join(', ')),aiRow('Preferred areas', c.prefCities.join(', ')),aiRow('Call-offs / no-shows', s.callOffs+' / '+s.noShows),aiRow('Verification', availDue(c)?'Due for update':'Up to date')];
+  const rows=[aiRow('Reliability', nt(c.reliability,'%')),aiRow('Hours this week', nt(c.weekHrs,'h')),aiRow('Skills', c.skills.join(', ')),aiRow('Preferred areas', c.prefCities.join(', ')),aiRow('Call-offs / no-shows', s.callOffs+' / '+s.noShows),aiRow('Verification', availDue(c)?'Due for update':'Up to date')];
   return {title:c.name, html:aiRows(rows)+`<div class="ai-sub"><a class="ai-cg" onclick="openCaregiver('${c.id}')">Open full workspace \u2192</a></div>`};
 }
 function askAIex(i){ askAI(AI_EXAMPLES[i]); }
@@ -8451,6 +8557,549 @@ function careAlertsBanner(){
 
 
 /* =========================================================
+   AXIS LIVE  —  clients and open shifts from AxisCare
+   ---------------------------------------------------------
+   Same rule as the caregiver mapper: a value is only set when
+   AxisCare actually said it. Anything it has no source for is
+   null and listed in _missing, so the UI says "Not tracked".
+
+   OPEN SHIFTS. AxisCare has no "open shift" record. A shift
+   that needs covering is derived:
+
+       a visit that is NOT removed,
+       has NO caregiver,
+       and is scheduled in the future
+
+   Verified 2026-08-24 against site 7060: that rule returns
+   exactly the shifts the previous dashboard displayed.
+
+   Beware /api/visits pagination — a wide window returns only
+   the earliest slice plus results.nextPage, and it pages on
+   nextPageToken (caregivers page on startAfterId).
+   ========================================================= */
+var AxisLive = (function () {
+  'use strict';
+
+  var DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  /* ---------- clients ---------- */
+
+  /* Client class tags on this account are payment type only —
+     PVT / LTC. There is no clinical requirement recorded, so
+     reqSkills has no source and stays empty. */
+  var PAY_LABEL = { PVT: 'Private Pay', LTC: 'Long-Term Care Insurance' };
+
+  function mapClient(ax, normCity) {
+    var codes = (ax.classes || []).map(function (c) { return c.code; });
+    var city = normCity ? normCity(ax.residentialAddress && ax.residentialAddress.city)
+                        : ((ax.residentialAddress && ax.residentialAddress.city) || null);
+    /* firstName, not goesBy: goesBy is often an honorific such as
+       "Mrs. Eddy", which would render as "Mrs. Eddy Eddy". The previous
+       dashboard showed the legal first name. */
+    var name = ((ax.firstName || ax.goesBy || '') + ' ' + (ax.lastName || '')).replace(/\s+/g, ' ').trim();
+
+    var missing = ['reqSkills', 'hasBackup', 'complaints30', 'missedThisWeek', 'risk', 'pets', 'smoking'];
+    if (!ax.triageLevel) missing.push('careType');
+
+    return {
+      id: 'k' + ax.id,
+      axisId: ax.id,
+      source: 'axiscare',
+      name: name,
+      city: city || '',
+      statusLabel: (ax.status && ax.status.label) || null,
+      active: !!(ax.status && ax.status.active),
+
+      /* real, from AxisCare */
+      careType: (ax.triageLevel && ax.triageLevel.description) || null,
+      payType: codes.map(function (c) { return PAY_LABEL[c]; }).filter(Boolean)[0] || null,
+      allergies: ax.allergies || null,
+      languages: (ax.languages || []).slice(),
+      priorityNote: ax.priorityNote || null,
+      preferred: (ax.preferredCaregiver && ax.preferredCaregiver.id != null)
+        ? ['a' + ax.preferredCaregiver.id] : [],
+      phone: ax.mobilePhone || ax.homePhone || ax.telephonyPhone || null,
+      startDate: ax.startDate || null,
+
+      /* no AxisCare source — never invented */
+      reqSkills: [],
+      carePattern: null,
+      restrictions: [],
+      hasBackup: null,
+      complaints30: null,
+      complaints: null,
+      missedThisWeek: null,
+      risk: null,
+      pets: null,
+      smoking: null,
+
+      _missing: missing
+    };
+  }
+
+  function fetchClients(get) {
+    var out = [], guard = 0;
+    function page(after) {
+      var q = { limit: 100 };
+      if (after != null) q.startAfterId = after;
+      return get('/api/clients', q).then(function (res) {
+        var r = (res && res.data && res.data.results) || {};
+        var raw = r.clients;
+        var list = Array.isArray(raw) ? raw : Object.keys(raw || {}).map(function (k) { return raw[k]; });
+        out = out.concat(list);
+        var next = r.nextPage;
+        if (next && ++guard < 20) {
+          var m = /[?&]startAfterId=(\d+)/.exec(next);
+          if (m) return page(m[1]);
+        }
+        return out.filter(function (c) { return c.status && c.status.active; });
+      });
+    }
+    return page(null);
+  }
+
+  /* ---------- open shifts ---------- */
+
+  function ymd(d) {
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+
+  /* An id safe to drop into markup and onclick handlers. AxisCare
+     visit ids look like "s=1543:d=2026-09-18". */
+  function shiftId(visitId) { return 'v' + String(visitId).replace(/[^A-Za-z0-9]+/g, '_'); }
+
+  function mapOpenShift(v) {
+    var start = new Date(v.scheduledStartDate || v.startDate);
+    var end = new Date(v.scheduledEndDate || v.endDate);
+    return {
+      id: shiftId(v.id),
+      axisVisitId: v.id,
+      source: 'axiscare',
+      clientId: (v.client && v.client.id != null) ? 'k' + v.client.id : null,
+      start: start,
+      end: end,
+      status: 'open',
+      assigned: null,
+      callOff: false,
+      /* AxisCare does not record WHEN a visit became uncovered */
+      openedAt: null,
+      service: (v.service && v.service.description) || null
+    };
+  }
+
+  /* Scans the window for visits needing coverage. Cost is linear in
+     the window: ~8 requests / 4s for 4 weeks on this account. */
+  function fetchOpenShifts(get, opts) {
+    opts = opts || {};
+    var now = opts.now || new Date();
+    var days = opts.days || 28;
+    var from = ymd(now);
+    var to = ymd(new Date(now.getTime() + days * 86400000));
+    var open = [], scanned = 0, pages = 0;
+
+    function page(token) {
+      var q = { startDate: from, endDate: to };
+      if (token) q.nextPageToken = token;
+      return get('/api/visits', q).then(function (res) {
+        var r = (res && res.data && res.data.results) || {};
+        var list = r.visits || [];
+        scanned += list.length;
+        list.forEach(function (v) {
+          if (v.removed) return;
+          if (v.caregiver && v.caregiver.id != null) return;
+          var s = new Date(v.scheduledStartDate || v.startDate);
+          if (!(s > now)) return;                       // past slots are history, not coverage
+          open.push(mapOpenShift(v));
+        });
+        var next = r.nextPage;
+        if (next && ++pages < 30) {
+          var m = /[?&]nextPageToken=([^&]+)/.exec(next);
+          if (m) return page(decodeURIComponent(m[1]));
+        }
+        open.sort(function (a, b) { return a.start - b.start; });
+        return { shifts: open, scanned: scanned, requests: pages + 1, from: from, to: to };
+      });
+    }
+    return page(null);
+  }
+
+  return {
+    mapClient: mapClient,
+    fetchClients: fetchClients,
+    fetchOpenShifts: fetchOpenShifts,
+    mapOpenShift: mapOpenShift,
+    shiftId: shiftId
+  };
+})();
+
+
+/* =========================================================
+   ROSTER  —  put the real AxisCare caregivers into state (STAGE 2)
+   ---------------------------------------------------------
+   Replaces the 16 demo caregivers with the live AxisCare roster,
+   keeping ONE demo caregiver (Ana Beltran, c5) as a test fixture.
+   Ana is kept rather than Rosa because shift s1 records her as the
+   caregiver who called off — the scenario the Today screen and the
+   handoff notes are built around.
+
+   ORDERING MATTERS. This has to finish BEFORE CLOUD.boot() takes
+   its baseline snapshot, or the overlay records the entire real
+   roster as though a human had typed it. CLOUD.boot() awaits
+   ROSTER.hydrate() for exactly that reason.
+
+   FAILURE IS SAFE. If AxisCare is unreachable — offline, file://,
+   proxy not deployed — the demo roster is left untouched and the
+   app carries on. Borrowed from Client Concierge: a failed read
+   must never overwrite good data.
+   ========================================================= */
+var ROSTER = (function () {
+  'use strict';
+
+  var ANA_ID = 'c5';
+  var DAY_KEYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  var allOff = function () { var o = {}; DAY_KEYS.forEach(function (d) { o[d] = 0; }); return o; };
+
+  /* deriveOps() invents these from the numeric part of the id. That is
+     harmless on a fictional c7 and misleading on a real person, so they
+     are nulled straight after. Stage 3 renders nulls as "Not tracked". */
+  var FABRICATED = ['totalHoursWorked', 'lastShiftWorked', 'verifyHistory',
+    'availLastConfirmed', 'availConfirmedBy', 'availConfirmMethod',
+    'noResponseStreak', 'availCheckFreq', 'customCadenceDays', 'shiftPref',
+    'lastUpdated', 'lastUpdatedBy', 'shiftPrefs'];
+
+  var enabled = function () {
+    var cfg = window.SCHEDULER_CONFIG || {};
+    return cfg.axisRoster === undefined ? true : !!cfg.axisRoster;
+  };
+
+  function langsFrom(tags) {
+    var codes = (tags || []).map(function (t) { return t.code; });
+    var out = [];
+    if (codes.indexOf('SS') >= 0) out.push('Spanish');
+    if (codes.indexOf('FES') >= 0 || !out.length) out.push('English');
+    return out;
+  }
+
+  /* AxisRoster.map output -> the shape the dashboard's caregiver model uses */
+  function toAppCaregiver(m) {
+    var todayName = DAY_KEYS[(new Date().getDay() + 6) % 7];
+    return {
+      id: m.id, axisId: m.axisId, source: 'axiscare',
+      name: m.name,
+      base: m.base || '',
+      prefCities: m.prefCities && m.prefCities.length ? m.prefCities : (m.base ? [m.base] : []),
+
+      /* unknown availability is stored as all-zero so nothing crashes,
+         but availKnown records that we do not actually know — the UI
+         must say "unknown", never "unavailable". Stage 3 does that. */
+      avail: m.avail || allOff(),
+      availKnown: !!m.availKnown,
+      today: m.avail ? (m.avail[todayName] ? 1 : 0) : 0,
+
+      hours: m.hours || 'Days',
+      hoursKnown: !!m.hours,
+
+      skills: m.skills.slice(),
+      restrictions: m.restrictions.slice(),
+      axisTags: m.axisTags.slice(),
+      tagged: m.tagged,
+      statusLabel: m.statusLabel,
+      schedulable: m.schedulable,
+
+      gender: m.gender || null,
+      phone: m.phone || null,
+      email: m.email || null,
+      region: m.region || null,
+      payRate: m.payRate,
+      axisHireDate: m.hireDate || null,
+      axisMaxMiles: m.maxMiles,
+
+      /* no AxisCare source — never invented */
+      reliability: null, weekHrs: null, callOffs30: null,
+      declinesStreak: null, recentDeclines: null,
+      priorClients: [], replacedOn: [], tempNote: '', permNote: '',
+
+      _missing: (m._missing || []).slice()
+    };
+  }
+
+  /* Mirrors the seed derivation pipeline, but sourced from AxisCare
+     where AxisCare actually knows the answer. */
+  function derive(c) {
+    var codes = (c.axisTags || []).map(function (t) { return t.code; });
+    var hasCode = function (x) { return codes.indexOf(x) >= 0; };
+
+    c.win = (typeof WINMAP !== 'undefined' && WINMAP[c.hours]) || [[8, 17]];
+    if (!c.gender) c.gender = 'F';
+    c.blockedClients = [];
+    c.driver = hasCode('DL') || hasCode('OC');
+    c.ownVehicle = hasCode('OC');
+    c.languages = langsFrom(c.axisTags);
+    c.smoker = false;
+    c.liftLimit = hasCode('HLE') ? 100 : 50;
+    c.holidays = false;
+    c.smokerHomeOk = true;
+
+    /* deriveOps reads c.avail[d] and c.reliability in a dozen places and
+       would throw or produce NaN on nulls, so it gets a guarded copy.
+       The caregiver record itself keeps its honest nulls. */
+    var guard = {};
+    for (var k in c) if (Object.prototype.hasOwnProperty.call(c, k)) guard[k] = c[k];
+    guard.reliability = 0; guard.weekHrs = 0; guard.callOffs30 = 0;
+    guard.declinesStreak = 0; guard.recentDeclines = 0;
+    if (!guard.avail) guard.avail = allOff();
+
+    try { c.ops = deriveOps(guard); } catch (e) { c.ops = {}; console.warn('[roster] deriveOps failed for ' + c.id, e); }
+
+    FABRICATED.forEach(function (f) { if (c.ops) c.ops[f] = null; });
+    if (c.ops) {
+      c.ops.hireDate = c.axisHireDate ? new Date(c.axisHireDate + 'T12:00:00') : null;
+      c.ops.maxMiles = c.axisMaxMiles;
+      c.ops.devoted = false;
+      c.ops.axisSourced = true;
+    }
+    c.active = true;
+    return c;
+  }
+
+  /* Demo shifts, care notes and forms point at seed caregivers that are
+     about to disappear. Rather than leave dangling ids that render as
+     blanks (or crash), point them at the one caregiver we kept.
+     Stage 4 redistributes the scheduling records properly and leaves
+     the CLINICAL records on Ana. */
+  /* Stable pseudo-random pick, keyed on the record id so a shift keeps
+     the same caregiver across reloads instead of shuffling every boot. */
+  function pickFrom(pool, seed) {
+    var x = 0; seed = String(seed);
+    for (var i = 0; i < seed.length; i++) x = (x * 31 + seed.charCodeAt(i)) | 0;
+    return pool[Math.abs(x) % pool.length];
+  }
+
+  /* Ana plus a handful of real caregivers, for records that are merely
+     scheduling. Order follows AxisCare's own id order, so it is stable. */
+  function schedulingPool() {
+    var real = (state.caregivers || []).filter(function (c) { return c.source === 'axiscare' && c.schedulable; });
+    var pool = [ANA_ID];
+    for (var i = 0; i < Math.min(6, real.length); i++) pool.push(real[i].id);
+    return pool;
+  }
+
+  function remapDangling(valid) {
+    var pool = schedulingPool();
+    var n = 0;
+
+    /* Anything that ALLEGES A PERSON DID SOMETHING stays on the demo
+       fixture. A real caregiver's name must never appear on an invented
+       care note, contact-log call or submitted form. */
+    var toAna = function (obj, key) {
+      if (obj && obj[key] && !valid[obj[key]]) { obj[key] = ANA_ID; n++; }
+    };
+    /* Forward-looking scheduling records may name real caregivers — the
+       screen banner says they are samples. */
+    var spread = function (obj, key, seed) {
+      if (obj && obj[key] && !valid[obj[key]]) { obj[key] = pickFrom(pool, seed); n++; }
+    };
+    var touch = toAna;
+
+    /* scheduling — spread across Ana + real caregivers */
+    (state.shifts || []).forEach(function (s) { spread(s, 'assigned', s.id + 'a'); spread(s, 'prevCaregiver', s.id + 'p'); });
+    (state.placements || []).forEach(function (x) { spread(x, 'cgId', x.id); });
+    (state.followUps || []).forEach(function (x) { if (x.relType === 'caregiver') spread(x, 'relId', x.id); });
+    (state.tasks || []).forEach(function (x) { if (x.relType === 'caregiver') spread(x, 'relId', x.id); });
+
+    /* clinical / historical — Ana only */
+    (state.careNotes || []).forEach(function (x) { toAna(x, 'cgId'); });
+    (state.sentForms || []).forEach(function (x) { toAna(x, 'cgId'); });
+    Object.keys(state.contactLog || {}).forEach(function (k) {
+      (state.contactLog[k] || []).forEach(function (e) { toAna(e, 'caregiverId'); });
+    });
+    (state.clients || []).forEach(function (cl) {
+      if (!Array.isArray(cl.preferred)) return;
+      var seen = {};
+      cl.preferred = cl.preferred.map(function (id, i) { return valid[id] ? id : pickFrom(pool, cl.id + i); }).filter(function (id) {
+        if (seen[id]) return false; seen[id] = 1; return true;
+      });
+    });
+    return n;
+  }
+
+  var lastResult = null, lastShiftScan = null, lastProblems = [];
+
+  /* ---- demo data ------------------------------------------------
+     The seed records stay in the source so the dashboard can be
+     demoed on demand, but they are cleared at boot. Anything on
+     screen is then either live from AxisCare or genuinely empty.
+
+         DEMO.on()    put the sample data back (reloads)
+         DEMO.off()   clear it again (reloads)
+         DEMO.isOn()
+  */
+  /* Care notes are SWEPT into Supabase by netlify/functions/carenotes-sync,
+     not fetched from AxisCare here. The note text only exists on the
+     per-visit call, so reading them live would be one AxisCare request
+     per visit — ~170 for a week. We read the mirror instead. */
+  function fetchCareNotes() {
+    var cfg = window.SCHEDULER_CONFIG || {};
+    if (!cfg.supabaseUrl || !cfg.supabaseAnonKey) return Promise.resolve([]);
+    var url = cfg.supabaseUrl.replace(/\/+$/, '') +
+      '/rest/v1/care_notes?select=visit_id,client_id,caregiver_id,visit_at,note&order=visit_at.desc&limit=400';
+    return fetch(url, { headers: { apikey: cfg.supabaseAnonKey, Authorization: 'Bearer ' + cfg.supabaseAnonKey } })
+      .then(function (r) {
+        if (!r.ok) throw new Error('care notes HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function (rows) {
+        return (rows || []).map(function (n) {
+          return {
+            id: 'cn' + String(n.visit_id).replace(/[^A-Za-z0-9]+/g, '_'),
+            source: 'axiscare',
+            clientId: n.client_id != null ? 'k' + n.client_id : null,
+            cgId: n.caregiver_id != null ? 'a' + n.caregiver_id : null,
+            at: n.visit_at ? new Date(n.visit_at) : null,
+            text: n.note || ''
+          };
+        }).filter(function (n) { return n.text && n.at; });
+      });
+  }
+
+  var DEMO_KEY = 'dcs_demo_data';
+  function demoOn() { try { return localStorage.getItem(DEMO_KEY) === '1'; } catch (e) { return false; } }
+
+  /* Reference content — forms, quick guides, message templates — is the
+     app's own material, not fabricated records about people, so it stays. */
+  function purgeDemo() {
+    if (demoOn()) return false;
+    state.caregivers = [];
+    state.clients = [];
+    state.shifts = [];
+    state.careNotes = [];
+    state.sentForms = [];
+    state.formActivity = [];
+    state.placements = [];
+    state.followUps = [];
+    state.tasks = [];
+    state.taskArchive = [];
+    state.activityLog = [];
+    state.todayResolved = [];
+    state.contactLog = {};
+    state.medProfiles = {};
+    state.evvLog = {};
+    state.careAlertOverrides = {};
+    if (state.handoff) { state.handoff.opener = []; state.handoff.closer = []; }
+    return true;
+  }
+
+  /* Re-point any caregiver reference that no longer resolves. Safe to
+     call repeatedly — it only touches ids that are actually missing. */
+  function reconcile() {
+    if (!(state.caregivers || []).length) return 0;
+    var valid = {};
+    state.caregivers.forEach(function (c) { valid[c.id] = 1; });
+    return remapDangling(valid);
+  }
+
+  function hydrate() {
+    if (!enabled()) {
+      lastResult = { ok: false, reason: 'disabled in config' };
+      return Promise.resolve(false);
+    }
+    if (typeof AxisCare === 'undefined' || !AxisCare.roster) {
+      lastResult = { ok: false, reason: 'AxisCare client missing' };
+      return Promise.resolve(false);
+    }
+
+    /* Clear the sample records first, so a failed fetch leaves an honest
+       empty dashboard rather than fiction. DEMO.on() opts back in. */
+    var purged = purgeDemo();
+
+    var t0 = Date.now();
+
+    /* Caregivers, clients and open shifts in parallel. All three must
+       land BEFORE CLOUD.boot() snapshots its baseline, or the overlay
+       records the whole dataset as though a human typed it. */
+    return Promise.all([
+      AxisCare.roster().catch(function (e) { return { __err: e }; }),
+      AxisLive.fetchClients(function (p, q) { return AxisCare.get(p, q); }).catch(function (e) { return { __err: e }; }),
+      AxisLive.fetchOpenShifts(function (p, q) { return AxisCare.get(p, q); }, { days: 28 }).catch(function (e) { return { __err: e }; }),
+      fetchCareNotes().catch(function (e) { return { __err: e }; })
+    ]).then(function (parts) {
+      var cgRes = parts[0], clRes = parts[1], shRes = parts[2], cnRes = parts[3];
+      var problems = [];
+
+      /* clients */
+      if (clRes && clRes.__err) { problems.push('clients: ' + (clRes.__err.message || clRes.__err)); }
+      else { state.clients = clRes.map(function (c) { return AxisLive.mapClient(c, AxisRoster.normCity); }); }
+
+      /* open shifts — need clients present to resolve, so after them */
+      if (shRes && shRes.__err) { problems.push('shifts: ' + (shRes.__err.message || shRes.__err)); }
+      else {
+        var known = {}; (state.clients || []).forEach(function (c) { known[c.id] = 1; });
+        state.shifts = (shRes.shifts || []).filter(function (s) { return s.clientId && known[s.clientId]; });
+        lastShiftScan = { scanned: shRes.scanned, requests: shRes.requests, from: shRes.from, to: shRes.to, kept: state.shifts.length };
+      }
+
+      /* care notes — the mirror, not AxisCare directly */
+      if (cnRes && cnRes.__err) { problems.push('care notes: ' + (cnRes.__err.message || cnRes.__err)); }
+      else { state.careNotes = cnRes || []; }
+
+      if (cgRes && cgRes.__err) throw cgRes.__err;
+      lastProblems = problems;
+      return cgRes;
+    }).then(function (list) {
+      /* a short read is more likely a broken call than a shrunken agency */
+      if (!list || list.length < 10) throw new Error('implausibly small roster (' + (list ? list.length : 0) + ') — keeping demo data');
+
+      /* With clients and shifts live too, a lone demo caregiver among 184
+         real ones is just confusing. Kept only when demo mode is on. */
+      var kept = demoOn() ? (state.caregivers || []).filter(function (c) { return c.id === ANA_ID; }) : [];
+      var real = list.map(toAppCaregiver).map(derive);
+
+      state.caregivers = kept.concat(real);
+
+      var valid = {};
+      state.caregivers.forEach(function (c) { valid[c.id] = 1; });
+      var remapped = remapDangling(valid);
+
+      lastResult = {
+        ok: true, loaded: real.length, kept: kept.length,
+        clients: (state.clients || []).length,
+        careNotes: (state.careNotes || []).length,
+        openShifts: (state.shifts || []).length,
+        shiftScan: lastShiftScan,
+        problems: lastProblems,
+        demoMode: demoOn(),
+        remapped: remapped, ms: Date.now() - t0,
+        untagged: real.filter(function (c) { return !c.tagged; }).length
+      };
+      console.info('[axiscare] ' + real.length + ' caregivers, ' + (state.clients || []).length +
+        ' clients, ' + (state.shifts || []).length + ' open shifts, ' + (state.careNotes || []).length + ' care notes \u2014 ' +
+        ((Date.now() - t0) / 1000).toFixed(1) + 's' +
+        (lastShiftScan ? ' (scanned ' + lastShiftScan.scanned + ' visits, ' + lastShiftScan.from + '..' + lastShiftScan.to + ')' : '') +
+        (demoOn() ? ' [DEMO DATA ON]' : ''));
+      if (lastProblems.length) console.warn('[axiscare] partial load \u2014 ' + lastProblems.join('; '));
+      return true;
+
+    }).catch(function (err) {
+      lastResult = { ok: false, reason: (err && err.message) || String(err) };
+      console.warn('[roster] keeping the demo caregivers — ' + lastResult.reason);
+      return false;
+    });
+  }
+
+  return {
+    hydrate: hydrate,
+    reconcile: reconcile,
+    demoOn: demoOn,
+    purgeDemo: purgeDemo,
+    status: function () { return lastResult; },
+    ANA_ID: ANA_ID,
+    /* exposed for testing the mapping without a network call */
+    _toApp: toAppCaregiver,
+    _derive: derive
+  };
+})();
+
+/* =========================================================
    CLOUD PERSISTENCE  —  Supabase overlay sync
    ---------------------------------------------------------
    Caregivers, clients and shifts in this build are demo data
@@ -8746,6 +9395,7 @@ const CLOUD = (function(){
         serverRev=res.data.rev;
         muted=true;
         try{ applyOverlay(res.data.overlay); }catch(e){ console.warn('[cloud] apply failed',e); }
+        try{ if(typeof ROSTER!=='undefined') ROSTER.reconcile(); }catch(e){ console.warn('[roster] reconcile failed',e); }
         muted=false;
         lastBody=null;                        /* remote may differ from ours */
         saveLocal(res.data.overlay);
@@ -8786,18 +9436,38 @@ const CLOUD = (function(){
     window.addEventListener('offline',function(){ setStatus('offline'); });
   }
 
-  function boot(){
-    primeLazy();
-    BASE=snapshot();                          /* pristine seed — never overwritten */
+  /* Second half of boot. Split out because the real caregiver roster
+     has to be in place BEFORE snapshot() runs — otherwise the overlay
+     diffs the real roster against a demo baseline and records all 184
+     caregivers as if a human had entered them. */
+  function finishBoot(){
+    /* Render once BEFORE snapshotting. Several ops fields are created
+       lazily the first time a view touches them, and anything created
+       after the baseline reads as a human edit — which dragged the whole
+       ops object into the overlay for all 184 caregivers. */
+    render();
+    BASE=snapshot();                          /* baseline = seed + whatever AxisCare supplied */
     try{
       var raw=localStorage.getItem(LS_KEY);
       if(raw) applyOverlay(JSON.parse(raw));  /* instant, works offline */
     }catch(e){ console.warn('[cloud] local cache unreadable',e); }
+    /* The stored overlay predates the roster swap, so it can bring back
+       ids like 'c8' that no longer exist. Sweep again before rendering. */
+    try{ if(typeof ROSTER!=='undefined') ROSTER.reconcile(); }catch(e){ console.warn('[roster] reconcile failed',e); }
     hookRender();
     booted=true;
     render();
     setStatus('local');
     connect();
+  }
+  function boot(){
+    primeLazy();
+    render();                                 /* paint immediately, demo roster */
+    /* Either outcome continues to finishBoot: if AxisCare is unreachable
+       we simply boot on the demo roster rather than not booting at all. */
+    try{
+      ROSTER.hydrate().then(finishBoot, finishBoot);
+    }catch(e){ console.warn('[roster] hydrate threw',e); finishBoot(); }
   }
 
   /* ---------- public ---------- */
@@ -8824,6 +9494,246 @@ const CLOUD = (function(){
 })();
 
 /* =========================================================
+   AXISCARE ROSTER  —  fetch + map (STAGE 1)
+   ---------------------------------------------------------
+   Turns AxisCare caregiver records into the shape the
+   dashboard's caregiver model expects.
+
+   Nothing here is wired into the UI yet. Call it by hand:
+       await AxisCare.roster()          mapped caregivers
+       await AxisCare.roster({raw:true}) untouched AxisCare records
+       AxisRoster.report(list)          coverage summary
+
+   THE RULE THIS FILE OBEYS: a value is only set when AxisCare
+   actually said it. A missing class tag means UNKNOWN, never
+   "no". 40% of active caregivers carry no tags at all, so
+   inferring negatives from absence would libel most of them.
+   Anything AxisCare does not know is left null and listed in
+   `_missing`, so the UI can say "not tracked" rather than
+   showing a confident wrong value.
+   ========================================================= */
+var AxisRoster = (function () {
+  'use strict';
+
+  /* ---- class code -> app skill ------------------------------
+     Only true equivalents are mapped. AxisCare has no tag for
+     Companion, Transfers or Medication Reminders, so real
+     caregivers legitimately carry fewer skills than the demo
+     ones did. Everything else is preserved verbatim in
+     `axisTags` rather than being forced into a skill name. */
+  var SKILL_MAP = {
+    ALZ: 'Dementia',        // With Alzheimer's Care Experience
+    HLE: 'Hoyer Lift',      // Hoyer Lift experience
+    ELC: 'Hospice',         // Hospice / End of Life Care experience
+    CNA: 'CNA'              // CNA with certification
+  };
+
+  /* Positive statements of a limitation. Never inferred from a
+     missing tag — only used when AxisCare states it outright. */
+  var RESTRICTION_MAP = {
+    WDL:  'No driver’s license',
+    WALZ: 'No Alzheimer’s experience'
+  };
+
+  /* Tags that describe temperament or preference rather than a
+     skill. Shown as-is; never invented into a skill. */
+  var TRAIT_CODES = ['QAG', 'T/S', 'OWC', 'OWP', 'CFC', 'CMC', 'LH', 'SH', 'LV', 'SS', 'FES', 'OC'];
+
+  var WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
+  var WEEKEND  = ['Sat', 'Sun'];
+  var DAYS     = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+  /* ---- city normalisation ----------------------------------
+     AxisCare city strings are free text. Confirmed variants on
+     this account include CAMARILLO / Camarilllo / "Camarillo " /
+     oxnard / "Oxnard " / Thousand oak / Thousands oaks. */
+  var CITY_FIX = {
+    'Camarilllo':      'Camarillo',
+    'Thousand Oak':    'Thousand Oaks',
+    'Thousands Oaks':  'Thousand Oaks',
+    'Thousands Oak':   'Thousand Oaks',
+    'Newbury':         'Newbury Park',
+    '18 Canoga Park':  'Canoga Park'
+  };
+
+  function normCity(raw) {
+    if (!raw) return null;
+    var s = String(raw).replace(/\s+/g, ' ').trim();
+    if (!s) return null;
+    s = s.replace(/^\d+\s+/, '');                       // stray house number
+    s = s.toLowerCase().replace(/\b[a-z]/g, function (m) { return m.toUpperCase(); });
+    if (CITY_FIX[s]) s = CITY_FIX[s];
+    return s;
+  }
+
+  function fullName(ax) {
+    var first = (ax.goesBy || ax.firstName || '').trim();
+    var last  = (ax.lastName || '').trim();
+    return (first + ' ' + last).replace(/\s+/g, ' ').trim();
+  }
+
+  /* ---- map one AxisCare caregiver -------------------------- */
+  function mapCaregiver(ax) {
+    var codes = (ax.classes || []).map(function (c) { return c.code; });
+    var has = function (c) { return codes.indexOf(c) >= 0; };
+    var tagged = codes.length > 0;
+
+    var skills = [];
+    codes.forEach(function (c) {
+      if (SKILL_MAP[c] && skills.indexOf(SKILL_MAP[c]) < 0) skills.push(SKILL_MAP[c]);
+    });
+
+    var restrictions = [];
+    codes.forEach(function (c) {
+      if (RESTRICTION_MAP[c] && restrictions.indexOf(RESTRICTION_MAP[c]) < 0) restrictions.push(RESTRICTION_MAP[c]);
+    });
+
+    /* availability: only assert days AxisCare positively stated */
+    var avail = null, availKnown = has('WKDY') || has('WKND') || has('AD');
+    if (availKnown) {
+      avail = {};
+      DAYS.forEach(function (d) { avail[d] = 0; });
+      if (has('WKDY') || has('AD')) WEEKDAYS.forEach(function (d) { avail[d] = 1; });
+      if (has('WKND') || has('AD')) WEEKEND.forEach(function (d) { avail[d] = 1; });
+    }
+
+    /* working window: only when a tag maps cleanly to a real
+       WINMAP key. Mornings/Afternoons have no honest equivalent,
+       so they are left null rather than guessed. */
+    var hours = null;
+    if (has('AD')) hours = 'Open';
+    else if (has('NOVRN')) hours = 'Days + overnight';
+    else if (has('MRNNG') && !has('AFTRNN')) hours = 'Days, 8a–2p';
+
+    var city = normCity(ax.mailingAddress && ax.mailingAddress.city);
+    var gender = ax.gender || (has('GF') ? 'F' : (has('GM') ? 'M' : null));
+
+    /* Fields AxisCare simply does not have. Listed rather than
+       filled, so the UI can label them honestly. */
+    var missing = ['reliability', 'weekHrs', 'callOffs30', 'declinesStreak',
+                   'recentDeclines', 'priorClients', 'verifyHistory', 'totalHoursWorked'];
+    if (!tagged) missing.push('skills', 'availability');
+    if (!hours) missing.push('hours');
+    if (ax.acceptableDrivingDistance == null) missing.push('maxMiles');
+
+    return {
+      /* 'a' prefix keeps id.slice(1) numeric, which several
+         existing derivations rely on, without colliding with the
+         seed ids c1-c16. */
+      id: 'a' + ax.id,
+      axisId: ax.id,
+      source: 'axiscare',
+
+      name: fullName(ax),
+      firstName: ax.firstName || '',
+      lastName: ax.lastName || '',
+      gender: gender,
+
+      statusLabel: (ax.status && ax.status.label) || null,
+      active: !!(ax.status && ax.status.active),
+      schedulable: !!(ax.status && ax.status.label === 'Active'),
+
+      base: city,
+      prefCities: city ? [city] : [],
+      region: (ax.region && ax.region.name) || null,
+
+      skills: skills,
+      restrictions: restrictions,
+      axisTags: (ax.classes || []).filter(function (c) {
+        return !SKILL_MAP[c.code] && !RESTRICTION_MAP[c.code];
+      }).map(function (c) { return { code: c.code, label: c.label }; }),
+      tagged: tagged,
+
+      avail: avail,
+      availKnown: availKnown,
+      hours: hours,
+
+      phone: ax.mobilePhone || ax.homePhone || ax.otherPhone || null,
+      email: ax.personalEmail || null,
+      hireDate: ax.hireDate || ax.startDate || null,
+      maxMiles: ax.acceptableDrivingDistance != null ? ax.acceptableDrivingDistance : null,
+      payRate: ax.payRate != null ? Number(ax.payRate) : null,
+
+      /* no AxisCare source — deliberately null, see _missing */
+      reliability: null, weekHrs: null, callOffs30: null,
+      declinesStreak: null, recentDeclines: null,
+      priorClients: [], replacedOn: [], tempNote: '', permNote: '',
+
+      _missing: missing
+    };
+  }
+
+  /* ---- fetch every active caregiver -----------------------
+     Uses the statuses filter so this costs 2 requests rather
+     than 7 over all 646 records. Pagination follows
+     results.nextPage, from which we only need startAfterId. */
+  function fetchActive(get, opts) {
+    opts = opts || {};
+    var limit = opts.limit || 100;
+    var out = [], guard = 0;
+
+    function page(after) {
+      var q = { statuses: 'Active', limit: limit };
+      if (after != null) q.startAfterId = after;
+      return get('/api/caregivers', q).then(function (res) {
+        var results = (res && res.data && res.data.results) || {};
+        var cgs = results.caregivers;
+        /* caregivers come back as an OBJECT keyed by id, unlike
+           clients and visits which are arrays */
+        var list = Array.isArray(cgs) ? cgs : Object.keys(cgs || {}).map(function (k) { return cgs[k]; });
+        out = out.concat(list);
+
+        var next = results.nextPage;
+        if (next && ++guard < 20) {
+          var m = /[?&]startAfterId=(\d+)/.exec(next);
+          if (m) return page(m[1]);
+        }
+        return out;
+      });
+    }
+    return page(null);
+  }
+
+  /* ---- coverage report, for eyeballing a fetch ------------- */
+  function report(list) {
+    var n = list.length || 1;
+    var pct = function (f) { return Math.round(100 * list.filter(f).length / n) + '%'; };
+    var missCount = {};
+    list.forEach(function (c) { (c._missing || []).forEach(function (f) { missCount[f] = (missCount[f] || 0) + 1; }); });
+    return {
+      total: list.length,
+      schedulable: list.filter(function (c) { return c.schedulable; }).length,
+      byStatus: list.reduce(function (a, c) { a[c.statusLabel] = (a[c.statusLabel] || 0) + 1; return a; }, {}),
+      coverage: {
+        name: pct(function (c) { return c.name; }),
+        city: pct(function (c) { return c.base; }),
+        phone: pct(function (c) { return c.phone; }),
+        gender: pct(function (c) { return c.gender; }),
+        hireDate: pct(function (c) { return c.hireDate; }),
+        anyTags: pct(function (c) { return c.tagged; }),
+        skills: pct(function (c) { return c.skills.length; }),
+        availability: pct(function (c) { return c.availKnown; }),
+        hours: pct(function (c) { return c.hours; }),
+        maxMiles: pct(function (c) { return c.maxMiles != null; })
+      },
+      missingCounts: missCount,
+      cities: Object.keys(list.reduce(function (a, c) { if (c.base) a[c.base] = 1; return a; }, {})).sort()
+    };
+  }
+
+  return {
+    map: mapCaregiver,
+    fetchActive: fetchActive,
+    normCity: normCity,
+    report: report,
+    SKILL_MAP: SKILL_MAP,
+    RESTRICTION_MAP: RESTRICTION_MAP,
+    TRAIT_CODES: TRAIT_CODES
+  };
+})();
+
+
+/* =========================================================
    AXISCARE  —  read-only client for the Netlify proxy
    ---------------------------------------------------------
    The token stays server-side; this just talks to our own
@@ -8847,11 +9757,33 @@ const AxisCare = (function(){
   'use strict';
   var FN='/.netlify/functions/axiscare';
 
+  /* The proxy is a Netlify Function, so it only exists when the site is
+     actually being served. Opening index.html from disk (file://) or from
+     a plain static server means there is nothing at this path — say so
+     plainly rather than surfacing a bare 'Failed to fetch'. */
+  function unavailable(reason){
+    var e=new Error(reason); e.axisUnavailable=true; return Promise.reject(e);
+  }
   function call(params){
+    if(location.protocol==='file:'){
+      return unavailable('AxisCare is unavailable because this page was opened straight from disk (file://). '+
+        'Netlify Functions only exist when the site is served, so there is no proxy to call. '+
+        'Use the deployed site, or run "netlify dev" locally. The dashboard itself works fine offline.');
+    }
     return fetch(FN+'?'+new URLSearchParams(params).toString(), { headers:{ 'Accept':'application/json' } })
+      .catch(function(err){
+        return unavailable('Could not reach the AxisCare proxy at '+FN+'. '+
+          'If the site is running locally, use "netlify dev" so the function exists. '+
+          '('+((err&&err.message)||'network error')+')');
+      })
       .then(function(r){
         return r.json()
-          .catch(function(){ return { ok:false, error:'Non-JSON response ('+r.status+')' }; })
+          .catch(function(){
+            /* a 404 HTML page means the function is not deployed */
+            throw Object.assign(new Error(r.status===404
+              ? 'The AxisCare proxy is not deployed at '+FN+' (HTTP 404). Check the Netlify functions directory.'
+              : 'AxisCare proxy returned a non-JSON response (HTTP '+r.status+').'), { status:r.status });
+          })
           .then(function(body){
             if(!r.ok) throw Object.assign(new Error(body.error||('HTTP '+r.status)), { status:r.status, body:body });
             return body;
@@ -8869,9 +9801,28 @@ const AxisCare = (function(){
       var p={ action:'get', path:path };
       if(query) Object.keys(query).forEach(function(k){ p['q_'+k]=query[k]; });
       return call(p);
+    },
+    /* STAGE 1 — the live active roster, mapped to the app's caregiver
+       shape. NOTHING in the UI calls this yet; the swap is stage 2.
+       Two requests, thanks to the statuses filter.
+           await AxisCare.roster()                      mapped
+           await AxisCare.roster({raw:true})            untouched AxisCare
+           AxisRoster.report(await AxisCare.roster())   coverage summary */
+    roster: function(opts){
+      opts = opts || {};
+      var self = this;
+      return AxisRoster.fetchActive(function(p, q){ return self.get(p, q); }, opts)
+        .then(function(raw){ return opts.raw ? raw : raw.map(AxisRoster.map); });
     }
   };
 })();
+
+/* Sample data is off by default. These put it back for a demo. */
+var DEMO = {
+  isOn: function(){ return ROSTER.demoOn(); },
+  on:  function(){ try{ localStorage.setItem('dcs_demo_data','1'); }catch(e){} location.reload(); },
+  off: function(){ try{ localStorage.removeItem('dcs_demo_data'); }catch(e){} location.reload(); }
+};
 
 CLOUD.boot();
 </script>

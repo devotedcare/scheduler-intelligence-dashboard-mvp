@@ -16,6 +16,13 @@
 [functions]
   node_bundler = "esbuild"
 
+# Care notes are swept from AxisCare on a schedule rather than fetched
+# live — the note text is only on the per-visit call, so a sweep is one
+# request per visit. Each run stops before the platform timeout and saves
+# a cursor, so several runs finish a sweep between them.
+[functions."carenotes-sync"]
+  schedule = "*/15 * * * *"
+
 # --------------------------------------------------------------
 # Keep repo plumbing off the public site. Nothing here contains a
 # secret (the AxisCare token only ever exists as a Netlify env var),

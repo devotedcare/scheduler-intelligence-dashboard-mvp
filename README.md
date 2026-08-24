@@ -12,7 +12,11 @@ dashboard is the layer on top that makes the day navigable.
 > every AxisCare field that actually exists, so nothing has to be guessed, and it
 > explains which parts need the lead developer.
 
-**Status: MVP.** Deployed for internal use, link-access only, no login.
+**Status: MVP.** Caregivers (184), clients (20) and open shifts are **live from
+AxisCare**. Sample data is cleared at boot — if a screen is empty, AxisCare had
+nothing or the fetch failed, and the banner says which. Care notes, medication
+lists and attendance have no AxisCare source yet.
+Deployed for internal use, link-access only, no login.
 See [Security posture](#security-posture) before real client data is entered.
 
 ---
@@ -31,6 +35,8 @@ See [Security posture](#security-posture) before real client data is entered.
 - [Security posture](#security-posture)
 - [Roadmap](#roadmap)
 
+See [CHANGELOG.md](CHANGELOG.md) for how the app got here.
+
 ---
 
 ## What's in the repo
@@ -45,11 +51,20 @@ config.js                      Supabase keys. Regenerated on every deploy.
 
 netlify.toml                   Build, redirects, caching, security headers.
 scripts/build-config.js        Writes config.js from environment variables.
+scripts/dev-server.js          Local dev server. Serves the site and runs the
+                               real Netlify function. No dependencies.
 netlify/functions/axiscare.js  Server-side AxisCare proxy (keeps the token off
                                the browser).
+netlify/functions/carenotes-sync.js
+                               Scheduled sweep of caregiver shift notes into
+                               Supabase. Chunked, resumable.
 supabase/schema.sql            Table + row-level security. Run once.
 
 .env.example                   The variable names you need. Not a real .env.
+CHANGELOG.md                   What changed, and why — including the
+                               decisions and the mistakes.
+.gitignore                     Blocks .env and roster-verification.html —
+                               both contain real data.
 ```
 
 The only third-party code loaded at runtime is Inter from Google Fonts and
@@ -101,6 +116,34 @@ Two consequences worth knowing:
 - **System-generated tasks persist correctly** because their IDs are
   deterministic (`sys_coret_c1`, not `sys_1723!` + a timestamp). Marking one
   Done sticks across reloads.
+
+### What is fetched, and in what order
+
+`ROSTER.hydrate()` clears the sample records, then fetches **caregivers, clients
+and open shifts in parallel** — about 4 seconds, dominated by the visit scan that
+finds open shifts.
+
+Three rules make that safe:
+
+- **It runs before the baseline snapshot.** Otherwise the overlay diffs a real
+  roster against a demo baseline and records all 184 caregivers as human edits.
+  That bug shipped 323KB to Supabase before a test caught it.
+- **A failed read shows nothing rather than something wrong.** If AxisCare is
+  unreachable the dashboard is empty and says so, with a Retry. An implausibly
+  small roster is rejected rather than applied. Sample data can be restored
+  deliberately with `DEMO.on()`, never automatically.
+- **`ROSTER.reconcile()` runs after every overlay is applied.** A saved overlay
+  predates the roster swap and can reference caregivers who no longer exist.
+
+Fields AxisCare has no source for — reliability, hours worked, call-offs,
+verification history on caregivers; `reqSkills`, `risk` and `hasBackup` on
+clients — are `null` and render as "Not tracked". They are never filled with a
+placeholder number, because a real name beside an invented reliability score is
+how someone ends up staffing on fiction.
+
+Open shifts are derived, not fetched: a visit that is not removed, has no
+caregiver, and is scheduled in the future. AxisCare has no field for *when* a
+shift became open, so "open for N days" cannot be shown.
 
 ### Saving and conflicts
 
@@ -226,9 +269,11 @@ Roughly five minutes.
 
 ## Setup part 3 — AxisCare
 
-**Connection solved and verified live on 2026-08-21.** The proxy talks to
-AxisCare successfully. What remains is mapping AxisCare records into the
-dashboard's views — the UI still renders demo data until that is done.
+**Connected and in use.** The proxy talks to AxisCare successfully, and the
+**caregiver roster is live** — 184 active people fetched on every load. Clients,
+shifts, care notes and medication lists are still sample data and are labelled
+as such in the UI. See [CLAUDE.md](CLAUDE.md) for what is live versus sample,
+and for why open shifts cannot simply be read from AxisCare.
 
 **Why a proxy at all.** Two reasons, both hard blockers:
 
@@ -424,6 +469,7 @@ All set in Netlify → Site configuration → Environment variables.
 | `AXISCARE_API_TOKEN` | for AxisCare | — | Server-side only. Never reaches the browser. |
 | `AXISCARE_API_VERSION` | no | `2023-10-01` | Sent as `X-AxisCare-Api-Version`. Required by AxisCare; a wrong value 400s *before* auth. |
 | `AXISCARE_ALLOWED_PATHS` | no | built-in list | Comma-separated path prefixes |
+| `SUPABASE_SERVICE_ROLE_KEY` | for care notes | — | **Server-side only.** Used by the care-notes sync to write to Supabase. Never sent to a browser. |
 
 Changing any of these requires a **redeploy** — they are read at build time.
 
@@ -439,27 +485,63 @@ Changing any of these requires a **redeploy** — they are read at build time.
 
 ## Running it locally
 
-**Quickest look** — open `index.html` in a browser. Everything works except
-cloud sync and the AxisCare function; changes save to that browser.
+**Use the dev server.** One command, no dependencies, no Netlify account:
 
-**With sync, no Netlify CLI** — put your Supabase URL and anon key directly into
-`config.js` and open the file. Don't commit that edit.
+```bash
+node scripts/dev-server.js      # http://localhost:8888
+```
 
-**Full fidelity, including the function:**
+It reproduces what Netlify does:
+
+- serves the site from the repo root
+- runs the **real** function code in `netlify/functions/` using the variables
+  from `.env`, so `/.netlify/functions/axiscare` behaves exactly as in production
+- generates `config.js` **in memory** from `.env`, so Supabase sync works without
+  overwriting the committed placeholder
+
+Check it is wired up:
+
+```
+http://localhost:8888/.netlify/functions/axiscare?action=ping
+http://localhost:8888/.netlify/functions/axiscare?action=get&path=/api/caregivers&q_limit=1
+```
+
+The function is re-read on every request, so edits to it take effect without a
+restart. Changes to `index.html` just need a refresh.
+
+> **Opening `index.html` straight from disk will not load AxisCare.** On
+> `file://` there is no server behind `/.netlify/functions/…`, so the browser
+> blocks the request and the app falls back to the demo roster. That is expected,
+> not a bug — the app says so in the console. The dashboard itself works fine
+> that way; only AxisCare and Supabase need the server.
+
+### Keep local testing out of the shared workspace
+
+`.env` points at the same Supabase row the deployed site uses, so ticking tasks
+locally syncs to the team. To work in isolation, set a different workspace in
+`.env`:
+
+```
+SCHEDULER_WORKSPACE=devoted_care_local
+```
+
+The row is created on first save. Netlify is unaffected — it uses its own
+environment variables.
+
+### If you prefer the Netlify CLI
 
 ```bash
 npm install -g netlify-cli
-netlify login
-netlify link                 # connect to the site you created
-netlify dev                  # http://localhost:8888
+netlify login && netlify link
+netlify dev
 ```
 
-`netlify dev` pulls the environment variables down from the site, so both
-Supabase sync and `/.netlify/functions/axiscare` behave exactly as in production.
+Equivalent, but it needs an account and a linked site. The dev server above
+exists so neither is required.
 
-> Running `node scripts/build-config.js` locally will overwrite `config.js` with
+> Running `node scripts/build-config.js` locally overwrites `config.js` with
 > empty values unless the variables are exported in your shell. If that happens,
-> `git checkout config.js`.
+> `git checkout config.js`. The dev server never writes to it.
 
 ---
 
@@ -536,6 +618,31 @@ await AxisCare.get('/api/visits', { startDate:'2026-08-21', endDate:'2026-08-22'
 Now it really is the token. Run `await AxisCare.ping()` — it distinguishes a
 configuration problem from a credentials problem.
 
+**`carenotes-sync` returns `{"error":"Not configured"}`.**
+It names what is missing. Almost always `SUPABASE_SERVICE_ROLE_KEY` — the sync
+writes with the service-role key, not the anon one. Add it in Netlify (and in
+`.env` for local runs), then **restart the dev server**, which reads `.env` only
+at startup. You should see `[dev] loaded 10 variables from .env`.
+
+**The sync returns `"done": false` every time.**
+That is correct, not a failure. Each run stops at a ~5s deadline and saves a
+cursor so the next one continues — the limit exists so a scheduled run survives
+the platform timeout. For a backfill, raise the budget:
+`?days=14&maxMs=120000` (local only; there is no timeout on the dev server).
+
+**Care Notes is empty and nothing is syncing.**
+Work down this list:
+1. Does the `care_notes` table exist? Re-run `supabase/schema.sql`.
+2. Is `SUPABASE_SERVICE_ROLE_KEY` set? Hit the function and read `missing`.
+3. **Is anything triggering it?** The schedule in `netlify.toml` only runs on a
+   **deployed** site. The local dev server has no cron — trigger it by hand.
+
+**A red "Couldn't reach AxisCare" banner.**
+The dashboard shows nothing rather than something stale or invented. The banner
+names the reason and offers **Retry**. Check
+`/.netlify/functions/axiscare?action=ping` — if that fails too it is the token or
+the proxy, not the app. Sample data is still available with `DEMO.on()`.
+
 **Everything is stale after a deploy.**
 Hard-refresh (Ctrl-F5). `index.html` and `config.js` are sent with
 no-cache headers, so this should be rare.
@@ -611,17 +718,28 @@ unauthenticated public URL is a disclosure.
 
 Next, in the order that unblocks the most:
 
-1. **AxisCare read integration** — replace seeded caregivers, clients and shifts
-   with live data. The connection is solved and verified; what remains is
-   mapping AxisCare records into the app's models. Start with `/api/visits`
-   over a date window, since Open Shifts, Find Coverage and Today are all built
-   on visits.
-2. **Authentication** — required before real client data. See above.
-3. **Per-user identity** — replace the "on shift" dropdown with real accounts so
+1. **Caregivers — done.** 184 active people, live on every load.
+
+2. **Open shifts — done.** Derived from visits that are unassigned, not
+   removed, and in the future. Verified against the previous dashboard: same
+   three shifts. Costs ~8 requests over a 28-day window.
+
+3. **Care notes — done.** Swept into Supabase every 15 minutes by
+   `netlify/functions/carenotes-sync.js`, because the note text is only on
+   AxisCare's per-visit call (~170 requests for a week). The dashboard reads the
+   mirror and makes no AxisCare calls for notes.
+
+4. **Attendance and the "Not tracked" figures.** Punctuality, no-shows, weekly
+   hours and prior-client history are all derivable from `clockIn` versus
+   `scheduledStartDate` on visits already being fetched. This would replace the
+   "Not tracked" placeholders on the caregiver workspace.
+
+5. **Authentication** — required before real client data. See above.
+6. **Per-user identity** — replace the "on shift" dropdown with real accounts so
    `updated_by` means something.
-4. **Supabase Realtime** — swap 20-second polling for live push, so two
+7. **Supabase Realtime** — swap 20-second polling for live push, so two
    schedulers see each other's changes instantly.
-5. **Write-back to AxisCare** — currently one-way by design. Assigning coverage
+8. **Write-back to AxisCare** — currently one-way by design. Assigning coverage
    in the dashboard would create the visit in AxisCare.
 
 ---

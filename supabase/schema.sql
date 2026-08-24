@@ -53,7 +53,7 @@ on conflict (id) do nothing;
 -- AND WRITE THIS ROW. That is an accepted trade-off while the data
 -- is fictional demo data. Before real caregiver names, client names,
 -- care notes or medication lists are entered, switch to the locked
--- down policies in section 3.
+-- down policies in section 4.
 -- --------------------------------------------------------------
 alter table public.scheduler_state enable row level security;
 
@@ -83,7 +83,77 @@ create policy "anon update scheduler state"
 
 
 -- --------------------------------------------------------------
--- 3. When you are ready to require a login
+-- 3. Care notes  (synced from AxisCare, not fetched live)
+--
+-- A caregiver's shift documentation lives ONLY on the per-visit
+-- detail call, /api/visits/{visitId} -> careNote. There is no bulk
+-- endpoint. At ~170 worked visits a week that is 170 requests per
+-- sweep — far too slow for a page load, and the same shape that
+-- caused repeated 429s on the Client Concierge dashboard.
+--
+-- So they are swept into this table on a schedule and the dashboard
+-- reads them from here, making zero AxisCare calls.
+-- --------------------------------------------------------------
+create table if not exists public.care_notes (
+  visit_id     text primary key,          -- AxisCare visit id, e.g. "s=1543:d=2026-08-21"
+  client_id    bigint,
+  client_name  text,
+  caregiver_id bigint,
+  caregiver_name text,
+  visit_at     timestamptz,               -- scheduled start of the visit
+  note         text not null,
+  synced_at    timestamptz not null default now()
+);
+
+comment on table public.care_notes is
+  'Caregiver shift notes swept from AxisCare /api/visits/{id}.careNote. Read-only mirror; AxisCare stays the source of truth.';
+
+create index if not exists care_notes_visit_at_idx on public.care_notes (visit_at desc);
+create index if not exists care_notes_client_idx   on public.care_notes (client_id, visit_at desc);
+
+-- Sync progress, so a run that hits its time limit can be resumed by
+-- the next one instead of starting over.
+create table if not exists public.care_notes_sync (
+  id           text primary key,
+  cursor_date  date,                      -- day currently being swept
+  cursor_index int  not null default 0,   -- position within that day
+  last_run_at  timestamptz,
+  last_status  text,
+  notes_written int not null default 0
+);
+
+insert into public.care_notes_sync (id, cursor_date, cursor_index)
+values ('carenotes', null, 0)
+on conflict (id) do nothing;
+
+
+-- --------------------------------------------------------------
+-- 3a. Care-notes security
+--
+-- The dashboard READS these with the anon key, exactly like
+-- scheduler_state. Writing is deliberately NOT granted to anon:
+-- only the sync function writes, using the service-role key, which
+-- lives in a Netlify environment variable and never reaches a
+-- browser. So a stranger with the site URL can read care notes
+-- (the same exposure already accepted for the AxisCare proxy) but
+-- cannot forge or destroy them.
+-- --------------------------------------------------------------
+alter table public.care_notes      enable row level security;
+alter table public.care_notes_sync enable row level security;
+
+drop policy if exists "anon read care notes" on public.care_notes;
+create policy "anon read care notes"
+  on public.care_notes for select
+  to anon, authenticated
+  using (true);
+
+-- No anon insert/update/delete policy, and none for care_notes_sync
+-- at all. The service-role key bypasses RLS, which is what the sync
+-- function uses.
+
+
+-- --------------------------------------------------------------
+-- 4. When you are ready to require a login
 --
 -- Run this block to revoke anonymous access. You must also add a
 -- sign-in screen to the app first, or nobody will be able to save.
@@ -98,7 +168,7 @@ create policy "anon update scheduler state"
 
 
 -- --------------------------------------------------------------
--- 4. Handy checks
+-- 5. Handy checks
 -- --------------------------------------------------------------
 -- Confirm RLS is on and see the active policies:
 --   select relname, relrowsecurity from pg_class where relname = 'scheduler_state';
@@ -108,3 +178,7 @@ create policy "anon update scheduler state"
 --   select id, rev, updated_by, updated_at,
 --          pg_size_pretty(length(overlay::text)::bigint) as overlay_size
 --     from public.scheduler_state;
+--
+-- Care-note sync health:
+--   select * from public.care_notes_sync;
+--   select count(*), min(visit_at), max(visit_at) from public.care_notes;

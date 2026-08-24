@@ -7,6 +7,9 @@ genuinely does not exist.
 
 ---
 
+> Background on how the app reached its current shape, including two
+> conclusions that turned out to be wrong, is in [CHANGELOG.md](CHANGELOG.md).
+
 ## What this app is
 
 An operations dashboard for the Devoted Care scheduling desk. It opens on **what
@@ -89,33 +92,195 @@ layout or wording change, or anything already answered in this file.
 
 ---
 
-## Right now the dashboard shows DEMO data — this is deliberate
+## What is live and what is sample
 
-**This matters, and it is the most common source of confusion. Read it before
-saying anything about the caregivers or shifts on screen.**
+**Everything the scheduling desk works from is now live AxisCare data.**
 
-Every caregiver, client and shift currently visible — Rosa Delgado, James Okafor,
-Cal Miller, Eleanor Wu — is **invented sample data generated in the browser**.
-None of it comes from AxisCare. The AxisCare connection is built, configured and
-working, but no screen is wired to it yet.
+| On screen | Source |
+|---|---|
+| **Caregivers** | Live — 184 active, fetched every load |
+| **Clients** | Live — 20 active |
+| **Open shifts** | Live — derived from unassigned future visits |
+| **Care notes** | Live — swept into Supabase on a schedule, read from there |
+| Medication lists | Cannot be fetched. AxisCare API limitation |
+| Attendance history | No AxisCare source. Derivable from visit clock-ins, not built |
+| Tasks, handoff notes, contact log | The dashboard's own records, entered by schedulers |
 
-That was a considered decision, not an oversight. The reasoning:
+**There is no sample data on screen by default.** The seed records still exist in
+`index.html`, but `purgeDemo()` clears them at boot. If a screen is empty it is
+because AxisCare genuinely has nothing, or because the fetch failed — and the
+banner says which.
 
-Some numbers the dashboard displays — `reliability`, `callOffs30`,
-`declinesStreak`, `weekHrs` — have **no AxisCare source at all**. They are
-hardcoded demo values. On a fictional "Rosa Delgado" that is obviously sample
-data. Attached to a **real caregiver's name** it reads as fact, and a scheduler
-could staff a high-risk client on a fabricated reliability score. Real identities
-plus invented performance metrics is worse than honest demo data.
+### Bringing sample data back
 
-**So if asked to "pull in the real caregivers":** explain this trade-off first,
-before writing code. The good news is that those metrics *are* derivable from
-`/api/visits` (see *What AxisCare does NOT have*), so the real fix is to compute
-them rather than to display invented ones. That is a substantial piece of work —
-flag it as such and check the scope is wanted.
+For a demo or a screenshot, in the browser console:
 
-Demo data is also why the app can show a full, busy schedule with no AxisCare
-call at all.
+```js
+DEMO.on()      // restore the sample caregivers, clients, shifts and notes
+DEMO.off()     // clear it again
+DEMO.isOn()
+```
+
+Both reload the page. While it is on, every screen carries a banner saying so.
+The setting is per-browser and never leaves the device.
+
+### The banner tells you where the data came from
+
+`demoNotice()` renders exactly one of these, in priority order:
+
+1. **Couldn't reach AxisCare** (red) — names the reason, offers Retry, and says
+   plainly that nothing is shown rather than something invented
+2. **Sample data is switched on** — with how to turn it off
+3. **Some AxisCare data didn't load** — a partial failure, naming what failed
+4. **This screen has no AxisCare source** — care notes, medications, attendance,
+   contact log. Each explains *why*, because "empty" and "not available" are
+   different messages
+5. **Live confirmation** on Caregivers and Open Shifts
+
+Do not remove these. If a request sounds like "clean up the banners", the honest
+fix is to wire the missing data, not to hide the label.
+
+### Figures that read "Not tracked"
+
+Reliability, hours worked, call-off counts, decline counts and
+availability-verification history have **no AxisCare source**. On a real
+caregiver they are `null` and render as "Not tracked".
+
+The same applies to clients: `reqSkills`, `risk`, `hasBackup`, `complaints30`
+and `missedThisWeek` do not exist in AxisCare. Client class tags on this account
+are **payment type only** (`PVT` Private Pay, `LTC` Long-Term Care Insurance) —
+there is no clinical requirement recorded anywhere, so skill-matching a caregiver
+to a client has nothing on the client side to match against.
+
+Two traps, both already hit once:
+
+- `null + '%'` renders the string `"null%"`
+- `null < 85` is **true**, so an untracked caregiver gets flagged as a
+  performance concern on evidence that does not exist
+
+Use `hasVal(v)` before judging a figure and `nt(v, suffix)` when displaying one.
+
+---
+
+## Care notes are SYNCED, not fetched live
+
+**Claude: do not "simplify" this into a direct AxisCare call.** It was built
+this way for a measured reason.
+
+A caregiver's shift documentation exists **only** on the per-visit detail call:
+
+```
+GET /api/visits/{visitId}  ->  careNote        (a plain string)
+```
+
+The visit *list* does not include it, and there is no bulk notes endpoint for
+shift documentation. So reading a week of notes is **one request per visit** —
+about 170 on this account, roughly 34 seconds at a polite 5 req/sec. Doing that
+on page load would be slow for one person and would put the team over AxisCare's
+limits. The Client Concierge dashboard hit `429` three times learning exactly
+this.
+
+### How it works instead
+
+```
+netlify/functions/carenotes-sync.js     scheduled every 15 min (netlify.toml)
+  -> reads visits day by day, newest first
+  -> reads each visit's careNote
+  -> upserts into Supabase  public.care_notes
+The dashboard reads public.care_notes. Zero AxisCare calls.
+```
+
+**Each run stops at a 7-second soft deadline** and saves a cursor
+(`care_notes_sync`), so the next run resumes. Netlify's function timeout varies
+by plan; this design does not depend on knowing it. A sweep needing 34s simply
+takes several runs.
+
+Days are swept **newest first**, so a run that runs out of time has still
+refreshed the notes people are most likely to open.
+
+### Two note types — do not confuse them
+
+| | Endpoint | What it is |
+|---|---|---|
+| **Shift documentation** | `/api/visits/{id}.careNote` | What the caregiver wrote after the visit. This is what Care Notes Review shows. |
+| Office notes | `/api/notes/client` | Notes staff typed on the client record. Authors are office staff, one cheap paginated list. Not currently used. |
+
+`/api/notes/{entityType}` looks tempting because it is one cheap call, but it is
+the second kind — it will not give you what a caregiver wrote about a visit.
+
+### Tuning, and why it is the way it is
+
+Measured on this account: a visit-detail call takes **~600ms**, and a worked week
+is ~170 visits.
+
+| Setting | Value | Why |
+|---|---|---|
+| `SOFT_DEADLINE_MS` | 5000 | Stops with room for one more request. An earlier 7000 overshot to 8.19s, uncomfortably close to a 10s platform limit. |
+| `DEFAULT_DAYS` | 3 | The schedule only has to keep up. Same shape Client Concierge settled on. |
+| `FRESH_DAYS` | 2 | Today and yesterday are **always re-read** — a caregiver may still be writing or correcting the note. Older days already stored are skipped. |
+| `MAX_RATE_PER_SEC` | 5 | Only enforced if AxisCare answers faster than that. At ~600ms per call it never sleeps. |
+
+### Manual backfill
+
+```
+/.netlify/functions/carenotes-sync?days=14
+/.netlify/functions/carenotes-sync?days=14&maxMs=120000   # local only
+/.netlify/functions/carenotes-sync?force=1                # ignore the skip
+```
+
+`maxMs` raises the per-run time budget. The 5s default exists to survive a
+platform timeout on the schedule; the **local dev server has no timeout**, so a
+hand-run backfill can use 60–120s and finish a week in one pass instead of
+twenty. Capped at 600000.
+
+Returns `{ ok, done, written, scanned, skipped, requests, ms, avgRequestMs }`.
+
+**`done: false` is normal on the schedule** — each run does ~6 visits in 5s and
+saves a cursor. At 96 runs a day against ~24 new visits it keeps up easily; it
+just works in slices rather than finishing in one.
+
+Visits with **no** care note are never stored, so they cannot be skipped and are
+re-checked every run. Keeping `DEFAULT_DAYS` short is what stops that mattering.
+
+**Needs Carlo:** the sync writes with `SUPABASE_SERVICE_ROLE_KEY`, a Netlify
+environment variable. Anon can only *read* `care_notes`, so a stranger with the
+site URL cannot forge or delete notes.
+
+---
+
+## Open shifts — how they are derived
+
+**Correction.** An earlier version of this file said open shifts do not exist in
+AxisCare. That was wrong, and it is worth knowing why: the finding came from a
+`/api/visits` window that silently truncated to three days *in the past*, where
+every unassigned visit happened to be a cancellation. The conclusion was drawn
+from a biased sample.
+
+The rule that actually works:
+
+```
+an open shift = a visit that is NOT removed
+              + has NO caregiver
+              + is scheduled in the FUTURE
+```
+
+Verified 2026-08-24: that returns exactly the shifts the previous dashboard
+displayed — Ziad Niazi (Sep 6), Fayde Macune (Sep 7), Virginia Eddy (Sep 18),
+all Thousand Oaks.
+
+Both other conditions matter. Drop `removed` and cancelled visits appear as
+coverage gaps. Drop the future check and every historical unassigned slot floods
+the list.
+
+`AxisLive.fetchOpenShifts()` scans a 28-day window: ~700 visits, 8 requests,
+about 4 seconds. Widening the window costs proportionally.
+
+### What AxisCare does not tell you about an open shift
+
+- **When it became open.** There is no such field, so `openedAt` is `null`. An
+  "open for 3 days" figure cannot be computed from the API.
+- **Why it is open.** A call-off, a cancellation and a never-staffed slot are
+  indistinguishable.
 
 ---
 
@@ -141,6 +306,24 @@ await AxisCare.get('/api/caregivers', { limit: 25 })
 await AxisCare.get('/api/visits', { startDate:'2026-08-21', endDate:'2026-08-22' })
 ```
 
+### How the live roster gets in
+
+`ROSTER.hydrate()` runs at boot, before `CLOUD.boot()` takes its baseline
+snapshot. It fetches the active roster (`statuses=Active`, two requests, ~1.7s),
+maps each record with `AxisRoster.map()`, keeps Ana, and re-points any demo
+record that referenced a caregiver who no longer exists.
+
+From the browser console on the live site:
+
+```js
+await AxisCare.status()                       // is the proxy configured?
+await AxisCare.ping()                         // does the token actually work?
+await AxisCare.roster()                       // the mapped live roster
+await AxisCare.roster({ raw:true })           // untouched AxisCare records
+AxisRoster.report(await AxisCare.roster())    // coverage summary
+ROSTER.status()                               // what the last hydrate did
+```
+
 ### Two traps that cost real time
 
 - **Paths are unversioned.** `/api/caregivers`, never `/api/v1/caregivers`. Any
@@ -148,6 +331,12 @@ await AxisCare.get('/api/visits', { startDate:'2026-08-21', endDate:'2026-08-22'
 - **The version check runs before authentication.** A wrong or missing version
   header returns the same 400 whether the token is valid, invalid or absent — so
   a version problem masks everything else. Rule out the version first, always.
+- **`/api/visits` silently truncates, and paginates differently.** A four-week
+  window returned 88 visits covering only **three days**, with the rest behind
+  `results.nextPage`. Worse, visits page on `nextPageToken` while caregivers
+  page on `startAfterId` — so code copied from one to the other looks right and
+  quietly returns a fraction of the data. Always follow `nextPage` until it is
+  absent.
 
 ---
 
@@ -328,7 +517,7 @@ just explain what was found and move to what does work.
 
 | Wanted | Reality |
 |---|---|
-| Caregiver reliability %, call-off count, decline count | **No such field.** Currently invented demo values. *Derivable* from `/api/visits` — compare `clockIn.time` against `scheduledStartDate`, and treat a visit with no `clockIn` as a no-show. |
+| Caregiver reliability %, call-off count, decline count | **No such field.** `null` on real caregivers, rendered as "Not tracked". *Derivable* from `/api/visits` — compare `clockIn.time` against `scheduledStartDate`, and treat a visit with no `clockIn` as a no-show. |
 | Hours worked this week | **No such field.** Derivable by summing visit durations per caregiver over a date range. |
 | Which clients a caregiver has served before | **No such field.** Derivable from `/api/visits` by grouping on `caregiver.id`. |
 | A Mon–Sun availability grid | **Does not exist.** Only the coarse class tags above (`WKDY`, `WKND`, `MRNNG`, `NOVRN`…), and only for 60% of caregivers. |
@@ -420,12 +609,31 @@ file. Full detail is in `README.md` under *How the data model works*.
    instead of freezing at the first save.
 
 2. **The boot order at the very end of the file.** `CLOUD.boot()` must be the
-   last thing that runs, and nothing may call `render()` before it. If AxisCare
-   data is ever loaded in, it has to arrive **before** `CLOUD.boot()` takes its
-   baseline snapshot, or the overlay will record the entire roster as if a human
-   had typed it.
+   last thing that runs. The sequence inside it is load-bearing and was arrived
+   at by fixing two real bugs:
 
-3. **`config.js` is generated at deploy time** from Netlify environment
+   ```
+   primeLazy()
+   render()                 paint on the demo roster
+   ROSTER.hydrate()         real caregivers land HERE, before the snapshot
+   -> finishBoot():
+        render()            flush lazily-created ops fields FIRST
+        BASE = snapshot()   baseline now includes them
+        applyOverlay()      replay saved work
+        ROSTER.reconcile()  the overlay can bring back deleted caregiver ids
+        render()
+   ```
+
+   Snapshotting before that first `render()` put all 184 caregivers into the
+   overlay (323KB written to Supabase as though a human typed them). Skipping
+   `reconcile()` after `applyOverlay()` let a saved overlay resurrect a deleted
+   caregiver id and crash the Today board. Both have regression tests.
+
+3. **`ROSTER.reconcile()` must run after *every* overlay application** — the
+   local one at boot and each Supabase pull. A saved overlay predates the roster
+   swap and can reference caregivers who no longer exist.
+
+4. **`config.js` is generated at deploy time** from Netlify environment
    variables. Editing it has no effect — the build overwrites it. The committed
    copy is intentionally empty.
 
