@@ -1617,6 +1617,37 @@
   .tmp-d{font-weight:700;color:var(--navy-900);width:58px;flex-shrink:0}
   .tmp-v{flex:1;color:var(--ink-soft)}
   .tmp-x{border:0;background:none;color:var(--crit-solid);font-size:11px;font-weight:700;cursor:pointer;font-family:inherit}
+  /* ---- availability editing inside the day panel ----
+     The controls are the same ones the full-page form used, at 390px
+     instead of a two-column page. A day's four possible dropdowns cannot
+     sit on one line here, so the row becomes a small grid: the weekday
+     label in a fixed column, everything else stacked beside it.
+
+     ruleStatusChange()/ruleWinChange() toggle display:flex|none INLINE on
+     .rule-win and .rule-custom, so nothing below may set their display —
+     only how they behave once shown. */
+  .sp-note{display:flex;align-items:flex-start;gap:8px;font-size:11.5px;line-height:1.45;color:var(--navy-900);background:#EFF4F7;border:1px solid #D5E0E7;border-radius:var(--r);padding:9px 11px;margin-bottom:13px}
+  .sp-note svg{flex:none;margin-top:1px}
+  .sp-card{border:1px solid var(--line);border-radius:var(--r);padding:13px;margin-bottom:12px}
+  .sp-card:last-child{margin-bottom:0}
+  .sp-ch{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-faint);margin-bottom:11px}
+  .sp-body .rule-days{gap:9px}
+  .sp-body .rule-day{display:grid;grid-template-columns:34px minmax(0,1fr);gap:5px 8px;align-items:center}
+  .sp-body .rule-d{width:auto;font-size:12px}
+  .sp-body .rule-st{width:100%;min-width:0}
+  .sp-body .rule-win{grid-column:2;flex-wrap:wrap;gap:5px;min-width:0}
+  .sp-body .rule-win>.ein{flex:1 1 100%;min-width:0}
+  .sp-body .rule-custom{flex:1 1 100%;min-width:0;gap:6px}
+  .sp-body .rule-custom .ein{flex:1 1 0;min-width:0}
+  .sp-body .ef2{gap:9px}
+  .sp-body .av-help{margin-top:11px;font-size:11px;line-height:1.5}
+  .sp-body .tmp-add{flex-wrap:wrap;gap:6px}
+  .sp-body .tmp-add>.ein{flex:1 1 100%;min-width:0}
+  .sp-body .tmp-add>.btn{margin-left:auto}
+  .sp-body .tmp-row{gap:7px;font-size:12px}
+  .sp-body .tmp-d{width:52px}
+  .sp-body .el{display:block;font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--ink-faint);margin-bottom:5px}
+  .sp-foot .sp-foot-note{font-size:11.5px;color:var(--ink-faint);flex:1}
   /* availability rules summary */
   .rl-grid{display:grid;grid-template-columns:1fr 1fr;gap:22px}
   @media(max-width:760px){.rl-grid{grid-template-columns:1fr}}
@@ -6301,8 +6332,85 @@ function openDayPanel(cgId, dateISO){
 function closeSidePanel(){ document.getElementById('sidebg').classList.remove('show'); document.getElementById('sidepanel').innerHTML=''; }
 function dayPanelEdit(){ modalState.mode='edit'; renderDayPanel(); }
 function dayPanelPick(field,val){ modalState[field]=val; renderDayPanel(); }
+/* ---- availability editing, inside the day panel ----
+
+   The three cards below were a full-page screen (availCalForm). They now
+   live in the side panel, opened from whichever day was clicked.
+
+   The markup keeps the SAME element ids as the old form on purpose:
+   saveAvailability(), ruleStatusChange(), ruleWinChange(), addOverride()
+   and removeOverride() all address their controls by id, so they work
+   here untouched. Only the layout differs, and that is CSS. */
+function spAvailBody(c){
+  const ops=c.ops, a2=ops.avail2||{};
+  const hourOpts=(sel)=>{ let o=''; for(let h=0;h<=24;h++){ o+=`<option value="${h}" ${sel===h?'selected':''}>${h===24?'12a (next)':_h12(h)}</option>`; } return o; };
+  const ruleStatusOf=(dd)=>{ const t=dd.type; if(['Anytime','Morning','Afternoon','Evening','Overnight','Custom','Open'].includes(t)) return 'Available'; if(t==='Off') return 'Off'; if(['Unavailable','Other Agency','School','Childcare'].includes(t)) return t; return 'Off'; };
+  const dayRow=(d)=>{
+    const dd=a2[d]||{type:'Off'}, st=ruleStatusOf(dd), hasWin=['Available','School','Childcare'].includes(st);
+    const winT = dd.win || (['Anytime','Morning','Afternoon','Evening','Overnight'].includes(dd.type)?dd.type:(dd.type==='Custom'?'Custom':'Anytime'));
+    const w=dayWindow(dd)||[8,16];
+    return `<div class="rule-day">
+      <div class="rule-d">${d}</div>
+      <select class="ein rule-st" id="rs_${d}" onchange="ruleStatusChange('${d}')">${RULE_STATUS.map(s=>`<option ${st===s?'selected':''}>${s}</option>`).join('')}</select>
+      <div class="rule-win" id="rw_${d}" style="display:${hasWin?'flex':'none'}">
+        <select class="ein" id="rwt_${d}" onchange="ruleWinChange('${d}')">${['Anytime','Morning','Afternoon','Evening','Overnight','Custom'].map(x=>`<option ${winT===x?'selected':''}>${x}</option>`).join('')}</select>
+        <div class="rule-custom" id="rwc_${d}" style="display:${winT==='Custom'?'flex':'none'}"><select class="ein" id="rs0_${d}">${hourOpts(w[0])}</select><span class="av-dash">–</span><select class="ein" id="re0_${d}">${hourOpts(w[1])}</select></div>
+      </div>
+    </div>`;
+  };
+  const vac=ops.vacationDates||{};
+  const ovKeys=Object.keys(ops.availOverrides||{}).sort();
+  const ovList = ovKeys.length
+    ? ovKeys.map(k=>{ const e=ops.availOverrides[k], lbl=availDayLabel(e);
+        return `<div class="tmp-row"><span class="tmp-d">${new Date(k+'T12:00').toLocaleDateString('en-US',{month:'short',day:'numeric'})}</span><span class="tmp-v">${e.type==='Off'?'Cleared':(e.type+(dayWindow(e)?' · '+lbl:''))}${e.note?' · '+esc(e.note):''}</span><button class="tmp-x" onclick="removeOverride('${c.id}','${k}')">Remove</button></div>`;
+      }).join('')
+    : '<div class="ws-sub">No temporary changes set.</div>';
+  return `<div class="sp-body">
+    <div class="sp-note">${ic('shifts',13)} <span>Assigned client visits come from <b>AxisCare</b> and are not edited here. These rules cover weekly availability and time off.</span></div>
+    <div class="sp-card">
+      <div class="sp-ch">Regular Weekly Availability</div>
+      <div class="rule-days">${DAY_ORDER.map(dayRow).join('')}</div>
+      <div class="av-help"><b>Available</b> shows open hours · <b>Other Agency</b>, <b>School</b>, <b>Childcare</b> mark commitments · <b>Off</b> / <b>Unavailable</b> show as not available.</div>
+    </div>
+    <div class="sp-card">
+      <div class="sp-ch">Vacation / Time Off</div>
+      <div class="ef2"><div><label class="el">From</label><input class="ein" type="date" id="vacstart" value="${vac.start||''}"></div><div><label class="el">To</label><input class="ein" type="date" id="vacend" value="${vac.end||''}"></div></div>
+      <div class="ws-sub" style="margin-top:8px">Leave blank if none. Shows as Vacation on the calendar.</div>
+    </div>
+    <div class="sp-card">
+      <div class="sp-ch">Temporary / One-off Changes</div>
+      <div class="tmp-add"><input class="ein" type="date" id="tmpdate"><select class="ein" id="tmpstatus">${['Unavailable','Sick','Available','Other Agency'].map(s=>`<option>${s}</option>`).join('')}</select><button class="btn sm" onclick="addOverride('${c.id}')">Add</button></div>
+      <div class="tmp-list">${ovList}</div>
+    </div>
+  </div>`;
+}
+function dayPanelAvailEdit(){ modalState.mode='avail'; renderDayPanel(); }
+function dayPanelAvailCancel(){ modalState.mode='view'; renderDayPanel(); }
+/* saveAvailability() reads the controls by id, so it has to run while the
+   edit markup is still on the page — then the panel goes back to the day
+   it was opened on, now showing the saved rules. */
+function dayPanelAvailSave(id){
+  saveAvailability(id);
+  modalState.mode='view';
+  renderDayPanel();
+}
+/* Adding or removing a one-off re-renders the page, which does not touch
+   the panel — it is written straight into #sidepanel. Keep it in step. */
+function spRefresh(){
+  try{
+    if(modalState && modalState.dayCg && cgById(modalState.dayCg)) renderDayPanel();
+  }catch(e){}
+}
 function renderDayPanel(){
   const sEl=document.getElementById('sidepanel'), c=cgById(modalState.dayCg), date=new Date(modalState.dayDate);
+  if(modalState.mode==='avail'){
+    /* The rules being edited are the caregiver\u2019s, not this one day\u2019s, so
+       the header says so rather than showing the date you arrived from. */
+    sEl.innerHTML=`<div class="sp-head"><div><div class="sp-date">Edit Availability</div><div class="sp-date2">${esc(c.name)}</div></div><button class="mc" onclick="closeSidePanel()">\u00d7</button></div>`
+      + spAvailBody(c)
+      + `<div class="sp-foot"><button class="btn" onclick="dayPanelAvailCancel()">Cancel</button><button class="btn pri" onclick="dayPanelAvailSave('${c.id}')">${ic('check',14)} Save</button></div>`;
+    return;
+  }
   const head=`<div class="sp-head"><div><div class="sp-date">${date.toLocaleDateString('en-US',{weekday:'long'})}</div><div class="sp-date2">${date.toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})} \u00b7 ${c.name}</div></div><button class="mc" onclick="closeSidePanel()">×</button></div>`;
   const cur=dayAvail(c,date), S=calDayStatus(c,date), wd=wdOf(date);
   const blocks=dayBlocks(c,date);
@@ -6328,7 +6436,7 @@ function renderDayPanel(){
       ${row('Repeat pattern', repeat)}
       <div class="sp-updated">${ic('clock',11)} Last updated ${u}</div>
     </div>
-    <div class="sp-foot"><span class="sp-foot-note">Edit availability in <b>Availability Management</b> below the calendar.</span><button class="btn pri" onclick="closeSidePanel()">Close</button></div>`;
+    <div class="sp-foot"><button class="btn" onclick="closeSidePanel()">Close</button><button class="btn pri" onclick="dayPanelAvailEdit()">${ic('log',13)} Edit Availability</button></div>`;
 }
 function dayPanelEditBody(c,date){
   const offStatus=['Unavailable','Vacation','Sick','Other Agency','Devoted Shift'].includes(modalState.status);
@@ -6419,7 +6527,6 @@ function saveStrengths(id){
 function availTypeChange(day){ const sel=document.getElementById('at_'+day); const row=document.getElementById('atcustom_'+day); if(row) row.style.display = sel.value==='Custom'?'flex':'none'; }
 function cgAvailForm(c){
   const m=state.availMode;
-  if(m==='calendar') return availCalForm(c);
   if(m==='prefs') return availPrefsForm(c);
   if(m==='blocks') return availBlocksForm(c);
   return availEditMenu(c);
@@ -6430,7 +6537,6 @@ function availEditMenu(c){
     <div class="ws-headrow"><div class="ws-name">Edit Availability \u2014 ${esc(c.name)}</div></div>
     <div class="aem-sub">What would you like to edit?</div>
     <div class="aem-list">
-      ${item('calendar','calendar','Calendar Availability','Regular weekly availability, vacation &amp; temporary time off, dates and time windows')}
       ${item('prefs','gear','Preferences','Preferred shift length, hours wanted, day / evening / overnight / live-in, travel distance &amp; cities')}
       ${item('blocks','ban','Client Restrictions / Blocks','Clients this caregiver must not be assigned to \u2014 reason, date added, temporary or permanent')}
     </div>`;
@@ -6438,43 +6544,6 @@ function availEditMenu(c){
 function _availHead(c,title){ return `<button class="ws-back" onclick="availSetMode(null)">${ic('chevL',14)} Edit options</button>
     <div class="ws-headrow"><div class="ws-name">${title} \u2014 ${esc(c.name)}</div>
       <div class="ws-headbtns"><button class="btn sm" onclick="cancelAvailEdit()">Cancel</button><button class="btn pri sm" onclick="saveAvailability('${c.id}')">${ic('check',13)} Save</button></div></div>`; }
-function availCalForm(c){
-  const ops=c.ops, a2=ops.avail2;
-  const hourOpts=(sel)=>{ let o=''; for(let h=0;h<=24;h++){ o+=`<option value="${h}" ${sel===h?'selected':''}>${h===24?'12a (next)':_h12(h)}</option>`; } return o; };
-  const ruleStatusOf=(dd)=>{ const t=dd.type; if(['Anytime','Morning','Afternoon','Evening','Overnight','Custom','Open'].includes(t)) return 'Available'; if(t==='Off') return 'Off'; if(['Unavailable','Other Agency','School','Childcare'].includes(t)) return t; return 'Off'; };
-  const dayRow=(d)=>{
-    const dd=a2[d]||{type:'Off'}, st=ruleStatusOf(dd), hasWin=['Available','School','Childcare'].includes(st);
-    const winT = dd.win || (['Anytime','Morning','Afternoon','Evening','Overnight'].includes(dd.type)?dd.type:(dd.type==='Custom'?'Custom':'Anytime'));
-    const w=dayWindow(dd)||[8,16];
-    return `<div class="rule-day">
-      <div class="rule-d">${d}</div>
-      <select class="ein rule-st" id="rs_${d}" onchange="ruleStatusChange('${d}')">${RULE_STATUS.map(s=>`<option ${st===s?'selected':''}>${s}</option>`).join('')}</select>
-      <div class="rule-win" id="rw_${d}" style="display:${hasWin?'flex':'none'}">
-        <select class="ein" id="rwt_${d}" onchange="ruleWinChange('${d}')">${['Anytime','Morning','Afternoon','Evening','Overnight','Custom'].map(x=>`<option ${winT===x?'selected':''}>${x}</option>`).join('')}</select>
-        <div class="rule-custom" id="rwc_${d}" style="display:${winT==='Custom'?'flex':'none'}"><select class="ein" id="rs0_${d}">${hourOpts(w[0])}</select><span class="av-dash">\u2013</span><select class="ein" id="re0_${d}">${hourOpts(w[1])}</select></div>
-      </div>
-    </div>`;
-  };
-  const vac=ops.vacationDates||{};
-  const ovKeys=Object.keys(ops.availOverrides||{}).sort();
-  const ovList = ovKeys.length ? ovKeys.map(k=>{ const e=ops.availOverrides[k]; const lbl=availDayLabel(e); return `<div class="tmp-row"><span class="tmp-d">${new Date(k+'T12:00').toLocaleDateString('en-US',{month:'short',day:'numeric'})}</span><span class="tmp-v">${e.type==='Off'?'Cleared':(e.type+(dayWindow(e)?' \u00b7 '+lbl:''))}${e.note?' \u00b7 '+esc(e.note):''}</span><button class="tmp-x" onclick="removeOverride('${c.id}','${k}')">Remove</button></div>`; }).join('') : '<div class="ws-sub">No temporary changes set.</div>';
-  return _availHead(c,'Calendar Availability')+`
-    <div class="ws-card span2 av-callout">${ic('shifts',14)} <span><b>Devoted shifts and assigned visits come from AxisCare</b> and are not entered here. These rules cover regular weekly availability and time off. Find Coverage combines both.</span></div>
-    <div class="ws-card span2"><div class="ws-h">Regular Weekly Availability</div>
-      <div class="rule-days">${DAY_ORDER.map(dayRow).join('')}</div>
-      <div class="av-help">Set each day\u2019s rule. <b>Available</b> shows open hours \u00b7 <b>Other Agency</b>, <b>School</b>, <b>Childcare</b> mark commitments \u00b7 <b>Off</b>/<b>Unavailable</b> show as not available.</div>
-    </div>
-    <div class="ws-grid">
-      <div class="ws-card"><div class="ws-h">Vacation / Time Off</div>
-        <div class="ef2"><div><label class="el">From</label><input class="ein" type="date" id="vacstart" value="${vac.start||''}"></div><div><label class="el">To</label><input class="ein" type="date" id="vacend" value="${vac.end||''}"></div></div>
-        <div class="ws-sub" style="margin-top:8px">Leave blank if none. Shows as Vacation on the calendar.</div>
-      </div>
-      <div class="ws-card"><div class="ws-h">Temporary / One-off Changes</div>
-        <div class="tmp-add"><input class="ein" type="date" id="tmpdate"><select class="ein" id="tmpstatus">${['Unavailable','Sick','Available','Other Agency'].map(s=>`<option>${s}</option>`).join('')}</select><button class="btn sm" onclick="addOverride('${c.id}')">Add</button></div>
-        <div class="tmp-list">${ovList}</div>
-      </div>
-    </div>`;
-}
 function availPrefsForm(c){
   const ops=c.ops, em=ops.emergency||{}, sp=ops.shiftPrefs||{};
   const spChk=(k,l)=>`<label class="av-chk"><input type="checkbox" id="sp_${k}" ${sp[k]?'checked':''}> ${l}</label>`;
@@ -6532,9 +6601,9 @@ function addOverride(id){
   if(st==='Available') entry.win='Anytime';
   c.ops.availOverrides[dt]=entry;
   c.ops.lastUpdated=new Date(); c.ops.lastUpdatedBy=state.onShift;
-  toast('Temporary change added'); render();
+  toast('Temporary change added'); render(); spRefresh();
 }
-function removeOverride(id, key){ const c=cgById(id); if(c.ops.availOverrides) delete c.ops.availOverrides[key]; c.ops.lastUpdated=new Date(); c.ops.lastUpdatedBy=state.onShift; render(); }
+function removeOverride(id, key){ const c=cgById(id); if(c.ops.availOverrides) delete c.ops.availOverrides[key]; c.ops.lastUpdated=new Date(); c.ops.lastUpdatedBy=state.onShift; render(); spRefresh(); }
 function saveAvailability(id){
   const c=cgById(id), ops=c.ops, gV=x=>{const e=document.getElementById(x);return e?e.value:'';};
   if(document.getElementById('rs_'+DAY_ORDER[0])){
@@ -6563,7 +6632,7 @@ function saveAvailability(id){
   if(document.getElementById('prefcities')) c.prefCities=gV('prefcities').split(',').map(s=>s.trim()).filter(Boolean);
   if(document.getElementById('av_restr')!==null) c.restrictions=gV('av_restr').split('\n').map(s=>s.trim()).filter(Boolean);
   const lf=gV('av_lift'); if(lf!=='') c.liftLimit=parseInt(lf)||0;
-  if(document.getElementById('blk_'+state.clients[0].id)){ const prev=ops.clientRestr||[]; ops.clientRestr=state.clients.filter(cl=>gC('blk_'+cl.id)).map(cl=>{ const ex=prev.find(r=>r.client===cl.id); return {client:cl.id, reason:gV('blkr_'+cl.id)||'Do not assign', level:gV('blkl_'+cl.id)||'hard', duration:gV('blkd_'+cl.id)||'permanent', notes:(gV('blkn_'+cl.id)||'').trim(), addedBy: ex?ex.addedBy:state.onShift, addedDate: ex?ex.addedDate:new Date()}; }); }
+  if(state.clients[0] && document.getElementById('blk_'+state.clients[0].id)){ const prev=ops.clientRestr||[]; ops.clientRestr=state.clients.filter(cl=>gC('blk_'+cl.id)).map(cl=>{ const ex=prev.find(r=>r.client===cl.id); return {client:cl.id, reason:gV('blkr_'+cl.id)||'Do not assign', level:gV('blkl_'+cl.id)||'hard', duration:gV('blkd_'+cl.id)||'permanent', notes:(gV('blkn_'+cl.id)||'').trim(), addedBy: ex?ex.addedBy:state.onShift, addedDate: ex?ex.addedDate:new Date()}; }); }
   const vl=gV('vlast2'); if(vl) ops.availLastConfirmed=new Date(vl+'T12:00');
   ops.availCheckFreq=gV('vfreq2')||ops.availCheckFreq;
   ops.lastUpdated=new Date(); ops.lastUpdatedBy=state.onShift;
@@ -6651,7 +6720,6 @@ function viewCaregiverWorkspace(c){
     <div class="ws-headrow">
       <div class="ws-name">${c.name}</div>
       <div class="ws-headbtns">
-        <button class="btn pri sm" onclick="editAvailability('${c.id}')">${ic('log',13)} Edit Availability</button>
         <button class="btn sm" onclick="editCaregiver('${c.id}')">${ic('log',13)} Edit Profile</button>
         <button class="btn sm" onclick="dispCall('${c.id}')">${ic('phone',13)} Call</button>
         <button class="btn sm" onclick="openResumeModal('${c.id}')">${ic('coverage',13)} Send Resume</button>
@@ -6673,40 +6741,18 @@ function viewCaregiverWorkspace(c){
       <div class="ws-card span2"><div class="ws-h ws-h-flex"><span>Caregiver Strengths</span><button class="btn sm" onclick="editStrengths('${c.id}')">${ic('log',12)} Edit Strengths</button></div>${strengthsBody}</div>
     </div>`;
 }
+/* Weekly rules and time off used to be summarised here with their own Edit
+   buttons. Both are now read off the calendar and edited in the day panel,
+   so only Desired Hours is left. */
 function availRulesSummary(c){
-  const ops=c.ops, a2=ops.avail2||{};
-  const dayLine=(d)=>{ const dd=a2[d]||{type:'none'}, t=dd.type;
-    let v;
-    if(t==='none') v='<span class="rl-needs">Needs update</span>';
-    else if(t==='Off') v='<span class="rl-off">Unavailable</span>';
-    else if(t==='Unavailable') v='<span class="rl-off">Unavailable</span>';
-    else if(t==='Other Agency') v='<span class="rl-ag">Other agency</span>';
-    else if(['School','Childcare'].includes(t)){ const w=dayWindow(dd); v=t+(w?' \u00b7 avail '+_h12u(w[0])+'\u2013'+_h12u(w[1]):''); }
-    else { const w=dayWindow(dd); v='<span class="rl-av">'+(t==='Anytime'||dd.win==='Anytime'?'Anytime':(t==='Overnight'||dd.win==='Overnight'?'Overnight':(w?_h12u(w[0])+'\u2013'+_h12u(w[1]):'Available')))+'</span>'; }
-    return `<div class="rl-row"><span class="rl-d">${d}</span><span class="rl-v">${v}</span></div>`;
-  };
-  const vac=ops.vacationDates;
-  const vacLine = vac&&vac.start ? `${new Date(vac.start+'T12:00').toLocaleDateString('en-US',{month:'short',day:'numeric'})}\u2013${new Date((vac.end||vac.start)+'T12:00').toLocaleDateString('en-US',{month:'short',day:'numeric'})}` : 'None scheduled';
-  const ovKeys=Object.keys(ops.availOverrides||{}).sort();
-  const ovList = ovKeys.length
-    ? `<div class="rl-ovlist">${ovKeys.map(ds=>`<div class="rl-row"><span class="rl-d">${fmtDateShort(ds)}</span><span class="rl-v">${availDayLabel(ops.availOverrides[ds])}</span></div>`).join('')}</div>`
-    : `<div class="ws-none">No temporary changes scheduled.</div>`;
-  const sp=ops.shiftPrefs||{};
+  const ops=c.ops, sp=ops.shiftPrefs||{};
   const spList=[sp.short&&'4\u20136 hours',sp.medium&&'6\u20138 hours',sp.long&&'8\u201312 hours',sp.twelve&&'12-hour shifts',ops.emergency&&ops.emergency.overnight&&'Overnight',sp.liveIn&&'24-Hour / Live-In'].filter(Boolean).join(', ')||'No preference set';
   const avTags=[];
   if(ops.emergency&&(ops.emergency.urgent||ops.emergency.sameDay)) avTags.push('Last-Minute Available');
   if(ops.emergency&&ops.emergency.sitter) avTags.push('Hospital Sitter');
   if(c.avail.Sat===1||c.avail.Sun===1) avTags.push('Weekend Available');
   const tagsHtml = avTags.length?`<div class="av2-tags">${avTags.map(t=>`<span class="av2-tag">${t}</span>`).join('')}</div>`:'';
-  return `<div class="ws-card span2"><div class="ws-h ws-h-flex"><span>Regular Weekly Availability</span><button class="btn sm" onclick="editAvailability('${c.id}','calendar')">${ic('log',13)} Edit Availability</button></div>
-      <div class="rl-weekly">${DAY_ORDER.map(dayLine).join('')}</div>
-    </div>
-    <div class="ws-card span2"><div class="ws-h ws-h-flex"><span>Time Off &amp; Changes</span><button class="btn sm" onclick="editAvailability('${c.id}','calendar')">${ic('log',13)} Edit</button></div>
-      <div class="rl-row"><span class="rl-d">Vacation</span><span class="rl-v">${vacLine}</span></div>
-      <div class="rl-h" style="margin:12px 0 6px">Temporary unavailable &amp; one-off changes</div>
-      ${ovList}
-    </div>
-    <div class="ws-card span2"><div class="ws-h ws-h-flex"><span>Desired Hours</span><button class="btn sm" onclick="editAvailability('${c.id}','prefs')">${ic('log',13)} Edit</button></div>
+  return `<div class="ws-card span2"><div class="ws-h ws-h-flex"><span>Desired Hours</span><button class="btn sm" onclick="editAvailability('${c.id}','prefs')">${ic('log',13)} Edit</button></div>
       <div class="av2">
         <div class="av2-row"><div class="av2-l">Desired Weekly Hours</div><div class="av2-v">${ops.minHours}\u2013${ops.maxHours} hours</div></div>
         <div class="av2-row"><div class="av2-l">Preferred Shift Length</div><div class="av2-v">${spList}</div></div>
@@ -6959,7 +7005,7 @@ function saveCaregiver(id){
   if(document.getElementById('p_flags')!==null) ops.flags=gV('p_flags').split('\n').map(s=>s.trim()).filter(Boolean);
   if(document.getElementById('notes')!==null) ops.notes=gV('notes').split('\n').map(s=>s.trim()).filter(Boolean);
   if(document.getElementById('contact')) ops.contact=gV('contact').trim()||ops.contact;
-  if(document.getElementById('blk_'+state.clients[0].id)){ const prev=ops.clientRestr||[]; ops.clientRestr=state.clients.filter(cl=>gC('blk_'+cl.id)).map(cl=>{ const ex=prev.find(r=>r.client===cl.id); return {client:cl.id, reason:(gV('blkr_'+cl.id)||'').trim()||'Do not assign', addedBy: ex?ex.addedBy:state.onShift, addedDate: ex?ex.addedDate:new Date()}; }); }
+  if(state.clients[0] && document.getElementById('blk_'+state.clients[0].id)){ const prev=ops.clientRestr||[]; ops.clientRestr=state.clients.filter(cl=>gC('blk_'+cl.id)).map(cl=>{ const ex=prev.find(r=>r.client===cl.id); return {client:cl.id, reason:(gV('blkr_'+cl.id)||'').trim()||'Do not assign', addedBy: ex?ex.addedBy:state.onShift, addedDate: ex?ex.addedDate:new Date()}; }); }
   ops.summary=ops.persona.summary||ops.summary;
   ops.lastUpdated=new Date(); ops.lastUpdatedBy=state.onShift;
   state.cgEdit=null; render(); window.scrollTo(0,0); toast('Workspace updated \u2014 logged to '+(ops.lastUpdatedBy||state.onShift||'the scheduler'));

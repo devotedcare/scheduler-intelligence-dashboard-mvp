@@ -178,6 +178,46 @@ agree. Visit times are read straight off the AxisCare string rather than through
 `new Date()`, so a visit belongs to the day AxisCare says it does and not the
 day the viewer's laptop thinks it is.
 
+---
+
+## 2026-08-25 — availability is edited where you see it
+
+**Step one of a larger overhaul.** Editing a caregiver's availability used to
+mean leaving the calendar: a header button, or an Edit button on one of two
+summary cards, all landing on the same full-page *Calendar Availability* screen.
+Now you click the day you care about and edit it in the side panel.
+
+Removed: the header **Edit Availability** button, the **Regular Weekly
+Availability** and **Time Off & Changes** summary cards, and the full-page screen
+itself (`availCalForm`) along with its tile in the edit chooser. **Desired
+Hours** stays, as do Preferences and Client Restrictions.
+
+The three cards — weekly rules, vacation, one-off changes — moved into the
+panel **keeping their element ids**. `saveAvailability()`, `ruleStatusChange()`,
+`ruleWinChange()`, `addOverride()` and `removeOverride()` all address their
+controls by id, so they work unchanged; only the layout is new. At 390px a day's
+four dropdowns cannot share a line, so each row became a small grid with the
+weekday in a fixed column and the rest stacked beside it.
+
+Two things worth recording:
+
+- **A crash waiting on an empty client list.** Both save paths open with
+  `document.getElementById('blk_' + state.clients[0].id)` — a guard meant to
+  detect whether the client-blocks form is on screen. With no clients loaded,
+  `state.clients[0]` is `undefined` and it throws before the guard can help.
+  Harmless while that code was only reachable from a screen that listed clients;
+  now Save is reachable from any caregiver's panel. Guarded in both places.
+- **`render()` does not touch the panel**, which is written straight into
+  `#sidepanel`. Adding or removing a one-off left the list stale until the panel
+  was reopened. `spRefresh()` keeps them in step.
+
+**Left alone deliberately:** `dayPanelEdit`, `dayPanelPick`,
+`dayPanelEditBody`, `buildDayEntry`, `saveDayAvail` and `clearDayAvail` form a
+complete, working per-day editor — status, time window, note, and a repeat
+pattern of one day / every week / every 2 weeks / monthly — that nothing
+currently reaches. It was flagged as dead code and nearly deleted. It is exactly
+the feature the next step wants, so it stays until that step decides.
+
 ### Still open
 
 - Attendance, punctuality and the "Not tracked" caregiver metrics — all
