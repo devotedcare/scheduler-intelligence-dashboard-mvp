@@ -1232,10 +1232,8 @@
   /* ===== calendar ===== */
   .cal-bar{display:flex;align-items:center;justify-content:center;gap:18px;margin-bottom:12px}
   .cal-month{font-size:16px;font-weight:800;color:var(--ink);min-width:170px;text-align:center}
-  .cal-nav{background:var(--neutral-bg);border:1px solid var(--line-strong);border-radius:var(--r);width:32px;height:30px;cursor:pointer;color:var(--ink);display:inline-flex;align-items:center;justify-content:center}
+  .cal-nav{background:#e6e9f2;border:1px solid #d7dcea;border-radius:var(--r);width:32px;height:30px;cursor:pointer;color:var(--ink);display:inline-flex;align-items:center;justify-content:center}
   .cal-nav:hover{border-color:var(--brand);color:var(--brand)}
-  .cal-legend{display:flex;flex-wrap:wrap;gap:8px 14px;justify-content:center;margin-bottom:13px;padding-bottom:12px;border-bottom:1px solid var(--line)}
-  .cal-leg{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--ink-soft);font-weight:600}
   .cal-dot{width:9px;height:9px;border-radius:2px}
   .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:5px}
   .cal-dowrow{grid-column:1 / -1;display:grid;grid-template-columns:repeat(7,1fr);gap:5px}
@@ -1467,7 +1465,6 @@
   .cal-pt.agency{background:#8B5CF6}
   .cal-pt.timeoff{background:var(--crit-solid)}
   .cal-pt.note{background:#C2569A}
-  .cal-leg{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--ink-soft)}
   .cal-leg-hint{font-size:11px;color:var(--ink-faint);font-style:italic;margin-left:auto}
   /* day popup */
   .dp-sec{margin-bottom:15px}
@@ -1525,8 +1522,6 @@
   .cal-sw.agency{background:#F1ECFB;border-left-color:#8B5CF6}
   .cal-sw.vacation{background:#E5F5F4;border-left-color:#0E9B8E}
   .cal-sw.sick{background:#FBEAE8;border-left-color:var(--crit-solid)}
-  .cal-legend2{margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}
-  .cal-leg2{display:inline-flex;align-items:center;font-size:11px;color:var(--ink-faint)}
 
   .st-clean{background:transparent;border-left-color:transparent}
   .dp-updated{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--ink-faint);margin-top:6px;padding-top:11px;border-top:1px solid var(--line)}
@@ -1583,7 +1578,7 @@
   .sp-status.agency{background:#E7DEFA;color:#6D28D9}
   .sp-status.vacation{background:#CDEEEB;color:#0B7A70}
   .sp-status.sick{background:#F7D9D5;color:var(--crit-solid)}
-  .sp-status.unavail{background:#ECEFF1;color:var(--ink-soft)}
+  .sp-status.unavail{background:var(--crit-bg);color:var(--crit-tx)}
   .sp-status.clean{background:#F2F4F6;color:var(--ink-faint)}
   .sp-row{display:flex;flex-direction:column;gap:3px;padding:11px 0;border-top:1px solid var(--line)}
   .sp-l{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-faint)}
@@ -1706,7 +1701,6 @@
   .cal-sw.childcare{background:#F8E9F2;border-left-color:#C2569A}
   .sp-status.school{background:#F2E2C0;color:#8A5E0E}
   .sp-status.childcare{background:#F2D9E8;color:#9C3F76}
-  .cal-viewonly{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-faint);background:var(--panel-head);border:1px solid var(--line);border-radius:10px;padding:3px 11px}
   .sp-foot-note{font-size:11.5px;color:var(--ink-faint);flex:1}
 
 
@@ -1736,32 +1730,46 @@
   .cal-blk{min-width:0}
   .cb-l{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
   .cb-t{flex:0 0 auto}
-  .cal-blk.devoted{background:#E3EDF5;border-color:#1B3B54;color:#1B3B54}
-  .cal-blk.open{background:#E6F4EC;border-color:#1F7A4A;color:#176B3F}
-  .cal-blk.agency{background:#EEE7FB;border-color:#6D28D9;color:#5B21B6}
-  .cal-blk.school{background:#FBF1DF;border-color:#BD8312;color:#8A5E0E}
-  .cal-blk.childcare{background:#F8E9F2;border-color:#C2569A;color:#9C3F76}
-  .cal-blk.vacation{background:#D7F0ED;border-color:#0B7A70;color:#0B6A62}
-  .cal-blk.sick{background:#F9DCD8;border-color:#C0271A;color:#A8221A}
-  .cal-blk.unavail{background:#ECEFF1;border-color:#90A0AC;color:#5A6A75}
+  /* ---- three states, three colours ----
+     Green is open, blue is a Devoted visit, red is everything else:
+     Unavailable, Other Agency, School, Childcare, Vacation, Sick. The
+     label inside the block still says which. Solid fills, white text —
+     the colour is the legend, so there is no legend. */
+  .cal-blk.open{background:#15803d;border-color:#15803d;color:#fff}
+  .cal-blk.devoted{background:#1e40af;border-color:#1e40af;color:#fff}
+  .cal-blk.unavail,
+  .cal-blk.agency,
+  .cal-blk.school,
+  .cal-blk.childcare,
+  .cal-blk.vacation,
+  .cal-blk.sick{background:#dc2626;border-color:#dc2626;color:#fff}
+  .cal-blk.needs{display:none}
+  .cal-blk .cb-t{opacity:.92}
+
+  /* the AxisCare load state: its own banner above the card, never inside it */
+  .demo-banner.cal-meta{margin-bottom:12px}
+  .demo-banner.cal-meta.load{background:#EEF3F7;color:#3D5A70;border-color:#D5E0E7}
+  /* An 11px uppercase label has no descenders, so centring its LINE BOX
+     leaves the letters sitting visibly high against the icon. line-height:1
+     shrinks the box to the glyphs; display:block on the svg drops the
+     inline descender gap under it. Both are needed. */
+  .ws-h-ic{display:inline-flex;align-items:center;gap:8px}
+  .ws-h-ic svg{color:var(--brand);display:block;flex:none}
+  .ws-h-ic>span{display:block;line-height:1}
+
+  /* a rule under the weekday header, and the two day markers */
+  .cal-dowrow{padding-bottom:7px;border-bottom:1px solid var(--line);margin-bottom:5px}
+  .cal-cell.today{outline:none}
+  .cal-cell.today .cal-d{display:inline-flex;align-items:center;justify-content:center;flex:none;width:22px;height:22px;padding:0;border-radius:50%;background:#1e40af;color:#fff;line-height:1}
+  .cal-cell.sel{outline:2px solid var(--brand);outline-offset:-2px;background:#F2F7FA;z-index:1}
+
+  /* the verification card carries the out-of-date warning now */
+  .av-stale{display:flex;align-items:flex-start;gap:7px;font-size:11.5px;line-height:1.45;color:var(--soon-tx);background:var(--soon-bg);border-radius:var(--r);padding:8px 11px;margin:0 0 13px}
+  .av-stale svg{flex:none;margin-top:1px}
   /* AxisCare schedule load state, above the grid */
-  .cal-sched{display:flex;align-items:center;gap:7px;font-size:11.5px;font-weight:600;padding:6px 10px;margin:0 0 9px;border-radius:3px}
-  .cal-sched.load{background:#EEF3F7;color:#3D5A70}
-  .cal-sched.ok{background:var(--good-bg);color:var(--good-tx)}
-  .cal-sched.err{background:var(--crit-bg);color:var(--crit-tx)}
-  .cal-sched .cs-retry{margin-left:4px;font:inherit;color:inherit;background:none;border:0;padding:0;text-decoration:underline;cursor:pointer}
   .cs-spin{width:10px;height:10px;border-radius:50%;border:2px solid rgba(61,90,112,.25);border-top-color:#3D5A70;animation:csspin .7s linear infinite;flex:none}
   @keyframes csspin{to{transform:rotate(360deg)}}
   .cal-nav[disabled]{opacity:.3;cursor:default}
-  .cal-bsw{width:11px;height:11px;border-radius:2px;border-left:3px solid;display:inline-block;vertical-align:-1px;margin-right:4px}
-  .cal-bsw.devoted{background:#E3EDF5;border-color:#1B3B54}
-  .cal-bsw.open{background:#E6F4EC;border-color:#1F7A4A}
-  .cal-bsw.agency{background:#EEE7FB;border-color:#6D28D9}
-  .cal-bsw.school{background:#FBF1DF;border-color:#BD8312}
-  .cal-bsw.childcare{background:#F8E9F2;border-color:#C2569A}
-  .cal-bsw.vacation{background:#D7F0ED;border-color:#0B7A70}
-  .cal-bsw.sick{background:#F9DCD8;border-color:#C0271A}
-  .cal-bsw.unavail{background:#ECEFF1;border-color:#90A0AC}
 
   /* performance panel */
   .pf-panel{background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:16px 18px;margin-bottom:14px}
@@ -2272,6 +2280,13 @@ const _h12=h=>{ const t=_hmin(h); let hr=Math.floor(t/60)%12; if(hr===0)hr=12; c
   return hr+(mn?':'+String(mn).padStart(2,'0'):'')+(t<720?'a':'p'); };
 const DAY_STATUS=['Open','Unavailable','Devoted Shift','Other Agency','Vacation','Sick','School','Childcare','Appointment','Custom'];
 const RULE_STATUS=['Off','Available','Unavailable','Other Agency','School','Childcare'];
+/* Three states, and only three. Open means the caregiver can take a shift;
+   Devoted means they are on a Devoted Care visit; everything else means they
+   cannot be assigned. School and Childcare are NOT availability — someone in
+   class or collecting a child cannot work. If they are free, the day says
+   Open. The block label still says which kind of unavailable it is. */
+const OFF_TYPES=['Unavailable','Off','School','Childcare','Appointment'];
+const NOT_OPEN=['Unavailable','Off','none','Vacation','Sick','Other Agency','Devoted Shift','School','Childcare','Appointment'];
 const DAY_WINDOWS=['Anytime','Morning','Afternoon','Evening','Overnight','Custom'];
 const REPEAT_OPTS=['One day only','Every week','Every 2 weeks','Monthly'];
 function dateKey(d){ if(typeof d==='string') return d.slice(0,10); const z=new Date(d); return z.getFullYear()+'-'+String(z.getMonth()+1).padStart(2,'0')+'-'+String(z.getDate()).padStart(2,'0'); }
@@ -2289,7 +2304,7 @@ function availDayLabel(d){
   if(t==='Anytime'||(t==='Open'&&(d.win==='Anytime'||(!d.win&&d.start==null)))) return 'Anytime';
   if(t==='Overnight'||d.win==='Overnight') return 'Overnight';
   const w=dayWindow(d);
-  if(t==='School'||t==='Childcare'||t==='Appointment'){ return t+(w?' '+_h12(w[0])+'\u2013'+_h12(w[1]):''); }
+  if(OFF_TYPES.includes(t)) return t==='Off'?'Unavailable':t;
   if(w) return _h12(w[0])+'\u2013'+_h12(w[1]);
   return t;
 }
@@ -6194,9 +6209,10 @@ function dayBlocks(c, date){
   const ds=dateKey(date), ov=c.ops.availOverrides&&c.ops.availOverrides[ds];
   const dd=dayAvail(c,date), t=dd.type, ev=cgCalEvents(c,date);
   const realShifts=assignedOn(c,date);
-  if(t==='Vacation'||(!ov&&ev.some(e=>e.type==='vacation'))) return [{type:'vacation',label:'Vacation',full:true}];
-  if(t==='Sick'||(!ov&&ev.some(e=>e.type==='sick'))) return [{type:'sick',label:'Sick',full:true}];
-  if((t==='Unavailable'||t==='Off') && !realShifts.length && !ev.some(e=>['devoted','agency'].includes(e.type))) return [{type:'unavail',label:'Unavailable',full:true}];
+  if(t==='Vacation'||(!ov&&ev.some(e=>e.type==='vacation'))) return [{type:'unavail',label:'Vacation',full:true}];
+  if(t==='Sick'||(!ov&&ev.some(e=>e.type==='sick'))) return [{type:'unavail',label:'Sick',full:true}];
+  if(OFF_TYPES.includes(t) && !realShifts.length && !ev.some(e=>['devoted','agency'].includes(e.type)))
+    return [{type:'unavail',label:(t==='School'||t==='Childcare')?t:'Unavailable',full:true}];
   if(t==='none' && !realShifts.length && !ev.length) return [{type:'needs',label:'Needs update',full:true}];
   const blocks=[], committed=[];
   realShifts.forEach(s=>{
@@ -6211,11 +6227,10 @@ function dayBlocks(c, date){
     if(dh){ blocks.push({type:'devoted',label:'Devoted',start:dh[0],end:dh[1]}); committed.push([dh[0],dh[1]]); }
     else blocks.push({type:'devoted',label:'Devoted',noTime:true});
   }
-  if(t==='Other Agency' || (!ov&&ev.some(e=>e.type==='agency'))) blocks.push({type:'agency',label:'Other Agency',noTime:true});
-  const openWin = (!['Unavailable','Off','none','Vacation','Sick','Other Agency','Devoted Shift'].includes(t)) ? dayWindow(dd) : null;
+  if(t==='Other Agency' || (!ov&&ev.some(e=>e.type==='agency'))) blocks.push({type:'unavail',label:'Other Agency',noTime:true});
+  const openWin = (!NOT_OPEN.includes(t)) ? dayWindow(dd) : null;
   if(openWin){
-    const lab = t==='School'?'School':(t==='Childcare'?'Childcare':'Open');
-    const ty  = t==='School'?'school':(t==='Childcare'?'childcare':'open');
+    const lab='Open', ty='open';
     const isAnytime=(t==='Anytime'||dd.win==='Anytime'), isOver=(t==='Overnight'||dd.win==='Overnight');
     _subtractWin(openWin, committed).forEach(iv=>{
       blocks.push({type:ty,label:lab,start:iv[0],end:iv[1],anytime:isAnytime&&iv[0]===openWin[0]&&iv[1]===openWin[1],overnight:isOver});
@@ -6244,20 +6259,21 @@ function calDayStatus(c, date){
   const base={hasNote,note:dd.note||'',updatedAt:dd.updatedAt||null,updatedBy:dd.updatedBy||null};
   const realShifts=assignedOn(c,date);
   // full-day exclusive states
-  if(t==='Vacation'||(!ov&&ev.some(e=>e.type==='vacation'))) return Object.assign({status:'vacation',label:'Vacation',win:null,parts:['Vacation']},base);
-  if(t==='Sick'||(!ov&&ev.some(e=>e.type==='sick'))) return Object.assign({status:'sick',label:'Sick',win:null,parts:['Sick']},base);
-  if((t==='Unavailable'||t==='Off') && !realShifts.length && !ev.some(e=>['devoted','agency'].includes(e.type))) return Object.assign({status:'unavail',label:'Unavailable',win:null,parts:['Unavailable']},base);
+  if(t==='Vacation'||(!ov&&ev.some(e=>e.type==='vacation'))) return Object.assign({status:'unavail',label:'Vacation',win:null,parts:['Vacation']},base);
+  if(t==='Sick'||(!ov&&ev.some(e=>e.type==='sick'))) return Object.assign({status:'unavail',label:'Sick',win:null,parts:['Sick']},base);
+  if(OFF_TYPES.includes(t) && !realShifts.length && !ev.some(e=>['devoted','agency'].includes(e.type)))
+    return Object.assign({status:'unavail',label:(t==='School'||t==='Childcare')?t:'Unavailable',win:null,parts:['Unavailable']},base);
   if(t==='none' && !realShifts.length && !ev.length) return Object.assign({status:'needs',label:'Needs update',win:null,parts:['Needs update']},base);
   // components that can mix on one day
   const devoted = realShifts.length>0 || t==='Devoted Shift' || ev.some(e=>e.type==='devoted');
   const agency = t==='Other Agency' || (!ov&&ev.some(e=>e.type==='agency'));
-  const openWin = (!['Unavailable','Off','none','Vacation','Sick','Other Agency','Devoted Shift'].includes(t)) ? dayWindow(dd) : null;
+  const openWin = (!NOT_OPEN.includes(t)) ? dayWindow(dd) : null;
   const parts=[];
   if(devoted) parts.push('Devoted');
   if(agency) parts.push('Other Agency');
-  if(openWin){ if(t==='School') parts.push('School'); else if(t==='Childcare') parts.push('Childcare'); else parts.push('Open'); }
+  if(openWin) parts.push('Open');
   if(!parts.length) return Object.assign({status:'needs',label:'Needs update',win:null,parts:['Needs update']},base);
-  const pmap={'Devoted':'devoted','Other Agency':'agency','Open':'avail','School':'school','Childcare':'childcare'};
+  const pmap={'Devoted':'devoted','Other Agency':'unavail','Open':'avail'};
   const status = parts.length>1 ? 'mixed' : pmap[parts[0]];
   return Object.assign({status,label:parts.join(' + '),win:openWin,parts},base);
 }
@@ -6275,55 +6291,59 @@ function cgCalendar(c){
   const first=new Date(NOW.getFullYear(), NOW.getMonth()+off, 1);
   const y=first.getFullYear(), m=first.getMonth();
   const startWd=first.getDay(), dim=new Date(y,m+1,0).getDate();
+  const sel=state.cgCalSel||'';
   let cells='';
   for(let i=0;i<startWd;i++) cells+='<div class="cal-cell empty"></div>';
   const WD=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   for(let d=1;d<=dim;d++){
-    const date=new Date(y,m,d);
+    const date=new Date(y,m,d), ds=dateKey(date);
     const isToday=date.toDateString()===NOW.toDateString();
-    const blocks=dayBlocks(c,date);
+    /* "Needs update" is not worth drawing. No AxisCare caregiver has any
+       availability entered yet, so it would paper over the whole month —
+       an empty day says the same thing without the noise. */
+    const blocks=dayBlocks(c,date).filter(b=>b.type!=='needs');
     const S=calDayStatus(c,date);
     /* esc() matters here: a real client on this account is
        Raymond "Nacho" Banales Jr., and an unescaped quote would end the
        title attribute early and mangle the rest of the cell. */
     const body = blocks.length ? `<div class="cal-blocks">${blocks.map(b=>{ const tt=blkTime(b);
-      return `<div class="cal-blk ${b.type}" title="${esc(b.label+(tt?' \u00b7 '+tt:''))}"><span class="cb-l">${esc(b.label)}</span>${tt?`<span class="cb-t">${tt}</span>`:''}</div>`;
+      return `<div class="cal-blk ${b.type}" title="${esc(b.label+(tt?' · '+tt:''))}"><span class="cb-l">${esc(b.label)}</span>${tt?`<span class="cb-t">${tt}</span>`:''}</div>`;
     }).join('')}</div>` : '';
     const note = S.hasNote?`<span class="cal-note" title="${esc(S.note||'Has a note')}">${ic('log',9)}</span>`:'';
-    cells+=`<div class="cal-cell ${isToday?'today':''} ${blocks.length?'':'offday'}" onclick="openDayPanel('${c.id}','${date.toISOString()}')">
+    cells+=`<div class="cal-cell ${isToday?'today':''} ${ds===sel?'sel':''} ${blocks.length?'':'offday'}" onclick="openDayPanel('${c.id}','${date.toISOString()}')">
       <span class="cal-d">${d}</span>${note}
       ${body}
     </div>`;
   }
   const dow=WD.map(d=>`<div class="cal-dow">${d}</div>`).join('');
-  const statusLeg=[['devoted','Devoted'],['open','Open'],['agency','Other agency'],['school','School'],['childcare','Childcare'],['vacation','Vacation'],['sick','Sick'],['unavail','Unavailable'],['needs','Needs update']].map(([t,l])=>`<span class="cal-leg"><span class="cal-bsw ${t}"></span>${l}</span>`).join('');
-  const timeLeg=`<span class="cal-leg2">Scheduled client visits are live from AxisCare \u00b7 availability is entered by schedulers \u00b7 click any day for exact times</span>`;
-  /* 'YYYY-MM-DD' \u2192 'Jul 2026'. The year matters: the window is 14 months. */
-  const calMon=d=>new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'short',year:'numeric'});
-  const sch=(typeof CGVISITS!=='undefined')?CGVISITS.info(c.id):null;
-  const schSt=(typeof CGVISITS!=='undefined')?CGVISITS.status(c.id):'idle';
-  const schedNote = schSt==='loading'
-    ? `<div class="cal-sched load"><span class="cs-spin"></span>Loading scheduled visits from AxisCare\u2026</div>`
-    : schSt==='error'
-      ? `<div class="cal-sched err">Couldn\u2019t load scheduled visits from AxisCare \u2014 ${esc((sch&&sch.error)||'unknown error')}.<button class="cs-retry" onclick="CGVISITS.retry('${c.id}')">Try again</button></div>`
-      : schSt==='ready'
-        ? `<div class="cal-sched ok">${sch.count} scheduled visit${sch.count===1?'':'s'} from AxisCare \u00b7 ${calMon(sch.from)} \u2013 ${calMon(sch.to)}</div>`
-        : `<div class="cal-sched ok">Scheduled visits are not loaded for this record.</div>`;
-  const vst=availVerifyStatus(c);
-  const banner=(vst.key==='overdue'||vst.key==='unverified'||vst.key==='needs')
-    ? `<div class="cal-needbanner"><span class="cnb-dot"></span>Availability may be out of date \u2014 ${vst.label}. Blank/"Needs update" days have no confirmed information; verify with the caregiver.</div>` : '';
   return `<div class="cal-wrap">
     <div class="cal-bar"><button class="cal-nav" ${off<=CAL_MIN_OFF?'disabled':''} onclick="cgCalNav(-1)">${ic('chevL',16)}</button><div class="cal-month">${cgMonthLabel(off)}</div><button class="cal-nav" ${off>=CAL_MAX_OFF?'disabled':''} onclick="cgCalNav(1)">${ic('chev',16)}</button></div>
-    ${schedNote}${banner}
-    <div class="cal-legend">${statusLeg}</div>
     <div class="cal-grid"><div class="cal-dowrow">${dow}</div>${cells}</div>
-    <div class="cal-legend2">${timeLeg}</div>
   </div>`;
+}
+/* Its own banner ABOVE the calendar card, in the same shape as the roster
+   banner on the Caregivers screen: what is live, and what is not. Nothing
+   about AxisCare belongs inside the grid. All three states share it, because
+   a failure has to be visible somewhere and this is that somewhere. */
+function cgCalMeta(c){
+  if(typeof CGVISITS==='undefined') return '';
+  CGVISITS.load(c);
+  const calMon=d=>new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'short',year:'numeric'});
+  const sch=CGVISITS.info(c.id), st=CGVISITS.status(c.id);
+  if(st==='loading')
+    return `<div class="demo-banner cal-meta load"><span class="cs-spin"></span><span>Loading ${esc(c.name)}\u2019s scheduled visits from AxisCare\u2026</span></div>`;
+  if(st==='error')
+    return `<div class="demo-banner cal-meta err"><span class="db-ic">\u26A0</span><span><b>Couldn\u2019t load scheduled visits from AxisCare.</b> ${esc((sch&&sch.error)||'unknown error')} \u2014 the calendar below shows availability only.</span><button onclick="CGVISITS.retry('${c.id}')">Retry</button></div>`;
+  if(st==='ready')
+    return `<div class="demo-banner cal-meta live"><span class="db-ic">\u2713</span><span><b>${sch.count} scheduled visit${sch.count===1?'':'s'} live from AxisCare</b> \u00b7 ${calMon(sch.from)} \u2013 ${calMon(sch.to)}. Open and unavailable days are entered by schedulers \u2014 AxisCare has no availability source.</span></div>`;
+  return '';
 }
 function _h12u(h){ const t=_hmin(h); let hr=Math.floor(t/60)%12; if(hr===0)hr=12; const mn=t%60;
   return hr+(mn?':'+String(mn).padStart(2,'0'):'')+' '+(t<720?'AM':'PM'); }
 function openDayPanel(cgId, dateISO){
   const c=cgById(cgId), date=new Date(dateISO), cur=dayAvail(c,date);
+  state.cgCalSel=dateKey(date);          /* the cell keeps its outline */
+  try{ render(); }catch(e){}
   modalState={dayCg:cgId, dayDate:dateISO, mode:'view', status:cur.type||'Open', win:cur.win||(['Open','Custom','School','Childcare','Appointment'].includes(cur.type)?'Custom':cur.type), start:cur.start!=null?cur.start:8, end:cur.end!=null?cur.end:16, note:cur.note||'', repeat:cur.repeat||'One day only'};
   if(['Anytime','Morning','Afternoon','Evening','Overnight'].includes(cur.type)){ modalState.status='Open'; modalState.win=cur.type; }
   renderDayPanel();
@@ -6346,7 +6366,7 @@ function spAvailBody(c){
   const hourOpts=(sel)=>{ let o=''; for(let h=0;h<=24;h++){ o+=`<option value="${h}" ${sel===h?'selected':''}>${h===24?'12a (next)':_h12(h)}</option>`; } return o; };
   const ruleStatusOf=(dd)=>{ const t=dd.type; if(['Anytime','Morning','Afternoon','Evening','Overnight','Custom','Open'].includes(t)) return 'Available'; if(t==='Off') return 'Off'; if(['Unavailable','Other Agency','School','Childcare'].includes(t)) return t; return 'Off'; };
   const dayRow=(d)=>{
-    const dd=a2[d]||{type:'Off'}, st=ruleStatusOf(dd), hasWin=['Available','School','Childcare'].includes(st);
+    const dd=a2[d]||{type:'Off'}, st=ruleStatusOf(dd), hasWin=(st==='Available');
     const winT = dd.win || (['Anytime','Morning','Afternoon','Evening','Overnight'].includes(dd.type)?dd.type:(dd.type==='Custom'?'Custom':'Anytime'));
     const w=dayWindow(dd)||[8,16];
     return `<div class="rule-day">
@@ -6370,7 +6390,7 @@ function spAvailBody(c){
     <div class="sp-card">
       <div class="sp-ch">Regular Weekly Availability</div>
       <div class="rule-days">${DAY_ORDER.map(dayRow).join('')}</div>
-      <div class="av-help"><b>Available</b> shows open hours · <b>Other Agency</b>, <b>School</b>, <b>Childcare</b> mark commitments · <b>Off</b> / <b>Unavailable</b> show as not available.</div>
+      <div class="av-help">Only <b>Available</b> has hours. <b>Other Agency</b>, <b>School</b> and <b>Childcare</b> are commitments — they read as unavailable, same as <b>Off</b>.</div>
     </div>
     <div class="sp-card">
       <div class="sp-ch">Vacation / Time Off</div>
@@ -6418,8 +6438,8 @@ function renderDayPanel(){
   const devBlks=blocks.filter(b=>b.type==='devoted');
   const devoted = shifts.length ? shifts.map(s=>shiftClientName(s)+' \u00b7 '+blkTimeFull({start:s.start,end:(s.end==null?s.start:s.end)})+(s.service?' \u00b7 '+esc(s.service):'')).join('<br>')
                  : (devBlks.length ? devBlks.map(b=>b.noTime?'Recurring Devoted assignment':'Recurring Devoted \u00b7 '+blkTimeFull(b)).join('<br>') : 'None');
-  const agency = blocks.some(b=>b.type==='agency') ? 'Committed to another agency' : 'None';
-  const openBlks=blocks.filter(b=>['open','school','childcare'].includes(b.type));
+  const agency = blocks.some(b=>b.label==='Other Agency') ? 'Committed to another agency' : 'None';
+  const openBlks=blocks.filter(b=>b.type==='open');
   let openAvail = openBlks.length ? openBlks.map(b=>(b.label!=='Open'?b.label+': ':'')+(b.overnight?'Overnight (10 PM\u20136 AM)':blkTimeFull(b))).join('<br>') : 'None';
   if(!openBlks.length){ if(cur.type==='Unavailable') openAvail='Marked unavailable'; else if(['Vacation','Sick'].includes(cur.type)) openAvail=cur.type; }
   const repeat = cur.repeat || ((c.ops.availOverrides&&c.ops.availOverrides[dateKey(date)]) ? 'This date only' : 'Every week (rule)');
@@ -6591,7 +6611,7 @@ function availBlocksForm(c){
       <div class="eb-list">${blockRows}</div>
     </div>`;
 }
-function ruleStatusChange(d){ const st=document.getElementById('rs_'+d).value, w=document.getElementById('rw_'+d); if(w) w.style.display=['Available','School','Childcare'].includes(st)?'flex':'none'; }
+function ruleStatusChange(d){ const st=document.getElementById('rs_'+d).value, w=document.getElementById('rw_'+d); if(w) w.style.display=(st==='Available')?'flex':'none'; }
 function ruleWinChange(d){ const wt=document.getElementById('rwt_'+d).value, c=document.getElementById('rwc_'+d); if(c) c.style.display=wt==='Custom'?'flex':'none'; }
 function addOverride(id){
   const c=cgById(id), gV=x=>{const e=document.getElementById(x);return e?e.value:'';};
@@ -6612,6 +6632,9 @@ function saveAvailability(id){
       if(st==='Off'){ ops.avail2[d]={type:'Off'}; c.avail[d]=0; }
       else if(st==='Unavailable'){ ops.avail2[d]={type:'Unavailable'}; c.avail[d]=0; }
       else if(st==='Other Agency'){ ops.avail2[d]={type:'Other Agency'}; c.avail[d]=0; }
+      /* School and Childcare are commitments, not availability — they must
+         clear c.avail[d] too, or Find Coverage keeps offering the person. */
+      else if(st==='School'||st==='Childcare'){ ops.avail2[d]={type:st}; c.avail[d]=0; }
       else {
         const wt=gV('rwt_'+d), e={type: st==='Available'?(wt==='Custom'?'Custom':wt):st};
         if(st!=='Available') e.win=wt;
@@ -6727,7 +6750,8 @@ function viewCaregiverWorkspace(c){
       </div>
     </div>
     <div class="ws-updated">Last Updated: <b>${fmtUpdated(ops.lastUpdated)}</b> \u00b7 Updated by <b>${ops.lastUpdatedBy || "Not tracked"}</b></div>
-    <div class="ws-card span2"><div class="ws-h ws-h-flex"><span>Availability Calendar \u2014 overview \u00b7 generated from Availability Management + AxisCare</span><span class="cal-viewonly">View only</span></div>${cgCalendar(c)}</div>
+    ${cgCalMeta(c)}
+    <div class="ws-card span2"><div class="ws-h"><span class="ws-h-ic">${ic('calendar',15)}<span>Availability</span></span></div>${cgCalendar(c)}</div>
     ${availRulesSummary(c)}
     ${availVerifyPanel(c)}
     ${schedNotesCard(c)}
@@ -6832,6 +6856,7 @@ function availVerifyPanel(c){
   return `<div class="ws-card span2 av-panel ${danger?'due':''}">
     <div class="ws-h">Availability Verification</div>
     <div class="av-statusrow"><span class="avst avst-${st.key}"><span class="avst-dot"></span>${st.label}</span><span class="av-cadence">${st.desc}</span></div>
+    ${danger?`<div class="av-stale">${ic('alerts',12)} <span>Days left blank on the calendar have no confirmed availability on file \u2014 check with the caregiver before relying on them.</span></div>`:''}
     <div class="av-grid">
       ${f('Last Verified', ops.availLastConfirmed?fmtDate(ops.availLastConfirmed):'\u2014')}
       ${f('Verified By', esc(ops.availConfirmedBy||'\u2014'))}

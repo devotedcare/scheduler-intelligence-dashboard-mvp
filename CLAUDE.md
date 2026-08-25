@@ -345,6 +345,32 @@ slice, so a few hundred visits placed there would be written to Supabase as
 though a scheduler had typed them by hand. That is the 323KB overlay bug in
 *Don't break these*, and it would happen again.
 
+### Three states, and only three
+
+A day can read exactly one of:
+
+| | Colour | Means |
+|---|---|---|
+| **Open** | green | the caregiver can take a shift |
+| **Devoted** | blue | an assigned AxisCare visit, labelled with the client |
+| everything else | red | cannot be assigned |
+
+That last row covers **Unavailable, Off, Other Agency, School, Childcare,
+Vacation and Sick**. The label inside the block still says which.
+
+**School and Childcare are not availability.** Someone in class, or collecting a
+child, cannot take a shift — so they clear `c.avail[day]` and carry no hours. If
+a caregiver is free, the day says Open. `OFF_TYPES` and `NOT_OPEN` (next to
+`RULE_STATUS`) are the single place that judgement is made; change them, not the
+individual call sites.
+
+A day with nothing recorded draws **nothing at all**. It used to say "Needs
+update", which is true of every day of every live caregiver — no availability
+has been entered for anyone — and papered over the visits that matter.
+
+That is also why green and red are rare on real data today: only assigned visits
+come from AxisCare. Availability is entered by schedulers, in the day panel.
+
 ### Long client names truncate; times do not
 
 Real names are long — `Duane & Lynne Georgeson`, `Raymond "Nacho" Banales Jr.`

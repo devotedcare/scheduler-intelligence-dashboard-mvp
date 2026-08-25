@@ -218,6 +218,41 @@ pattern of one day / every week / every 2 weeks / monthly — that nothing
 currently reaches. It was flagged as dead code and nearly deleted. It is exactly
 the feature the next step wants, so it stays until that step decides.
 
+---
+
+## 2026-08-25 — the calendar says one thing per day
+
+**Step two.** The grid carried four explanatory strips and a nine-item legend
+around what should be glanceable. All of it is gone: the "generated from
+Availability Management" heading, the "View only" tag, the visit-count line, the
+verification warning and both legends. The header is now an icon and the word
+**Availability**.
+
+Nothing was simply deleted. The AxisCare load state moved out of the card entirely, into its own banner above it
+(`cgCalMeta`), in the same shape as the roster banner on the Caregivers screen — it still has to show a failure and a retry, so it could not just
+go. The stale-availability warning moved into the **Availability Verification**
+card, which was already stating the same status; only the useful sentence
+travelled.
+
+**Three states replace nine.** Green is Open, blue is a Devoted visit, red is
+everything else, and the colour is the legend. The block label still names which
+kind of red.
+
+The important part is that this is not a paint job. **School and Childcare used
+to count as availability** — they produced an open time window and set
+`c.avail[day] = 1`, so Find Coverage would offer someone who was in class. They
+are commitments, and now read as unavailable everywhere: no window in the
+editor, no hours on the block, and the day is not marked available on save.
+`OFF_TYPES` and `NOT_OPEN` hold that judgement in one place.
+
+**A day with nothing recorded now draws nothing.** It used to say "Needs update"
+— which is every day of every one of the 184 live caregivers, since no
+availability has been entered for anyone, and it buried the visits that do
+exist.
+
+Two small things: the day you click keeps an outline, and today is a filled
+circle on the date rather than a box round the cell.
+
 ### Still open
 
 - Attendance, punctuality and the "Not tracked" caregiver metrics — all
