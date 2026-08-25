@@ -125,6 +125,59 @@ Recorded in `README.md` under *Security posture*, with triggers for revisiting:
 Both were reviewed and accepted while the app is in development and the URL is
 known only to the team.
 
+---
+
+## 2026-08-25 — the caregiver calendar shows real work
+
+Each caregiver's month grid now plots **their own assigned client visits** from
+AxisCare: one block per visit, labelled with the client and the scheduled times.
+Until now `state.shifts` held only *unassigned* visits, so the block that was
+built to show an assignment had nothing to show and every caregiver's month was
+blank.
+
+- Fetched on the first render of a caregiver's calendar, not at boot — nobody
+  who never opens a profile should pay for it.
+- One request set covers one month back to twelve forward, so the month arrows
+  (clamped to that range) cost nothing after the first load.
+- Cached outside `state`, so CLOUD never mistakes several hundred visits for
+  work a scheduler typed.
+
+**`caregiverIds` filters; nothing else does.** `caregiverId`, `caregiver`,
+`employeeId` and `caregiverExternalId` are accepted with a 200 and silently
+ignored — the sort of thing that looks like it works until a caregiver's
+calendar shows somebody else's clients. Using the filter turned a month of
+everyone's visits (932 records, 11 requests, ~7s) into one caregiver over
+fourteen months (351 records, 4 requests, ~2.3s).
+
+**An empty calendar arrives as a 404.** `{"errors":["No visits found"]}` means
+zero results, not a failure — and it is the common case: 126 of 184 active
+caregivers have no visits in the current month.
+
+Two bugs found by testing rather than by reading:
+
+- **Times lost their minutes.** `_h12()` did `hr = h % 12` on a decimal hour, so
+  14.5 rendered as `2.5p`. Demo shifts were always on the hour; 64 real visits
+  this month are not. Now `2:30p`.
+- **A "date" that was a Date.** `fmtDateShort()` takes a `YYYY-MM-DD` string and
+  appends the time itself, so passing it a `Date` produced *"Invalid Date –
+  Invalid Date"* on the calendar. Only the live run caught it — the unit test
+  had asserted the visit count and not the label beside it.
+
+A third, reported by Carlo once real names were on screen: **long client names
+pushed the month past the panel edge.** Three separate things each refuse to
+shrink below their content and all three had to be undone — `1fr` is
+`minmax(auto,1fr)`, a flex item defaults to `min-width:auto` (at both the cell
+and the block), and `text-overflow:ellipsis` does nothing without
+`overflow:hidden`. The name now truncates; the time never does, so a shift
+always reads its hours. The full name is on hover — which is why the label had
+to be escaped, since a real client here is `Raymond "Nacho" Banales Jr.` and an
+unescaped quote would have ended the attribute early.
+
+The whole calendar suite runs twice, on Pacific and on Asia/Manila, and must
+agree. Visit times are read straight off the AxisCare string rather than through
+`new Date()`, so a visit belongs to the day AxisCare says it does and not the
+day the viewer's laptop thinks it is.
+
 ### Still open
 
 - Attendance, punctuality and the "Not tracked" caregiver metrics — all

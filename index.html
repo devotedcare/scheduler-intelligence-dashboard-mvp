@@ -1685,6 +1685,26 @@
   .cal-blk{display:flex;justify-content:space-between;align-items:baseline;gap:5px;padding:2px 6px;border-radius:2px;border-left:2.5px solid}
   .cb-l{font-weight:800;text-transform:uppercase;letter-spacing:.2px;font-size:9px;white-space:nowrap}
   .cb-t{font-size:9px;font-weight:600;white-space:nowrap;opacity:.9;font-variant-numeric:tabular-nums}
+  /* Keeping a long client name inside its day.
+
+     Three separate things each refuse to shrink below their content, and
+     all three had to be undone or one nowrap name pushed the whole month
+     past the panel edge:
+       • `1fr` means minmax(AUTO,1fr) — a grid column will not go below
+         its min-content width. minmax(0,1fr) will.
+       • a flex item defaults to min-width:auto, same refusal, at both
+         the cell and the block.
+       • text-overflow:ellipsis does nothing without overflow:hidden.
+
+     The NAME truncates. The TIME never does — flex:0 0 auto keeps it at
+     its natural width, so a shift always reads its hours. */
+  .cal-grid{grid-template-columns:repeat(7,minmax(0,1fr))}
+  .cal-dowrow{grid-template-columns:repeat(7,minmax(0,1fr))}
+  .cal-cell{min-width:0}
+  .cal-blocks{min-width:0}
+  .cal-blk{min-width:0}
+  .cb-l{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+  .cb-t{flex:0 0 auto}
   .cal-blk.devoted{background:#E3EDF5;border-color:#1B3B54;color:#1B3B54}
   .cal-blk.open{background:#E6F4EC;border-color:#1F7A4A;color:#176B3F}
   .cal-blk.agency{background:#EEE7FB;border-color:#6D28D9;color:#5B21B6}
@@ -1693,6 +1713,15 @@
   .cal-blk.vacation{background:#D7F0ED;border-color:#0B7A70;color:#0B6A62}
   .cal-blk.sick{background:#F9DCD8;border-color:#C0271A;color:#A8221A}
   .cal-blk.unavail{background:#ECEFF1;border-color:#90A0AC;color:#5A6A75}
+  /* AxisCare schedule load state, above the grid */
+  .cal-sched{display:flex;align-items:center;gap:7px;font-size:11.5px;font-weight:600;padding:6px 10px;margin:0 0 9px;border-radius:3px}
+  .cal-sched.load{background:#EEF3F7;color:#3D5A70}
+  .cal-sched.ok{background:var(--good-bg);color:var(--good-tx)}
+  .cal-sched.err{background:var(--crit-bg);color:var(--crit-tx)}
+  .cal-sched .cs-retry{margin-left:4px;font:inherit;color:inherit;background:none;border:0;padding:0;text-decoration:underline;cursor:pointer}
+  .cs-spin{width:10px;height:10px;border-radius:50%;border:2px solid rgba(61,90,112,.25);border-top-color:#3D5A70;animation:csspin .7s linear infinite;flex:none}
+  @keyframes csspin{to{transform:rotate(360deg)}}
+  .cal-nav[disabled]{opacity:.3;cursor:default}
   .cal-bsw{width:11px;height:11px;border-radius:2px;border-left:3px solid;display:inline-block;vertical-align:-1px;margin-right:4px}
   .cal-bsw.devoted{background:#E3EDF5;border-color:#1B3B54}
   .cal-bsw.open{background:#E6F4EC;border-color:#1F7A4A}
@@ -2204,7 +2233,12 @@ function dayWindow(d){
   return [0,24];
 }
 function classifyWin(a,b){ if(b-a>=20) return {type:'Anytime'}; if(a>=20) return {type:'Overnight'}; if(b<=12) return {type:'Morning'}; if(a>=16) return {type:'Evening'}; if(a>=11&&b<=18) return {type:'Afternoon'}; return {type:'Custom',start:a,end:b}; }
-const _h12=h=>{ h=((h%24)+24)%24; const ap=h<12?'a':'p'; let hr=h%12; if(hr===0)hr=12; return hr+ap; };
+/* Decimal hours -> "8a", "2:30p". Minutes matter now: demo shifts were
+   always on the hour, real AxisCare visits are not. Whole hours render
+   exactly as before, so every existing caller is unaffected. */
+const _hmin=h=>{ let t=Math.round(h*60); return ((t%1440)+1440)%1440; };
+const _h12=h=>{ const t=_hmin(h); let hr=Math.floor(t/60)%12; if(hr===0)hr=12; const mn=t%60;
+  return hr+(mn?':'+String(mn).padStart(2,'0'):'')+(t<720?'a':'p'); };
 const DAY_STATUS=['Open','Unavailable','Devoted Shift','Other Agency','Vacation','Sick','School','Childcare','Appointment','Custom'];
 const RULE_STATUS=['Off','Available','Unavailable','Other Agency','School','Childcare'];
 const DAY_WINDOWS=['Anytime','Morning','Afternoon','Evening','Overnight','Custom'];
@@ -6068,12 +6102,19 @@ function clearDir(){ state.dir={q:'',gender:'',lang:'',driver:'',city:'',status:
 
 /* ===== Caregiver Workspace ===== */
 function cgMonthLabel(off){ const d=new Date(NOW.getFullYear(), NOW.getMonth()+off, 1); return d.toLocaleDateString('en-US',{month:'long',year:'numeric'}); }
-function cgCalNav(d){ state.cgCalMonth=(state.cgCalMonth||0)+d; render(); }
+/* How far the arrows reach, and exactly the span fetched from AxisCare:
+   one month back, twelve forward. Aug 2026 -> Jul 2026 .. Aug 2027. */
+const CAL_MIN_OFF=-1, CAL_MAX_OFF=12;
+function cgCalNav(d){
+  const n=(state.cgCalMonth||0)+d;
+  if(n<CAL_MIN_OFF || n>CAL_MAX_OFF) return;
+  state.cgCalMonth=n; render();
+}
 function cgCalEvents(c, date){
   const ev=[], ops=c.ops;
   const wd=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][date.getDay()];
   const dom=date.getDate(), thisMonth=date.getMonth()===NOW.getMonth()&&date.getFullYear()===NOW.getFullYear();
-  state.shifts.forEach(s=>{ if(s.assigned===c.id){ const sd=new Date(s.start); if(sd.toDateString()===date.toDateString()) ev.push({type:'devoted',label:clById(s.clientId).name}); } });
+  assignedOn(c,date).forEach(s=>ev.push({type:'devoted',label:shiftClientName(s)}));
   if(ops.devoted && ops.devoted.days.includes(wd) && !ev.some(e=>e.type==='devoted')) ev.push({type:'devoted',label:clById(ops.devoted.client)?clById(ops.devoted.client).name:ops.devoted.client});
   if(ops.vacationDates && ops.vacationDates.start){ const vs=new Date(ops.vacationDates.start+'T00:00'), ve=new Date((ops.vacationDates.end||ops.vacationDates.start)+'T23:59'); if(date>=vs && date<=ve) ev.push({type:'vacation',label:'Vacation'}); }
   else if(ops.vacation && thisMonth && dom>=ops.vacation[0] && dom<=ops.vacation[1]) ev.push({type:'vacation',label:'Vacation'});
@@ -6089,6 +6130,26 @@ function cgCalEvents(c, date){
   return ev;
 }
 function _decH(d){ const dt=new Date(d); return dt.getHours()+dt.getMinutes()/60; }
+/* Assigned work for one day, in decimal hours.
+
+   AxisCare is the real source: state.shifts now holds only OPEN
+   (unassigned) visits, so for a live caregiver it contributes nothing.
+   The demo branch is kept so DEMO.on() still shows sample shifts. */
+function assignedOn(c, date){
+  const live=(typeof CGVISITS!=='undefined') ? CGVISITS.forDay(c.id, date) : [];
+  const demo=(state.shifts||[]).filter(s=>s.assigned===c.id && new Date(s.start).toDateString()===date.toDateString())
+    .map(s=>{ const st=_decH(s.start); let en=_decH(s.end); if(en<=st) en+=24;
+      return { id:s.id, source:'demo', start:st, end:en, clientId:s.clientId, clientName:null }; });
+  return live.concat(demo).sort((a,b)=>a.start-b.start);
+}
+/* A visit carries its client name inline, so a block still reads
+   correctly for a client who is not on the active client list —
+   clById() returns undefined for those, and .name would throw. */
+function shiftClientName(s){
+  if(s && s.clientName) return s.clientName;
+  const cl=(s && s.clientId) ? clById(s.clientId) : null;
+  return cl ? cl.name : 'Client';
+}
 function _subtractWin(win, ints){
   if(!ints.length) return [win.slice()];
   const s=win[0], e=win[1];
@@ -6101,15 +6162,18 @@ function _subtractWin(win, ints){
 function dayBlocks(c, date){
   const ds=dateKey(date), ov=c.ops.availOverrides&&c.ops.availOverrides[ds];
   const dd=dayAvail(c,date), t=dd.type, ev=cgCalEvents(c,date);
-  const realShifts=state.shifts.filter(s=>s.assigned===c.id && new Date(s.start).toDateString()===date.toDateString());
+  const realShifts=assignedOn(c,date);
   if(t==='Vacation'||(!ov&&ev.some(e=>e.type==='vacation'))) return [{type:'vacation',label:'Vacation',full:true}];
   if(t==='Sick'||(!ov&&ev.some(e=>e.type==='sick'))) return [{type:'sick',label:'Sick',full:true}];
   if((t==='Unavailable'||t==='Off') && !realShifts.length && !ev.some(e=>['devoted','agency'].includes(e.type))) return [{type:'unavail',label:'Unavailable',full:true}];
   if(t==='none' && !realShifts.length && !ev.length) return [{type:'needs',label:'Needs update',full:true}];
   const blocks=[], committed=[];
-  realShifts.slice().sort((a,b)=>new Date(a.start)-new Date(b.start)).forEach(s=>{
-    const st=_decH(s.start); let en=_decH(s.end); if(en<=st) en+=24;
-    blocks.push({type:'devoted',label:'Devoted',start:st,end:en,client:clById(s.clientId).name}); committed.push([st,en]);
+  realShifts.forEach(s=>{
+    const st=s.start; let en=(s.end==null?st:s.end); if(en<=st) en+=24;
+    /* the client's name IS the label — that is what the scheduler
+       needs to read off the grid */
+    const nm=shiftClientName(s);
+    blocks.push({type:'devoted',label:nm,start:st,end:en,client:nm}); committed.push([st,en]);
   });
   if(!realShifts.length && (t==='Devoted Shift' || ev.some(e=>e.type==='devoted'))){
     const dh=c.ops.devoted&&c.ops.devoted.hours;
@@ -6147,7 +6211,7 @@ function calDayStatus(c, date){
   const dd=dayAvail(c,date), t=dd.type, ev=cgCalEvents(c,date);
   const hasNote=(dd.note&&dd.note.trim())||['School','Childcare','Appointment'].includes(t)||ev.some(e=>['childcare','school'].includes(e.type));
   const base={hasNote,note:dd.note||'',updatedAt:dd.updatedAt||null,updatedBy:dd.updatedBy||null};
-  const realShifts=state.shifts.filter(s=>s.assigned===c.id && new Date(s.start).toDateString()===date.toDateString());
+  const realShifts=assignedOn(c,date);
   // full-day exclusive states
   if(t==='Vacation'||(!ov&&ev.some(e=>e.type==='vacation'))) return Object.assign({status:'vacation',label:'Vacation',win:null,parts:['Vacation']},base);
   if(t==='Sick'||(!ov&&ev.some(e=>e.type==='sick'))) return Object.assign({status:'sick',label:'Sick',win:null,parts:['Sick']},base);
@@ -6172,7 +6236,11 @@ function timeSegBar(win){
   return `<span class="cal-seg" title="Morning \u00b7 Afternoon \u00b7 Evening \u00b7 Night">${[0,1,2,3].map(i=>`<span class="seg ${segOn(i)?'on':''}"></span>`).join('')}</span>`;
 }
 function cgCalendar(c){
-  const off=state.cgCalMonth||0;
+  /* Opening a caregiver is what triggers the fetch — nobody who never
+     opens a profile should pay for it. Cached per caregiver, so the
+     month arrows cost nothing after the first load. */
+  if(typeof CGVISITS!=='undefined') CGVISITS.load(c);
+  const off=Math.max(CAL_MIN_OFF, Math.min(CAL_MAX_OFF, state.cgCalMonth||0));
   const first=new Date(NOW.getFullYear(), NOW.getMonth()+off, 1);
   const y=first.getFullYear(), m=first.getMonth();
   const startWd=first.getDay(), dim=new Date(y,m+1,0).getDate();
@@ -6184,7 +6252,12 @@ function cgCalendar(c){
     const isToday=date.toDateString()===NOW.toDateString();
     const blocks=dayBlocks(c,date);
     const S=calDayStatus(c,date);
-    const body = blocks.length ? `<div class="cal-blocks">${blocks.map(b=>{ const tt=blkTime(b); return `<div class="cal-blk ${b.type}"><span class="cb-l">${b.label}</span>${tt?`<span class="cb-t">${tt}</span>`:''}</div>`; }).join('')}</div>` : '';
+    /* esc() matters here: a real client on this account is
+       Raymond "Nacho" Banales Jr., and an unescaped quote would end the
+       title attribute early and mangle the rest of the cell. */
+    const body = blocks.length ? `<div class="cal-blocks">${blocks.map(b=>{ const tt=blkTime(b);
+      return `<div class="cal-blk ${b.type}" title="${esc(b.label+(tt?' \u00b7 '+tt:''))}"><span class="cb-l">${esc(b.label)}</span>${tt?`<span class="cb-t">${tt}</span>`:''}</div>`;
+    }).join('')}</div>` : '';
     const note = S.hasNote?`<span class="cal-note" title="${esc(S.note||'Has a note')}">${ic('log',9)}</span>`:'';
     cells+=`<div class="cal-cell ${isToday?'today':''} ${blocks.length?'':'offday'}" onclick="openDayPanel('${c.id}','${date.toISOString()}')">
       <span class="cal-d">${d}</span>${note}
@@ -6193,19 +6266,31 @@ function cgCalendar(c){
   }
   const dow=WD.map(d=>`<div class="cal-dow">${d}</div>`).join('');
   const statusLeg=[['devoted','Devoted'],['open','Open'],['agency','Other agency'],['school','School'],['childcare','Childcare'],['vacation','Vacation'],['sick','Sick'],['unavail','Unavailable'],['needs','Needs update']].map(([t,l])=>`<span class="cal-leg"><span class="cal-bsw ${t}"></span>${l}</span>`).join('');
-  const timeLeg=`<span class="cal-leg2">Reflects Availability Management + AxisCare \u00b7 click any day to see exact times and notes</span>`;
+  const timeLeg=`<span class="cal-leg2">Scheduled client visits are live from AxisCare \u00b7 availability is entered by schedulers \u00b7 click any day for exact times</span>`;
+  /* 'YYYY-MM-DD' \u2192 'Jul 2026'. The year matters: the window is 14 months. */
+  const calMon=d=>new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'short',year:'numeric'});
+  const sch=(typeof CGVISITS!=='undefined')?CGVISITS.info(c.id):null;
+  const schSt=(typeof CGVISITS!=='undefined')?CGVISITS.status(c.id):'idle';
+  const schedNote = schSt==='loading'
+    ? `<div class="cal-sched load"><span class="cs-spin"></span>Loading scheduled visits from AxisCare\u2026</div>`
+    : schSt==='error'
+      ? `<div class="cal-sched err">Couldn\u2019t load scheduled visits from AxisCare \u2014 ${esc((sch&&sch.error)||'unknown error')}.<button class="cs-retry" onclick="CGVISITS.retry('${c.id}')">Try again</button></div>`
+      : schSt==='ready'
+        ? `<div class="cal-sched ok">${sch.count} scheduled visit${sch.count===1?'':'s'} from AxisCare \u00b7 ${calMon(sch.from)} \u2013 ${calMon(sch.to)}</div>`
+        : `<div class="cal-sched ok">Scheduled visits are not loaded for this record.</div>`;
   const vst=availVerifyStatus(c);
   const banner=(vst.key==='overdue'||vst.key==='unverified'||vst.key==='needs')
     ? `<div class="cal-needbanner"><span class="cnb-dot"></span>Availability may be out of date \u2014 ${vst.label}. Blank/"Needs update" days have no confirmed information; verify with the caregiver.</div>` : '';
   return `<div class="cal-wrap">
-    <div class="cal-bar"><button class="cal-nav" onclick="cgCalNav(-1)">${ic('chevL',16)}</button><div class="cal-month">${cgMonthLabel(off)}</div><button class="cal-nav" onclick="cgCalNav(1)">${ic('chev',16)}</button></div>
-    ${banner}
+    <div class="cal-bar"><button class="cal-nav" ${off<=CAL_MIN_OFF?'disabled':''} onclick="cgCalNav(-1)">${ic('chevL',16)}</button><div class="cal-month">${cgMonthLabel(off)}</div><button class="cal-nav" ${off>=CAL_MAX_OFF?'disabled':''} onclick="cgCalNav(1)">${ic('chev',16)}</button></div>
+    ${schedNote}${banner}
     <div class="cal-legend">${statusLeg}</div>
     <div class="cal-grid"><div class="cal-dowrow">${dow}</div>${cells}</div>
     <div class="cal-legend2">${timeLeg}</div>
   </div>`;
 }
-function _h12u(h){ h=((h%24)+24)%24; const ap=h<12?'AM':'PM'; let hr=h%12; if(hr===0)hr=12; return hr+' '+ap; }
+function _h12u(h){ const t=_hmin(h); let hr=Math.floor(t/60)%12; if(hr===0)hr=12; const mn=t%60;
+  return hr+(mn?':'+String(mn).padStart(2,'0'):'')+' '+(t<720?'AM':'PM'); }
 function openDayPanel(cgId, dateISO){
   const c=cgById(cgId), date=new Date(dateISO), cur=dayAvail(c,date);
   modalState={dayCg:cgId, dayDate:dateISO, mode:'view', status:cur.type||'Open', win:cur.win||(['Open','Custom','School','Childcare','Appointment'].includes(cur.type)?'Custom':cur.type), start:cur.start!=null?cur.start:8, end:cur.end!=null?cur.end:16, note:cur.note||'', repeat:cur.repeat||'One day only'};
@@ -6221,9 +6306,9 @@ function renderDayPanel(){
   const head=`<div class="sp-head"><div><div class="sp-date">${date.toLocaleDateString('en-US',{weekday:'long'})}</div><div class="sp-date2">${date.toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})} \u00b7 ${c.name}</div></div><button class="mc" onclick="closeSidePanel()">×</button></div>`;
   const cur=dayAvail(c,date), S=calDayStatus(c,date), wd=wdOf(date);
   const blocks=dayBlocks(c,date);
-  const shifts=state.shifts.filter(s=>s.assigned===c.id && new Date(s.start).toDateString()===date.toDateString());
+  const shifts=assignedOn(c,date);
   const devBlks=blocks.filter(b=>b.type==='devoted');
-  const devoted = shifts.length ? shifts.map(s=>clById(s.clientId).name+' \u00b7 '+fmtTime(s.start)+'\u2013'+fmtTime(s.end)).join('<br>')
+  const devoted = shifts.length ? shifts.map(s=>shiftClientName(s)+' \u00b7 '+blkTimeFull({start:s.start,end:(s.end==null?s.start:s.end)})+(s.service?' \u00b7 '+esc(s.service):'')).join('<br>')
                  : (devBlks.length ? devBlks.map(b=>b.noTime?'Recurring Devoted assignment':'Recurring Devoted \u00b7 '+blkTimeFull(b)).join('<br>') : 'None');
   const agency = blocks.some(b=>b.type==='agency') ? 'Committed to another agency' : 'None';
   const openBlks=blocks.filter(b=>['open','school','childcare'].includes(b.type));
@@ -8723,11 +8808,114 @@ var AxisLive = (function () {
     return page(null);
   }
 
+  /* ---------- one caregiver’s own schedule ----------
+
+     /api/visits accepts caregiverIds, which turns "every visit on the
+     account for a month" (11 requests, ~7s) into "this caregiver for
+     fourteen months" (2-4 requests, ~1-3s).
+
+     MIND THE PARAMETER NAME. caregiverId, caregiver, employeeId and
+     caregiverExternalId are all accepted with a 200 and then silently
+     IGNORED — you get the whole mixed page back and it looks like it
+     worked. Only the plural caregiverIds actually filters. Verified
+     2026-08-25 against site 7060.
+
+     The wide window is safe here even though /api/visits truncates:
+     the filtered 14-month pull returned exactly the same 351 visits as
+     fourteen separate per-month calls, provided nextPage is followed.
+
+     A caregiver with no visits in the window is a 404 carrying
+     {"errors":["No visits found"]} — an empty calendar, not a failure. */
+
+  /* One month back, twelve forward: the span the month arrows reach. */
+  function visitWindow(now) {
+    var y = now.getFullYear(), m = now.getMonth();
+    return { from: ymd(new Date(y, m - 1, 1)), to: ymd(new Date(y, m + 13, 0)) };
+  }
+
+  /* AxisCare timestamps carry their own offset:
+         2026-08-01T15:30:00-07:00
+     is half past three in the afternoon where the visit happens. Reading
+     that through the viewer’s clock would move the block — on a laptop
+     set to UTC+8 this visit files itself under the 2nd at 6:30 AM. Take
+     the wall clock straight off the string; no timezone arithmetic to
+     get wrong. (The care-notes sync was bitten by exactly this.) */
+  var WALL = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/;
+  function wall(s) {
+    var m = WALL.exec(String(s || ''));
+    return m ? { day: m[1] + '-' + m[2] + '-' + m[3], hour: +m[4] + (+m[5]) / 60 } : null;
+  }
+
+  function mapCgVisit(v) {
+    var s = wall(v.scheduledStartDate || v.startDate);
+    if (!s) return null;
+    var e = wall(v.scheduledEndDate || v.endDate);
+    var end = e ? e.hour : null;
+    if (end != null) {
+      if (e.day !== s.day) end += 24 * Math.round((Date.parse(e.day) - Date.parse(s.day)) / 86400000);
+      else if (end <= s.hour) end += 24;                 /* overnight, one date */
+    }
+    var cl = v.client || {};
+    var nm = ((cl.firstName || '') + ' ' + (cl.lastName || '')).replace(/\s+/g, ' ').trim();
+    return {
+      id: shiftId(v.id),
+      axisVisitId: v.id,
+      source: 'axiscare',
+      day: s.day,                                        /* YYYY-MM-DD, the visit’s own date */
+      start: s.hour,
+      end: end,
+      clientId: cl.id != null ? 'k' + cl.id : null,
+      clientName: nm || null,
+      service: (v.service && v.service.description) || null
+    };
+  }
+
+  function fetchCaregiverVisits(get, axisId, opts) {
+    opts = opts || {};
+    var w = visitWindow(opts.now || new Date());
+    var out = [], pages = 0, scanned = 0;
+
+    function page(token) {
+      var q = { startDate: w.from, endDate: w.to, caregiverIds: axisId };
+      if (token) q.nextPageToken = token;
+      return get('/api/visits', q).then(function (res) {
+        var r = (res && res.data && res.data.results) || {};
+        var list = r.visits || [];
+        scanned += list.length;
+        list.forEach(function (v) {
+          if (v.removed) return;                          /* cancelled */
+          /* belt and braces: never plot someone else’s visit on this
+             calendar, however the filter behaves */
+          if (!v.caregiver || String(v.caregiver.id) !== String(axisId)) return;
+          var m = mapCgVisit(v);
+          if (m) out.push(m);
+        });
+        var next = r.nextPage;
+        if (next && ++pages < 30) {
+          var t = /[?&]nextPageToken=([^&]+)/.exec(next);
+          if (t) return page(decodeURIComponent(t[1]));
+        }
+        out.sort(function (a, b) { return a.day === b.day ? a.start - b.start : (a.day < b.day ? -1 : 1); });
+        return { visits: out, scanned: scanned, requests: pages + 1, from: w.from, to: w.to };
+      });
+    }
+
+    return page(null).catch(function (err) {
+      if (err && err.status === 404) {
+        return { visits: [], scanned: 0, requests: 1, from: w.from, to: w.to, empty: true };
+      }
+      throw err;
+    });
+  }
+
   return {
     mapClient: mapClient,
     fetchClients: fetchClients,
     fetchOpenShifts: fetchOpenShifts,
     mapOpenShift: mapOpenShift,
+    fetchCaregiverVisits: fetchCaregiverVisits,
+    mapCgVisit: mapCgVisit,
+    visitWindow: visitWindow,
     shiftId: shiftId
   };
 })();
@@ -9814,6 +10002,84 @@ const AxisCare = (function(){
       return AxisRoster.fetchActive(function(p, q){ return self.get(p, q); }, opts)
         .then(function(raw){ return opts.raw ? raw : raw.map(AxisRoster.map); });
     }
+  };
+})();
+
+/* =========================================================
+   CGVISITS  —  a caregiver’s AxisCare schedule, for the calendar
+   ---------------------------------------------------------
+   Fetched when a caregiver’s workspace is opened, not at boot.
+   The calendar is the only thing that needs it, and a fetch at
+   boot would cost every user seconds they may never use.
+
+   One request set covers the whole range the month arrows can
+   reach, so paging between months costs nothing afterwards.
+
+   DELIBERATELY NOT IN `state`. state.shifts is a tracked CLOUD
+   slice — a few hundred visits dropped in there would be written
+   to Supabase as though a scheduler had typed them by hand. That
+   is the 323KB overlay bug, and it is documented in CLAUDE.md
+   under "Don’t break these".
+   ========================================================= */
+var CGVISITS = (function () {
+  'use strict';
+  var byCg = {};        /* cgId -> { status, days, count, error, from, to } */
+  var inFlight = {};
+
+  function info(cgId) { return byCg[cgId] || null; }
+  function status(cgId) {
+    var r = byCg[cgId];
+    return r ? r.status : (inFlight[cgId] ? 'loading' : 'idle');
+  }
+
+  function load(c) {
+    /* the demo fixture has no AxisCare record, so nothing to fetch */
+    if (!c || c.source !== 'axiscare' || c.axisId == null) return;
+    if (byCg[c.id] || inFlight[c.id]) return;
+    if (typeof AxisCare === 'undefined' || typeof AxisLive === 'undefined') return;
+
+    inFlight[c.id] = 1;
+    byCg[c.id] = { status: 'loading', days: {}, count: 0, error: null };
+
+    AxisLive.fetchCaregiverVisits(function (p, q) { return AxisCare.get(p, q); }, c.axisId)
+      .then(function (res) {
+        var days = {};
+        res.visits.forEach(function (v) { (days[v.day] || (days[v.day] = [])).push(v); });
+        byCg[c.id] = {
+          status: 'ready', days: days, count: res.visits.length, error: null,
+          from: res.from, to: res.to, requests: res.requests
+        };
+        console.info('[cgvisits] ' + c.name + ': ' + res.visits.length + ' visit(s) over ' +
+          res.from + ' → ' + res.to + ' in ' + res.requests + ' request(s)');
+      })
+      .catch(function (e) {
+        byCg[c.id] = { status: 'error', days: {}, count: 0, error: (e && e.message) || String(e) };
+        console.warn('[cgvisits] ' + c.name + ' failed', e);
+      })
+      .then(function () {
+        delete inFlight[c.id];
+        try { render(); } catch (e) {}
+      });
+  }
+
+  function retry(cgId) {
+    delete byCg[cgId]; delete inFlight[cgId];
+    var c = (typeof cgById === 'function') ? cgById(cgId) : null;
+    if (c) load(c);
+    try { render(); } catch (e) {}
+  }
+
+  /* Visits on one calendar day. Empty until the fetch lands, which is
+     why the calendar says it is loading rather than showing a bare grid. */
+  function forDay(cgId, date) {
+    var r = byCg[cgId];
+    if (!r || r.status !== 'ready') return [];
+    return r.days[dateKey(date)] || [];
+  }
+
+  return {
+    load: load, forDay: forDay, status: status, info: info, retry: retry,
+    _reset: function () { byCg = {}; inFlight = {}; }
   };
 })();
 

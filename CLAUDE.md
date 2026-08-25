@@ -101,6 +101,7 @@ layout or wording change, or anything already answered in this file.
 | **Caregivers** | Live — 184 active, fetched every load |
 | **Clients** | Live — 20 active |
 | **Open shifts** | Live — derived from unassigned future visits |
+| **Caregiver calendar** | Live — each caregiver’s own scheduled client visits |
 | **Care notes** | Live — swept into Supabase on a schedule, read from there |
 | Medication lists | Cannot be fetched. AxisCare API limitation |
 | Attendance history | No AxisCare source. Derivable from visit clock-ins, not built |
@@ -284,6 +285,94 @@ about 4 seconds. Widening the window costs proportionally.
 
 ---
 
+## The caregiver calendar — one caregiver's own visits
+
+The month grid on a caregiver's workspace plots **their assigned client
+visits**, live from AxisCare. A block is one visit: the client's name and the
+scheduled times.
+
+```
+GET /api/visits?startDate=…&endDate=…&caregiverIds=<axisId>
+```
+
+### `caregiverIds` is the only parameter that filters
+
+**This is the trap worth knowing.** `caregiverId`, `caregiver`, `employeeId`
+and `caregiverExternalId` are all accepted with a **200 OK** and then silently
+ignored — you get the whole unfiltered page back. Nothing errors, nothing warns,
+and code written against any of them looks like it works right up until someone
+notices another caregiver's clients on the calendar. Only the plural
+`caregiverIds` actually filters. Verified on this account 2026-08-25.
+
+The payoff is large. A month of *everyone's* visits is 932 records over 11
+requests and ~7s. One caregiver over **fourteen months** is 351 records in 4
+requests and ~2.3s.
+
+### The window, and why it is fetched all at once
+
+One month back, twelve months forward — exactly what the month arrows reach,
+and they are disabled at both ends. The whole span is fetched in one go when
+the caregiver is opened, so paging between months costs nothing afterwards.
+
+A wide `/api/visits` window normally truncates, so this was checked rather than
+assumed: the filtered 14-month pull returned **exactly** the same 351 visits as
+fourteen separate per-month calls, provided `nextPage` is followed.
+
+Visits do exist that far out — roughly 26 a month through Aug 2027 for an
+active caregiver, because AxisCare generates them from the recurring schedule.
+
+### An empty calendar arrives as a 404
+
+A caregiver with no visits in the window returns:
+
+```
+HTTP 404   {"results":null,"errors":["No visits found"]}
+```
+
+**That is an empty calendar, not a failure**, and it is common — 126 of the 184
+active caregivers had no visits in the current month. Treat 404 on this call as
+zero results; anything else would paint a red error banner across two thirds of
+the roster.
+
+### Where it is loaded, and where it is kept
+
+`CGVISITS` (near the bottom of `index.html`) fetches on the first render of a
+caregiver's calendar — not at boot, because nobody who never opens a profile
+should pay for it — and caches per caregiver.
+
+It is deliberately **not** stored in `state`. `state.shifts` is a tracked CLOUD
+slice, so a few hundred visits placed there would be written to Supabase as
+though a scheduler had typed them by hand. That is the 323KB overlay bug in
+*Don't break these*, and it would happen again.
+
+### Long client names truncate; times do not
+
+Real names are long — `Duane & Lynne Georgeson`, `Raymond "Nacho" Banales Jr.`
+— and a `nowrap` label with nothing allowed to shrink pushed the whole month
+past the panel edge. Three levels each had to be freed: the grid columns
+(`1fr` means `minmax(auto,1fr)`, which will not go below min-content), the day
+cell and block (a flex item defaults to `min-width:auto`), and the label itself
+(`text-overflow:ellipsis` needs `overflow:hidden`).
+
+The **name** truncates. The **time** is `flex:0 0 auto` and never does, so a
+shift always reads its hours. The full name is in the `title`, and on the day
+panel behind a click.
+
+Client names go through `esc()` before reaching the `title` attribute. That is
+not decoration: `Raymond "Nacho" Banales Jr.` is a real client on this account,
+and an unescaped quote ends the attribute early and mangles the rest of the cell.
+
+### Times come from the string, not the browser clock
+
+AxisCare timestamps carry their own offset: `2026-08-01T15:30:00-07:00` is half
+past three in the afternoon **where the visit happens**. Reading that through
+`new Date()` and the viewer's clock moves it — on a laptop set to UTC+8 that
+visit files itself under the 2nd at 6:30 AM. The wall clock is taken straight
+off the string instead. The care-notes sync was bitten by the same class of bug;
+see its section above.
+
+---
+
 ## AxisCare — the connection is already set up and working
 
 Confirmed live. Nothing needs configuring.
@@ -322,7 +411,14 @@ await AxisCare.roster()                       // the mapped live roster
 await AxisCare.roster({ raw:true })           // untouched AxisCare records
 AxisRoster.report(await AxisCare.roster())    // coverage summary
 ROSTER.status()                               // what the last hydrate did
+
+CGVISITS.status('a731')                       // a caregiver's calendar load
+CGVISITS.info('a731')                         // { count, from, to, requests }
+CGVISITS.retry('a731')                        // clear the cache and refetch
 ```
+
+`CGVISITS.info()` returning `count: 0` with `status: 'ready'` means the
+caregiver genuinely has no visits, which is the common case — not a failure.
 
 ### Two traps that cost real time
 
@@ -456,6 +552,14 @@ Returned at `results.visits` as an **array**. Without parameters it returns
 `422`. It needs **one** of: `startDate` + `endDate`, or `updatedSinceDate`, or
 `visitIds`.
 
+It also accepts **`caregiverIds`**, which narrows the result to one caregiver
+and is what the caregiver calendar uses. Be careful with the name: the singular
+`caregiverId`, and `caregiver`, `employeeId` and `caregiverExternalId`, all
+return 200 and are then **silently ignored**. See *The caregiver calendar* above.
+
+A query that matches nothing returns **404 `"No visits found"`**, not an empty
+array.
+
 ```
 id                    string   e.g. "s=1543:d=2026-08-21"
 client                { id, firstName, lastName, externalId }
@@ -519,11 +623,11 @@ just explain what was found and move to what does work.
 |---|---|
 | Caregiver reliability %, call-off count, decline count | **No such field.** `null` on real caregivers, rendered as "Not tracked". *Derivable* from `/api/visits` — compare `clockIn.time` against `scheduledStartDate`, and treat a visit with no `clockIn` as a no-show. |
 | Hours worked this week | **No such field.** Derivable by summing visit durations per caregiver over a date range. |
-| Which clients a caregiver has served before | **No such field.** Derivable from `/api/visits` by grouping on `caregiver.id`. |
+| Which clients a caregiver has served before | **No such field**, but easily derived — `/api/visits?caregiverIds=…` returns exactly that. The caregiver calendar does it. |
 | A Mon–Sun availability grid | **Does not exist.** Only the coarse class tags above (`WKDY`, `WKND`, `MRNNG`, `NOVRN`…), and only for 60% of caregivers. |
 | A clinical skills list | **Does not exist** as a field. Only class tags. |
 | Client medications | **Cannot be fetched.** A limitation in AxisCare's own API, confirmed on the Client Concierge dashboard where the medications call returns `403` on every client. The Medication List screen here is demo data. Not fixable in code, and no re-sync or deploy would change it. |
-| Care notes | Not wired here. The Care Notes Review screen is demo data. |
+| Caregiver availability (a Mon–Sun grid) | **Does not exist.** The calendar shows *assigned visits*, which are real. The open/unavailable days beside them come from availability a scheduler typed in, not from AxisCare. |
 | Writing anything back to AxisCare | Not possible through this app. The proxy is read-only by design and forwards GET only. |
 
 The pattern worth internalising: **AxisCare knows identity, status, location,
@@ -599,8 +703,8 @@ side to implement.
 
 ## Don't break these
 
-`index.html` is safe to edit freely, with three exceptions near the bottom of the
-file. Full detail is in `README.md` under *How the data model works*.
+`index.html` is safe to edit freely, with the exceptions below. Full detail is
+in `README.md` under *How the data model works*.
 
 1. **The `CLOUD` persistence module** (the block headed `CLOUD PERSISTENCE`).
    This is what saves the scheduler's work and shares it between the three
@@ -636,6 +740,12 @@ file. Full detail is in `README.md` under *How the data model works*.
 4. **`config.js` is generated at deploy time** from Netlify environment
    variables. Editing it has no effect — the build overwrites it. The committed
    copy is intentionally empty.
+
+5. **Caregiver visits must stay out of `state`.** `CGVISITS` keeps them in its
+   own cache. Moving them into `state.shifts` looks like a tidy-up — it is a
+   tracked CLOUD slice, so several hundred visits would be diffed into the
+   overlay and written to Supabase as though a scheduler typed them. That is
+   bug 2 above, again. `state.shifts` holds *open* (unassigned) shifts only.
 
 Two smaller notes for anyone wiring real data later: several places derive values
 from the numeric part of a demo id (`parseInt(c.id.slice(1))` on `'c7'`), which

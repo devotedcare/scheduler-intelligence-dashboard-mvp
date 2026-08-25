@@ -145,6 +145,17 @@ Open shifts are derived, not fetched: a visit that is not removed, has no
 caregiver, and is scheduled in the future. AxisCare has no field for *when* a
 shift became open, so "open for N days" cannot be shown.
 
+**Not everything loads at boot.** A caregiver's own calendar is fetched the
+first time their workspace is opened, by `CGVISITS`, and cached per caregiver
+— one request set covering one month back to twelve forward, so the month
+arrows cost nothing afterwards. It is deliberate that this is not in
+`hydrate()`: nobody who never opens a profile should wait for it.
+
+Those visits are held **outside `state`**. `state.shifts` is a tracked CLOUD
+slice, so a few hundred visits placed there would be diffed into the overlay and
+written to Supabase as though a scheduler had typed them by hand — the same
+323KB failure described above.
+
 ### Saving and conflicts
 
 Every UI action calls `render()`, which is wrapped to schedule a save ~900ms
@@ -183,6 +194,17 @@ CLOUD.sync()        // force a pull
 CLOUD.save()        // force a push
 CLOUD.reset()       // wipe all saved work, back to clean demo data (asks first)
 ```
+
+For a caregiver's calendar — `id` is the app id, e.g. `'a731'`:
+
+```js
+CGVISITS.status(id)   // 'idle' | 'loading' | 'ready' | 'error'
+CGVISITS.info(id)     // { status, count, from, to, requests, error }
+CGVISITS.retry(id)    // clear the cache and fetch again
+```
+
+`count: 0` with `status: 'ready'` is a caregiver who genuinely has no visits,
+which is the common case — not a failure.
 
 ---
 
@@ -324,9 +346,16 @@ returns 403 for this token, and is not on the proxy allowlist.)
 /api/schedules   needs  startDate + endDate,  or scheduleIds
 ```
 
+`/api/visits` also takes **`caregiverIds`**, which narrows the result to one
+caregiver — that is how each caregiver's calendar is built. Mind the plural:
+`caregiverId`, `caregiver`, `employeeId` and `caregiverExternalId` all return
+**200 and are silently ignored**, handing back every caregiver's visits. A query
+matching nothing returns **404 `"No visits found"`**, not an empty array, so
+that status has to be read as "none" rather than as an error.
+
 Visits are the important ones for this dashboard — a visit carries client,
 caregiver, scheduled start/end and actual start/end, which is what Open Shifts,
-Find Coverage and the Today view are built on.
+Find Coverage, the Today view and the caregiver calendar are built on.
 
 ### Configure it
 
@@ -643,6 +672,18 @@ names the reason and offers **Retry**. Check
 `/.netlify/functions/axiscare?action=ping` — if that fails too it is the token or
 the proxy, not the app. Sample data is still available with `DEMO.on()`.
 
+**A caregiver's calendar is empty.**
+Most likely correct: 126 of 184 active caregivers had no visits in the current
+month. The calendar says "0 scheduled visits from AxisCare" when that is the
+case, and shows a red error only when the fetch genuinely failed. Check the
+caregiver in AxisCare before assuming the dashboard is wrong.
+
+**A caregiver's calendar shows someone else's clients.**
+That would mean the `caregiverIds` filter stopped applying. Note the plural —
+`caregiverId` (singular) returns 200 and is silently ignored, handing back every
+caregiver's visits. `CGVISITS` also drops any visit whose `caregiver.id` does
+not match, so this should not be reachable; if it happens, that guard is gone.
+
 **Everything is stale after a deploy.**
 Hard-refresh (Ctrl-F5). `index.html` and `config.js` are sent with
 no-cache headers, so this should be rare.
@@ -729,17 +770,23 @@ Next, in the order that unblocks the most:
    AxisCare's per-visit call (~170 requests for a week). The dashboard reads the
    mirror and makes no AxisCare calls for notes.
 
-4. **Attendance and the "Not tracked" figures.** Punctuality, no-shows, weekly
-   hours and prior-client history are all derivable from `clockIn` versus
-   `scheduledStartDate` on visits already being fetched. This would replace the
-   "Not tracked" placeholders on the caregiver workspace.
+4. **Caregiver calendar — done.** Each caregiver's month grid plots their own
+   assigned client visits, one block per visit with the client and the times.
+   Fetched with `/api/visits?caregiverIds=…` when the caregiver is opened —
+   one month back to twelve forward, 2–4 requests.
 
-5. **Authentication** — required before real client data. See above.
-6. **Per-user identity** — replace the "on shift" dropdown with real accounts so
+5. **Attendance and the "Not tracked" figures.** Punctuality, no-shows and
+   weekly hours are derivable from `clockIn` versus `scheduledStartDate` on
+   visits already being fetched — the calendar fetch has the records in hand
+   already. This would replace the "Not tracked" placeholders on the caregiver
+   workspace. (Prior-client history is now covered by the calendar.)
+
+6. **Authentication** — required before real client data. See above.
+7. **Per-user identity** — replace the "on shift" dropdown with real accounts so
    `updated_by` means something.
-7. **Supabase Realtime** — swap 20-second polling for live push, so two
+8. **Supabase Realtime** — swap 20-second polling for live push, so two
    schedulers see each other's changes instantly.
-8. **Write-back to AxisCare** — currently one-way by design. Assigning coverage
+9. **Write-back to AxisCare** — currently one-way by design. Assigning coverage
    in the dashboard would create the visit in AxisCare.
 
 ---
