@@ -1759,7 +1759,10 @@
 
   /* a rule under the weekday header, and the two day markers */
   .cal-dowrow{padding-bottom:7px;border-bottom:1px solid var(--line);margin-bottom:5px}
-  .cal-cell.today{outline:none}
+  /* Three earlier rules each drew a ring round today: a brand border-color,
+     an inset box-shadow, and an outline. All three have to go — the circle on
+     the date is the marker. A ring means "this is the day you clicked". */
+  .cal-cell.today{outline:none;border-color:var(--line);box-shadow:none}
   .cal-cell.today .cal-d{display:inline-flex;align-items:center;justify-content:center;flex:none;width:22px;height:22px;padding:0;border-radius:50%;background:#1e40af;color:#fff;line-height:1}
   .cal-cell.sel{outline:2px solid var(--brand);outline-offset:-2px;background:#F2F7FA;z-index:1}
 
@@ -6349,7 +6352,14 @@ function openDayPanel(cgId, dateISO){
   renderDayPanel();
   document.getElementById('sidebg').classList.add('show');
 }
-function closeSidePanel(){ document.getElementById('sidebg').classList.remove('show'); document.getElementById('sidepanel').innerHTML=''; }
+function closeSidePanel(){
+  document.getElementById('sidebg').classList.remove('show');
+  document.getElementById('sidepanel').innerHTML='';
+  /* The calendar outline means "this is the day you have open". With the
+     panel shut it means nothing, so clear it. Every close route — the x,
+     the Close button and the backdrop click — comes through here. */
+  if(state.cgCalSel){ state.cgCalSel=null; try{ render(); }catch(e){} }
+}
 function dayPanelEdit(){ modalState.mode='edit'; renderDayPanel(); }
 function dayPanelPick(field,val){ modalState[field]=val; renderDayPanel(); }
 /* ---- availability editing, inside the day panel ----
