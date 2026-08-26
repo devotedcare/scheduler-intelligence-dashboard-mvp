@@ -1749,6 +1749,11 @@
 
   /* the AxisCare load state: its own banner above the card, never inside it */
   .demo-banner.cal-meta{margin-bottom:12px}
+  /* waiting on AxisCare — say so rather than showing an empty result that
+     is about to be replaced */
+  .cgf-loading{display:flex;align-items:center;gap:9px;padding:18px 16px;font-size:13px;color:var(--ink-soft)}
+  .cal-loadrow{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600;color:#3D5A70;background:#EEF3F7;border:1px solid #D5E0E7;border-radius:var(--r);padding:7px 11px;margin-bottom:10px}
+  .cal-busy .cal-grid{opacity:.4;pointer-events:none;transition:opacity .15s}
   .demo-banner.cal-meta.load{background:#EEF3F7;color:#3D5A70;border-color:#D5E0E7}
   /* An 11px uppercase label has no descenders, so centring its LINE BOX
      leaves the letters sitting visibly high against the icon. line-height:1
@@ -2054,120 +2059,11 @@ function miles(a,b){ const A=CITY[a],B=CITY[b]; if(!A||!B) return 30; return Mat
 const state = {
   onShift:'Mae',
   schedulerNames:['Mae','Sunshine','Kristine'],
-  caregivers:[
-    {id:'c1', name:'Rosa Delgado', base:'Camarillo', avail:{Mon:1,Tue:1,Wed:1,Thu:1,Fri:1,Sat:0,Sun:0}, today:1,
-      hours:'Days, 7a–4p', prefCities:['Camarillo','Oxnard','Ventura'], skills:['Dementia','Companion','Transfers'],
-      restrictions:['No overnight'], reliability:96, weekHrs:30, callOffs30:0, declinesStreak:0, recentDeclines:0,
-      priorClients:['cl1','cl4'], replacedOn:[], tempNote:'', permNote:'Prefers female clients'},
-    {id:'c2', name:'James Okafor', base:'Thousand Oaks', avail:{Mon:1,Tue:1,Wed:0,Thu:1,Fri:1,Sat:1,Sun:1}, today:1,
-      hours:'Open', prefCities:['Thousand Oaks','Westlake Village','Newbury Park'], skills:['Companion','Transfers','Hoyer Lift'],
-      restrictions:[], reliability:91, weekHrs:38, callOffs30:1, declinesStreak:0, recentDeclines:1,
-      priorClients:['cl2'], replacedOn:[], tempNote:'', permNote:''},
-    {id:'c3', name:'Marites Santos', base:'Oxnard', avail:{Mon:1,Tue:1,Wed:1,Thu:1,Fri:1,Sat:1,Sun:0}, today:1,
-      hours:'Days + eve', prefCities:['Oxnard','Port Hueneme','Ventura'], skills:['Dementia','Companion','Medication Reminders'],
-      restrictions:['No pets'], reliability:98, weekHrs:24, callOffs30:0, declinesStreak:0, recentDeclines:0,
-      priorClients:['cl3'], replacedOn:[], tempNote:'Open to extra shifts this week', permNote:''},
-    {id:'c4', name:'Derek Lin', base:'Simi Valley', avail:{Mon:0,Tue:1,Wed:1,Thu:1,Fri:0,Sat:0,Sun:0}, today:0,
-      hours:'Days', prefCities:['Simi Valley','Moorpark','Thousand Oaks'], skills:['Companion','Transfers'],
-      restrictions:[], reliability:84, weekHrs:18, callOffs30:2, declinesStreak:0, recentDeclines:1,
-      priorClients:[], replacedOn:['cl5'], tempNote:'Out today — medical appt', permNote:''},
-    {id:'c5', name:'Ana Beltran', base:'Ventura', avail:{Mon:1,Tue:1,Wed:1,Thu:0,Fri:1,Sat:1,Sun:1}, today:1,
-      hours:'Days + overnight', prefCities:['Ventura','Ojai','Santa Paula','Oxnard'], skills:['Dementia','Companion','Hospice','Transfers'],
-      restrictions:[], reliability:99, weekHrs:34, callOffs30:0, declinesStreak:0, recentDeclines:0,
-      priorClients:['cl4','cl6'], replacedOn:[], tempNote:'', permNote:'Comfortable with behavioral cases'},
-    {id:'c6', name:'Tyrell Banks', base:'Newbury Park', avail:{Mon:1,Tue:0,Wed:1,Thu:1,Fri:1,Sat:0,Sun:0}, today:1,
-      hours:'Days, 8a–2p', prefCities:['Newbury Park','Thousand Oaks','Westlake Village'], skills:['Companion'],
-      restrictions:['No transfers (back)'], reliability:78, weekHrs:12, callOffs30:1, declinesStreak:3, recentDeclines:3,
-      priorClients:[], replacedOn:[], tempNote:'', permNote:''},
-    {id:'c7', name:'Priya Nair', base:'Moorpark', avail:{Mon:1,Tue:1,Wed:1,Thu:1,Fri:1,Sat:0,Sun:0}, today:1,
-      hours:'Days', prefCities:['Moorpark','Simi Valley','Camarillo'], skills:['Dementia','Companion','Medication Reminders','Transfers'],
-      restrictions:[], reliability:94, weekHrs:40, callOffs30:0, declinesStreak:0, recentDeclines:0,
-      priorClients:['cl1'], replacedOn:[], tempNote:'At 40 hrs this week', permNote:''},
-    {id:'c8', name:'Gloria Mendez', base:'Santa Paula', avail:{Mon:1,Tue:1,Wed:0,Thu:1,Fri:1,Sat:1,Sun:1}, today:1,
-      hours:'Flexible', prefCities:['Santa Paula','Fillmore','Ventura','Ojai'], skills:['Companion','Transfers','Hoyer Lift','Dementia'],
-      restrictions:[], reliability:97, weekHrs:22, callOffs30:0, declinesStreak:0, recentDeclines:0,
-      priorClients:['cl6'], replacedOn:[], tempNote:'', permNote:''},
-    {id:'c9', name:'Bea Cortez', base:'Camarillo', avail:{Mon:1,Tue:1,Wed:1,Thu:1,Fri:1,Sat:1,Sun:0}, today:1,
-      hours:'Days + eve', prefCities:['Camarillo','Oxnard','Ventura','Moorpark'], skills:['Dementia','Companion','Transfers'],
-      restrictions:[], reliability:92, weekHrs:26, callOffs30:0, declinesStreak:0, recentDeclines:0,
-      priorClients:['cl4'], replacedOn:[], tempNote:'', permNote:''},
-    {id:'c10', name:'Marcus Webb', base:'Oxnard', avail:{Mon:1,Tue:1,Wed:1,Thu:0,Fri:1,Sat:1,Sun:0}, today:1,
-      hours:'Days', prefCities:['Oxnard','Port Hueneme','Camarillo'], skills:['Companion','Transfers'],
-      restrictions:[], reliability:88, weekHrs:30, callOffs30:3, declinesStreak:0, recentDeclines:0,
-      priorClients:[], replacedOn:[], tempNote:'', permNote:''},
-    {id:'c11', name:'Lily Tran', base:'Ventura', avail:{Mon:1,Tue:1,Wed:1,Thu:1,Fri:0,Sat:1,Sun:1}, today:1,
-      hours:'Days, 7a–3p', prefCities:['Ventura','Oxnard','Ojai'], skills:['Dementia','Companion','Medication Reminders'],
-      restrictions:[], reliability:95, weekHrs:20, callOffs30:0, declinesStreak:0, recentDeclines:0,
-      priorClients:[], replacedOn:[], tempNote:'Open to extra shifts', permNote:''},
-    {id:'c12', name:'Sam Okwu', base:'Thousand Oaks', avail:{Mon:1,Tue:1,Wed:1,Thu:1,Fri:1,Sat:0,Sun:0}, today:1,
-      hours:'Days', prefCities:['Thousand Oaks','Westlake Village','Newbury Park'], skills:['Companion','Transfers','Hoyer Lift'],
-      restrictions:[], reliability:90, weekHrs:32, callOffs30:0, declinesStreak:0, recentDeclines:0,
-      priorClients:['cl2'], replacedOn:[], tempNote:'', permNote:''},
-    {id:'c13', name:'Carmen Reyes', base:'Santa Paula', avail:{Mon:1,Tue:1,Wed:1,Thu:1,Fri:1,Sat:1,Sun:1}, today:1,
-      hours:'Flexible', prefCities:['Santa Paula','Fillmore','Ventura','Ojai'], skills:['Dementia','Companion','Hospice'],
-      restrictions:[], reliability:96, weekHrs:28, callOffs30:0, declinesStreak:0, recentDeclines:0,
-      priorClients:[], replacedOn:[], tempNote:'', permNote:'Comfortable with behavioral cases'},
-    {id:'c14', name:'Devon Pierce', base:'Moorpark', avail:{Mon:1,Tue:1,Wed:0,Thu:1,Fri:1,Sat:0,Sun:0}, today:0,
-      hours:'Days', prefCities:['Moorpark','Simi Valley','Thousand Oaks'], skills:['Companion','Transfers'],
-      restrictions:[], reliability:85, weekHrs:24, callOffs30:1, declinesStreak:0, recentDeclines:0,
-      priorClients:[], replacedOn:[], tempNote:'Out today — family', permNote:''},
-    {id:'c15', name:'Ingrid Holm', base:'Newbury Park', avail:{Mon:1,Tue:1,Wed:1,Thu:1,Fri:1,Sat:1,Sun:0}, today:1,
-      hours:'Days + eve', prefCities:['Newbury Park','Thousand Oaks','Westlake Village','Moorpark'], skills:['Dementia','Companion'],
-      restrictions:[], reliability:93, weekHrs:16, callOffs30:0, declinesStreak:0, recentDeclines:0,
-      priorClients:[], replacedOn:[], tempNote:'Open to extra shifts', permNote:''},
-    {id:'c16', name:'Noah Park', base:'Oxnard', avail:{Mon:1,Tue:1,Wed:1,Thu:1,Fri:1,Sat:0,Sun:0}, today:1,
-      hours:'Days, 9a–5p', prefCities:['Oxnard','Ventura','Port Hueneme'], skills:['Companion','Medication Reminders'],
-      restrictions:[], reliability:81, weekHrs:12, callOffs30:1, declinesStreak:0, recentDeclines:1,
-      priorClients:[], replacedOn:[], tempNote:'', permNote:''},
-  ],
-  clients:[
-    {id:'cl1', name:'Cal Miller', city:'Camarillo', reqSkills:['Dementia','Transfers'], carePattern:{days:['Mon','Tue','Wed','Thu','Fri'], start:15.5, end:22.5},
-      restrictions:['Female caregiver preferred'], hasBackup:true, complaints30:0, risk:'low', pets:false, smoking:false},
-    {id:'cl2', name:'Eleanor Wu', city:'Westlake Village', reqSkills:['Transfers','Hoyer Lift'], carePattern:{days:['Mon','Wed','Fri'], start:8, end:14},
-      restrictions:['Female caregiver only'], hasBackup:true, complaints30:0, risk:'low', pets:false, smoking:false},
-    {id:'cl3', name:'Frank Bianchi', city:'Oxnard', reqSkills:['Companion'], needsDriver:true, langReq:'Spanish', carePattern:{days:['Tue','Thu','Sat'], start:9, end:15},
-      restrictions:[], hasBackup:false, complaints30:2, risk:'high', pets:true, smoking:false},
-    {id:'cl4', name:'Dorothy Hale', city:'Ventura', reqSkills:['Dementia','Companion'], carePattern:{days:['Mon','Tue','Wed','Thu','Fri','Sat','Sun'], start:7, end:13},
-      restrictions:[], hasBackup:false, complaints30:1, risk:'high', pets:false, smoking:false},
-    {id:'cl5', name:'Harold Pratt', city:'Simi Valley', reqSkills:['Transfers'], carePattern:{days:['Mon','Tue','Wed','Thu','Fri'], start:14, end:20},
-      restrictions:[], hasBackup:true, complaints30:0, risk:'medium', pets:false, smoking:true},
-    {id:'cl6', name:'Beatrice Lowe', city:'Santa Paula', reqSkills:['Dementia','Hospice'], carePattern:{days:['Sat','Sun'], start:8, end:20},
-      restrictions:[], hasBackup:true, complaints30:0, risk:'medium', pets:false, smoking:false},
-  ],
-  shifts:[
-    // status: filled | open ; callOff if it became open from a call-off
-    {id:'s1', clientId:'cl4', start:at(3.5), end:at(11.5), status:'open', openedAt:at(-1.5), callOff:true, callOffReason:'Sick', callOffBy:'Sunshine', assigned:null, prevCaregiver:'c5'},
-    {id:'s2', clientId:'cl3', start:at(6), end:at(12), status:'open', openedAt:at(-4), callOff:false, assigned:null},
-    {id:'s3', clientId:'cl1', start:at(22), end:at(30), status:'open', openedAt:at(-2), callOff:false, assigned:null},
-    {id:'s4', clientId:'cl2', start:at(26), end:at(32), status:'filled', openedAt:null, assigned:'c2'},
-    {id:'s5', clientId:'cl6', start:at(28), end:at(36), status:'filled', openedAt:null, assigned:'c8'},
-    {id:'s6', clientId:'cl3', start:at(50), end:at(56), status:'open', openedAt:at(-26), callOff:false, assigned:null},
-    {id:'s7', clientId:'cl5', start:at(30), end:at(38), status:'filled', openedAt:null, assigned:'c4'},
-    {id:'s8', clientId:'cl1', start:at(54), end:at(62), status:'filled', openedAt:null, assigned:'c7'},
-    // filled shifts with live EVV/attendance state (source: AxisCare)
-    {id:'s9',  clientId:'cl1', start:at(-1),    end:at(7),    status:'filled', openedAt:null, assigned:'c3',  evv:{clockIn:false}},
-    {id:'s10', clientId:'cl5', start:at(-0.25), end:at(7.75), status:'filled', openedAt:null, assigned:'c10', evv:{clockIn:false}},
-    {id:'s11', clientId:'cl2', start:at(0.25),  end:at(8.25), status:'filled', openedAt:null, assigned:'c7',  evv:{runningLate:20}},
-    {id:'s12', clientId:'cl6', start:at(-9),    end:at(-0.5), status:'filled', openedAt:null, assigned:'c8',  evv:{clockIn:true, clockOut:false}},
-  ],
-  contactLog:{
-    // shiftId -> [ {caregiverId, by, time, result, reason, note} ]
-    s1:[
-      {caregiverId:'c8', by:'Mae', time:at(-1.2), result:'no-answer', reason:'', note:'Left voicemail'},
-      {caregiverId:'c3', by:'Mae', time:at(-0.8), result:'declined', reason:'Already on a shift', note:''},
-    ],
-    s2:[],
-  },
-  handoff:{
-    opener:[
-      {id:'h1', text:'Dorothy Hale (Ventura) — Ana called off sick. Shift starts in ~3.5 hrs, still uncovered. Gloria + Ana already tried.', tag:'Urgent', done:false, by:'Mae'},
-      {id:'h2', text:'Frank Bianchi has 2 complaints this month — keep same caregiver if possible, no new faces.', tag:'Watch', done:false, by:'Mae'},
-    ],
-    closer:[
-      {id:'h3', text:'Confirmed Eleanor Wu (Westlake) coverage with James for tomorrow AM.', tag:'Done', done:true, by:'Sunshine'},
-      {id:'h4', text:'Frank Bianchi Sat shift still open — start follow-up calls first thing.', tag:'Follow-up', done:false, by:'Sunshine'},
-    ],
-  },
+  caregivers:[],
+  clients:[],
+  shifts:[],
+  contactLog:{},
+  handoff:{opener:[], closer:[]},
   view:'avail',
   filters:{schedFilter:'open', availSearch:''},
   activeShift:null,
@@ -2446,23 +2342,10 @@ state.clients.forEach(c=>{ const r=CLIENT_RISK[c.id]||{}; c.careType=r.careType|
 const _dDue=days=>new Date(NOW.getFullYear(),NOW.getMonth(),NOW.getDate()+days,17,0);
 const _hAgo=h=>new Date(NOW.getTime()-h*3600000);
 // Manual tasks (created by schedulers/management). System-generated tasks are added after engine load.
-state.tasks=[
-  {id:'tk1', source:'manual', createdBy:'Mae', title:'Follow up with caregiver about weekend shift', relType:'caregiver', relId:'c2', priority:'medium', due:_dDue(1), assignedTo:'Mae', status:'Open', completedBy:null, completedAt:null, notes:'', reason:'', createdAt:_hAgo(20)},
-  {id:'tk2', source:'manual', createdBy:'Sean (COO)', title:'Call family regarding schedule change', relType:'client', relId:'cl2', priority:'high', due:_dDue(0), assignedTo:'Sunshine', status:'Open', completedBy:null, completedAt:null, notes:'Daughter prefers mornings', reason:'', createdAt:_hAgo(30)},
-  {id:'tk3', source:'manual', createdBy:'Mae', title:'Update caregiver notes after client visit', relType:'caregiver', relId:'c7', priority:'low', due:_dDue(2), assignedTo:'Mae', status:'Open', completedBy:null, completedAt:null, notes:'', reason:'', createdAt:_hAgo(8)},
-  {id:'tk4', source:'manual', createdBy:'Sunshine', title:'Confirm overnight availability for new case', relType:'general', relId:null, priority:'medium', due:_dDue(2), assignedTo:'Sunshine', status:'Open', completedBy:null, completedAt:null, notes:'', reason:'', createdAt:_hAgo(14)},
-  {id:'tk5', source:'manual', createdBy:'Mae', title:'Call caregivers with open schedules', relType:'general', relId:null, priority:'medium', due:_dDue(0), assignedTo:'Mae', status:'Done', completedBy:'Mae', completedAt:_hAgo(3), notes:'Called 4 \u2014 Bea and Marcus picked up shifts', reason:'', createdAt:_hAgo(28)}
-];
+state.tasks=[];
 // Permanent performance history (completed tasks spread over ~90 days) for long-term metrics
 const ARCH_TITLES=['Verified caregiver availability','Reviewed reliability concern','Followed up on call-off pattern','Confirmed weekend availability','Updated availability rules','Called caregivers with open schedules','Resolved unresolved handoff item','Confirmed overnight availability','Followed up with caregiver re: schedule','Checked transportation status','Reviewed aging open shift','Followed up on client coverage issue'];
 state.taskArchive=[];
-for(let i=0;i<44;i++){
-  const daysAgo=((i*37)%88)+2;
-  const comp=new Date(NOW.getTime()-daysAgo*864e5-(i%6)*3600000);
-  const created=new Date(comp.getTime()-(((i%5)+1)*6+2)*3600000);
-  const who=(i%2?'Mae':'Sunshine');
-  state.taskArchive.push({id:'arch'+i, source:(i%3===0?'manual':'system'), createdBy:(i%3===0?who:'System'), completedBy:who, completedAt:comp, createdAt:created, status:'Done', priority:['high','medium','low'][i%3], title:ARCH_TITLES[i%ARCH_TITLES.length]});
-}
 // Operational outcome rates by period (seeded; would be computed from shift logs in production)
 state.opsStats={
   week:{coverage:94,fill:88,callOff:91,noShow:100, created:23, filled:21, noShowCount:1, avgFill:3.2},
@@ -2492,53 +2375,20 @@ state.turnoverData={
 };
 // New-client placement follow-ups (each at its current stage)
 function _atD(off){ const d=new Date(NOW); d.setDate(d.getDate()+(off||0)); return toDateInput(d); }
-state.placements=[
-  {id:'p1', cgId:'c9', clientId:'cl1', stage:'approval', assignedTo:'Sunshine', due:0},
-  {id:'p2', cgId:'c7', clientId:'cl5', stage:'firstshift', assignedTo:'Mae', due:1},
-  {id:'p3', cgId:'c8', clientId:'cl6', stage:'profile', assignedTo:'Sunshine', due:1}
-];
+state.placements=[];
 /* Attendance events logged by the desk. Demo rows, like the rest of the board. */
-state.attendance=[
-  {id:'at1', cg:'Ana Beltran',   client:'Dorothy Hale',  date:_atD(0),  type:'Last-Minute Call-Off', note:'Sick, called 2 hours before shift', coverNeeded:true,  coverStatus:'Open',       coveredBy:''},
-  {id:'at2', cg:'Marites Santos',client:'Cal Miller',    date:_atD(0),  type:'No Show',       note:'No clock-in, no contact',              coverNeeded:true,  coverStatus:'Covered',    coveredBy:'Lily Tran'},
-  {id:'at3', cg:'Rosa Delgado',  client:'Harold Pratt',  date:_atD(3),  type:'Request Off',   note:'Family event \u2014 approved',          coverNeeded:true,  coverStatus:'Open',       coveredBy:''},
-  {id:'at4', cg:'James Okafor',  client:'',             date:_atD(-1), type:'Absence',       note:'Car trouble',                          coverNeeded:false, coverStatus:'Not needed', coveredBy:''},
-];
+state.attendance=[];
 
 // Open operational follow-ups requiring scheduler communication
-state.followUps=[
-  {id:'fam_cl2', title:'Return family callback', relType:'client', relId:'cl2', priority:'high', assignedTo:'Sunshine', due:0, reason:'Eleanor Wu\u2019s daughter called about the morning schedule \u2014 call her back'},
-  {id:'cgcb_c5', title:'Return caregiver callback', relType:'caregiver', relId:'c5', priority:'medium', assignedTo:'Mae', due:0, reason:'Ana Beltran left a message about next week\u2019s availability \u2014 call her back'},
-  {id:'chg_cl5', title:'Client requested a caregiver change', relType:'client', relId:'cl5', priority:'high', assignedTo:'Sunshine', due:0, reason:'Harold Pratt requested a different caregiver \u2014 discuss options and document'},
-  {id:'disch_cl6', title:'Follow up after hospital discharge', relType:'client', relId:'cl6', priority:'high', assignedTo:'Mae', due:0, reason:'Beatrice Lowe was discharged \u2014 confirm care plan and restart the schedule'}
-];
+state.followUps=[];
 state.perfPeriod='week'; state.taskSrcFilter='all';
 // Forms & Resources state
 state.formActivity=[]; state.formsTab='library'; state.formSearch=''; state.formRecClient=''; state.customForms=[]; state.formDefs={}; state.formCatCollapsed={};
 // Medication guide state
 state.medClient=''; state.medEdit=null;
-state.medProfiles={
-  cl1:{source:'AxisCare', lastUpdatedAxis:_hAgo(24*9), lastPrinted:null, lastSent:null, sentTo:'', sentBy:'', flagged:false, meds:[
-    {id:'md1', name:'Lisinopril', dose:'10mg', freq:'Once daily', instructions:'', purpose:'For high blood pressure.', watch:'Watch for dizziness or weakness.', notes:''},
-    {id:'md2', name:'Metformin', dose:'500mg', freq:'Twice daily', instructions:'Take with meals', purpose:'For blood sugar control.', watch:'Watch for poor appetite, sweating, shakiness, or confusion.', notes:''}
-  ]},
-  cl4:{source:'AxisCare', lastUpdatedAxis:_hAgo(24*3), lastPrinted:_hAgo(24*5), lastSent:_hAgo(24*5), sentTo:'Rosa Delgado', sentBy:'Mae', flagged:true, meds:[
-    {id:'md3', name:'Donepezil', dose:'10mg', freq:'Once daily', instructions:'At bedtime', purpose:'For memory (dementia).', watch:'Watch for nausea, poor appetite, or trouble sleeping.', notes:''},
-    {id:'md4', name:'Furosemide', dose:'20mg', freq:'Once daily', instructions:'In the morning', purpose:'A water pill to remove extra fluid.', watch:'Watch for frequent urination, dizziness, or weakness.', notes:''}
-  ]}
-};
-state.sentForms=[
-  {id:'sf1', formId:'f_vitals_log', formName:'Vitals Log', clientId:'cl1', cgId:'c1', sentBy:'Mae', sentTo:'(805) 555-0142', channel:'sms', at:_hAgo(20), status:'Completed'},
-  {id:'sf2', formId:'f_medication_reminder_log', formName:'Medication Reminder Log', clientId:'cl1', cgId:'c1', sentBy:'Mae', sentTo:'(805) 555-0142', channel:'email', at:_hAgo(9), status:'Opened'},
-  {id:'sf3', formId:'f_dementia_observation_log', formName:'Dementia Observation Log', clientId:'cl5', cgId:'c10', sentBy:'Sunshine', sentTo:'(805) 555-0177', channel:'sms', at:_hAgo(28), status:'Delivered'},
-  {id:'sf4', formId:'f_hospice_comfort_care_log', formName:'Hospice Comfort Care Log', clientId:'cl4', cgId:'c7', sentBy:'Mae', sentTo:'(805) 555-0190', channel:'email', at:_hAgo(5), status:'Sent'},
-  {id:'sf5', formId:'f_fall_prevention_log', formName:'Fall Prevention Log', clientId:'cl5', cgId:'c10', sentBy:'Sunshine', sentTo:'(805) 555-0177', channel:'sms', at:_hAgo(50), status:'Completed'}
-];
-state.formActivity=[
-  {type:'send', formName:'Hospice Comfort Care Log', clientId:'cl4', by:'Mae', at:_hAgo(5)},
-  {type:'generate', formName:'Vitals Log', clientId:'cl1', by:'Mae', at:_hAgo(20)},
-  {type:'print', formName:'Fall Prevention Log', clientId:'cl5', by:'Sunshine', at:_hAgo(50)}
-];
+state.medProfiles={};
+state.sentForms=[];
+state.formActivity=[];
 
 /* ============ DERIVED / ENGINE ============ */
 const cgById = id => state.caregivers.find(c=>c.id===id);
@@ -2658,7 +2508,7 @@ function rankCaregivers(arg){
     if(ctx.pets && cg.restrictions.includes('No pets')) excluded = excluded || `Client has pets \u2014 caregiver restriction`;
     if(ctx.smoking && cg.restrictions.includes('No smoking homes')) excluded = excluded || `Smoking home conflict`;
     if(reqSkills.includes('Transfers') && cg.restrictions.includes('No transfers (back)')) excluded = excluded || `Can't do transfers`;
-    if(!ctx.includeUnverified && availVerifyStatus(cg).key==='unverified') excluded = excluded || `Unverified availability \u2014 90+ days since confirmed`;
+    if(!ctx.includeUnverified && availVerifyStatus(cg).key==='overdue') excluded = excluded || `Availability confirmation has lapsed \u2014 re-check before assigning`;
 
     if(excluded){ return {cg, score:0, reasons:[{t:excluded,k:'minus'}], excluded}; }
 
@@ -3205,20 +3055,8 @@ function wfBadge(st){ const m={open:['crit','Open'],progress:['prog','In Progres
 function setTodayFilter(f){ state.todayFilter=f; render(); }
 function seedTodayWorkflow(){
   const t=min=>new Date(NOW.getTime()-min*60000);
-  state.todayResolved=[
-    {time:t(28), type:'Shift covered', client:'Eleanor Wu', caregiver:'Lily Tran', detail:'Replacement assigned after a call-off'},
-    {time:t(74), type:'Caregiver arrived', client:'Harold Pratt', caregiver:'Bea Cortez', detail:'Late clock-in \u2014 caregiver arrived and checked in'},
-  ];
-  state.activityLog=[
-    {time:t(74), text:'Bea Cortez \u2014 confirmed arriving (Harold Pratt)'},
-    {time:t(78), text:'Bea Cortez contacted \u2014 running ~15 min late'},
-    {time:t(80), text:'Harold Pratt shift \u2014 late clock-in flagged'},
-    {time:t(28), text:'Issue resolved \u2014 Shift covered (Eleanor Wu)'},
-    {time:t(29), text:'Eleanor Wu shift reassigned to Lily Tran'},
-    {time:t(31), text:'Lily Tran \u2014 accepted the shift'},
-    {time:t(36), text:'Lily Tran contacted'},
-    {time:t(41), text:'Eleanor Wu shift \u2014 caregiver called off'},
-  ].sort((a,b)=>b.time-a.time);
+  state.todayResolved=[];
+  state.activityLog=[].sort((a,b)=>b.time-a.time);
 }
 function todayOutcome(shiftId, outcome){
   const s=state.shifts.find(x=>x.id===shiftId); if(!s) return;
@@ -5359,7 +5197,8 @@ function searchAvailability(sq){
     // hard excludes (safety/capability): blocked, client gender restriction, missing required care skill
     if(sq.clientId && cg.blockedClients.includes(sq.clientId)) return;
     if(rg && cg.gender!==rg) return;
-    if(!(sq.filters||[]).includes('Include Unverified Caregivers') && availVerifyStatus(cg).key==='unverified') return;
+    /* never-confirmed is not a reason to hide somebody; lapsed is */
+    if(!(sq.filters||[]).includes('Include Unverified Caregivers') && availVerifyStatus(cg).key==='overdue') return;
     if(sq.skills.some(s=>!cg.skills.includes(s))) return;
     const coverDays=reqDays.filter(d=>coversShift(windowsForDay(cg,d), sq.start, sq.end));
     const missingReqs=(sq.filters||[]).filter(f=>!caregiverPassesFilters(cg,[f],{clientId:sq.clientId}));
@@ -5770,7 +5609,8 @@ function dateSearch(sq){
     if((sq.skills||[]).some(sk=>!cg.skills.includes(sk))) return;
     if(sq.clientId && cg.blockedClients.includes(sq.clientId)) return;
     if(rg && cg.gender!==rg) return;
-    if(!(sq.filters||[]).includes('Include Unverified Caregivers') && availVerifyStatus(cg).key==='unverified') return;
+    /* never-confirmed is not a reason to hide somebody; lapsed is */
+    if(!(sq.filters||[]).includes('Include Unverified Caregivers') && availVerifyStatus(cg).key==='overdue') return;
     let covered=0; const perDate=dates.map(ds=>{ const dk=dayKeyFromDate(ds); const cd=coverageDetail(cg,dk,start,end,ds); const conflict=assignedOnDate(cg.id,ds,start,end);
       let cov = conflict?'conflict':cd.cov, label = conflict?('Assigned \u00b7 '+conflict):cd.label;
       if(cov==='full') covered++; return {ds, cov, label}; });
@@ -6073,12 +5913,17 @@ function viewAvail(){
     ${sel('pets','Pets',[['','Pets'],['ok','Ok with pets']])}
   </div>` : '';
 
-  const head = `<div class="cgf-count"><span>${list.length} Caregiver${list.length===1?'':'s'}</span>`
-    + (n?`<button class="cgf-clear" onclick="clearDir()">Clear Filters</button>`:'') + `</div>`;
+  /* Nothing has arrived yet is not the same as nothing matched. */
+  const waiting = !list.length && rosterLoading();
+
+  const head = `<div class="cgf-count"><span>${waiting?'Loading\u2026':list.length+' Caregiver'+(list.length===1?'':'s')}</span>`
+    + (n&&!waiting?`<button class="cgf-clear" onclick="clearDir()">Clear Filters</button>`:'') + `</div>`;
 
   const rows = list.length
     ? list.map(cgDirRow).join('')
-    : `<div class="cgf-empty">No caregivers match these filters.</div>`;
+    : (waiting
+      ? `<div class="cgf-loading"><span class="cs-spin"></span>Loading caregivers from AxisCare\u2026</div>`
+      : `<div class="cgf-empty">No caregivers match these filters.</div>`);
 
   return `<div class="cgf-top">
       <input class="cgf-search" type="search" placeholder="Search caregivers..." value="${gEsc(d.q)}" oninput="setDir('q',this.value)" autocomplete="off">
@@ -6115,6 +5960,11 @@ function cgNameMatch(c, q){
   q=String(q||'').toLowerCase().trim();
   if(!q) return true;
   return ((c.name||'')+' '+(c.goesBy||'')).toLowerCase().includes(q);
+}
+/* Is the roster still on its way from AxisCare? An empty list means two
+   very different things before and after that call returns. */
+function rosterLoading(){
+  try{ return typeof ROSTER!=='undefined' && !!ROSTER.loading && ROSTER.loading(); }catch(e){ return false; }
 }
 function cgDirMatch(c){
   const d=cgDir();
@@ -6320,8 +6170,15 @@ function cgCalendar(c){
     </div>`;
   }
   const dow=WD.map(d=>`<div class="cal-dow">${d}</div>`).join('');
-  return `<div class="cal-wrap">
+  /* The visits arrive after the grid does. Dim it and say what is happening,
+     rather than showing an empty month that fills in a second later. */
+  const busy=(typeof CGVISITS!=='undefined') && CGVISITS.status(c.id)==='loading';
+  const busyRow=busy
+    ? `<div class="cal-loadrow"><span class="cs-spin"></span>Loading scheduled visits from AxisCare\u2026</div>`
+    : '';
+  return `<div class="cal-wrap${busy?' cal-busy':''}">
     <div class="cal-bar"><button class="cal-nav" ${off<=CAL_MIN_OFF?'disabled':''} onclick="cgCalNav(-1)">${ic('chevL',16)}</button><div class="cal-month">${cgMonthLabel(off)}</div><button class="cal-nav" ${off>=CAL_MAX_OFF?'disabled':''} onclick="cgCalNav(1)">${ic('chev',16)}</button></div>
+    ${busyRow}
     <div class="cal-grid"><div class="cal-dowrow">${dow}</div>${cells}</div>
   </div>`;
 }
@@ -6586,7 +6443,7 @@ function availPrefsForm(c){
         <div class="av-chks">${spChk('short','4\u20136 hours')}${spChk('medium','6\u20138 hours')}${spChk('long','8\u201312 hours')}${spChk('twelve','12-hour shifts')}</div>
       </div>
       <div class="ws-card"><div class="ws-h">Hours Wanted</div>
-        <div class="ef2"><div><label class="el">Minimum hours / week</label><input class="ein" type="number" id="minh" min="0" max="80" value="${ops.minHours}"></div><div><label class="el">Maximum hours / week</label><input class="ein" type="number" id="maxh" min="0" max="80" value="${ops.maxHours}"></div></div>
+        <div class="ef2"><div><label class="el">Minimum hours / week</label><input class="ein" type="number" id="minh" min="0" max="80" value="${hasVal(ops.minHours)?ops.minHours:''}"></div><div><label class="el">Maximum hours / week</label><input class="ein" type="number" id="maxh" min="0" max="80" value="${hasVal(ops.maxHours)?ops.maxHours:''}"></div></div>
       </div>
       <div class="ws-card"><div class="ws-h">Availability For</div>
         <div class="av-chks">${avEm('em_day','Daytime shifts',em.day!==false)}${avEm('em_evening','Evening shifts',em.evening!==false)}${avEm('em_overnight','Overnight coverage',em.overnight)}${spChk('liveIn','Live-in / 24-hour')}</div>
@@ -6597,7 +6454,7 @@ function availPrefsForm(c){
       </div>
       <div class="ws-card"><div class="ws-h">Travel</div>
         <div class="av-chks">${avEm('tv_vehicle','Has own vehicle',c.ownVehicle)}${avEm('tv_driver','Can drive / transport client',c.driver)}</div>
-        <label class="el" style="margin-top:9px">Willing to travel (miles)</label><input class="ein num" type="number" id="maxmiles" min="0" max="120" value="${ops.maxMiles}">
+        <label class="el" style="margin-top:9px">Willing to travel (miles)</label><input class="ein num" type="number" id="maxmiles" min="0" max="120" value="${hasVal(ops.maxMiles)?ops.maxMiles:''}">
         <label class="el" style="margin-top:9px">Preferred cities (comma-separated)</label><input class="ein" id="prefcities" value="${esc(c.prefCities.join(', '))}">
       </div>
       <div class="ws-card"><div class="ws-h">Care &amp; Physical Limits</div>
@@ -6710,7 +6567,7 @@ function viewCaregiverWorkspace(c){
     + empRow('Employment status', ops.employmentStatus, statusTone)
     + empRow('Total hours worked', hasVal(ops.totalHoursWorked) ? ops.totalHoursWorked.toLocaleString()+' h' : 'Not tracked')
     + empRow('Scheduled this week', nt(scheduled,'h'))
-    + empRow('Desired weekly hours', ops.minHours+'\u2013'+ops.maxHours+'h')
+    + empRow('Desired weekly hours', (hasVal(ops.minHours)&&hasVal(ops.maxHours))?ops.minHours+'\u2013'+ops.maxHours+'h':'Not tracked')
     + empRow('Hours gap', gap>0?gap+'h available':(gap<0?Math.abs(gap)+'h over':'Full'), gap>0?'good':(gap<0?'crit':''))
     + empRow('Has active client', hasCase?'Yes':'No', hasCase?'good':'soon')
     + empRow('Last shift worked', fmtDate(ops.lastShiftWorked))
@@ -6748,7 +6605,7 @@ function viewCaregiverWorkspace(c){
   // ===== Travel Preferences (simplified) =====
   const tpRow=(l,on)=>`<div class="ws-yn-row"><span>${l}</span>${yn(on)}</div>`;
   const travelBody = `<div class="ws-yn-grid">${tpRow('Has own vehicle',c.ownVehicle)}${tpRow('Can transport clients',c.driver)}</div>
-    <div class="pref-row"><span class="pref-l">Maximum travel distance</span> ${ops.maxMiles} miles</div>
+    <div class="pref-row"><span class="pref-l">Maximum travel distance</span> ${nt(ops.maxMiles, ' miles')}</div>
     <div class="pref-row"><span class="pref-l">Preferred cities</span> ${c.prefCities.join(', ')||'\u2014'}</div>`;
   return `<button class="ws-back" onclick="backToCaregivers()">${ic('chevL',14)} All caregivers</button>
     <div class="dc-printhead">${dcLetterhead('Caregiver Profile', c.name)}</div>
@@ -6800,7 +6657,7 @@ function availRulesSummary(c){
   const tagsHtml = avTags.length?`<div class="av2-tags">${avTags.map(t=>`<span class="av2-tag">${t}</span>`).join('')}</div>`:'';
   return `<div class="ws-card span2"><div class="ws-h ws-h-flex"><span>Desired Hours</span><button class="btn sm" onclick="editAvailability('${c.id}','prefs')">${ic('log',13)} Edit</button></div>
       <div class="av2">
-        <div class="av2-row"><div class="av2-l">Desired Weekly Hours</div><div class="av2-v">${ops.minHours}\u2013${ops.maxHours} hours</div></div>
+        <div class="av2-row"><div class="av2-l">Desired Weekly Hours</div><div class="av2-v">${(hasVal(ops.minHours)&&hasVal(ops.maxHours))?ops.minHours+'\u2013'+ops.maxHours+' hours':'Not tracked'}</div></div>
         <div class="av2-row"><div class="av2-l">Preferred Shift Length</div><div class="av2-v">${spList}</div></div>
         ${tagsHtml}
       </div>
@@ -6945,24 +6802,15 @@ function retryAxis(){
 function demoNotice(){
   var st = null;
   try { st = (typeof ROSTER!=='undefined' && ROSTER.status) ? ROSTER.status() : null; } catch(e){}
-  var demo = false;
-  try { demo = (typeof ROSTER!=='undefined' && ROSTER.demoOn) ? ROSTER.demoOn() : false; } catch(e){}
 
   /* 1. could not reach AxisCare — say so, and say why the screen is bare */
-  if(st && st.ok===false && !demo){
+  if(st && st.ok===false){
     return '<div class="demo-banner err"><span class="db-ic">\u26A0</span><span>'+
       '<b>Couldn\u2019t reach AxisCare.</b> '+esc(st.reason||'')+'. '+
       'Nothing is shown rather than showing stale or invented data.'+
       '</span><button onclick="retryAxis()">Retry</button></div>';
   }
 
-  /* 2. sample data deliberately switched on */
-  if(demo){
-    return '<div class="demo-banner"><span class="db-ic">\u26A0</span><span>'+
-      '<b>Sample data is switched on.</b> The people and shifts below are invented. '+
-      'Run <code>DEMO.off()</code> in the console to clear it.'+
-      '</span></div>';
-  }
 
   /* 3. part of the load failed */
   if(st && st.ok && st.problems && st.problems.length){
@@ -8604,23 +8452,7 @@ const CARE_PRIO_RANK={critical:0,high:1,medium:2,low:3};
   if(state.careNotes) return;
   const N=(typeof NOW!=='undefined'&&NOW)?NOW.getTime():Date.now();
   const hAgo=h=>new Date(N-h*3600e3);
-  state.careNotes=[
-    {id:'cn1', clientId:'cl1', cgId:'c1', at:hAgo(3),  text:'Client had a fall in the bathroom this morning. Helped her up, no visible injury but she was shaken. Reported to office.'},
-    {id:'cn2', clientId:'cl2', cgId:'c2', at:hAgo(6),  text:'Client was very agitated and confused this afternoon, kept trying to leave the house. Redirected with music.'},
-    {id:'cn3', clientId:'cl3', cgId:'c5', at:hAgo(20), text:'Client ate only a few bites at lunch and refused dinner. Drank very little water today.'},
-    {id:'cn4', clientId:'cl4', cgId:'c6', at:hAgo(26), text:'Daughter called and is upset about the schedule changes and wants to speak with the office.'},
-    {id:'cn5', clientId:'cl5', cgId:'c7', at:hAgo(2),  text:'Client taken to the ER last night after complaining of chest pain. Family notified.'},
-    {id:'cn6', clientId:'cl1', cgId:'c8', at:hAgo(30), text:'Noticed client seems more confused than usual, did not recognize me at first.'},
-    {id:'cn7', clientId:'cl2', cgId:'c3', at:hAgo(40), text:'Client refused medication this morning and would not take her pills.'},
-    {id:'cn8', clientId:'cl6', cgId:'c9', at:hAgo(5),  text:'Client hospitalized after fall yesterday; admitted overnight for observation.'},
-    {id:'cn9', clientId:'cl3', cgId:'c10', at:hAgo(8), text:'ok'},
-    {id:'cn10', clientId:'cl4', cgId:'c11', at:hAgo(12), text:'Shift went fine.'},
-    {id:'cn11', clientId:'cl5', cgId:'c12', at:hAgo(4), text:'Client in good spirits, ate a full breakfast and lunch, took medications on time, enjoyed a short walk in the garden. Vitals within normal range.'},
-    {id:'cn12', clientId:'cl1', cgId:'c1', at:hAgo(50), text:'Client more withdrawn and not talking much, behavior different from last week.'},
-    {id:'cn13', clientId:'cl6', cgId:'c13', at:hAgo(7), text:'Concerned about a loose rug in the hallway, client almost tripped. Safety hazard that should be addressed.'},
-    {id:'cn14', clientId:'cl2', cgId:'c2', at:hAgo(9), text:'Client unsteady during transfer from bed to chair, nearly slipped. Needed extra support.'},
-    {id:'cn15', clientId:'cl5', cgId:'c15', at:hAgo(15), text:'Client had poor appetite, barely ate, and was not drinking much. Will monitor closely.'}
-  ];
+  state.careNotes=[];
 })();
 if(!state.careAlertOverrides) state.careAlertOverrides={};
 if(!state.cnFilter) state.cnFilter={cat:'all',status:'all',prio:'all',q:''};
@@ -8958,9 +8790,14 @@ var AxisLive = (function () {
   function fetchOpenShifts(get, opts) {
     opts = opts || {};
     var now = opts.now || new Date();
-    var days = opts.days || 28;
     var from = ymd(now);
-    var to = ymd(new Date(now.getTime() + days * 86400000));
+    /* Today through the END OF NEXT MONTH, so a scheduler filling next
+       month’s gaps can see all of them rather than a rolling 28-day
+       window that cuts the month in half. Cost is linear in the span:
+       roughly a request per 100 visits. opts.days still overrides. */
+    var to = opts.days
+      ? ymd(new Date(now.getTime() + opts.days * 86400000))
+      : ymd(new Date(now.getFullYear(), now.getMonth() + 2, 0));
     var open = [], scanned = 0, pages = 0;
 
     function page(token) {
@@ -9195,6 +9032,68 @@ var ROSTER = (function () {
     };
   }
 
+  /* The operational record for a real caregiver.
+
+     Everything here is either something AxisCare told us, or empty and
+     waiting for a scheduler. Nothing is inferred from an id, a name or a
+     placeholder number. If a field reads null or [], that is the truth:
+     nobody has recorded it yet.
+
+     The shape has to match what deriveOps() produces for the sample
+     records, because every screen reads these keys. */
+  function axisOps(c) {
+    var codes = (c.axisTags || []).map(function (t) { return t.code; });
+    var has = function (x) { return codes.indexOf(x) >= 0; };
+
+    /* AxisCare tags availability on about half the roster. Where it said
+       nothing, availKnown is false and the week is left EMPTY — an empty
+       day means "nobody has told us", which the calendar draws as blank.
+       Writing Off instead would assert the person cannot work. */
+    var avail2 = {};
+    if (c.availKnown && c.avail) {
+      DAY_ORDER.forEach(function (d) {
+        if (c.avail[d] === 1) avail2[d] = { type: 'Anytime', win: 'Anytime' };
+        else avail2[d] = { type: 'Off' };
+      });
+    }
+
+    return {
+      /* the scheduler’s own notes and judgements — empty until typed */
+      notes: [], flags: [], schedNotes: [], schedTags: [],
+      clientRestr: [],
+      strengths: { primary: [], secondary: [], source: null, updatedBy: null, updatedDate: null },
+      summary: '',
+      persona: { summary: '', temperament: '', style: '', bestWith: '' },
+      contact: '', prefSched: '', tempAvail: '',
+
+      /* availability — the coarse class tags, then whatever is entered */
+      avail2: avail2,
+      availPatternType: 'Every week',
+      availOverrides: {},
+      vacationDates: null, vacation: null, sickDays: [],
+      agencyDays: [], schoolDays: [], childcareDays: [],
+      childcareNote: '', schoolNote: '',
+
+      /* AxisCare has no source for any of these. null renders as
+         "Not tracked"; a number here would be a lie about a real person. */
+      shiftPref: null, shiftPrefs: {},
+      minHours: null, maxHours: null,
+      emergency: {},
+      availCheckFreq: null, customCadenceDays: null,
+      availLastConfirmed: null, availConfirmedBy: null, availConfirmMethod: null,
+      verifyHistory: [], noResponseStreak: 0,
+      lastUpdated: null, lastUpdatedBy: null,
+      totalHoursWorked: null, lastShiftWorked: null,
+      attendance: { events: [] },
+      devoted: false, lastClient: null,
+
+      /* what AxisCare does say */
+      hireDate: c.axisHireDate ? new Date(c.axisHireDate + 'T12:00:00') : null,
+      maxMiles: c.axisMaxMiles,
+      axisSourced: true
+    };
+  }
+
   /* Mirrors the seed derivation pipeline, but sourced from AxisCare
      where AxisCare actually knows the answer. */
   function derive(c) {
@@ -9212,24 +9111,12 @@ var ROSTER = (function () {
     c.holidays = false;
     c.smokerHomeOk = true;
 
-    /* deriveOps reads c.avail[d] and c.reliability in a dozen places and
-       would throw or produce NaN on nulls, so it gets a guarded copy.
-       The caregiver record itself keeps its honest nulls. */
-    var guard = {};
-    for (var k in c) if (Object.prototype.hasOwnProperty.call(c, k)) guard[k] = c[k];
-    guard.reliability = 0; guard.weekHrs = 0; guard.callOffs30 = 0;
-    guard.declinesStreak = 0; guard.recentDeclines = 0;
-    if (!guard.avail) guard.avail = allOff();
-
-    try { c.ops = deriveOps(guard); } catch (e) { c.ops = {}; console.warn('[roster] deriveOps failed for ' + c.id, e); }
-
-    FABRICATED.forEach(function (f) { if (c.ops) c.ops[f] = null; });
-    if (c.ops) {
-      c.ops.hireDate = c.axisHireDate ? new Date(c.axisHireDate + 'T12:00:00') : null;
-      c.ops.maxMiles = c.axisMaxMiles;
-      c.ops.devoted = false;
-      c.ops.axisSourced = true;
-    }
+    /* Built, not generated. The old path ran a guarded copy through
+       deriveOps() and then nulled the fields it knew were invented — but
+       reliability 0 had already produced a "Reliability concern" flag, and
+       the id had already produced strengths, schedTags and a persona
+       attributed to real colleagues. */
+    c.ops = axisOps(c);
     c.active = true;
     return c;
   }
@@ -9335,33 +9222,6 @@ var ROSTER = (function () {
   }
 
   var hydrating = null;   /* the in-flight hydrate, so callers can wait for the real roster */
-  var DEMO_KEY = 'dcs_demo_data';
-  function demoOn() { try { return localStorage.getItem(DEMO_KEY) === '1'; } catch (e) { return false; } }
-
-  /* Reference content — forms, quick guides, message templates — is the
-     app's own material, not fabricated records about people, so it stays. */
-  function purgeDemo() {
-    if (demoOn()) return false;
-    state.caregivers = [];
-    state.clients = [];
-    state.shifts = [];
-    state.careNotes = [];
-    state.sentForms = [];
-    state.formActivity = [];
-    state.placements = [];
-    state.followUps = [];
-    state.tasks = [];
-    state.taskArchive = [];
-    state.activityLog = [];
-    state.todayResolved = [];
-    state.contactLog = {};
-    state.medProfiles = {};
-    state.evvLog = {};
-    state.careAlertOverrides = {};
-    if (state.handoff) { state.handoff.opener = []; state.handoff.closer = []; }
-    return true;
-  }
-
   /* Re-point any caregiver reference that no longer resolves. Safe to
      call repeatedly — it only touches ids that are actually missing. */
   function reconcile() {
@@ -9381,9 +9241,8 @@ var ROSTER = (function () {
       return Promise.resolve(false);
     }
 
-    /* Clear the sample records first, so a failed fetch leaves an honest
-       empty dashboard rather than fiction. DEMO.on() opts back in. */
-    var purged = purgeDemo();
+    /* Nothing to clear: the app ships no sample records. A failed fetch
+       leaves the screen empty on its own, which is the honest result. */
 
     var t0 = Date.now();
 
@@ -9393,7 +9252,7 @@ var ROSTER = (function () {
     return Promise.all([
       AxisCare.roster().catch(function (e) { return { __err: e }; }),
       AxisLive.fetchClients(function (p, q) { return AxisCare.get(p, q); }).catch(function (e) { return { __err: e }; }),
-      AxisLive.fetchOpenShifts(function (p, q) { return AxisCare.get(p, q); }, { days: 28 }).catch(function (e) { return { __err: e }; }),
+      AxisLive.fetchOpenShifts(function (p, q) { return AxisCare.get(p, q); }, {}).catch(function (e) { return { __err: e }; }),
       fetchCareNotes().catch(function (e) { return { __err: e }; })
     ]).then(function (parts) {
       var cgRes = parts[0], clRes = parts[1], shRes = parts[2], cnRes = parts[3];
@@ -9422,19 +9281,13 @@ var ROSTER = (function () {
       /* a short read is more likely a broken call than a shrunken agency */
       if (!list || list.length < 10) throw new Error('implausibly small roster (' + (list ? list.length : 0) + ') — keeping demo data');
 
-      /* With clients and shifts live too, a lone demo caregiver among 184
-         real ones is just confusing. Kept only when demo mode is on. */
-      var kept = demoOn() ? (state.caregivers || []).filter(function (c) { return c.id === ANA_ID; }) : [];
       var real = list.map(toAppCaregiver).map(derive);
-
-      state.caregivers = kept.concat(real);
-      /* Inactive staff, for the Caregivers page's Active/Inactive control.
-         Deliberately its own array: every other screen means 'active' by
-         state.caregivers, and it is not a CLOUD slice so it never syncs. */
-      state.cgInactive = AxisRoster.lastRaw()
-        .filter(function (c) { return !(c.status && c.status.active); })
-        .map(AxisRoster.map).map(toAppCaregiver).map(derive)
-        .map(function (c) { c.active = false; return c; });
+      state.caregivers = real;
+      /* Inactive is a state this app will assign, not one it reads from
+         AxisCare - somebody inactive here stays active there. Until that
+         feature exists the list is empty, and the 462 terminated and
+         inactive AxisCare records are never fetched. */
+      state.cgInactive = [];
       /* Anything showing a caregiver list needs to know it just changed. */
       try { if (typeof cgpRosterChanged === 'function') cgpRosterChanged(); } catch (e) {}
       try { if (typeof attClientsChanged === 'function') attClientsChanged(); } catch (e) {}
@@ -9444,21 +9297,19 @@ var ROSTER = (function () {
       var remapped = remapDangling(valid);
 
       lastResult = {
-        ok: true, loaded: real.length, kept: kept.length,
+        ok: true, loaded: state.caregivers.length,
         clients: (state.clients || []).length,
         careNotes: (state.careNotes || []).length,
         openShifts: (state.shifts || []).length,
         shiftScan: lastShiftScan,
         problems: lastProblems,
-        demoMode: demoOn(),
         remapped: remapped, ms: Date.now() - t0,
         untagged: real.filter(function (c) { return !c.tagged; }).length
       };
       console.info('[axiscare] ' + real.length + ' caregivers, ' + (state.clients || []).length +
         ' clients, ' + (state.shifts || []).length + ' open shifts, ' + (state.careNotes || []).length + ' care notes \u2014 ' +
         ((Date.now() - t0) / 1000).toFixed(1) + 's' +
-        (lastShiftScan ? ' (scanned ' + lastShiftScan.scanned + ' visits, ' + lastShiftScan.from + '..' + lastShiftScan.to + ')' : '') +
-        (demoOn() ? ' [DEMO DATA ON]' : ''));
+        (lastShiftScan ? ' (scanned ' + lastShiftScan.scanned + ' visits, ' + lastShiftScan.from + '..' + lastShiftScan.to + ')' : ''));
       if (lastProblems.length) console.warn('[axiscare] partial load \u2014 ' + lastProblems.join('; '));
       return true;
 
@@ -9475,8 +9326,7 @@ var ROSTER = (function () {
     ready: function () { return (hydrating || Promise.resolve(false)).catch(function () { return false; }); },
     loading: function () { return !!hydrating && !lastResult; },
     reconcile: reconcile,
-    demoOn: demoOn,
-    purgeDemo: purgeDemo,
+
     status: function () { return lastResult; },
     ANA_ID: ANA_ID,
     /* exposed for testing the mapping without a network call */
@@ -10094,7 +9944,11 @@ var AxisRoster = (function () {
     var out = [], seen = {}, pages = 0, cut = null;
 
     function page(after) {
-      var q = { limit: limit };
+      /* statuses=Active returns exactly the people with status.active set
+         - the 184 - and not the 462 terminated and inactive ones. Verified
+         against the live account: filtering the full 646 client-side yields
+         the same set, for five extra requests. */
+      var q = { limit: limit, statuses: 'Active' };
       if (after != null) q.startAfterId = after;
       return get('/api/caregivers', q).then(function (res) {
         var results = (res && res.data && res.data.results) || {};
@@ -10333,13 +10187,6 @@ var CGVISITS = (function () {
     _reset: function () { byCg = {}; inFlight = {}; }
   };
 })();
-
-/* Sample data is off by default. These put it back for a demo. */
-var DEMO = {
-  isOn: function(){ return ROSTER.demoOn(); },
-  on:  function(){ try{ localStorage.setItem('dcs_demo_data','1'); }catch(e){} location.reload(); },
-  off: function(){ try{ localStorage.removeItem('dcs_demo_data'); }catch(e){} location.reload(); }
-};
 
 CLOUD.boot();
 </script>
