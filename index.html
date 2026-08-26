@@ -2167,7 +2167,7 @@ const state = {
       {id:'h4', text:'Frank Bianchi Sat shift still open — start follow-up calls first thing.', tag:'Follow-up', done:false, by:'Sunshine'},
     ],
   },
-  view:'today',
+  view:'avail',
   filters:{schedFilter:'open', availSearch:''},
   activeShift:null,
   expandedOpen:false,
@@ -2758,8 +2758,8 @@ const ic = (k,sz=17) => `<svg class="ico" width="${sz}" height="${sz}" viewBox="
 const NAVGROUPS=[
   {link:{id:'assistant', label:'Ask AI'}},
   {sec:'Caregivers', items:[
-    {id:'carenotes', label:'Care Notes Review'},
     {id:'avail', label:'Caregivers'},
+    {id:'carenotes', label:'Care Notes Review'},
   ]},
   {sec:'Scheduling', items:[
     {id:'open', label:'Open Shifts'},
@@ -2804,6 +2804,10 @@ function navLink(it, sub){
   const click = it.id==='coverage' ? 'openCoverageGeneral()' : `go('${it.id}')`;
   return `<a class="${sub?'sub ':''}${state.view===it.id?'active':''}" onclick="${click}">${it.label}${pill}</a>`;
 }
+/* Every screen the router can reach. Today is deliberately absent - the
+   dashboard no longer has that page, and state.view falls back to 'avail'. */
+const VIEWS={open:viewOpen,coverage:viewCoverage,staff:viewStaffClient,calloff:viewCallOff,
+    avail:viewAvail,log:viewLog,handoff:viewHandoff,assistant:viewAssistant,tasks:viewTasks,reports:viewReports,forms:viewForms,meds:viewMeds,guides:viewGuides,infographics:viewInfographics,attendance:viewAttendance,carenotes:viewCareNotes};
 function renderNav(){
   let html='';
   NAVGROUPS.forEach(g=>{
@@ -2831,14 +2835,13 @@ function render(){
   renderNav();
   document.getElementById('tbdate').textContent = headerDate();
   const at=document.getElementById('tbattn');
-  if(state.view==='today'){ const n=todayAttnCount(); at.innerHTML = n?`<span class="tb-attn-pill crit"><span class="cdot"></span>${n} need${n===1?'s':''} attention</span>`:`<span class="tb-attn-pill good"><span class="cdot"></span>All clear</span>`; }
-  else at.innerHTML='';
+  at.innerHTML='';
   /* Collapse the bar when it has nothing in it, rather than leaving an empty strip. */
   const tb=document.querySelector('.topbar'); if(tb) tb.classList.toggle('bare', !at.innerHTML.trim());
+  if(!VIEWS[state.view]) state.view='avail';   /* removed or unknown view -> the default page */
   const v=document.getElementById('view');
   v.className='view v-'+state.view;   /* lets one screen tune its own top padding */
-  v.innerHTML = demoNotice() + ({today:viewToday,open:viewOpen,coverage:viewCoverage,staff:viewStaffClient,calloff:viewCallOff,
-    avail:viewAvail,log:viewLog,handoff:viewHandoff,assistant:viewAssistant,tasks:viewTasks,reports:viewReports,forms:viewForms,meds:viewMeds,guides:viewGuides,infographics:viewInfographics,attendance:viewAttendance,carenotes:viewCareNotes}[state.view])();
+  v.innerHTML = demoNotice() + VIEWS[state.view]();
 }
 
 /* ============ TODAY ============ */
@@ -3184,7 +3187,6 @@ function itemStatus(item){
 }
 function wfBadge(st){ const m={open:['crit','Open'],progress:['prog','In Progress'],resolved:['good','Resolved']}[st]||['crit','Open']; return `<span class="tc-stat ${m[0]}"><span class="cdot"></span>${m[1]}</span>`; }
 function setTodayFilter(f){ state.todayFilter=f; render(); }
-function todayAttnCount(){ const b=buildPriorityBoard(); return [...b.p1,...b.p2,...b.p3,...b.p4].filter(i=>i.kind==='attendance'||i.kind==='coverage').length; }
 function seedTodayWorkflow(){
   const t=min=>new Date(NOW.getTime()-min*60000);
   state.todayResolved=[
@@ -3321,52 +3323,6 @@ function todayResolvedCard(r){
       </div>
     </div>
   </div>`;
-}
-function renderActivity(){
-  if(!state.activityLog.length) return `<div class="t-empty">No activity logged yet today.</div>`;
-  return `<div class="actlog">${state.activityLog.map(e=>`<div class="act-row"><span class="act-time">${fmtTime(e.time)}</span><span class="act-line"><span class="act-dot"></span></span><span class="act-text">${e.text}</span></div>`).join('')}</div>`;
-}
-function viewToday(){
-  // ---- snapshot (no greeting — operations dashboard; date lives in the header) ----
-  const aa=attendanceAlerts();
-  const snap=(label,val,tone)=>`<div class="snap-i"><div class="snap-v ${val>0?(tone||''):''}">${val}</div><div class="snap-l">${label}</div></div>`;
-  const snapshot=`<div class="snapshot"><div class="snap-h">Today's Snapshot</div><div class="snap-grid s4">
-    ${snap('Open shifts',openShifts().length,'watch')}
-    ${snap('Call-offs',callOffsToday().length,'soon')}
-    ${snap('No-shows',aa.filter(a=>a.type==='No show').length,'crit')}
-    ${snap('Late arrivals',aa.filter(a=>['Late clock-in','Running late','Missed clock-in'].includes(a.type)).length,'soon')}
-  </div></div>`;
-  // ---- classify ----
-  const board=buildPriorityBoard();
-  const probs=[...board.p1,...board.p2,...board.p3,...board.p4];
-  const crit=[], high=[], nav=[];
-  probs.forEach(item=>{
-    if(item.kind==='attendance'){ (item.alert.type==='No show'?crit:high).push(item); }
-    else if(item.kind==='coverage'){ ((item.shift.callOff||item.h<=12)?crit:high).push(item); }
-    else nav.push(item);
-  });
-  const active=[...crit,...high];
-  const resolved=state.todayResolved;
-  const F=state.todayFilter||'active';
-  // ---- toggles: only for views NOT already on screen (Resolved / Activity). Active board is the default. ----
-  const toggle=(k,l,n)=>`<button class="tf-chip ${F===k?'on':''}" onclick="setTodayFilter('${F===k?'active':k}')">${l}${n!=null?`<span class="tf-n">${n}</span>`:''}</button>`;
-  const tabs=`<div class="tfilter-row"><div class="tfilter">${toggle('activity','Activity Log',null)}</div><button class="btn sm co-btn" onclick="openCallOffModal()">${ic('calloff',13)} Mark Call-Off</button></div>`;
-  const sec=(label,sev,cards)=> cards.length?`<div class="t-sec"><div class="t-sec-h ${sev}"><span class="t-sec-dot ${sev}"></span>${label}</div>${cards.join('')}</div>`:'';
-  const cardFor=i=>i.kind==='attendance'?todayAttendanceCard(i):todayCoverageCard(i);
-  let content='';
-  if(F==='activity'){
-    content=`<div class="t-sec"><div class="t-sec-h"><span class="t-sec-dot watch"></span>Activity Log \u2014 Today <span class="t-sec-n">${state.activityLog.length}</span></div>${renderActivity()}</div>`;
-  } else if(F==='resolved'){
-    content = resolved.length
-      ? `<div class="t-sec"><div class="t-sec-h good"><span class="t-sec-dot good"></span>Resolved Today <span class="t-sec-n">${resolved.length}</span></div>${resolved.map(todayResolvedCard).join('')}</div>`
-      : `<div class="t-empty">Nothing resolved yet today. Items you handle will be recorded here.</div>`;
-  } else {
-    const navSec = nav.length?sec('Standing Risks','watch',nav.map(item=>`<div class="tcard watch"><span class="rail watch"></span><div class="tc-body"><div class="tc-top"><span class="tc-type">${item.title}</span></div><div class="tc-sub">${item.sub}</div><div class="tc-acts"><button class="btn sm ghost" onclick="${item.go}">Review</button></div></div></div>`)):'';
-    content = (crit.length||high.length||nav.length)
-      ? sec('Critical','crit',crit.map(cardFor)) + sec('High Priority','high',high.map(cardFor)) + navSec
-      : `<div class="card"><div class="empty"><div class="ei">${ic('check',38)}</div><div class="et">You're clear \u2014 nothing needs action right now</div><div class="subnote">New problems appear here the moment they happen.</div></div></div>`;
-  }
-  return snapshot + careAlertsBanner() + tabs + content;
 }
 function todayFormsAlert(){
   const miss=missingFormsAll(); if(!miss.length) return '';
@@ -7590,7 +7546,7 @@ function submitCallOff(){
   if(modalState.replacement){
     s.status='open'; s.openedAt=now;
     logActivity(stamp+'. Shift reopened as an open shift for coverage.', s.id);
-    closeModal(); toast('Call-off logged \u2014 shift reopened for coverage'); go('today');
+    closeModal(); toast('Call-off logged \u2014 shift reopened for coverage'); go('open');
   } else {
     s.status='cancelled';
     resolveProblem({type:'Call-off \u2014 no replacement needed', client:cl.name, caregiver:cg?cg.name:'\u2014', detail:`${modalState.reason} \u00b7 entered by ${state.onShift}`, shiftId:s.id});
