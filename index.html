@@ -1521,17 +1521,17 @@
   .side-bg.show{opacity:1;pointer-events:auto}
   .side-panel{position:absolute;top:0;right:0;height:100%;width:390px;max-width:92vw;background:#fff;box-shadow:-6px 0 24px rgba(20,40,60,.16);transform:translateX(100%);transition:transform .2s cubic-bezier(.4,0,.2,1);display:flex;flex-direction:column;overflow:hidden}
   .side-bg.show .side-panel{transform:translateX(0)}
-  .sp-head{display:flex;align-items:flex-start;justify-content:space-between;padding:18px 20px;border-bottom:1px solid var(--line);background:var(--panel-head)}
-  .sp-date{font-size:18px;font-weight:800;color:var(--navy-900);line-height:1.1}
+  .sp-head{display:flex;align-items:flex-start;justify-content:space-between;padding:18px 20px 14px}
+  .sp-date{font-size:22px;font-weight:800;color:var(--navy-900);line-height:1.15;letter-spacing:-.2px}
   .sp-body{flex:1;overflow-y:auto;padding:18px 20px}
   .sp-row{display:flex;flex-direction:column;gap:3px;padding:11px 0;border-top:1px solid var(--line)}
   .sp-l{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-faint)}
   .sp-v{font-size:14px;color:var(--ink);line-height:1.4}
   .sp-v.strong{font-weight:700;color:var(--navy-900)}
-  .sp-foot{padding:15px 20px;border-top:1px solid var(--line);display:flex;gap:9px;justify-content:flex-end}
+  .sp-foot{padding:15px 20px;border-top:1px solid var(--line);display:flex;gap:11px}
   .sp-body .field{margin-bottom:15px}
-  .sp-body .field label{display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--ink-faint);margin-bottom:7px}
-  .sp-body textarea{width:100%;min-height:64px;padding:9px 11px;border:1px solid var(--line-strong);border-radius:var(--r);font-family:inherit;font-size:13px;resize:vertical}
+  .sp-body .field label{display:block;font-size:12.5px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-faint);margin-bottom:9px}
+  .sp-body textarea{width:100%;min-height:128px;padding:11px 12px;border:1px solid var(--line-strong);border-radius:var(--r);font-family:inherit;font-size:13px;line-height:1.5;resize:vertical}
 
   /* mixed day */
   .cal-tag.mixed{background:#DCE6F0;color:var(--navy-900);font-size:9.5px;letter-spacing:.1px;padding:2px 6px}
@@ -1645,7 +1645,7 @@
      Laid out like the reference design, but wearing this app's type,
      spacing and colours rather than the other system's. */
   .sp-headings{min-width:0}
-  .sp-eyebrow{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;color:var(--ink-faint)}
+  .sp-eyebrow{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.7px;color:var(--ink-faint);margin-bottom:2px}
   .sp-dateline{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
   .sp-clear{font-family:inherit;font-size:12px;font-weight:650;color:var(--brand);background:none;border:0;padding:0;text-decoration:underline;cursor:pointer}
   .sp-clear:disabled{color:var(--ink-faint);cursor:default;text-decoration:none}
@@ -1671,14 +1671,44 @@
   .dp-times{display:grid;grid-template-columns:1fr 1fr;gap:11px}
   .dp-timefield{display:block}
   .dp-timelabel{display:block;font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--ink-faint);margin-bottom:5px}
-  .dp-hint{font-size:11px;color:var(--ink-faint);margin-top:7px;line-height:1.45}
 
   .dp-scope{display:flex;flex-direction:column;gap:7px}
   .dp-scope-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
   .dp-radio{display:inline-flex;align-items:center;gap:8px;font-size:13px;color:var(--ink);cursor:pointer}
-  .dp-radio input{margin:0;accent-color:#1e40af}
+  .dp-radio input{margin:0;accent-color:#1e40af;flex:0 0 auto;width:15px;height:15px}
+
+  /* `.sp-body .field label` makes every label a block-level uppercase
+     heading. That is right for the section titles and wrong for the two
+     labels that WRAP a control — the radio rows and the time fields —
+     where it pushed the input onto its own line and shouted the text. */
+  .sp-body .field label.dp-radio{display:inline-flex;align-items:center;gap:9px;
+    text-transform:none;letter-spacing:0;font-size:13px;font-weight:600;
+    color:var(--ink);margin-bottom:0;line-height:1.2}
+  .sp-body .field label.dp-timefield{display:flex;flex-direction:column;gap:7px;
+    text-transform:none;letter-spacing:0;font-size:12px;font-weight:650;
+    color:var(--ink-soft);margin-bottom:0}
+  .dp-scope{display:flex;flex-direction:column;gap:11px}
+  .dp-scope-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+
+  /* A rule between sections rather than around them: the panel reads as
+     one column of steps, not a stack of cards. */
+  .sp-body .field + .field,
+  .sp-body .field + .sp-row,
+  .sp-body .dp-error + .sp-row{border-top:1px solid var(--line);padding-top:16px;margin-top:16px}
+
+  .sp-head .mc{background:none;border:0;padding:0 0 0 12px;margin:0;line-height:1;
+    font-family:inherit;font-size:30px;font-weight:300;color:var(--ink-faint);
+    cursor:pointer;flex:0 0 auto}
+  .sp-head .mc:hover{color:var(--ink)}
+
+  /* The footer follows the navigation blue, and is sized to be pressed. */
+  .sp-foot .btn{flex:1 1 0;justify-content:center;padding:13px 18px;font-size:14px;
+    font-weight:700;border-radius:9px}
+  .sp-foot .btn.pri{background:#1e40af;border-color:#1e40af;color:#fff}
+  .sp-foot .btn.pri:hover{background:#18348f;border-color:#18348f}
+  .sp-foot .btn.pri:disabled{background:#8fa3d4;border-color:#8fa3d4}
   .dp-optional{font-weight:600;color:var(--ink-faint);text-transform:none;letter-spacing:0}
-  .dp-count{text-align:right;font-size:11px;color:var(--ink-faint);margin-top:4px}
+  .dp-count{text-align:right;font-size:11.5px;color:var(--ink-faint);margin-top:6px}
   .dp-error{display:flex;align-items:flex-start;gap:7px;font-size:12px;line-height:1.45;color:var(--crit-tx);background:var(--crit-bg);border:1px solid #EEC2BC;border-radius:var(--r);padding:8px 11px;margin-bottom:14px}
   .dp-error svg{flex:none;margin-top:1px}
 
@@ -6180,7 +6210,9 @@ function dpSave(){
       modalState.saving = false;
       modalState.picked = {}; modalState.multi = false;
       modalState.note = '';
-      renderDayPanel();
+      /* The work is done and written; keeping the panel open just makes
+         the scheduler close it. The calendar behind now shows the day. */
+      closeSidePanel();
       try{ render(); }catch(e){}
       toast(dates.length > 1 ? dates.length + ' days updated' : 'Day updated');
     })
@@ -6289,7 +6321,7 @@ function renderDayPanel(){
         <label class="dp-timefield"><span class="dp-timelabel">To</span>
           <input class="ein" type="time" value="${modalState.to}" ${busy?'disabled':''} oninput="dpTime('to',this.value)"></label>
       </div>
-      <div class="dp-hint">An end before the start runs past midnight, and stays on this date.</div>`}
+      `}
     </div>
 
     <div class="field">
