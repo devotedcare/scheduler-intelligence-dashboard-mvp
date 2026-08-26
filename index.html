@@ -6003,8 +6003,15 @@ function clearDir(){ const r=(state.dir&&state.dir.roster)||'active';
 /* ===== Caregiver Workspace ===== */
 function cgMonthLabel(off){ const d=new Date(NOW.getFullYear(), NOW.getMonth()+off, 1); return d.toLocaleDateString('en-US',{month:'long',year:'numeric'}); }
 /* How far the arrows reach, and exactly the span fetched from AxisCare:
-   one month back, twelve forward. Aug 2026 -> Jul 2026 .. Aug 2027. */
-const CAL_MIN_OFF=-1, CAL_MAX_OFF=12;
+   last month through the same month next year — a twelve-month span,
+   thirteen calendar months inclusive. Aug 2026 gives Jul 2026 .. Jul 2027,
+   which is CAL_MIN_OFF -1 .. CAL_MAX_OFF 11.
+
+   Keep this in step with AxisLive.visitWindow(). The two describe the
+   same span: one bounds the arrows, the other bounds the fetch, and a
+   month the arrows reach but the fetch missed would read as an empty
+   month rather than an unloaded one. */
+const CAL_MIN_OFF=-1, CAL_MAX_OFF=11;
 function cgCalNav(d){
   const n=(state.cgCalMonth||0)+d;
   if(n<CAL_MIN_OFF || n>CAL_MAX_OFF) return;
@@ -8845,10 +8852,12 @@ var AxisLive = (function () {
      A caregiver with no visits in the window is a 404 carrying
      {"errors":["No visits found"]} — an empty calendar, not a failure. */
 
-  /* One month back, twelve forward: the span the month arrows reach. */
+  /* The span the month arrows reach: last month through the same month
+     next year. Day 0 of month m+12 is the last day of month m+11, which
+     is CAL_MAX_OFF — keep the two in step. */
   function visitWindow(now) {
     var y = now.getFullYear(), m = now.getMonth();
-    return { from: ymd(new Date(y, m - 1, 1)), to: ymd(new Date(y, m + 13, 0)) };
+    return { from: ymd(new Date(y, m - 1, 1)), to: ymd(new Date(y, m + 12, 0)) };
   }
 
   /* AxisCare timestamps carry their own offset:
