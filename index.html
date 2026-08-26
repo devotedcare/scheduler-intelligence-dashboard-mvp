@@ -10010,13 +10010,35 @@ var AxisRoster = (function () {
      Uses the statuses filter so this costs 2 requests rather
      than 7 over all 646 records. Pagination follows
      results.nextPage, from which we only need startAfterId. */
+  var lastFetch = null;   /* what the last roster fetch actually returned */
+  /* Every active caregiver, complete.
+     Two things used to shorten this list silently:
+       1. asking AxisCare for statuses:'Active', which is the LABEL. Staff
+          who are Temporarily Unavailable or On Vacation Leave carry
+          status.active === true and are still on the roster, so the
+          status filter is applied here, not server-side.
+       2. nextPage was only followed when it matched startAfterId=<digits>.
+          Any other shape fell through to `return out` and handed back a
+          partial roster with nothing reporting it. */
   function fetchActive(get, opts) {
     opts = opts || {};
     var limit = opts.limit || 100;
-    var out = [], guard = 0;
+    var out = [], seen = {}, pages = 0, cut = null;
+
+    function cursorFrom(next, list) {
+      var m = /[?&](?:startAfterId|after|afterId|cursor|pageToken)=([^&]+)/.exec(String(next || ''));
+      if (m) return decodeURIComponent(m[1]);
+      if (next != null && /^[\w.:-]+$/.test(String(next)) && String(next) !== 'true') return String(next);
+      /* Unfamiliar shape: page from the highest id we hold rather than stop. */
+      var max = null;
+      list.forEach(function (c) {
+        if (c && c.id != null && (max === null || Number(c.id) > Number(max))) max = c.id;
+      });
+      return max;
+    }
 
     function page(after) {
-      var q = { statuses: 'Active', limit: limit };
+      var q = { limit: limit };
       if (after != null) q.startAfterId = after;
       return get('/api/caregivers', q).then(function (res) {
         var results = (res && res.data && res.data.results) || {};
@@ -10024,17 +10046,31 @@ var AxisRoster = (function () {
         /* caregivers come back as an OBJECT keyed by id, unlike
            clients and visits which are arrays */
         var list = Array.isArray(cgs) ? cgs : Object.keys(cgs || {}).map(function (k) { return cgs[k]; });
-        out = out.concat(list);
+        pages++;
 
-        var next = results.nextPage;
-        if (next && ++guard < 20) {
-          var m = /[?&]startAfterId=(\d+)/.exec(next);
-          if (m) return page(m[1]);
-        }
-        return out;
+        var fresh = 0;
+        list.forEach(function (c) {
+          var id = c && c.id;
+          if (id == null || seen[id]) return;
+          seen[id] = 1; out.push(c); fresh++;
+        });
+
+        if (!results.nextPage) return out;
+        if (!fresh) return out;                       /* cursor stopped advancing */
+        if (pages >= 60) { cut = 'stopped after ' + pages + ' pages'; return out; }
+        var cur = cursorFrom(results.nextPage, list);
+        if (cur == null) { cut = 'could not read the nextPage cursor'; return out; }
+        return page(cur);
       });
     }
-    return page(null);
+
+    return page(null).then(function (all) {
+      var active = all.filter(function (c) { return c && c.status && c.status.active; });
+      lastFetch = { fetched: all.length, active: active.length, pages: pages, truncated: cut };
+      if (cut) console.warn('[roster] INCOMPLETE caregiver fetch \u2014 ' + cut + '; got ' + all.length);
+      else console.info('[roster] fetched ' + all.length + ' caregivers over ' + pages + ' page(s) \u2014 ' + active.length + ' active');
+      return active;
+    });
   }
 
   /* ---- coverage report, for eyeballing a fetch ------------- */
@@ -10067,6 +10103,8 @@ var AxisRoster = (function () {
   return {
     map: mapCaregiver,
     fetchActive: fetchActive,
+    /* What the last roster fetch actually returned - for verifying the count. */
+    lastFetch: function () { return lastFetch; },
     normCity: normCity,
     report: report,
     SKILL_MAP: SKILL_MAP,
