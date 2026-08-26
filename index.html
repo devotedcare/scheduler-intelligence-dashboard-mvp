@@ -1754,6 +1754,7 @@
      leaves the letters sitting visibly high against the icon. line-height:1
      shrinks the box to the glyphs; display:block on the svg drops the
      inline descender gap under it. Both are needed. */
+  .ws-goes{display:inline-block;margin-left:10px;font-size:11.5px;font-weight:700;color:var(--ink-faint);background:var(--panel-head);border:1px solid var(--line);border-radius:11px;padding:2px 10px;vertical-align:middle}
   .ws-h-ic{display:inline-flex;align-items:center;gap:8px}
   .ws-h-ic svg{color:var(--brand);display:block;flex:none}
   .ws-h-ic>span{display:block;line-height:1}
@@ -2394,7 +2395,29 @@ function deriveOps(c){
     childcareNote:s.childcareNote||'', schoolNote:s.schoolNote||'', vacation:s.vacation||null,
     sickDays:s.sickDays||[], lastClient:s.lastClient||(c.priorClients[0]||null),
     attendance:{ events: (CG_ATT[c.id]||[]).map(e=>({type:e.type, date:D_AGO(e.daysAgo), notice:e.notice, mins:e.mins, reason:e.reason, client:e.client})) },
-    avail2: (function(){ const seed=CG_AVAIL[c.id]||null, w=c.win&&c.win[0]?c.win[0]:[8,17], o={}; DAY_ORDER.forEach(d=>{ if(seed&&seed[d]) o[d]=Object.assign({},seed[d]); else if(c.avail[d]===1) o[d]=classifyWin(w[0],w[1]); else o[d]={type:'Off'}; }); return o; })(),
+    /* "We were not told" must not be written down as "Off".
+
+       AxisCare tags availability on roughly half the roster (WKDY / WKND /
+       AD). For the other 93 of 184 there is no tag at all, and c.availKnown
+       is false to record exactly that. Writing {type:'Off'} for them made the
+       calendar draw a solid red Unavailable on every day of a caregiver
+       AxisCare never said a word about — a scheduler would skip someone who
+       may well be free.
+
+       Leaving the day out entirely makes dayAvail() report 'none', which
+       draws nothing: an empty day says "nobody has told us", which is true.
+       A tagged caregiver still gets Off on their untagged days, because the
+       tag is a real if coarse statement. */
+    avail2: (function(){
+      const seed=CG_AVAIL[c.id]||null, w=c.win&&c.win[0]?c.win[0]:[8,17], o={};
+      const unknown = c.source==='axiscare' && !c.availKnown;
+      DAY_ORDER.forEach(d=>{
+        if(seed&&seed[d]) o[d]=Object.assign({},seed[d]);
+        else if(c.avail[d]===1) o[d]=classifyWin(w[0],w[1]);
+        else if(!unknown) o[d]={type:'Off'};
+      });
+      return o;
+    })(),
     availPatternType: s.availPatternType || 'Every week',
     availOverrides: s.availOverrides || {},
     shiftPrefs: s.shiftPrefs || { short:parseInt(c.id.slice(1))%3===0, medium:true, long:parseInt(c.id.slice(1))%3===1, twelve:parseInt(c.id.slice(1))%4===0, liveIn:c.skills.includes('Hospice')||c.skills.includes('Overnight') },
@@ -6084,9 +6107,18 @@ function cgCityOptions(){
   return Object.keys(seen).sort((a,b)=>a.localeCompare(b));
 }
 function toggleCgMore(){ state.cgMore=!state.cgMore; render(); }
+/* Search must find a caregiver by either name. AxisCare records a nickname
+   in goesBy for 78 of the 184 active caregivers, and for 46 of them it is not
+   their first name — the roster shows the legal name, so someone typing the
+   name they know would otherwise get nothing back. */
+function cgNameMatch(c, q){
+  q=String(q||'').toLowerCase().trim();
+  if(!q) return true;
+  return ((c.name||'')+' '+(c.goesBy||'')).toLowerCase().includes(q);
+}
 function cgDirMatch(c){
   const d=cgDir();
-  if(d.q && c.name.toLowerCase().indexOf(d.q.trim().toLowerCase())<0) return false;
+  if(d.q && !cgNameMatch(c, d.q)) return false;
   if(d.gender && c.gender!==d.gender) return false;
   if(d.city && c.base!==d.city) return false;
   if(d.driver==='yes' && !c.driver) return false;
@@ -6721,7 +6753,7 @@ function viewCaregiverWorkspace(c){
   return `<button class="ws-back" onclick="backToCaregivers()">${ic('chevL',14)} All caregivers</button>
     <div class="dc-printhead">${dcLetterhead('Caregiver Profile', c.name)}</div>
     <div class="ws-headrow">
-      <div class="ws-name">${c.name}</div>
+      <div class="ws-name">${c.name}${cgGoesBy(c)}</div>
       <div class="ws-headbtns">
         <button class="btn sm" onclick="editCaregiver('${c.id}')">${ic('log',13)} Edit Profile</button>
         <button class="btn sm" onclick="openResumeModal('${c.id}')">${ic('coverage',13)} Send Resume</button>
@@ -6747,6 +6779,17 @@ function viewCaregiverWorkspace(c){
 /* Weekly rules and time off used to be summarised here with their own Edit
    buttons. Both are now read off the calendar and edited in the day panel,
    so only Desired Hours is left. */
+/* AxisCare records a nickname separately from the legal first name. The
+   profile shows the legal name, so anyone who knows the caregiver by the
+   nickname needs to see it here rather than wonder if this is the right
+   person. Nothing is shown when they match. */
+function cgGoesBy(c){
+  var g=(c.goesBy||'').trim();
+  if(!g) return '';
+  var first=(c.name||'').split(' ')[0]||'';
+  if(g.toLowerCase()===first.toLowerCase()) return '';
+  return '<span class="ws-goes">goes by '+esc(g)+'</span>';
+}
 function availRulesSummary(c){
   const ops=c.ops, sp=ops.shiftPrefs||{};
   const spList=[sp.short&&'4\u20136 hours',sp.medium&&'6\u20138 hours',sp.long&&'8\u201312 hours',sp.twelve&&'12-hour shifts',ops.emergency&&ops.emergency.overnight&&'Overnight',sp.liveIn&&'24-Hour / Live-In'].filter(Boolean).join(', ')||'No preference set';
@@ -9114,6 +9157,7 @@ var ROSTER = (function () {
     return {
       id: m.id, axisId: m.axisId, source: 'axiscare',
       name: m.name,
+      goesBy: m.goesBy || '',
       base: m.base || '',
       prefCities: m.prefCities && m.prefCities.length ? m.prefCities : (m.base ? [m.base] : []),
 
@@ -9923,8 +9967,16 @@ var AxisRoster = (function () {
     return s;
   }
 
+  /* firstName, not goesBy — the same rule the client mapper follows, and
+     what the previous dashboard showed. goesBy is a nickname: on this
+     account 46 of the 184 active caregivers carry one that differs from
+     their legal first name (Lorilyn Federis is recorded as "Yheen"), so
+     preferring it renamed a quarter of the roster to something schedulers
+     could not search for. Every active caregiver has a firstName, so the
+     goesBy fallback is only a guard. The nickname is kept on the record
+     and is searchable — see cgNameMatch(). */
   function fullName(ax) {
-    var first = (ax.goesBy || ax.firstName || '').trim();
+    var first = (ax.firstName || ax.goesBy || '').trim();
     var last  = (ax.lastName || '').trim();
     return (first + ' ' + last).replace(/\s+/g, ' ').trim();
   }
@@ -9984,6 +10036,7 @@ var AxisRoster = (function () {
       name: fullName(ax),
       firstName: ax.firstName || '',
       lastName: ax.lastName || '',
+      goesBy: (ax.goesBy || '').trim(),        /* nickname — searchable, shown on the profile */
       gender: gender,
 
       statusLabel: (ax.status && ax.status.label) || null,

@@ -499,6 +499,17 @@ payRate                     string | null
 — so filtering on `status.active` alone includes people who are not currently
 schedulable. Check `status.label` when that distinction matters.
 
+**`goesBy` is a nickname, not a name.** Use `firstName` for display. On this
+account **78 of the 184** active caregivers have a `goesBy`, and for **46** it is
+not their first name at all — id 312 is *Lorilyn Federis*, recorded as
+"Yheen". Naming from `goesBy` renames a quarter of the roster to something
+schedulers cannot search for, and the previous dashboard showed the legal name.
+Every active caregiver has a `firstName`, so it never needs a fallback.
+
+Keep the nickname though: `cgNameMatch()` searches both, and the profile shows
+a *goes by* chip when the two differ. Somebody who knows her as Yheen still has
+to find her.
+
 **Field coverage across active caregivers** — how often a field actually has a
 value, which is what determines whether a UI column is worth adding:
 
@@ -541,6 +552,18 @@ they work is encoded as class tags. Counts are across active caregivers:
 **40% of active caregivers carry no tags at all**, so they yield no skills and no
 availability. They should still appear in any roster with empty skills — hiding
 real staff would be worse than showing an incomplete profile.
+
+**"Not tagged" is not "not available".** On live data **93 of the 184** active
+caregivers have no `WKDY`/`WKND`/`AD` tag, so AxisCare has said nothing about
+when they work. `availKnown` records that. Their weekly rule is left **empty**,
+which makes the calendar draw an empty month — the honest reading. Writing
+`{type:'Off'}` instead once made the calendar assert a red **Unavailable** on
+every day of half the roster, which is how a scheduler skips someone who is free.
+
+Still open, same shape: `toAppCaregiver` sets `hours: m.hours || 'Days'`, so the
+**92** caregivers with no hours tag read as working *Days* and get a default
+`c.win` of 8a–5p. `hoursKnown` records that it is a guess and nothing reads it.
+The desired-hours filter and window matching use it as though it were fact.
 
 ### `/api/clients`
 

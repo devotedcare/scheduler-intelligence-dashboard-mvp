@@ -253,6 +253,65 @@ exist.
 Two small things: the day you click keeps an outline, and today is a filled
 circle on the date rather than a box round the cell.
 
+---
+
+## 2026-08-26 — a quarter of the roster was under the wrong name
+
+Carlo reported caregiver 312 missing from the list. She was never missing: all
+184 arrive, and she was on screen the whole time as **Yheen Federis**. AxisCare
+has her as **Lorilyn Federis** with `goesBy: "Yheen"`.
+
+Two mappers had opposite rules. The client mapper preferred `firstName`, with a
+comment explaining why. The caregiver mapper preferred `goesBy`. So **46 of the
+184** active caregivers displayed under a nickname — *Orlando Matias* as "Orly",
+*Purisima Villano* as "Emma", *Bienvenida Crockett* as "Annie" — and since the
+directory searched `c.name` only, typing the name you knew returned nothing.
+
+Caregivers now follow the same rule as clients: `firstName`, with `goesBy` only
+as a guard (no active caregiver lacks a `firstName`, so it never fires). The
+nickname is kept on the record, `cgNameMatch()` searches both, and the profile
+shows a *goes by* chip when they differ — losing the nickname entirely would
+just invert the problem for whoever knows her as Yheen.
+
+Worth remembering: **"missing" was really "renamed"**. The roster count was
+right, the fetch was right, and the id was present at every stage of the
+pipeline. Only printing the name at each step found it.
+
+---
+
+## 2026-08-26 — audit: what the roster wiring got wrong
+
+Carlo asked whether the cleanups had left bugs or dead code. Static attribution
+against the pre-session tree says the cleanups themselves were clean: **0
+functions became dead**, **0 handlers newly broken**, one function removed
+deliberately (`availCalForm`), 24 added and all of them reachable. The 82 dead
+functions in the file are unchanged — they predate this work.
+
+The real defects were of a different kind — a plausible field choice that is
+wrong — and both were mine.
+
+**Names came from `goesBy`.** Written up above.
+
+**"We were not told" was recorded as "Off".** `deriveOps` filled every weekday
+with `{type:'Off'}` when AxisCare had no availability tag. On live data that is
+**93 of 184** caregivers, every one of them drawing a solid red *Unavailable* on
+every day of every month — an assertion AxisCare never made, on real people a
+scheduler might therefore skip. `availKnown` had recorded the distinction since
+the roster first landed and a comment promised the UI would honour it; nothing
+ever read it. Untagged caregivers now carry no weekly rule at all, so the month
+renders empty, which is what Carlo asked for when he said an unknown day should
+show a blank calendar. Tagged caregivers are unaffected.
+
+Worth noting how it stayed hidden: an earlier check of "what does a real
+caregiver's calendar show" cleared `c.ops` in the test harness, so it reported
+*Needs update* everywhere and concluded red would never appear on live data. The
+harness was wrong, not the app, and the wrong conclusion was reported. Running
+`ROSTER.hydrate()` untouched is what showed it.
+
+**Still open:** `hours: m.hours || 'Days'` invents a working pattern for the 92
+caregivers with no hours tag, and `hoursKnown` is read nowhere. Same shape, not
+yet fixed — it feeds matching rather than the calendar, so it needs its own look.
+
 ### Still open
 
 - Attendance, punctuality and the "Not tracked" caregiver metrics — all
