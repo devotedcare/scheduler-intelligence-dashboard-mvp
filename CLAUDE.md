@@ -359,10 +359,15 @@ That last row covers **Unavailable, Off, Other Agency, School, Childcare,
 Vacation and Sick**. The label inside the block still says which.
 
 **School and Childcare are not availability.** Someone in class, or collecting a
-child, cannot take a shift — so they clear `c.avail[day]` and carry no hours. If
-a caregiver is free, the day says Open. `OFF_TYPES` and `NOT_OPEN` (next to
-`RULE_STATUS`) are the single place that judgement is made; change them, not the
-individual call sites.
+child, cannot take a shift. If a caregiver is free, the day says Open.
+`availTone()` — right beside the `AVAIL` module at the bottom of the file — is
+the single place that judgement is made; change it, not the individual call
+sites. It is deliberately one line: **Open is green, every other status a
+scheduler can record is a reason they cannot work, and reads red.**
+
+> An earlier version of this section pointed at `OFF_TYPES` and `NOT_OPEN`,
+> next to `RULE_STATUS`. Those constants belonged to the weekly-rule model and
+> were deleted with it — editing them would have done nothing.
 
 A day with nothing recorded draws **nothing at all**. It used to say "Needs
 update", which is true of every day of every live caregiver — no availability
