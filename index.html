@@ -6339,8 +6339,9 @@ function cgCalMeta(c){
     return `<div class="demo-banner cal-meta load"><span class="cs-spin"></span><span>Loading ${esc(c.name)}\u2019s scheduled visits from AxisCare\u2026</span></div>`;
   if(st==='error')
     return `<div class="demo-banner cal-meta err"><span class="db-ic">\u26A0</span><span><b>Couldn\u2019t load scheduled visits from AxisCare.</b> ${esc((sch&&sch.error)||'unknown error')} \u2014 the calendar below shows availability only.</span><button onclick="CGVISITS.retry('${c.id}')">Retry</button></div>`;
-  if(st==='ready')
-    return `<div class="demo-banner cal-meta live"><span class="db-ic">\u2713</span><span><b>${sch.count} scheduled visit${sch.count===1?'':'s'} live from AxisCare</b> \u00b7 ${calMon(sch.from)} \u2013 ${calMon(sch.to)}. Open and unavailable days are entered by schedulers \u2014 AxisCare has no availability source.</span></div>`;
+  /* The success banner is dropped - a loaded calendar shows it loaded.
+     Loading and error still report, since a blank calendar needs explaining. */
+  if(st==='ready') return '';
   return '';
 }
 function _h12u(h){ const t=_hmin(h); let hr=Math.floor(t/60)%12; if(hr===0)hr=12; const mn=t%60;
@@ -6756,7 +6757,6 @@ function viewCaregiverWorkspace(c){
       <div class="ws-name">${c.name}</div>
       <div class="ws-headbtns">
         <button class="btn sm" onclick="editCaregiver('${c.id}')">${ic('log',13)} Edit Profile</button>
-        <button class="btn sm" onclick="dispCall('${c.id}')">${ic('phone',13)} Call</button>
         <button class="btn sm" onclick="openResumeModal('${c.id}')">${ic('coverage',13)} Send Resume</button>
         <button class="btn sm" onclick="printProfile('${c.id}')">${ic('log',13)} Print</button>
       </div>
@@ -6979,7 +6979,8 @@ function demoNotice(){
   }
 
   /* 5. the caregiver roster, confirmed live */
-  if(state.view==='avail' && st && st.ok && st.loaded){
+  /* Not while a caregiver profile is open - it is about the roster, not this person. */
+  if(state.view==='avail' && !state.cgOpen && st && st.ok && st.loaded){
     return '<div class="demo-banner live"><span class="db-ic">\u2713</span><span><b>'+st.loaded+
       ' caregivers live from AxisCare.</b> Reliability, hours worked and call-off figures read '+
       '\u201cNot tracked\u201d \u2014 AxisCare has no source for them.</span></div>';
