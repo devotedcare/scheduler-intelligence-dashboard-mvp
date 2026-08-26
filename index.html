@@ -2475,7 +2475,7 @@ state.placements=[
 ];
 /* Attendance events logged by the desk. Demo rows, like the rest of the board. */
 state.attendance=[
-  {id:'at1', cg:'Ana Beltran',   client:'Dorothy Hale',  date:_atD(0),  type:'Late Call-Off', note:'Sick \u2014 called 2 hrs before shift', coverNeeded:true,  coverStatus:'Open',       coveredBy:''},
+  {id:'at1', cg:'Ana Beltran',   client:'Dorothy Hale',  date:_atD(0),  type:'Last-Minute Call-Off', note:'Sick, called 2 hours before shift', coverNeeded:true,  coverStatus:'Open',       coveredBy:''},
   {id:'at2', cg:'Marites Santos',client:'Cal Miller',    date:_atD(0),  type:'No Show',       note:'No clock-in, no contact',              coverNeeded:true,  coverStatus:'Covered',    coveredBy:'Lily Tran'},
   {id:'at3', cg:'Rosa Delgado',  client:'Harold Pratt',  date:_atD(3),  type:'Request Off',   note:'Family event \u2014 approved',          coverNeeded:true,  coverStatus:'Open',       coveredBy:''},
   {id:'at4', cg:'James Okafor',  client:'',             date:_atD(-1), type:'Absence',       note:'Car trouble',                          coverNeeded:false, coverStatus:'Not needed', coveredBy:''},
@@ -7996,9 +7996,13 @@ function viewGuides(){ return state.guidesMode==='edit' ? guideEditor() : guideL
 /* Infographics are the visual format of a quick guide, so this lists the same
    guides and opens each straight into its infographic. */
 /* ============ ATTENDANCE TRACKING ============ */
-const ATT_TYPES=['Absence','Request Off','No Show','Late Call-Off'];
+const ATT_TYPES=['Absence','Request Off','No Show','Last-Minute Call-Off','Late'];
+/* Entries logged before the rename keep their old value in the synced record,
+   so read the type through attType() rather than off the record directly. */
+const ATT_LEGACY={'Late Call-Off':'Last-Minute Call-Off'};
+function attType(a){ const t=(a&&a.type)||''; return ATT_LEGACY[t]||t; }
 const ATT_STATUS=['Open','Covered','Not needed'];
-const ATT_TONE={'Absence':'neu','Request Off':'ok','No Show':'bad','Late Call-Off':'warn'};
+const ATT_TONE={'Absence':'neu','Request Off':'ok','No Show':'bad','Last-Minute Call-Off':'warn','Late':'warn'};
 function attDateText(d){ return d ? new Date(d+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}) : '\u2014'; }
 function attById(id){ return (state.attendance||[]).find(a=>a.id===id); }
 const ATT_RANGES=[['week','This Week'],['month','This Month'],['30','Last 30 Days'],['custom','Custom Date Range']];
@@ -8014,7 +8018,7 @@ function attMatches(a){
   const f=state.attFilter||{};
   if(f.cg && a.cg!==f.cg) return false;
   if(f.client && (a.client||'')!==f.client) return false;
-  if(f.type && a.type!==f.type) return false;
+  if(f.type && attType(a)!==f.type) return false;
   const b=attRangeBounds(f);
   if(b.from && (a.date||'')<b.from) return false;
   if(b.to && (a.date||'')>b.to) return false;
@@ -8075,7 +8079,7 @@ function viewAttendance(){
       <td class="at-cg">${gEsc(a.cg||'')}</td>
       <td>${gEsc(a.client||'')||'<span class="at-dash">\u2014</span>'}</td>
       <td>${attDateText(a.date)}</td>
-      <td><span class="at-p ${ATT_TONE[a.type]||'neu'}">${gEsc(a.type||'')}</span></td>
+      <td><span class="at-p ${ATT_TONE[attType(a)]||'neu'}">${gEsc(attType(a))}</span></td>
       <td class="at-note">${gEsc(a.note||'')}</td>
       <td>${cov}</td>
       <td>${gEsc(a.coveredBy||'')||'<span class="at-dash">\u2014</span>'}</td>
@@ -8083,7 +8087,7 @@ function viewAttendance(){
     </tr>`;
   }).join('');
   return head+`<div class="at-wrap"><table class="at-tbl">
-    <thead><tr><th class="c-cg">Caregiver</th><th class="c-cl">Client</th><th class="c-d">Date</th><th class="c-t">Type</th><th>Reason / note</th><th class="c-cv">Coverage</th><th class="c-by">Covered by</th><th class="c-a"></th></tr></thead>
+    <thead><tr><th class="c-cg">Caregiver</th><th class="c-cl">Client</th><th class="c-d">Date</th><th class="c-t">Type</th><th>Notes</th><th class="c-cv">Coverage</th><th class="c-by">Covered by</th><th class="c-a"></th></tr></thead>
     <tbody>${body}</tbody></table></div>`;
 }
 function openAttEntry(id){
@@ -8096,8 +8100,8 @@ function openAttEntry(id){
        <div class="field"><label>Client <span class="opt">optional</span></label><select class="ein" id="atClient"><option value=""></option>${state.clients.map(c=>`<option${a&&a.client===c.name?' selected':''}>${gEsc(c.name)}</option>`).join('')}</select></div>
      </div>
      <div class="field"><label>Date</label><input class="ein" type="date" id="atDate" value="${a?a.date:toDateInput(NOW)}"></div>
-     <div class="field"><label>Type</label><select class="ein" id="atType">${ATT_TYPES.map(t=>`<option${a&&a.type===t?' selected':''}>${t}</option>`).join('')}</select></div>
-     <div class="field"><label>Reason / note</label><input class="ein" id="atNote" value="${gEsc(a&&a.note||'')}" placeholder="Short note"></div>
+     <div class="field"><label>Type</label><select class="ein" id="atType">${ATT_TYPES.map(t=>`<option${attType(a)===t?' selected':''}>${t}</option>`).join('')}</select></div>
+     <div class="field"><label>Notes</label><input class="ein" id="atNote" value="${gEsc(a&&a.note||'')}" placeholder="Short note"></div>
      <div class="at-row2">
        <div class="field"><label>Coverage needed</label><select class="ein" id="atNeed"><option value="yes"${a&&!a.coverNeeded?'':' selected'}>Yes</option><option value="no"${a&&!a.coverNeeded?' selected':''}>No</option></select></div>
        <div class="field"><label>Coverage status</label><select class="ein" id="atStatus">${ATT_STATUS.map(t=>`<option${a&&a.coverStatus===t?' selected':''}>${t}</option>`).join('')}</select></div>
