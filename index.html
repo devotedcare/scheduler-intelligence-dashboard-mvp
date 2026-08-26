@@ -1752,7 +1752,62 @@
   /* waiting on AxisCare — say so rather than showing an empty result that
      is about to be replaced */
   .cgf-loading{display:flex;align-items:center;gap:9px;padding:18px 16px;font-size:13px;color:var(--ink-soft)}
+  /* ---- the day panel, which is always the availability editor ----
+     Laid out like the reference design, but wearing this app's type,
+     spacing and colours rather than the other system's. */
+  .sp-headings{min-width:0}
+  .sp-eyebrow{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;color:var(--ink-faint)}
+  .sp-dateline{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+  .sp-clear{font-family:inherit;font-size:12px;font-weight:650;color:var(--brand);background:none;border:0;padding:0;text-decoration:underline;cursor:pointer}
+  .sp-clear:disabled{color:var(--ink-faint);cursor:default;text-decoration:none}
+  .sp-none{color:var(--ink-faint)}
+
+  /* Status carries the day's VERBS: what a save MEANS. Exactly one is
+     filled, and the Save button repeats the choice in words, because a
+     button that can mean two things has to say which. */
+  .dp-fieldhead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:7px}
+  .dp-fieldhead label{margin-bottom:0}
+  .dp-verbs,.dp-mode{display:inline-flex;gap:5px}
+  .dp-win{font-family:inherit;font-size:12px;font-weight:650;color:var(--ink-soft);background:#fff;border:1px solid var(--line-strong);border-radius:14px;padding:5px 13px;cursor:pointer}
+  .dp-win.on{background:#1e40af;border-color:#1e40af;color:#fff}
+  .dp-win:disabled{opacity:.4;cursor:default}
+  .dp-status{display:flex;align-items:center;gap:9px}
+  .dp-status .ein{flex:1;min-width:0}
+  .dp-dot{width:10px;height:10px;border-radius:50%;flex:none}
+  .dp-dot.open{background:#15803d}
+  .dp-dot.unavail{background:#dc2626}
+  .dp-dot.devoted{background:#1e40af}
+
+  .dp-mode{margin-bottom:11px}
+  .dp-times{display:grid;grid-template-columns:1fr 1fr;gap:11px}
+  .dp-timefield{display:block}
+  .dp-timelabel{display:block;font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--ink-faint);margin-bottom:5px}
+  .dp-hint{font-size:11px;color:var(--ink-faint);margin-top:7px;line-height:1.45}
+
+  .dp-scope{display:flex;flex-direction:column;gap:7px}
+  .dp-scope-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+  .dp-radio{display:inline-flex;align-items:center;gap:8px;font-size:13px;color:var(--ink);cursor:pointer}
+  .dp-radio input{margin:0;accent-color:#1e40af}
+  .dp-optional{font-weight:600;color:var(--ink-faint);text-transform:none;letter-spacing:0}
+  .dp-count{text-align:right;font-size:11px;color:var(--ink-faint);margin-top:4px}
+  .dp-error{display:flex;align-items:flex-start;gap:7px;font-size:12px;line-height:1.45;color:var(--crit-tx);background:var(--crit-bg);border:1px solid #EEC2BC;border-radius:var(--r);padding:8px 11px;margin-bottom:14px}
+  .dp-error svg{flex:none;margin-top:1px}
+
+  /* The picker answers "which days", not "what is on them" — numbers only,
+     so it never argues with the calendar behind the panel. */
+  .dpk{margin-top:11px;border:1px solid var(--line);border-radius:var(--r);padding:10px}
+  .dpk-bar{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:9px}
+  .dpk-label{font-size:13px;font-weight:700;color:var(--ink)}
+  .dpk-dow{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:2px;margin-bottom:4px}
+  .dpk-dow span{text-align:center;font-size:10px;font-weight:800;color:var(--ink-faint)}
+  .dpk-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:2px}
+  .dpk-blank{display:block;height:30px}
+  .dpk-day{height:30px;font-family:inherit;font-size:12.5px;font-weight:650;color:var(--ink);background:none;border:1px solid transparent;border-radius:var(--r);cursor:pointer;padding:0}
+  .dpk-day:hover{background:var(--panel-head)}
+  .dpk-day.on{background:#EEF2FF;border-color:#1e40af;color:#1e40af;font-weight:800}
   .cal-loadrow{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600;color:#3D5A70;background:#EEF3F7;border:1px solid #D5E0E7;border-radius:var(--r);padding:7px 11px;margin-bottom:10px}
+  .cal-loadrow.err{color:var(--crit-tx);background:var(--crit-bg);border-color:#EEC2BC}
+  .cal-loadrow .cs-retry{margin-left:auto;font:inherit;color:inherit;background:none;border:0;padding:0;text-decoration:underline;cursor:pointer}
   .cal-busy .cal-grid{opacity:.4;pointer-events:none;transition:opacity .15s}
   .demo-banner.cal-meta.load{background:#EEF3F7;color:#3D5A70;border-color:#D5E0E7}
   /* An 11px uppercase label has no descenders, so centring its LINE BOX
@@ -6066,41 +6121,59 @@ function _subtractWin(win, ints){
   if(cur<e-0.01) free.push([cur,e]);
   return free;
 }
+/* What a day holds: AxisCare visits, plus whatever a scheduler entered.
+
+   Nothing is inferred. There is no weekly rule and no override layer any
+   more — a date shows what is recorded against it and nothing else, and a
+   date with nothing recorded returns NO blocks at all. An empty day means
+   "nobody has told us", which is the truth; it used to say "Needs update",
+   which was true of every day of every caregiver and so said nothing. */
 function dayBlocks(c, date){
-  const ds=dateKey(date), ov=c.ops.availOverrides&&c.ops.availOverrides[ds];
-  const dd=dayAvail(c,date), t=dd.type, ev=cgCalEvents(c,date);
-  const realShifts=assignedOn(c,date);
-  if(t==='Vacation'||(!ov&&ev.some(e=>e.type==='vacation'))) return [{type:'unavail',label:'Vacation',full:true}];
-  if(t==='Sick'||(!ov&&ev.some(e=>e.type==='sick'))) return [{type:'unavail',label:'Sick',full:true}];
-  if(OFF_TYPES.includes(t) && !realShifts.length && !ev.some(e=>['devoted','agency'].includes(e.type)))
-    return [{type:'unavail',label:(t==='School'||t==='Childcare')?t:'Unavailable',full:true}];
-  if(t==='none' && !realShifts.length && !ev.length) return [{type:'needs',label:'Needs update',full:true}];
-  const blocks=[], committed=[];
-  realShifts.forEach(s=>{
+  const blocks=[];
+
+  /* AxisCare first. The client’s name is the label — that is what a
+     scheduler reads off the grid. */
+  assignedOn(c,date).forEach(s=>{
     const st=s.start; let en=(s.end==null?st:s.end); if(en<=st) en+=24;
-    /* the client's name IS the label — that is what the scheduler
-       needs to read off the grid */
     const nm=shiftClientName(s);
-    blocks.push({type:'devoted',label:nm,start:st,end:en,client:nm}); committed.push([st,en]);
+    blocks.push({type:'devoted',label:nm,start:st,end:en,client:nm});
   });
-  if(!realShifts.length && (t==='Devoted Shift' || ev.some(e=>e.type==='devoted'))){
-    const dh=c.ops.devoted&&c.ops.devoted.hours;
-    if(dh){ blocks.push({type:'devoted',label:'Devoted',start:dh[0],end:dh[1]}); committed.push([dh[0],dh[1]]); }
-    else blocks.push({type:'devoted',label:'Devoted',noTime:true});
-  }
-  if(t==='Other Agency' || (!ov&&ev.some(e=>e.type==='agency'))) blocks.push({type:'unavail',label:'Other Agency',noTime:true});
-  const openWin = (!NOT_OPEN.includes(t)) ? dayWindow(dd) : null;
-  if(openWin){
-    const lab='Open', ty='open';
-    const isAnytime=(t==='Anytime'||dd.win==='Anytime'), isOver=(t==='Overnight'||dd.win==='Overnight');
-    _subtractWin(openWin, committed).forEach(iv=>{
-      blocks.push({type:ty,label:lab,start:iv[0],end:iv[1],anytime:isAnytime&&iv[0]===openWin[0]&&iv[1]===openWin[1],overnight:isOver});
-    });
-  }
-  blocks.sort((a,b)=>((a.noTime||a.full)?-1:a.start)-((b.noTime||b.full)?-1:b.start));
-  if(!blocks.length) return [{type:'needs',label:'Needs update',full:true}];
+
+  /* Then the scheduler’s own entries, straight from the table. Segments
+     are stored already carved, so they need no merging here. */
+  ((typeof AVAIL!=='undefined') ? AVAIL.forDay(c.id,date) : []).forEach(a=>{
+    const b={type:availTone(a.status),label:a.status,note:a.note,availId:a.id};
+    if(a.allDay) b.full=true; else { b.start=a.start; b.end=a.end; }
+    blocks.push(b);
+  });
+
+  /* whole-day statements first, then by start time */
+  blocks.sort((x,y)=>((x.full||x.noTime)?-1:x.start)-((y.full||y.noTime)?-1:y.start));
   return blocks;
 }
+
+/* The day’s summary, for the note icon on the cell and the panel’s chip. */
+function calDayStatus(c, date){
+  const av=(typeof AVAIL!=='undefined') ? AVAIL.forDay(c.id,date) : [];
+  const noted=av.filter(a=>a.note && a.note.trim());
+  const last=av.length?av[av.length-1]:null;
+  const base={ hasNote:noted.length>0,
+               note:noted.map(a=>a.note.trim()).join(' \u00b7 '),
+               updatedAt:last?last.updatedAt:null,
+               updatedBy:last?last.updatedBy:null };
+
+  const parts=[];
+  if(assignedOn(c,date).length) parts.push('Devoted');
+  if(av.some(a=>a.status==='Open')) parts.push('Open');
+  const off=av.filter(a=>a.status!=='Open');
+  if(off.length) parts.push(off[0].status);
+
+  if(!parts.length) return Object.assign({status:'clean',label:'Nothing recorded',win:null,parts:[]},base);
+  const pmap={'Devoted':'devoted','Open':'avail'};
+  const status = parts.length>1 ? 'mixed' : (pmap[parts[0]]||'unavail');
+  return Object.assign({status,label:parts.join(' + '),win:null,parts},base);
+}
+
 function blkTime(b){
   if(b.noTime||b.full) return '';
   if(b.anytime) return 'Anytime';
@@ -6113,31 +6186,6 @@ function blkTimeFull(b){
   const e=b.end>=24?b.end-24:b.end;
   return _h12u(b.start)+'\u2013'+_h12u(e);
 }
-function calDayStatus(c, date){
-  const ds=dateKey(date), ov=c.ops.availOverrides&&c.ops.availOverrides[ds];
-  const dd=dayAvail(c,date), t=dd.type, ev=cgCalEvents(c,date);
-  const hasNote=(dd.note&&dd.note.trim())||['School','Childcare','Appointment'].includes(t)||ev.some(e=>['childcare','school'].includes(e.type));
-  const base={hasNote,note:dd.note||'',updatedAt:dd.updatedAt||null,updatedBy:dd.updatedBy||null};
-  const realShifts=assignedOn(c,date);
-  // full-day exclusive states
-  if(t==='Vacation'||(!ov&&ev.some(e=>e.type==='vacation'))) return Object.assign({status:'unavail',label:'Vacation',win:null,parts:['Vacation']},base);
-  if(t==='Sick'||(!ov&&ev.some(e=>e.type==='sick'))) return Object.assign({status:'unavail',label:'Sick',win:null,parts:['Sick']},base);
-  if(OFF_TYPES.includes(t) && !realShifts.length && !ev.some(e=>['devoted','agency'].includes(e.type)))
-    return Object.assign({status:'unavail',label:(t==='School'||t==='Childcare')?t:'Unavailable',win:null,parts:['Unavailable']},base);
-  if(t==='none' && !realShifts.length && !ev.length) return Object.assign({status:'needs',label:'Needs update',win:null,parts:['Needs update']},base);
-  // components that can mix on one day
-  const devoted = realShifts.length>0 || t==='Devoted Shift' || ev.some(e=>e.type==='devoted');
-  const agency = t==='Other Agency' || (!ov&&ev.some(e=>e.type==='agency'));
-  const openWin = (!NOT_OPEN.includes(t)) ? dayWindow(dd) : null;
-  const parts=[];
-  if(devoted) parts.push('Devoted');
-  if(agency) parts.push('Other Agency');
-  if(openWin) parts.push('Open');
-  if(!parts.length) return Object.assign({status:'needs',label:'Needs update',win:null,parts:['Needs update']},base);
-  const pmap={'Devoted':'devoted','Other Agency':'unavail','Open':'avail'};
-  const status = parts.length>1 ? 'mixed' : pmap[parts[0]];
-  return Object.assign({status,label:parts.join(' + '),win:openWin,parts},base);
-}
 function timeSegBar(win){
   const segOn=(idx)=>{ if(!win) return false; const a=win[0],b=win[1];
     if(idx===0) return b>6 && a<12; if(idx===1) return b>12 && a<17; if(idx===2) return b>17 && a<22; return b>22||a<6||b>24; };
@@ -6148,6 +6196,7 @@ function cgCalendar(c){
      opens a profile should pay for it. Cached per caregiver, so the
      month arrows cost nothing after the first load. */
   if(typeof CGVISITS!=='undefined') CGVISITS.load(c);
+  if(typeof AVAIL!=='undefined') AVAIL.load(c);
   const off=Math.max(CAL_MIN_OFF, Math.min(CAL_MAX_OFF, state.cgCalMonth||0));
   const first=new Date(NOW.getFullYear(), NOW.getMonth()+off, 1);
   const y=first.getFullYear(), m=first.getMonth();
@@ -6179,13 +6228,19 @@ function cgCalendar(c){
   const dow=WD.map(d=>`<div class="cal-dow">${d}</div>`).join('');
   /* The visits arrive after the grid does. Dim it and say what is happening,
      rather than showing an empty month that fills in a second later. */
-  const busy=(typeof CGVISITS!=='undefined') && CGVISITS.status(c.id)==='loading';
+  const busy=((typeof CGVISITS!=='undefined') && CGVISITS.status(c.id)==='loading')
+           || ((typeof AVAIL!=='undefined') && AVAIL.status(c.id)==='loading');
+  const avSt=(typeof AVAIL!=='undefined')?AVAIL.status(c.id):'idle';
+  const avInfo=(typeof AVAIL!=='undefined')?AVAIL.info(c.id):null;
+  const avFail=avSt==='error'
+    ? `<div class="cal-loadrow err">\u26A0 Couldn\u2019t load entered availability \u2014 ${esc((avInfo&&avInfo.error)||'unknown error')}. The month shows AxisCare visits only.<button class="cs-retry" onclick="AVAIL.retry('${c.id}')">Retry</button></div>`
+    : '';
   const busyRow=busy
-    ? `<div class="cal-loadrow"><span class="cs-spin"></span>Loading scheduled visits from AxisCare\u2026</div>`
+    ? `<div class="cal-loadrow"><span class="cs-spin"></span>Loading this caregiver\u2019s schedule and availability\u2026</div>`
     : '';
   return `<div class="cal-wrap${busy?' cal-busy':''}">
     <div class="cal-bar"><button class="cal-nav" ${off<=CAL_MIN_OFF?'disabled':''} onclick="cgCalNav(-1)">${ic('chevL',16)}</button><div class="cal-month">${cgMonthLabel(off)}</div><button class="cal-nav" ${off>=CAL_MAX_OFF?'disabled':''} onclick="cgCalNav(1)">${ic('chev',16)}</button></div>
-    ${busyRow}
+    ${avFail}${busyRow}
     <div class="cal-grid"><div class="cal-dowrow">${dow}</div>${cells}</div>
   </div>`;
 }
@@ -6209,15 +6264,307 @@ function cgCalMeta(c){
 }
 function _h12u(h){ const t=_hmin(h); let hr=Math.floor(t/60)%12; if(hr===0)hr=12; const mn=t%60;
   return hr+(mn?':'+String(mn).padStart(2,'0'):'')+' '+(t<720?'AM':'PM'); }
+/* ---- availability editing ------------------------------------------
+
+   The day panel is ALWAYS the editor. Viewing a day is what the calendar
+   is for — repeating it here would make the panel argue with the grid
+   beside it.
+
+   A save states what the day BECOMES, and the browser works that out
+   before writing: what lands in the table is exactly what gets drawn, so
+   reading a day back needs no merge step. `Set day` replaces everything
+   the date held; `Add` carves the new entry into what is already there.  */
+
+const AV_STATUSES = ['Open','Unavailable','Vacation','Sick','School','Childcare','Appointment','Other Agency'];
+/* Open must state its hours — an untimed Open claims all 24, and Find
+   Coverage would read it as covering any shift. The others here are
+   statements about being somewhere at a time, so they need the time too. */
+const AV_TIMED_ONLY  = ['Open','School','Childcare','Appointment'];
+/* Nobody takes two hours of vacation. */
+const AV_ALLDAY_ONLY = ['Vacation'];
+const AV_NOTE_MAX = 200;
+
+function avTimedOnly(s){ return AV_TIMED_ONLY.indexOf(s) >= 0; }
+function avAllDayOnly(s){ return AV_ALLDAY_ONLY.indexOf(s) >= 0; }
+
+function minToHHMM(m){
+  m = ((Math.round(m) % 1440) + 1440) % 1440;
+  return String(Math.floor(m/60)).padStart(2,'0') + ':' + String(m%60).padStart(2,'0');
+}
+function hhmmToMin(s){
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(s||''));
+  if(!m) return null;
+  const h = +m[1], mi = +m[2];
+  if(h > 23 || mi > 59) return null;
+  return h*60 + mi;
+}
+
+/* Carve a new entry into a day.
+
+   A whole-day statement replaces the date outright — a day is either one
+   of those or a set of timed segments, never both, and the database
+   refuses the mixture.
+
+   Going the other way, an existing whole-day entry becomes 00:00-24:00 so
+   the new segment can be cut out of it: "Unavailable all day" plus
+   "Open 9-5" is Unavailable 12a-9a · Open 9a-5p · Unavailable 5p-12a,
+   which is what a scheduler means by it. */
+function spliceDay(existing, add){
+  if(add.allDay) return [Object.assign({}, add)];
+  const out = [];
+  (existing||[]).forEach(s0=>{
+    const s = s0.allDay
+      ? { status:s0.status, allDay:false, startMin:0, endMin:1440, note:s0.note }
+      : { status:s0.status, allDay:false, startMin:s0.startMin, endMin:s0.endMin, note:s0.note };
+    if(s.endMin <= add.startMin || s.startMin >= add.endMin){ out.push(s); return; }
+    if(s.startMin < add.startMin) out.push(Object.assign({}, s, {endMin:add.startMin}));
+    if(s.endMin   > add.endMin)   out.push(Object.assign({}, s, {startMin:add.endMin}));
+  });
+  out.push(Object.assign({}, add));
+  out.sort((a,b)=>a.startMin-b.startMin);
+  return out;
+}
+
+/* ---- the panel ---- */
+
 function openDayPanel(cgId, dateISO){
-  const c=cgById(cgId), date=new Date(dateISO), cur=dayAvail(c,date);
-  state.cgCalSel=dateKey(date);          /* the cell keeps its outline */
+  const date = new Date(dateISO);
+  state.cgCalSel = dateKey(date);
+  modalState = {
+    dayCg: cgId, dayDate: dateISO,
+    verb: 'set',                 /* the common statement; Add is the exception */
+    status: 'Open',
+    allDay: false,               /* Open must be timed, so Custom is the default */
+    from: '09:00', to: '17:00',
+    note: '',
+    multi: false, picked: {}, pickOff: null,
+    saving: false, error: null
+  };
   try{ render(); }catch(e){}
-  modalState={dayCg:cgId, dayDate:dateISO, mode:'view', status:cur.type||'Open', win:cur.win||(['Open','Custom','School','Childcare','Appointment'].includes(cur.type)?'Custom':cur.type), start:cur.start!=null?cur.start:8, end:cur.end!=null?cur.end:16, note:cur.note||'', repeat:cur.repeat||'One day only'};
-  if(['Anytime','Morning','Afternoon','Evening','Overnight'].includes(cur.type)){ modalState.status='Open'; modalState.win=cur.type; }
   renderDayPanel();
   document.getElementById('sidebg').classList.add('show');
 }
+
+function dpSet(field, value){
+  modalState[field] = value;
+  if(field === 'status'){
+    if(avAllDayOnly(value)) modalState.allDay = true;
+    else if(avTimedOnly(value)) modalState.allDay = false;
+  }
+  modalState.error = null;
+  renderDayPanel();
+}
+function dpNote(v){ modalState.note = String(v||'').slice(0, AV_NOTE_MAX); }
+function dpTime(field, v){ modalState[field] = v; modalState.error = null; }
+function dpScope(multi){
+  modalState.multi = !!multi;
+  if(modalState.pickOff === null) modalState.pickOff = state.cgCalMonth || 0;
+  renderDayPanel();
+}
+function dpPickNav(d){
+  const n = (modalState.pickOff||0) + d;
+  if(n < CAL_MIN_OFF || n > CAL_MAX_OFF) return;
+  modalState.pickOff = n; renderDayPanel();
+}
+function dpToggleDate(k){
+  if(modalState.picked[k]) delete modalState.picked[k]; else modalState.picked[k] = 1;
+  renderDayPanel();
+}
+function dpDeselect(){ modalState.picked = {}; renderDayPanel(); }
+
+/* What the form is currently describing, or a reason it cannot be saved. */
+function dpDraft(){
+  const st = modalState.status;
+  if(modalState.allDay){
+    if(avTimedOnly(st)) return { err: st + ' needs the hours it covers.' };
+    return { entry: { status:st, allDay:true, startMin:null, endMin:null, note:(modalState.note||'').trim() } };
+  }
+  if(avAllDayOnly(st)) return { err: st + ' is a whole-day state.' };
+  const a = hhmmToMin(modalState.from), b = hhmmToMin(modalState.to);
+  if(a === null || b === null) return { err: 'Enter a start and an end time.' };
+  /* Equal times first. Without this the wrap below turns 9:00-9:00 into a
+     silent 24-hour entry, which is not what anybody typing it meant. */
+  if(b === a) return { err: 'The start and end times are the same.' };
+  /* an end BEFORE the start is read as running past midnight, which is how
+     an overnight shift is entered; it stays on this date */
+  const end = b > a ? b : b + 1440;
+  if(end - a > 1440) return { err: 'A single entry cannot be longer than 24 hours.' };
+  return { entry: { status:st, allDay:false, startMin:a, endMin:end, note:(modalState.note||'').trim() } };
+}
+
+function dpTargets(){
+  const anchor = dateKey(new Date(modalState.dayDate));
+  const others = Object.keys(modalState.picked).filter(k => k !== anchor);
+  return modalState.multi ? [anchor].concat(others) : [anchor];
+}
+
+function dpSave(){
+  const d = dpDraft();
+  if(d.err){ modalState.error = d.err; renderDayPanel(); return; }
+  const c = cgById(modalState.dayCg);
+  if(!c) return;
+  const anchor = dateKey(new Date(modalState.dayDate));
+  const existing = (typeof AVAIL !== 'undefined') ? AVAIL.forDay(c.id, new Date(modalState.dayDate)) : [];
+  /* Whatever the open date ends up holding is what every selected date
+     ends up holding — the picker copies the DAY, not this one entry. */
+  const segs = modalState.verb === 'set' ? [d.entry] : spliceDay(existing, d.entry);
+  const dates = dpTargets();
+
+  modalState.saving = true; modalState.error = null; renderDayPanel();
+  AVAIL.saveDays(c, dates, segs)
+    .then(function(){
+      modalState.saving = false;
+      modalState.picked = {}; modalState.multi = false;
+      modalState.note = '';
+      renderDayPanel();
+      try{ render(); }catch(e){}
+      toast(dates.length > 1 ? dates.length + ' days updated' : 'Day updated');
+    })
+    .catch(function(e){
+      modalState.saving = false;
+      modalState.error = (e && e.message) || String(e);
+      renderDayPanel();
+    });
+}
+
+function dpClear(){
+  const c = cgById(modalState.dayCg);
+  if(!c) return;
+  const anchor = dateKey(new Date(modalState.dayDate));
+  modalState.saving = true; modalState.error = null; renderDayPanel();
+  AVAIL.saveDays(c, [anchor], [])
+    .then(function(){
+      modalState.saving = false; renderDayPanel();
+      try{ render(); }catch(e){}
+      toast('Day cleared');
+    })
+    .catch(function(e){
+      modalState.saving = false;
+      modalState.error = (e && e.message) || String(e);
+      renderDayPanel();
+    });
+}
+
+/* The compact month grid for choosing which OTHER dates a save reaches.
+   Numbers only: it answers "which days", not "what is on them" — repeating
+   the schedule here would make it argue with the calendar behind. */
+function dpPicker(){
+  const off = modalState.pickOff || 0;
+  const first = new Date(NOW.getFullYear(), NOW.getMonth() + off, 1);
+  const y = first.getFullYear(), m = first.getMonth();
+  const dim = new Date(y, m+1, 0).getDate();
+  const anchor = dateKey(new Date(modalState.dayDate));
+  let cells = '';
+  for(let i=0;i<first.getDay();i++) cells += '<span class="dpk-blank"></span>';
+  for(let d=1; d<=dim; d++){
+    const k = dateKey(new Date(y,m,d));
+    const on = modalState.picked[k] || k === anchor;
+    cells += `<button type="button" class="dpk-day ${on?'on':''}" onclick="dpToggleDate('${k}')">${d}</button>`;
+  }
+  return `<div class="dpk">
+    <div class="dpk-bar">
+      <button type="button" class="cal-nav" ${off<=CAL_MIN_OFF?'disabled':''} onclick="dpPickNav(-1)">${ic('chevL',14)}</button>
+      <span class="dpk-label">${first.toLocaleDateString('en-US',{month:'long',year:'numeric'})}</span>
+      <button type="button" class="cal-nav" ${off>=CAL_MAX_OFF?'disabled':''} onclick="dpPickNav(1)">${ic('chev',14)}</button>
+    </div>
+    <div class="dpk-dow">${['S','M','T','W','T','F','S'].map(d=>`<span>${d}</span>`).join('')}</div>
+    <div class="dpk-grid">${cells}</div>
+  </div>`;
+}
+
+function renderDayPanel(){
+  const sEl = document.getElementById('sidepanel');
+  const c = cgById(modalState.dayCg);
+  if(!c){ sEl.innerHTML = ''; return; }
+  const date = new Date(modalState.dayDate);
+  const S = calDayStatus(c, date);
+  const busy = !!modalState.saving;
+  const count = dpTargets().length;
+
+  const head = `<div class="sp-head">
+      <div class="sp-headings">
+        ${count>1?'':`<div class="sp-eyebrow">${date.toLocaleDateString('en-US',{weekday:'long'})}</div>`}
+        <div class="sp-dateline">
+          <div class="sp-date">${count>1 ? count+' days selected' : date.toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})}</div>
+          ${count>1?'':`<button class="sp-clear" ${busy?'disabled':''} onclick="dpClear()" title="Remove everything recorded on this day">Clear</button>`}
+        </div>
+      </div>
+      <button class="mc" onclick="closeSidePanel()">×</button>
+    </div>`;
+
+  const timedOnly = avTimedOnly(modalState.status);
+  const allDayOnly = avAllDayOnly(modalState.status);
+  const tone = availTone(modalState.status);
+
+  const body = `<div class="sp-body">
+    <div class="field">
+      <div class="dp-fieldhead">
+        <label>Status</label>
+        <span class="dp-verbs">
+          <button type="button" class="dp-win ${modalState.verb==='set'?'on':''}" ${busy?'disabled':''} onclick="dpSet('verb','set')" title="Replace everything this day holds">Set day</button>
+          <button type="button" class="dp-win ${modalState.verb==='add'?'on':''}" ${busy?'disabled':''} onclick="dpSet('verb','add')" title="Keep what the day holds and carve this in">Add</button>
+        </span>
+      </div>
+      <div class="dp-status">
+        <span class="dp-dot ${tone}"></span>
+        <select class="ein" ${busy?'disabled':''} onchange="dpSet('status',this.value)">
+          ${AV_STATUSES.map(s=>`<option ${modalState.status===s?'selected':''}>${s}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Time</label>
+      <div class="dp-mode">
+        <button type="button" class="dp-win ${modalState.allDay?'on':''}" ${busy||timedOnly?'disabled':''} onclick="dpSet('allDay',true)" title="${timedOnly?modalState.status+' needs the hours it covers':''}">All day</button>
+        <button type="button" class="dp-win ${modalState.allDay?'':'on'}" ${busy||allDayOnly?'disabled':''} onclick="dpSet('allDay',false)" title="${allDayOnly?modalState.status+' is a whole-day state':''}">Custom</button>
+      </div>
+      ${modalState.allDay?'':`<div class="dp-times">
+        <label class="dp-timefield"><span class="dp-timelabel">From</span>
+          <input class="ein" type="time" value="${modalState.from}" ${busy?'disabled':''} oninput="dpTime('from',this.value)"></label>
+        <label class="dp-timefield"><span class="dp-timelabel">To</span>
+          <input class="ein" type="time" value="${modalState.to}" ${busy?'disabled':''} oninput="dpTime('to',this.value)"></label>
+      </div>
+      <div class="dp-hint">An end before the start runs past midnight, and stays on this date.</div>`}
+    </div>
+
+    <div class="field">
+      <label>Apply this to</label>
+      <div class="dp-scope">
+        <label class="dp-radio"><input type="radio" name="dp-scope" ${modalState.multi?'':'checked'} ${busy?'disabled':''} onchange="dpScope(false)"><span>This date only</span></label>
+        <div class="dp-scope-row">
+          <label class="dp-radio"><input type="radio" name="dp-scope" ${modalState.multi?'checked':''} ${busy?'disabled':''} onchange="dpScope(true)"><span>Selected days</span></label>
+          ${modalState.multi && Object.keys(modalState.picked).length?`<button type="button" class="btn sm" onclick="dpDeselect()">Deselect all</button>`:''}
+        </div>
+      </div>
+      ${modalState.multi?dpPicker():''}
+    </div>
+
+    <div class="field">
+      <label>Scheduling notes <span class="dp-optional">(optional)</span></label>
+      <textarea maxlength="${AV_NOTE_MAX}" ${busy?'disabled':''} placeholder="e.g. Childcare until 3 PM." oninput="dpNote(this.value)">${esc(modalState.note||'')}</textarea>
+      <div class="dp-count">${(modalState.note||'').length}/${AV_NOTE_MAX}</div>
+    </div>
+
+    ${modalState.error?`<div class="dp-error">${ic('alerts',12)} ${esc(modalState.error)}</div>`:''}
+
+    ${count>1?'':`<div class="sp-row">
+      <div class="sp-l"><span>History</span></div>
+      <div class="sp-v">${S.updatedAt
+        ? esc(new Date(S.updatedAt).toLocaleString('en-US',{month:'long',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'}) + ' by ' + (S.updatedBy||'—'))
+        : '<span class="sp-none">No update recorded</span>'}</div>
+    </div>`}
+  </div>`;
+
+  const verbLabel = modalState.verb==='set' ? 'Set' : 'Add to';
+  const saveLabel = busy ? 'Saving…' : (count>1 ? verbLabel+' '+count+' days' : verbLabel+' day');
+
+  sEl.innerHTML = head + body + `<div class="sp-foot">
+      <button class="btn" ${busy?'disabled':''} onclick="closeSidePanel()">Cancel</button>
+      <button class="btn pri" ${busy?'disabled':''} onclick="dpSave()">${saveLabel}</button>
+    </div>`;
+}
+
 function closeSidePanel(){
   document.getElementById('sidebg').classList.remove('show');
   document.getElementById('sidepanel').innerHTML='';
@@ -6296,43 +6643,6 @@ function spRefresh(){
   try{
     if(modalState && modalState.dayCg && cgById(modalState.dayCg)) renderDayPanel();
   }catch(e){}
-}
-function renderDayPanel(){
-  const sEl=document.getElementById('sidepanel'), c=cgById(modalState.dayCg), date=new Date(modalState.dayDate);
-  if(modalState.mode==='avail'){
-    /* The rules being edited are the caregiver\u2019s, not this one day\u2019s, so
-       the header says so rather than showing the date you arrived from. */
-    sEl.innerHTML=`<div class="sp-head"><div><div class="sp-date">Edit Availability</div><div class="sp-date2">${esc(c.name)}</div></div><button class="mc" onclick="closeSidePanel()">\u00d7</button></div>`
-      + spAvailBody(c)
-      + `<div class="sp-foot"><button class="btn" onclick="dayPanelAvailCancel()">Cancel</button><button class="btn pri" onclick="dayPanelAvailSave('${c.id}')">${ic('check',14)} Save</button></div>`;
-    return;
-  }
-  const head=`<div class="sp-head"><div><div class="sp-date">${date.toLocaleDateString('en-US',{weekday:'long'})}</div><div class="sp-date2">${date.toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})} \u00b7 ${c.name}</div></div><button class="mc" onclick="closeSidePanel()">×</button></div>`;
-  const cur=dayAvail(c,date), S=calDayStatus(c,date), wd=wdOf(date);
-  const blocks=dayBlocks(c,date);
-  const shifts=assignedOn(c,date);
-  const devBlks=blocks.filter(b=>b.type==='devoted');
-  const devoted = shifts.length ? shifts.map(s=>shiftClientName(s)+' \u00b7 '+blkTimeFull({start:s.start,end:(s.end==null?s.start:s.end)})+(s.service?' \u00b7 '+esc(s.service):'')).join('<br>')
-                 : (devBlks.length ? devBlks.map(b=>b.noTime?'Recurring Devoted assignment':'Recurring Devoted \u00b7 '+blkTimeFull(b)).join('<br>') : 'None');
-  const agency = blocks.some(b=>b.label==='Other Agency') ? 'Committed to another agency' : 'None';
-  const openBlks=blocks.filter(b=>b.type==='open');
-  let openAvail = openBlks.length ? openBlks.map(b=>(b.label!=='Open'?b.label+': ':'')+(b.overnight?'Overnight (10 PM\u20136 AM)':blkTimeFull(b))).join('<br>') : 'None';
-  if(!openBlks.length){ if(cur.type==='Unavailable') openAvail='Marked unavailable'; else if(['Vacation','Sick'].includes(cur.type)) openAvail=cur.type; }
-  const repeat = cur.repeat || ((c.ops.availOverrides&&c.ops.availOverrides[dateKey(date)]) ? 'This date only' : 'Every week (rule)');
-  const u = cur.updatedAt ? fmtUpdated(new Date(cur.updatedAt))+(cur.updatedBy?' by '+cur.updatedBy:'') : (c.ops.lastUpdated?fmtUpdated(c.ops.lastUpdated)+' by '+c.ops.lastUpdatedBy:'\u2014');
-  const okOpen = openBlks.length>0;
-  const row=(l,v,strong,src)=>`<div class="sp-row"><div class="sp-l">${l}${src?`<span class="sp-src">${src}</span>`:''}</div><div class="sp-v ${strong?'strong':''}">${v}</div></div>`;
-  sEl.innerHTML=head+`
-    <div class="sp-body">
-      <div class="sp-statusline"><span class="sp-status ${S.status}">${S.status==='clean'?'No availability set':S.label}</span></div>
-      ${row('Devoted shift', devoted, shifts.length>0, 'AxisCare')}
-      ${row('Other agency', agency, false, 'Rule')}
-      ${row('Open availability', openAvail, okOpen, 'Rule')}
-      ${row('Notes', cur.note&&cur.note.trim()?cur.note:'None')}
-      ${row('Repeat pattern', repeat)}
-      <div class="sp-updated">${ic('clock',11)} Last updated ${u}</div>
-    </div>
-    <div class="sp-foot"><button class="btn" onclick="closeSidePanel()">Close</button><button class="btn pri" onclick="dayPanelAvailEdit()">${ic('log',13)} Edit Availability</button></div>`;
 }
 function dayPanelEditBody(c,date){
   const offStatus=['Unavailable','Vacation','Sick','Other Agency','Devoted Shift'].includes(modalState.status);
@@ -10196,6 +10506,198 @@ var CGVISITS = (function () {
     _reset: function () { byCg = {}; inFlight = {}; }
   };
 })();
+
+/* =========================================================
+   AVAIL  —  what a scheduler entered, from public.caregiver_availability
+   ---------------------------------------------------------
+   One row is one SEGMENT of one day. The browser computes the segments
+   before saving, so a day is read back exactly as it is drawn and there is
+   no merge step here — a select, mapped, grouped by date.
+
+   Loaded when a caregiver's workspace opens, over the same window the
+   month arrows reach, and cached per caregiver.
+
+   DELIBERATELY NOT IN `state`. Availability has its own table and its own
+   writes; putting it in a tracked CLOUD slice would save every segment a
+   second time into the shared overlay blob, and the two copies would drift
+   the first time anyone edited one. That is the same reasoning as CGVISITS.
+
+   A blank day means NOBODY HAS TOLD US. It is not "unavailable" — the
+   calendar draws nothing, which is the honest reading.
+   ========================================================= */
+var AVAIL = (function () {
+  'use strict';
+  var byCg = {};        /* cgId -> { status, days, count, error, from, to } */
+  var inFlight = {};
+
+  var COLS = 'id,on_date,status,all_day,start_min,end_min,note,updated_at,updated_by';
+
+  function cfg() { return window.SCHEDULER_CONFIG || {}; }
+  function configured() { var c = cfg(); return !!(c.supabaseUrl && c.supabaseAnonKey); }
+
+  function info(cgId) { return byCg[cgId] || null; }
+  function status(cgId) {
+    var r = byCg[cgId];
+    return r ? r.status : (inFlight[cgId] ? 'loading' : 'idle');
+  }
+
+  /* minutes from midnight -> the decimal hours the calendar blocks use.
+     An overnight row is stored past 1440, so 1200..1920 becomes 20..32 —
+     exactly the shape an AxisCare overnight visit already has. */
+  function toBlock(r) {
+    return {
+      id: r.id,
+      day: String(r.on_date).slice(0, 10),
+      status: r.status,
+      allDay: !!r.all_day,
+      start: r.all_day ? null : r.start_min / 60,
+      end: r.all_day ? null : r.end_min / 60,
+      /* the stored minutes as well: the editor carves in minutes, and
+         going back through decimal hours would round a :05 boundary */
+      startMin: r.all_day ? null : r.start_min,
+      endMin: r.all_day ? null : r.end_min,
+      note: r.note || '',
+      updatedAt: r.updated_at || null,
+      updatedBy: r.updated_by || null
+    };
+  }
+
+  function fetchRange(axisId, from, to) {
+    var c = cfg();
+    var url = c.supabaseUrl.replace(/\/+$/, '') + '/rest/v1/caregiver_availability' +
+      '?caregiver_id=eq.' + encodeURIComponent(axisId) +
+      '&on_date=gte.' + from + '&on_date=lte.' + to +
+      '&select=' + COLS + '&order=on_date.asc,start_min.asc.nullsfirst';
+    return fetch(url, { headers: { apikey: c.supabaseAnonKey, Authorization: 'Bearer ' + c.supabaseAnonKey } })
+      .then(function (r) {
+        if (!r.ok) return r.text().then(function (t) { throw new Error('HTTP ' + r.status + ' ' + t.slice(0, 140)); });
+        return r.json();
+      });
+  }
+
+  function load(c) {
+    if (!c || c.source !== 'axiscare' || c.axisId == null) return;
+    if (byCg[c.id] || inFlight[c.id]) return;
+    if (!configured()) {
+      byCg[c.id] = { status: 'unconfigured', days: {}, count: 0, error: 'No Supabase keys on this build.' };
+      return;
+    }
+    var w = AxisLive.visitWindow(new Date());     /* the same span the arrows reach */
+    inFlight[c.id] = 1;
+    byCg[c.id] = { status: 'loading', days: {}, count: 0, error: null, from: w.from, to: w.to };
+
+    fetchRange(c.axisId, w.from, w.to)
+      .then(function (rows) {
+        var days = {};
+        (rows || []).forEach(function (r) {
+          var b = toBlock(r);
+          (days[b.day] || (days[b.day] = [])).push(b);
+        });
+        byCg[c.id] = { status: 'ready', days: days, count: (rows || []).length, error: null, from: w.from, to: w.to };
+        console.info('[avail] ' + c.name + ': ' + (rows || []).length + ' entr' +
+          ((rows || []).length === 1 ? 'y' : 'ies') + ' over ' + w.from + ' → ' + w.to);
+      })
+      .catch(function (e) {
+        byCg[c.id] = { status: 'error', days: {}, count: 0, error: (e && e.message) || String(e), from: w.from, to: w.to };
+        console.warn('[avail] ' + c.name + ' failed', e);
+      })
+      .then(function () {
+        delete inFlight[c.id];
+        try { render(); } catch (e) {}
+      });
+  }
+
+  function retry(cgId) {
+    delete byCg[cgId]; delete inFlight[cgId];
+    var c = (typeof cgById === 'function') ? cgById(cgId) : null;
+    if (c) load(c);
+    try { render(); } catch (e) {}
+  }
+
+  /* One day's segments, oldest first. Empty until the fetch lands, which
+     is why the calendar says it is loading rather than drawing a blank
+     month that fills in a second later. */
+  function forDay(cgId, date) {
+    var r = byCg[cgId];
+    if (!r || r.status !== 'ready') return [];
+    return r.days[dateKey(date)] || [];
+  }
+
+  /* Availability for ONE date across the whole roster — what Find Coverage
+     asks. Not cached: it is a different question from the calendar's, and
+     a scheduler runs it against a date they have usually just edited. */
+  function forDateAllCaregivers(dateStr) {
+    if (!configured()) return Promise.resolve({});
+    var c = cfg();
+    var url = c.supabaseUrl.replace(/\/+$/, '') + '/rest/v1/caregiver_availability' +
+      '?on_date=eq.' + dateStr + '&select=caregiver_id,' + COLS + '&order=caregiver_id.asc,start_min.asc.nullsfirst';
+    return fetch(url, { headers: { apikey: c.supabaseAnonKey, Authorization: 'Bearer ' + c.supabaseAnonKey } })
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function (rows) {
+        var out = {};
+        (rows || []).forEach(function (r) {
+          var k = 'a' + r.caregiver_id;
+          (out[k] || (out[k] = [])).push(toBlock(r));
+        });
+        return out;
+      });
+  }
+
+  /* Replace whole days, through the database function so the delete and
+     the insert are ONE transaction. Two browser requests would leave the
+     day emptied if the connection dropped between them — the scheduler’s
+     work gone and nothing put back.
+
+     An empty `segs` clears the days, which is what Clear does. */
+  function saveDays(c, dates, segs) {
+    if (!configured()) return Promise.reject(new Error('No Supabase keys on this build.'));
+    if (!c || c.axisId == null) return Promise.reject(new Error('That caregiver has no AxisCare id.'));
+    var cf = cfg();
+    var body = {
+      p_caregiver_id: c.axisId,
+      p_dates: dates,
+      p_segments: (segs || []).map(function (s) {
+        return {
+          status: s.status,
+          all_day: !!s.allDay,
+          start_min: s.allDay ? null : s.startMin,
+          end_min: s.allDay ? null : s.endMin,
+          note: s.note || null
+        };
+      }),
+      p_updated_by: 'Carlo'
+    };
+    return fetch(cf.supabaseUrl.replace(/\/+$/, '') + '/rest/v1/rpc/set_availability_days', {
+      method: 'POST',
+      headers: { apikey: cf.supabaseAnonKey, Authorization: 'Bearer ' + cf.supabaseAnonKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    }).then(function (r) {
+      if (r.ok) return r.json().catch(function () { return null; });
+      return r.text().then(function (t) {
+        /* the database’s own words are more use than "HTTP 400" — they name
+           which rule was broken */
+        var msg = t;
+        try { var j = JSON.parse(t); msg = j.message || j.hint || t; } catch (e) {}
+        throw new Error(msg.slice(0, 200));
+      });
+    }).then(function (res) {
+      delete byCg[c.id]; delete inFlight[c.id];   /* re-read rather than guess */
+      load(c);
+      return res;
+    });
+  }
+
+  return {
+    load: load, forDay: forDay, status: status, info: info, retry: retry,
+    saveDays: saveDays,
+    forDateAllCaregivers: forDateAllCaregivers,
+    _reset: function () { byCg = {}; inFlight = {}; }
+  };
+})();
+
+/* Green means the caregiver can take a shift. Every other status they can
+   record is a reason they cannot, and reads red — the label says which. */
+function availTone(status){ return status === 'Open' ? 'open' : 'unavail'; }
 
 CLOUD.boot();
 </script>
