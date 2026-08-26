@@ -388,6 +388,48 @@ Rows live in `public.caregiver_availability`, one per segment, keyed by the
 `end_min` past 1440, so 8pm–8am is `1200..1920` and reads as `20..32` in the
 decimal hours the calendar uses — the same shape an AxisCare overnight visit has.
 
+### AxisCare visits carve, at save time
+
+A Devoted visit outranks anything a scheduler types. Entering **Open 9a–5p** on
+a day AxisCare has a visit **1p–2p** stores *two* rows — `Open 9a–1p` and
+`Open 2p–5p`. The visit itself is never stored: AxisCare stays its own system
+of record, and Find Coverage needs no AxisCare call because the table is
+already correct.
+
+**Only `Open` is carved.** A visit landing on Vacation, Unavailable, School or
+Other Agency is a *disagreement between two systems*, not something to resolve
+silently — `calDayStatus()` sets `conflict` and the day panel says so.
+
+Consequences, all deliberate:
+
+- The carve is a **snapshot**. Move or cancel the visit in AxisCare and the
+  hole stays; enter availability before the visit exists and no carve happens.
+  Read-time carving would not drift, but costs an AxisCare call per search.
+- `dpSave()` **refuses to save** unless `CGVISITS.status(c.id) === 'ready'`.
+  `forDay()` answers `[]` for a *failed* fetch exactly as it does for a day
+  with no visits, and storing uncarved availability is worse than storing
+  nothing — Find Coverage would offer somebody already on a visit and nothing
+  re-checks.
+- Visits are **decimal hours**, availability is **minutes**; carve in integer
+  minutes. A visit with `end: null`, a zero-length one, or one `mapCgVisit`
+  inflated to 24h is *not carvable* — leave the block alone and flag it.
+- A visit that merely **abuts** a block (ends exactly when it starts) carves
+  nothing.
+- Re-carving already-carved rows is a **no-op**, which is what makes Add safe.
+- `dpSave` reads `existing` **per target date** and writes one `saveDays` call
+  per distinct carved result. Reading it once from the anchor copied that
+  day's holes onto dates with no such visit.
+
+### An overnight answers for the morning it runs into
+
+Availability is stored on the date it **starts**, running past 24 — 8p–6a on
+Aug 26 is `1200..1920`, read as `20..32`. So a search for **Aug 27, 2–3am**
+must look back one day and subtract 24; `AVAIL.carryWindows()` does that, and
+`runCoverageSearch` fetches the preceding date for exactly this reason. A block
+ending at or before 24 carries nothing (9–5 shifts to `-15..-7`), which is what
+stops every block becoming a two-day claim. A whole-day statement *on* the
+morning date outranks the block that ran into it.
+
 **Partial coverage is never shown.** A caregiver free 10–1 cannot take a 9–5
 shift, and listing them costs a call that ends in no. `coverageDetail()` returns
 `full` or it returns `none`; there is no `partial`. If nobody can take the whole

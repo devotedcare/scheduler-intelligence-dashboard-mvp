@@ -1654,23 +1654,32 @@
   /* Status carries the day's VERBS: what a save MEANS. Exactly one is
      filled, and the Save button repeats the choice in words, because a
      button that can mean two things has to say which. */
-  .dp-fieldhead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:7px}
-  .dp-fieldhead label{margin-bottom:0}
+  .dp-fieldhead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:9px}
+  /* Needs to outrank `.sp-body .field label`, which is (0,2,1) — a plain
+     `.dp-fieldhead label` is (0,1,1) and loses, leaving a 9px bottom margin
+     that flexbox then centres, pushing the text up off the pills. */
+  .sp-body .field .dp-fieldhead label{margin-bottom:0;line-height:1.1}
   .dp-verbs,.dp-mode{display:inline-flex;gap:5px}
   .dp-win{font-family:inherit;font-size:12px;font-weight:650;color:var(--ink-soft);background:#fff;border:1px solid var(--line-strong);border-radius:14px;padding:5px 13px;cursor:pointer}
   .dp-win.on{background:#1e40af;border-color:#1e40af;color:#fff}
   .dp-win:disabled{opacity:.4;cursor:default}
   .dp-status{display:flex;align-items:center;gap:9px}
   .dp-status .ein{flex:1;min-width:0}
+  /* Own chevron, so its distance from the edge is ours to set: browsers
+     disagree about whether padding-right insets the native one. */
+  .dp-status select.ein{appearance:none;-webkit-appearance:none;-moz-appearance:none;
+    padding-right:38px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235B6B7C' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    background-repeat:no-repeat;background-position:right 13px center;background-size:15px}
+  .dp-status select.ein::-ms-expand{display:none}
   .dp-dot{width:10px;height:10px;border-radius:50%;flex:none}
   .dp-dot.open{background:#15803d}
   .dp-dot.unavail{background:#dc2626}
   .dp-dot.devoted{background:#1e40af}
 
-  .dp-mode{margin-bottom:11px}
+  .dp-mode{margin-bottom:18px}
   .dp-times{display:grid;grid-template-columns:1fr 1fr;gap:11px}
   .dp-timefield{display:block}
-  .dp-timelabel{display:block;font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--ink-faint);margin-bottom:5px}
+  .dp-timelabel{display:block;font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--ink-faint);margin-bottom:6px}
 
   .dp-scope{display:flex;flex-direction:column;gap:7px}
   .dp-scope-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
@@ -1708,6 +1717,10 @@
   .sp-foot .btn.pri:hover{background:#18348f;border-color:#18348f}
   .sp-foot .btn.pri:disabled{background:#8fa3d4;border-color:#8fa3d4}
   .dp-optional{font-weight:600;color:var(--ink-faint);text-transform:none;letter-spacing:0}
+  .dp-clash{display:flex;align-items:flex-start;gap:8px;font-size:12px;line-height:1.45;
+    color:#8A5A00;background:#FFF6E5;border:1px solid #F0D9A8;border-radius:var(--r);
+    padding:9px 11px;margin-bottom:14px}
+  .dp-clash svg{flex:none;margin-top:1px}
   .dp-count{text-align:right;font-size:11.5px;color:var(--ink-faint);margin-top:6px}
   .dp-error{display:flex;align-items:flex-start;gap:7px;font-size:12px;line-height:1.45;color:var(--crit-tx);background:var(--crit-bg);border:1px solid #EEC2BC;border-radius:var(--r);padding:8px 11px;margin-bottom:14px}
   .dp-error svg{flex:none;margin-top:1px}
@@ -4722,9 +4735,14 @@ function coverageDetail(cg,dateStr,start,end){
   if(end<=start) end+=24;
   if(d.state==='unloaded'||d.state==='error'||d.state==='unconfigured')
     return {cov:'unknown', label:d.label};
-  if(d.state==='none')    return {cov:'none', label:'No availability entered'};
+  /* An explicit whole-day statement on THIS date outranks anything that
+     ran in from the night before. */
   if(d.state==='blocked') return {cov:'none', label:d.label};
-  for(const [ws,we] of d.wins){ if(ws<=start && we>=end) return {cov:'full', label:'Covers full shift'}; }
+  /* The early hours of a date live on the previous date's row, because an
+     overnight block is stored where it starts. */
+  const wins=d.wins.concat(AVAIL.carryWindows(cg.id, dateStr));
+  if(!wins.length)        return {cov:'none', label:'No availability entered'};
+  for(const [ws,we] of wins){ if(ws<=start && we>=end) return {cov:'full', label:'Covers full shift'}; }
   /* Partial coverage is deliberately NOT a result. Somebody who can take
      half a shift cannot take the shift, and offering them costs a call
      that ends in no. Either the whole window is covered or it is not. */
@@ -5500,7 +5518,12 @@ function runCoverageSearch(){
   }
   state.covRun={status:'loading', dates, start:sq.specStart, end:sq.specEnd, city:sq.city, error:null};
   render();
-  AVAIL.fetchDates(dates, true).then(function(){          /* always ask the database */
+  /* Fetch the day BEFORE each date too: an overnight that covers 2am is
+     stored on the previous date, so without it the carry-over is invisible
+     and the caregiver reads as unavailable. */
+  const _need=dates.slice();
+  dates.forEach(function(d){ const p=addDaysStr(d,-1); if(_need.indexOf(p)<0) _need.push(p); });
+  AVAIL.fetchDates(_need, true).then(function(){          /* always ask the database */
     state.covRun={status:'done', dates, start:sq.specStart, end:sq.specEnd, city:sq.city, error:null};
   }, function(e){
     state.covRun={status:'error', dates, start:sq.specStart, end:sq.specEnd, city:sq.city,
@@ -5962,10 +5985,23 @@ function calDayStatus(c, date){
                updatedBy:last?last.updatedBy:null };
 
   const parts=[];
-  if(assignedOn(c,date).length) parts.push('Devoted');
+  const vis=assignedOn(c,date);
+  if(vis.length) parts.push('Devoted');
   if(av.some(a=>a.status==='Open')) parts.push('Open');
   const off=av.filter(a=>a.status!=='Open');
   if(off.length) parts.push(off[0].status);
+
+  /* AxisCare has them working on a day the desk marked unavailable. Only
+     Open is carved, so this is left standing on purpose — but it is a
+     disagreement between two systems, and somebody has to decide which is
+     right. An all-day statement counts as covering the whole day. */
+  const clash=[];
+  if(vis.length) off.forEach(a=>{
+    const as=a.allDay?0:a.start, ae=a.allDay?24:a.end;
+    if(vis.some(v=>{ const ve=(v.end==null?v.start:v.end); return as<ve && ae>v.start; })
+       && clash.indexOf(a.status)<0) clash.push(a.status);
+  });
+  base.conflict = clash.length ? clash.join(' \u00b7 ') : null;
 
   if(!parts.length) return Object.assign({status:'clean',label:'Nothing recorded',win:null,parts:[]},base);
   const pmap={'Devoted':'devoted','Open':'avail'};
@@ -6192,20 +6228,101 @@ function dpTargets(){
   return modalState.multi ? [anchor].concat(others) : [anchor];
 }
 
+/* The visits on one date that can actually be carved against, in MINUTES.
+   A visit with no recorded end, or one mapCgVisit inflated to a full day
+   because it had no duration, is not a carvable interval — it is reported
+   separately so a human can look rather than losing a day to it. */
+function carvableVisits(c, ds){
+  const out=[], odd=[];
+  ((typeof CGVISITS!=='undefined') ? CGVISITS.forDay(c.id, ds) : []).forEach(v=>{
+    if(v.end==null){ odd.push(v); return; }
+    const a=Math.round(v.start*60), b=Math.round(v.end*60);
+    if(b<=a || (b-a)>=1440){ odd.push(v); return; }
+    out.push([a,b]);
+  });
+  out.sort((x,y)=>x[0]-y[0]);
+  return {wins:out, odd:odd};
+}
+
+/* Cut one [a,b] minute window back around every visit it overlaps. A visit
+   that merely abuts the window (ends exactly when it starts) removes
+   nothing. Integer minutes throughout, so this composes with spliceDay. */
+function carveWindow(a, b, vis){
+  let parts=[[a,b]];
+  vis.forEach(([vs,ve])=>{
+    const next=[];
+    parts.forEach(([ps,pe])=>{
+      if(ve<=ps || vs>=pe){ next.push([ps,pe]); return; }   /* no overlap */
+      if(vs>ps) next.push([ps,vs]);
+      if(ve<pe) next.push([ve,pe]);
+    });
+    parts=next;
+  });
+  return parts;
+}
+
+/* Only Open is carved. A visit landing on Vacation, Unavailable, School or
+   Other Agency is a disagreement between AxisCare and the scheduler — that
+   is a conflict for somebody to look at, not something to resolve here. */
+function carveSegs(c, ds, segs){
+  const v=carvableVisits(c, ds);
+  if(!v.wins.length) return (segs||[]).map(x=>Object.assign({}, x));
+  const out=[];
+  (segs||[]).forEach(sg=>{
+    if(sg.status!=='Open' || sg.allDay){ out.push(Object.assign({}, sg)); return; }
+    carveWindow(sg.startMin, sg.endMin, v.wins)
+      .forEach(w=>out.push(Object.assign({}, sg, {startMin:w[0], endMin:w[1]})));
+  });
+  out.sort((x,y)=>(x.allDay?-1:x.startMin)-(y.allDay?-1:y.startMin));
+  return out;
+}
+
 function dpSave(){
   const d = dpDraft();
   if(d.err){ modalState.error = d.err; renderDayPanel(); return; }
   const c = cgById(modalState.dayCg);
   if(!c) return;
-  const anchor = dateKey(new Date(modalState.dayDate));
-  const existing = (typeof AVAIL !== 'undefined') ? AVAIL.forDay(c.id, new Date(modalState.dayDate)) : [];
-  /* Whatever the open date ends up holding is what every selected date
-     ends up holding — the picker copies the DAY, not this one entry. */
-  const segs = modalState.verb === 'set' ? [d.entry] : spliceDay(existing, d.entry);
+
+  /* The carve is only as good as the visit list behind it, and forDay()
+     answers [] for a fetch that failed exactly as it does for a day with
+     no visits. Saving uncarved availability is worse than not saving:
+     Find Coverage would offer somebody already on a visit, and nothing
+     downstream re-checks — that is the price of carving once, at save. */
+  if(c.source==='axiscare' && (typeof CGVISITS==='undefined' || CGVISITS.status(c.id)!=='ready')){
+    modalState.error = 'This caregiver\u2019s AxisCare visits have not loaded, so the hours cannot be '
+      + 'checked against them. Reopen the calendar and try again.';
+    renderDayPanel(); return;
+  }
+
   const dates = dpTargets();
 
+  /* Per date: what the day should hold, then cut back around that DAY's
+     visits. Reading `existing` per date is what stops a multi-date Add
+     copying the anchor's carved holes onto days that have no such visit. */
+  const byDate = {};
+  let allGone = false;
+  dates.forEach(ds=>{
+    const base = modalState.verb === 'set'
+      ? [d.entry]
+      : spliceDay(((typeof AVAIL!=='undefined') ? AVAIL.forDay(c.id, ds) : []), d.entry);
+    const carved = carveSegs(c, ds, base);
+    /* The entry the scheduler just typed was swallowed whole by a visit. */
+    if(!carveSegs(c, ds, [d.entry]).length) allGone = true;
+    byDate[ds] = carved;
+  });
+
+  if(allGone && dates.length===1){
+    modalState.error = 'That whole window is already a Devoted visit, so there is nothing left to record.';
+    renderDayPanel(); return;
+  }
+
+  /* One write per distinct result, so each stays a single transaction and
+     the in-memory index is patched with the same shape it was written in. */
+  const groups = {};
+  dates.forEach(ds=>{ const k=JSON.stringify(byDate[ds]); (groups[k]||(groups[k]=[])).push(ds); });
+
   modalState.saving = true; modalState.error = null; renderDayPanel();
-  AVAIL.saveDays(c, dates, segs)
+  Promise.all(Object.keys(groups).map(k=>AVAIL.saveDays(c, groups[k], JSON.parse(k))))
     .then(function(){
       modalState.saving = false;
       modalState.picked = {}; modalState.multi = false;
@@ -6293,6 +6410,8 @@ function renderDayPanel(){
   const tone = availTone(modalState.status);
 
   const body = `<div class="sp-body">
+    ${S.conflict?`<div class="dp-clash">${ic('alerts',13)} <span>AxisCare has a <b>Devoted visit</b> on this day, but it is marked
+      <b>${esc(S.conflict)}</b>. The visit is not removed and the hours are not adjusted \u2014 check which is right.</span></div>`:''}
     <div class="field">
       <div class="dp-fieldhead">
         <label>Status</label>
@@ -10507,12 +10626,37 @@ var AVAIL = (function () {
     return out;
   }
 
+  /* The part of the PREVIOUS date's Open blocks that spills into this one.
+     8p-6a is stored on its start date as 20..32, so on the next date it is
+     0..8. A block that ends at or before 24 contributes nothing: 9-5 would
+     shift to -15..-7, which covers no hour of the following day. */
+  function carryWindows(cgId, ds) {
+    var prev = ymd(new Date(new Date(ds + 'T12:00:00').getTime() - 86400000));
+    if (!loaded[prev]) return [];
+    var days = idx[cgId], blocks = (days && days[prev]) || [], out = [];
+    blocks.forEach(function (b) {
+      if (b.status !== 'Open' || b.allDay || b.end <= 24) return;
+      out.push([Math.max(0, b.start - 24), b.end - 24]);
+    });
+    return out;
+  }
+
+  /* Everything this caregiver can work on this date: what is stored on it,
+     plus the tail of an overnight that began the day before. */
+  function windowsOn(cgId, date) {
+    var ds = dateKey(date), d = dayAvail(cgId, ds);
+    /* A whole-day Unavailable/Vacation on THIS date is an explicit
+       statement about it, and outranks a block that ran in from yesterday. */
+    if (d.state === 'blocked') return [];
+    if (d.state !== 'open' && d.state !== 'none') return [];
+    return d.wins.concat(carryWindows(cgId, ds));
+  }
+
   /* True only when a typed Open row covers the whole of s..e (decimal
      hours; an overnight is stored on its start date and runs past 24). */
   function coversOn(cgId, date, s, e) {
-    var d = dayAvail(cgId, date);
-    if (d.state !== 'open') return false;
-    return d.wins.some(function (w) { return w[0] <= s && w[1] >= e; });
+    if (e <= s) e += 24;
+    return windowsOn(cgId, date).some(function (w) { return w[0] <= s && w[1] >= e; });
   }
 
   /* saveDays already re-reads byCg; the index is patched in place from the
@@ -10588,6 +10732,7 @@ var AVAIL = (function () {
     load: load, forDay: forDay, status: status, info: info, retry: retry,
     saveDays: saveDays,
     primeIndex: primeIndex, dayAvail: dayAvail, coversOn: coversOn, openDays: openDays,
+    windowsOn: windowsOn, carryWindows: carryWindows,
     fetchDates: fetchDates, searchWindow: searchWindow, isLoaded: isLoaded,
     indexStatus: indexStatus, indexInfo: indexInfo,
     _reset: function () { byCg = {}; inFlight = {}; idx = {}; loaded = {}; pending = {}; idxState = 'idle'; idxCount = 0; }
