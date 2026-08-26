@@ -2405,8 +2405,17 @@ function rankCaregivers(arg){
     const reasons=[]; let score=0; let excluded=null;
 
     if(ctx.callOff && ctx.prevCaregiver===cg.id) excluded = excluded || `Called off this shift${ctx.callOffReason?' \u2014 '+ctx.callOffReason:''}`;
-    if(cg.today===0 && day===dayKey(NOW)) excluded = excluded || `Unavailable today${cg.tempNote?' \u2014 '+cg.tempNote:''}`;
-    if(cg.avail[day]!==1) excluded = excluded || `Not available ${day}`;
+    /* Availability is what a scheduler entered for THIS date. A caregiver
+       with nothing recorded is not offered — but an index that has not
+       loaded is not an answer, so it excludes everyone visibly rather
+       than quietly returning a short list that looks complete. */
+    const _avd=AVAIL.dayAvail(cg.id, dateKey(ctx.start));
+    let _shS=decHr(ctx.start), _shE=ctx.end?decHr(ctx.end):_shS+1; if(_shE<=_shS) _shE+=24;
+    if(_avd.state==='unloaded'||_avd.state==='error'||_avd.state==='unconfigured')
+      excluded = excluded || _avd.label;
+    else if(_avd.state==='none') excluded = excluded || 'No availability entered';
+    else if(_avd.state==='blocked') excluded = excluded || _avd.label;
+    else if(!_avd.wins.some(([a,b])=>a<=_shS && b>=_shE)) excluded = excluded || 'Not available at that time';
     if(ctx.clientId && cg.blockedClients.includes(ctx.clientId)) excluded = excluded || `Blocked from client`;
     if(rg && cg.gender!==rg) excluded = excluded || `Client restriction \u00b7 ${rg==='F'?'female':'male'} only`;
     const missing = reqSkills.filter(s=>!cg.skills.includes(s));
@@ -3396,13 +3405,35 @@ function coverageReportBody(){
   return tiles+charts;
 }
 function cgLastAssignedDays(c){ if(c.ops&&c.ops.devoted) return 0; return ((parseInt(c.id.slice(1))*13)%55)+9; }
+/* Re-read the availability span from Supabase. primeIndex() forgets its
+   window and absorbs it again, so calling it IS the refresh. Guarded so a
+   render while one is in flight does not start another. */
+function availRefresh(force){
+  const st = state.availRep || (state.availRep = {status:'idle', at:null});
+  if(st.status==='loading') return Promise.resolve();
+  if(!force && st.status==='ready') return Promise.resolve();
+  st.status='loading';
+  return AVAIL.primeIndex().then(function(){}, function(){}).then(function(){
+    st.status='ready'; st.at=Date.now();
+    try{ render(); }catch(e){}
+  });
+}
+function availRefreshNow(){ availRefresh(true); render(); }
+
 function availReportBody(){
+  /* Opening the report reads the database; the Refresh button reads it
+     again. A report figure gets quoted, so it must not be a boot-time
+     cache that somebody has since edited. */
+  availRefresh(false);
+  const _rep = state.availRep || {status:'idle'};
+  if(_rep.status!=='ready')
+    return `<div class="rep-block"><div class="q-empty">Reading the latest availability\u2026</div></div>`;
   const C=state.caregivers, act=C.filter(c=>c.active!==false), wh=c=>c.weekHrs||0;
   // Availability
   const available=act.filter(c=>hasOpenSchedule(c)).length;
   const noCase=act.filter(c=>!(c.ops&&c.ops.devoted)).length;
-  const overnight=act.filter(c=>c.ops&&c.ops.emergency&&c.ops.emergency.overnight).length;
-  const weekend=act.filter(c=>c.avail.Sat===1||c.avail.Sun===1).length;
+  const overnight=act.filter(c=>AVAIL.openDays(c.id).some(o=>o.wins.some(w=>w[1]>24||w[0]>=22))).length;
+  const weekend=act.filter(c=>AVAIL.openDays(c.id).some(o=>['Sat','Sun'].includes(dayKeyFromDate(o.day)))).length;
   const dueUpd=C.filter(availDue).length;
   // Hours distribution
   const under20=act.filter(c=>wh(c)>0&&wh(c)<20).length;
@@ -3426,38 +3457,58 @@ function availReportBody(){
   const tile=(l,v,tone)=>`<div class="pf-tile"><div class="pf-v ${tone||''}">${v}</div><div class="pf-l">${l}</div></div>`;
   const inact=C.filter(c=>c.active===false);
   const nm=c=>c.name;
-  /* Availability summaries. Weekday/weekend read the day flags in c.avail;
-     daytime/nighttime read c.win, the caregiver's available hours window:
-     daytime = overlaps 08:00-18:00, nighttime = runs past 18:00 or starts before 06:00. */
+  /* Availability summaries, counted from the Open blocks schedulers have
+     actually entered over the loaded window. These used to come from the
+     AxisCare class tags and from c.win, whose [8,17] fallback made every
+     caregiver a "Daytime Caregiver" — a tile that could only ever print
+     the size of the roster. A caregiver with nothing entered is counted
+     in none of them, and shown separately so the gap is visible. */
   const WEEKDAYS=['Mon','Tue','Wed','Thu','Fri'];
-  const onAny=(c,days)=>days.some(d=>c.avail[d]===1);
-  const winsOf=c=>c.win||[];
-  const weekdayN=act.filter(c=>onAny(c,WEEKDAYS)).length;
-  const weekendN=act.filter(c=>onAny(c,['Sat','Sun'])).length;
+  const odays=c=>AVAIL.openDays(c.id);
+  const onAnyDay=(c,dd)=>odays(c).some(o=>dd.includes(dayKeyFromDate(o.day)));
+  const weekdayN=act.filter(c=>onAnyDay(c,WEEKDAYS)).length;
+  const weekendN=act.filter(c=>onAnyDay(c,['Sat','Sun'])).length;
   const femaleN=act.filter(c=>c.gender==='F').length;
   const maleN=act.filter(c=>c.gender==='M').length;
-  const dayN=act.filter(c=>winsOf(c).some(w=>w[0]<18&&w[1]>8)).length;
-  const nightN=act.filter(c=>winsOf(c).some(w=>w[1]>18||w[0]<6)).length;
-  const summary=`<div class="rv-tiles">
+  const dayN=act.filter(c=>odays(c).some(o=>o.wins.some(w=>w[0]<18&&w[1]>8))).length;
+  const nightN=act.filter(c=>odays(c).some(o=>o.wins.some(w=>w[1]>18||w[0]<6))).length;
+  const noneN=act.filter(c=>!odays(c).length).length;
+  const _asOf = _rep.at ? new Date(_rep.at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}) : '';
+  const _bar = `<div class="rep-gen">Availability read from the database${_asOf?' at '+_asOf:''} <button class="btn sm" onclick="availRefreshNow()">Refresh</button></div>`;
+  const summary=_bar+`<div class="rv-tiles">
     ${tile('Weekday Caregivers',weekdayN)}
     ${tile('Weekend Caregivers',weekendN)}
     ${tile('Female Caregivers',femaleN)}
     ${tile('Male Caregivers',maleN)}
     ${tile('Daytime Caregivers',dayN)}
     ${tile('Nighttime Caregivers',nightN)}
+    ${tile('No Availability Recorded',noneN)}
   </div>`;
   const byCity={};
   act.forEach(c=>{ const k=(c.base||'').trim()||'Not set'; byCity[k]=(byCity[k]||0)+1; });
   const cityRows=Object.keys(byCity).map(k=>[k,byCity[k]])
     .sort((a,b)=> b[1]-a[1] || a[0].localeCompare(b[0]));
   const cities=rvTbl(['City','Caregivers'], cityRows);
-  const ins=availInsights({act:act.length, available, overnight, weekend, zero, under20, ot, only1, highRiskLimited});
+  const ins=availInsights({act:act.length, available, overnight, weekend, none:noneN, zero, under20, ot, only1, highRiskLimited});
   return summary + `<div class="rep-sub">Caregivers by City</div>` + cities
     + `<div class="rep-sub" style="margin-top:18px">Management Insights</div>` + insightsBlock(ins);
 }
 function insightsBlock(rows){ return `<div class="rv-insights">${rows.map(([tone,html])=>`<div class="rv-insight ${tone}"><span class="rv-idot"></span><div class="rv-itext">${html}</div></div>`).join('')}</div>`; }
 function availInsights(d){
   const out=[], A=d.act||1, pc=n=>Math.round(n/A*100);
+
+  /* Nothing has been entered: say that, and stop. Three red bars about
+     thin coverage would be reporting an empty table as a staffing crisis
+     and would send somebody hunting for a problem that is not there. */
+  if(!d.available){
+    out.push(['watch', `<b>No availability has been entered yet.</b> All ${A} active caregivers read as unavailable ` +
+      `because nobody has logged an <b>Open</b> block on their calendar. Every figure above stays at zero until they do ` +
+      `— this is not a coverage shortage.`]);
+    return out;
+  }
+  if(d.none) out.push(['watch', `<b>${d.none} of ${A} caregivers have no availability on record.</b> ` +
+    `They cannot be matched to a shift, and the percentages below are out of the whole roster, ` +
+    `so they read low while entry is still catching up.`]);
   out.push(d.available>=Math.ceil(A*0.25)
     ? ['good', `<b>Capacity to take on new clients.</b> ${d.available} of ${A} active caregivers (${pc(d.available)}%) have open availability.`]
     : ['watch', `<b>Limited capacity for new clients.</b> Only ${d.available} of ${A} caregivers (${pc(d.available)}%) have open availability \u2014 onboard or re-balance before adding cases.`]);
@@ -3468,8 +3519,10 @@ function availInsights(d){
   out.push((d.only1||d.highRiskLimited)
     ? ['crit', `<b>Understaffing risk.</b> ${d.only1} client(s) have only one qualified caregiver${d.highRiskLimited?`; ${d.highRiskLimited} high-risk client(s) lack a backup`:''} \u2014 build backup coverage.`]
     : ['good', `<b>No single-point coverage gaps.</b> Every client has more than one qualified caregiver.`]);
-  if(d.zero+d.under20>0) out.push(['watch', `<b>${d.zero+d.under20} caregiver(s) are under-utilized</b> (${d.zero} with no hours, ${d.under20} under 20h) \u2014 available to absorb more shifts.`]);
-  if(d.ot>0) out.push(['watch', `<b>${d.ot} caregiver(s) are in overtime</b> \u2014 monitor burnout and labor cost.`]);
+  /* weekHrs has no AxisCare source, so `c.weekHrs||0` makes every caregiver
+     read as working zero hours. Only say this when the number is real. */
+  if(hasVal(state.caregivers[0]&&state.caregivers[0].weekHrs) && d.zero+d.under20>0) out.push(['watch', `<b>${d.zero+d.under20} caregiver(s) are under-utilized</b> (${d.zero} with no hours, ${d.under20} under 20h) \u2014 available to absorb more shifts.`]);
+  if(hasVal(state.caregivers[0]&&state.caregivers[0].weekHrs) && d.ot>0) out.push(['watch', `<b>${d.ot} caregiver(s) are in overtime</b> \u2014 monitor burnout and labor cost.`]);
   return out;
 }
 function retentionSnapshot(){
@@ -3630,7 +3683,7 @@ function availReportDoc(){
   const availC=act.filter(c=>hasOpenSchedule(c)), unavailC=act.filter(c=>!hasOpenSchedule(c));
   const noCaseC=act.filter(c=>!(c.ops&&c.ops.devoted)), caseC=act.filter(c=>c.ops&&c.ops.devoted);
   const onC=act.filter(c=>c.ops&&c.ops.emergency&&c.ops.emergency.overnight);
-  const weC=act.filter(c=>c.avail.Sat===1||c.avail.Sun===1);
+  const weC=act.filter(c=>AVAIL.openDays(c.id).some(o=>['Sat','Sun'].includes(dayKeyFromDate(o.day))));
   const needMore=act.filter(c=>((c.ops?c.ops.maxHours:40)-wh(c))>=6).map(c=>({c, gap:(c.ops?c.ops.maxHours:40)-wh(c)})).sort((a,b)=>b.gap-a.gap);
   const dueUpd=C.filter(availDue);
   const exec=`As of ${fmtDate(NOW)}, Devoted Care has <b>${act.length} active caregivers</b> (${inact.length} inactive). <b>${availC.length} (${pct(availC.length,act.length)}%)</b> currently have open availability for new shifts, and <b>${noCaseC.length} (${pct(noCaseC.length,act.length)}%)</b> are not assigned to an active case. <b>${onC.length}</b> are available for overnight coverage and <b>${weC.length}</b> for weekends. <b>${needMore.length} caregivers</b> are scheduled below their desired weekly hours and have capacity for more work. <b>${dueUpd.length}</b> caregiver${dueUpd.length===1?'':'s'} ${dueUpd.length===1?'is':'are'} due for an availability verification check.`;
@@ -4391,7 +4444,14 @@ function seedQueryFromShift(shiftId){
   const r=x=>Math.round(x*2)/2;
   state.coverageQuery={ mode:prevMode, locked:false, clientId:cl.id, date:toDateInput(s.start), start:r(decHr(s.start)), end:r(decHr(s.end)), city:cl.city, skills:[...cl.reqSkills], filters:[], shiftId:s.id };
 }
-function openFindCoverage(shiftId){ seedQueryFromShift(shiftId); state.coverageQuery.mode='manual'; state.coverageQuery.locked=true; state.coverageContext='shift'; state.covDetails=false; state.dispCalling=null; state.expandedOpen=false; go('coverage'); }
+function openFindCoverage(shiftId){ seedQueryFromShift(shiftId);
+  /* This screen reads the index directly and never fetched anything, so a
+     shift outside what boot warmed showed nobody. Pull its date first;
+     the render that lands with it will pick the matches up. */
+  try{ const _d=state.coverageQuery&&state.coverageQuery.date;
+       if(_d) AVAIL.fetchDates([_d], true).then(function(){ try{ render(); }catch(e){} },
+                                                  function(){ try{ render(); }catch(e){} }); }catch(e){}
+  state.coverageQuery.mode='manual'; state.coverageQuery.locked=true; state.coverageContext='shift'; state.covDetails=false; state.dispCalling=null; state.expandedOpen=false; go('coverage'); }
 
 /* ===================== AI OPEN-SHIFT AUTO-OFFER ===================== */
 function shiftById(id){ return state.shifts.find(x=>x.id===id); }
@@ -4617,21 +4677,28 @@ function specFromQuery(q){
 
 // --- availability primitives ---
 function driveMin(mi){ return Math.round(mi*1.6 + 2); }
-function isAnytime(cg){ return cg.win.some(([a,b])=>(b-a)>=20); }
-function windowsForDay(cg,dKey,dateStr){
-  const ov=dateStr&&cg.ops&&cg.ops.availOverrides&&cg.ops.availOverrides[dateStr];
-  if(ov){ const w=dayWindow(ov); return w?[w]:[]; }
-  const a2=cg.ops&&cg.ops.avail2; if(a2&&a2[dKey]){ const w=dayWindow(a2[dKey]); return w?[w]:[]; }
-  return cg.avail[dKey]===1 ? cg.win : [];
-}
-function coverageDetail(cg,dKey,start,end,dateStr){
-  const wins=windowsForDay(cg,dKey,dateStr);
+/* What one caregiver can do on one real date. Date first: there is no
+   weekday answer any more, and a caller without a date has no question
+   this can answer.
+
+     full / partial   a typed Open row covers the shift, or part of it
+     none             nothing recorded, or recorded as something else;
+                      the label says which, so 'Vacation' does not read
+                      the same as 'nobody has entered anything'
+     unknown          the index has not loaded, or could not load. NOT an
+                      answer — never render it as unavailable.          */
+function coverageDetail(cg,dateStr,start,end){
+  const d=AVAIL.dayAvail(cg.id, dateStr);
   if(end<=start) end+=24;
-  for(const [ws,we] of wins){ if(ws<=start && we>=end) return {cov:'full', label:'Covers full shift'}; }
-  let best=null;
-  for(const [ws,we] of wins){ if(ws<end && we>start){ const os=Math.max(ws,start), oe=Math.min(we,end); if(!best||(oe-os)>(best.oe-best.os)) best={os,oe}; } }
-  if(best) return {cov:'partial', label:'Covers '+fmtHr(best.os)+'\u2013'+fmtHr(best.oe)};
-  return {cov:'none', label:'No overlap'};
+  if(d.state==='unloaded'||d.state==='error'||d.state==='unconfigured')
+    return {cov:'unknown', label:d.label};
+  if(d.state==='none')    return {cov:'none', label:'No availability entered'};
+  if(d.state==='blocked') return {cov:'none', label:d.label};
+  for(const [ws,we] of d.wins){ if(ws<=start && we>=end) return {cov:'full', label:'Covers full shift'}; }
+  /* Partial coverage is deliberately NOT a result. Somebody who can take
+     half a shift cannot take the shift, and offering them costs a call
+     that ends in no. Either the whole window is covered or it is not. */
+  return {cov:'none', label:'Not available at that time'};
 }
 function assignedDuring(cgId,dKey,start,end){
   for(const s of state.shifts){
@@ -4651,9 +4718,11 @@ function manualSearch(q,dKey){
   const ai=rankCaregivers(specFromQuery(q));
   const scoreMap={}; ai.eligible.forEach(r=>scoreMap[r.cg.id]=r.score);
 
-  const fullPool=[], partialPool=[], excluded=[];
+  /* partialPool stays in the shape so every existing consumer keeps working,
+     but nothing is ever put in it now: partial availability is not offered. */
+  const fullPool=[], partialPool=[], excluded=[], unknownPool=[], notAvail=[];
   state.caregivers.forEach(cg=>{
-    const cd=coverageDetail(cg,dKey,start,end,q.date);
+    const cd=coverageDetail(cg,q.date,start,end);
     let ex=null;
     if(sh && sh.callOff && sh.prevCaregiver===cg.id) ex='Called off this shift'+(sh.callOffReason?' \u00b7 '+sh.callOffReason:'');
     if(!ex && cd.cov==='none') ex='Not available '+dKey;
@@ -4675,11 +4744,15 @@ function manualSearch(q,dKey){
     let score = (cg.id in scoreMap) ? scoreMap[cg.id] : Math.max(0, 42 + cg.reliability*0.18 - dist*0.8 - miss.length*6 + (history?10:0));
     if(lc){ if(lc.result==='declined'||lc.result==='no-answer') score-=500; if(lc.result==='accepted') score+=500; }
     const e={cg, cov:cd.cov, covLabel:cd.label, dist, drive:driveMin(dist), driver:cg.driver, history, skillMiss:miss.join(', '), recentDecline:cg.recentDeclines>=1, score, contact:lc, ot:cg.weekHrs>=38};
-    if(cd.cov==='full') fullPool.push(e); else partialPool.push(e);
+    /* Only whole-shift coverage is offered. Everything else — nothing
+       entered, recorded unavailable, or the wrong hours — is not a
+       candidate, and cd.label already says which. */
+    if(cd.cov==='full') fullPool.push(e); else if(cd.cov==='unknown') unknownPool.push(e);
+    else notAvail.push(e);
   });
   const bySc=(a,b)=>(b.score-a.score)||(a.dist-b.dist);
-  fullPool.sort(bySc); partialPool.sort(bySc);
-  return {fullPool, partialPool, excluded};
+  fullPool.sort(bySc); partialPool.sort(bySc); unknownPool.sort(bySc); notAvail.sort(bySc);
+  return {fullPool, partialPool, excluded, unknownPool, notAvail};
 }
 
 // --- match card (shared by AI mode) ---
@@ -4787,53 +4860,6 @@ function manualCtaFor(e,q){
   if(e.contact) return statusBadge(e.contact)+`<button class="btn sm ghost" onclick="event.stopPropagation();manualCall('${e.cg.id}')">Re-log</button>`;
   return `<button class="btn pri sm" onclick="event.stopPropagation();manualCall('${e.cg.id}')">${ic('phone',13)} Call</button>`;
 }
-function availText(cg,q){
-  const dKey=dayKeyFromDate(q.date);
-  const wins=windowsForDay(cg,dKey);
-  if(!wins.length) return 'Not available '+dKey;
-  if(isAnytime(cg)) return 'Available all day';
-  return 'Available '+wins.map(([a,b])=>`${fmtHr(a)}\u2013${fmtHr(b)}`).join(', ');
-}
-function whyFirst(e,q){
-  const cg=e.cg, r=[];
-  if(q.clientId && e.history) r.push(`has worked with ${clById(q.clientId).name.split(' ')[0]}`);
-  if(q.city && e.dist!=null) r.push(`closest at ${e.dist} mi`);
-  if(cg.reliability>=93) r.push(`${cg.reliability}% reliable`);
-  if(q.skills.length && !e.skillMiss) r.push('matches all required skills');
-  if(cg.driver) r.push('drives');
-  if(cg.weekHrs<32) r.push(`${cg.weekHrs}h scheduled \u00b7 room before OT`);
-  return r.slice(0,3).join(' \u00b7 ') || 'best overall match for this shift';
-}
-function topMatchChecks(e,q){
-  const cg=e.cg, c=[];
-  c.push('Available for the full shift');
-  if(q.skills.length && !e.skillMiss) c.push('Skills match');
-  if(q.city && cg.prefCities && cg.prefCities.includes(q.city)) c.push('Preferred city');
-  if(q.clientId && e.history) c.push('Worked with client before');
-  if(cg.driver) c.push('Driver');
-  if(cg.reliability>=93) c.push(`${cg.reliability}% reliable`);
-  if(cg.weekHrs<32) c.push('Room before overtime');
-  return c;
-}
-function bestCard(e,i,q){
-  const cg=e.cg;
-  const facts=[cg.base, q.city?`${e.dist} mi (${e.drive} min)`:null, `${cg.reliability}% reliable`, `${cg.weekHrs}h scheduled`, `Driver: ${cg.driver?'Yes':'No'}`, (q.clientId?`Worked with client: ${e.history?'Yes':'No'}`:null)].filter(Boolean).join(' \u00b7 ');
-  const flags=[];
-  if(e.skillMiss) flags.push(`<span class="tag warn">Skill gap: ${e.skillMiss}</span>`);
-  if(e.recentDecline) flags.push(`<span class="tag warn">Recent decline</span>`);
-  const overlap=`<div class="b-avail"><span class="cov-dot ${e.cov==='full'?'full':'partial'}"></span>${availText(cg,q)} \u00b7 ${e.covLabel}</div>`;
-  const why = i===0 ? `<div class="b-why"><div class="b-why-l">Top match \u2014 why</div><div class="b-checks">${topMatchChecks(e,q).map(t=>`<span class="bchk">${ic('check',11)} ${t}</span>`).join('')}</div></div>` : '';
-  return `<div class="bcard">
-    <div class="b-rank">${i+1}</div>
-    <div class="b-body">
-      <div class="b-name">${cg.name}${flags.length?'<span class="b-flags">'+flags.join(' ')+'</span>':''}</div>
-      <div class="b-facts">${facts}</div>
-      ${overlap}
-      ${why}
-    </div>
-    <div class="b-cta">${manualCtaFor(e,q)}</div>
-  </div>`;
-}
 function compactCard(e,i,q,partial){
   const cg=e.cg;
   const cov = `<span class="covlabel ${e.cov==='full'?'full':'partial'}">${e.covLabel}</span>`;
@@ -4881,33 +4907,6 @@ function dispActions(cg,q,exp){
   if(exp==='declined'){ const reasons=['Already working','Too far','Transportation','Childcare','Does not want overnight','Does not want heavy care','Not comfortable with client','Other']; expand=`<div class="q-expand"><span class="q-exl">Decline reason:</span>${reasons.map(r=>`<button class="q-rchip" onclick="dispDecline('${sid}','${cg.id}','${r}')">${r}</button>`).join('')}</div>`; }
   if(exp==='callback'){ const times=[['15 min',15],['30 min',30],['1 hour',60],['2 hours',120]]; expand=`<div class="q-expand"><span class="q-exl">Call back in:</span>${times.map(([l,m])=>`<button class="q-rchip" onclick="dispCallback('${sid}','${cg.id}','${l}',${m})">${l}</button>`).join('')}</div>`; }
   return bar+expand;
-}
-function dispQueueRow(item,q,active){
-  const e=item.e, cg=e.cg;
-  const exp=state.dispExpand&&state.dispExpand.cgId===cg.id?state.dispExpand.type:null;
-  const tags=`${active?'<span class="q-active-tag">Call next</span>':''}${item.due?'<span class="q-due">Callback due now</span>':''}`;
-  return `<div class="qrow ${active?'active':''} ${item.skip?'skip':''}">
-    <div class="q-lead">${active?ic('phone',15):(item.skip?'\u2014':'\u00b7')}</div>
-    <div class="q-main">
-      <div class="q-name-row"><span class="q-name">${cg.name}</span>${tags}<span class="q-avail ${e.cov==='full'?'full':'part'}">${e.covLabel||availText(cg,q)}</span></div>
-      <div class="q-facts">${dispFacts(e,q)}</div>
-      ${item.skip?`<div class="q-skipline">Skipped \u00b7 <button class="q-link" onclick="dispUnskip('${q.shiftId}','${cg.id}')">put back in queue</button></div>`:dispActions(cg,q,exp)}
-    </div>
-  </div>`;
-}
-function dispPartialRow(e,q){
-  const cg=e.cg, dKey=dayKeyFromDate(q.date), g=partialGap(cg,q,dKey);
-  const cov=(g.cs!==null)?`Covers ${fmtHr(g.cs)}\u2013${fmtHr(g.ce)}`:e.covLabel;
-  const gap=g.gaps.length?`<span class="q-gap">Gap: ${g.gaps.map(([a,b])=>fmtHr(a)+'\u2013'+fmtHr(b)).join(', ')}</span>`:'';
-  const exp=state.dispExpand&&state.dispExpand.cgId===cg.id?state.dispExpand.type:null;
-  return `<div class="qrow part">
-    <div class="q-lead">\u00bd</div>
-    <div class="q-main">
-      <div class="q-name-row"><span class="q-name">${cg.name}</span><span class="q-avail part">${cov}</span>${gap}</div>
-      <div class="q-facts">${dispFacts(e,q)}</div>
-      ${dispActions(cg,q,exp)}
-    </div>
-  </div>`;
 }
 function dispContactedRow(e,l,q){
   const cg=e.cg, sid=q.shiftId;
@@ -5055,10 +5054,21 @@ function viewStaffClient(){
 const DAY_PRESETS=[['Mon\u2013Fri',['Mon','Tue','Wed','Thu','Fri']],['Weekends',['Sat','Sun']],['Tue/Thu',['Tue','Thu']],['Mon/Wed/Fri',['Mon','Wed','Fri']],['Every day',['Mon','Tue','Wed','Thu','Fri','Sat','Sun']]];
 const TIME_PRESETS=[['Mornings',6,12],['Afternoons',12,18],['Evenings',18,23],['Full day',7,19]];
 const TIME_CATS=[['AM',6,14],['PM',14,18],['Evening',18,22],['Overnight',22,30]];
+/* An overnight entry is stored on its START date and simply runs past 24
+   (8pm-8am is 20..32), the same shape an AxisCare overnight visit has. The
+   old two-part test looked for a separate [0,e-24] window on the same day,
+   which per-date rows never produce — every overnight search would have
+   quietly returned nobody. */
+/* The next real date that falls on a given weekday, so a recurring
+   question can be asked of a model that only knows dates. */
+function upcomingDateFor(dk){
+  const t=toDateInput(NOW);
+  for(let i=0;i<7;i++){ const ds=addDaysStr(t,i); if(dayKeyFromDate(ds)===dk) return ds; }
+  return t;
+}
 function coversShift(wins,s,e){
-  if(e<=24) return wins.some(([ws,we])=>ws<=s && we>=e);
-  // overnight wrap (e>24): needs the late part [s,24] and the early part [0,e-24]
-  return wins.some(([ws,we])=>ws<=s && we>=24) && wins.some(([ws,we])=>ws<=0 && we>=(e-24));
+  if(e<=s) e+=24;
+  return wins.some(([ws,we])=>ws<=s && we>=e);
 }
 function fmtClock(dec){ dec=((dec%24)+24)%24; let h=Math.floor(dec); const m=Math.round((dec-h)*60); const ap=h<12?'AM':'PM'; let hh=h%12; if(hh===0)hh=12; return hh+':'+(m<10?'0'+m:m)+' '+ap; }
 function daysPlus(days){ return daySpanLabel(days).replace(/, /g,' + '); }
@@ -5074,61 +5084,14 @@ function daySpanLabel(days){
   if(contig && s.length>2) return s[0]+'\u2013'+s[s.length-1];
   return s.join(', ');
 }
-function defaultSearchQuery(){ const wd=REC_DAYS[(new Date(NOW).getDay()+6)%7]; const today=toDateInput(NOW); return {clientId:null, city:'', days:[wd], start:6, end:14, timeCat:'AM', specStart:8, specEnd:14, skills:[], filters:[], useDates:false, searchType:'single', dates:[today], rangeStart:today, rangeEnd:addDaysStr(today,6), recDays:[]}; }
+function defaultSearchQuery(){ const wd=REC_DAYS[(new Date(NOW).getDay()+6)%7]; const today=toDateInput(NOW); return {clientId:null, city:'', days:[wd], start:6, end:14, timeCat:'AM', specStart:8, specEnd:14, skills:[], filters:[], useDates:true, searchType:'single', dates:[today], rangeStart:today, rangeEnd:addDaysStr(today,6), recDays:[]}; }
 function setSearchTimeCat(cat){ const sq=state.searchQuery; sq.timeCat=cat; const t=TIME_CATS.find(c=>c[0]===cat); if(t){ sq.start=t[1]; sq.end=t[2]; } render(); }
 function setSearch(field,val){ const sq=state.searchQuery; if(field==='start'){ sq.specStart=decFromTime(val); sq.start=sq.specStart; sq.timeCat='specific'; } else if(field==='end'){ sq.specEnd=decFromTime(val); sq.end=sq.specEnd; sq.timeCat='specific'; } else sq[field]=val; render(); }
 function setSearchDays(days){ state.searchQuery.days=[...days]; render(); }
-function toggleSearchDay(d){ const sq=state.searchQuery; const i=sq.days.indexOf(d); if(i>=0)sq.days.splice(i,1); else sq.days.push(d); render(); }
 function setSearchTime(s,e){ state.searchQuery.start=s; state.searchQuery.end=e; render(); }
 function setSearchDate(v){ if(!v)return; const d=new Date(v+'T12:00:00'); const wd=REC_DAYS[(d.getDay()+6)%7]; state.searchQuery.days=[wd]; render(); }
 function toggleSearchSkill(sk){ const sq=state.searchQuery; const i=sq.skills.indexOf(sk); if(i>=0)sq.skills.splice(i,1); else sq.skills.push(sk); render(); }
 function toggleSearchFilter(f){ const sq=state.searchQuery; if(!sq.filters)sq.filters=[]; const i=sq.filters.indexOf(f); if(i>=0)sq.filters.splice(i,1); else sq.filters.push(f); render(); }
-function searchAvailability(sq){
-  const reqDays=REC_DAYS.filter(d=>sq.days.includes(d));
-  if(!reqDays.length) return {best:[],other:[],near:[],partial:[],expand:[],reqDays,exact:0,total:0};
-  const cl=sq.clientId?clById(sq.clientId):null;
-  const rg=cl?reqGender(cl.restrictions):null;
-  const best=[], other=[], near=[], partial=[], expand=[];
-  state.caregivers.forEach(cg=>{
-    // hard excludes (safety/capability): blocked, client gender restriction, missing required care skill
-    if(sq.clientId && cg.blockedClients.includes(sq.clientId)) return;
-    if(rg && cg.gender!==rg) return;
-    /* never-confirmed is not a reason to hide somebody; lapsed is */
-    if(!(sq.filters||[]).includes('Include Unverified Caregivers') && availVerifyStatus(cg).key==='overdue') return;
-    if(sq.skills.some(s=>!cg.skills.includes(s))) return;
-    const coverDays=reqDays.filter(d=>coversShift(windowsForDay(cg,d), sq.start, sq.end));
-    const missingReqs=(sq.filters||[]).filter(f=>!caregiverPassesFilters(cg,[f],{clientId:sq.clientId}));
-    const dist=sq.city?miles(cg.base,sq.city):null;
-    const history=sq.clientId?cg.priorClients.includes(sq.clientId):false;
-    const allDays=coverDays.length===reqDays.length && coverDays.length>0;
-    const base={cg, coverDays, count:coverDays.length, reqLen:reqDays.length, allDays,
-      missingReqs, reqOk:missingReqs.length===0, dist, drive:dist!=null?driveMin(dist):null, history};
-    // EXPAND pool — outside the criteria: not available these days/time, or missing 2+ requirements
-    if(!coverDays.length){ base.cov='partial'; base.availLabel='Not available these days/time'; base.reason='Not available these days/time'; expand.push(base); return; }
-    if(missingReqs.length>=2){ base.cov='partial'; base.availLabel='Missing '+missingReqs.join(', '); base.reason='Missing '+missingReqs.join(', '); expand.push(base); return; }
-    // PARTIAL COVERAGE — covers some, not all, of the selected days
-    if(!allDays){ base.cov='partial'; base.availLabel=`Covers ${coverDays.join(', ')} \u00b7 ${reqDays.length-coverDays.length} day${reqDays.length-coverDays.length>1?'s':''} short`; partial.push(base); return; }
-    // covers ALL selected days at the full time window
-    const far = dist!=null && dist>20;
-    const ot = cg.weekHrs>=38;
-    const issue = missingReqs.length>=1 || far || ot;
-    if(!issue){
-      base.cov='full'; base.availLabel=`Available ${daySpanLabel(coverDays)} ${fmtHr(sq.start)}\u2013${fmtHr(sq.end)}`;
-      const strong = cg.driver && (dist==null||dist<=15) && cg.reliability>=90;
-      (strong?best:other).push(base);
-    } else {
-      base.cov='full';
-      const flag = missingReqs.length ? ('missing '+missingReqs.join(', ')) : (far ? `${dist} mi out` : 'near overtime');
-      base.availLabel=`Available \u00b7 ${flag}`; base.nearFlag=flag;
-      near.push(base);
-    }
-  });
-  [best,other,near,partial,expand].forEach(a=>a.sort(rankCmp));
-  return {best, other, near, partial, expand, reqDays,
-    exact:best.length+other.length,
-    total:best.length+other.length+near.length+partial.length};
-}
-/* score explanation chips — why this score */
 function openCoveragePlanner(clientId, seedShiftId){
   const seed=seedShiftId?shiftById(seedShiftId):null;
   const base=seed?new Date(seed.start):new Date(NOW);
@@ -5211,10 +5174,10 @@ function viewCoverage(){
   // Default: search caregiver availability — shift cards first, then specific-time search
   if(!state.searchQuery) state.searchQuery=defaultSearchQuery();
   const sq=state.searchQuery;
-  const _dateMode = sq.useDates && selectedDates(sq).length;
+  /* Dates only. Availability is recorded per date now, so a weekday
+     question has nothing to read. */
   const _refine = state.refineOpen ? renderCoverageSearchPanel(sq) : '';
-  if(_dateMode) return renderResultsHeader(sq) + _refine + renderDateSearchResults(sq);
-  return renderAvailabilityBar(sq) + renderResultsHeader(sq) + _refine + renderSearchResults();
+  return renderResultsHeader(sq) + _refine + renderDateSearchResults(sq);
 }
 function renderSearchHeader(){ return ''; }
 function renderShiftSummary(q){
@@ -5383,107 +5346,38 @@ function renderSearchFilters(sq){
 /* The old renderSearchForm() lived here. It was shadowed by the
    declaration further down (the last function declaration wins), so
    it never ran. Removed 2026-08-21 — behaviour is unchanged. */
-function availCount(sq,s,e){ return state.caregivers.filter(cg=>{
-    if(!caregiverPassesFilters(cg,sq.filters,{clientId:sq.clientId})) return false;
-    if(sq.skills.some(sk=>!cg.skills.includes(sk))) return false;
-    return sq.days.every(d=>coversShift(windowsForDay(cg,d), s, e));
-  }).length;
-}
 function timeLabel(sq){ const t=TIME_CATS.find(c=>c[0]===sq.timeCat); return t?`${fmtClock(t[1])}\u2013${fmtClock(t[2])}`:`${fmtClock(sq.start)}\u2013${fmtClock(sq.end)}`; }
 function csToggle(k){ state.cs=state.cs||{}; state.cs[k]=!state.cs[k]; render(); }
 function renderCoverageSearchPanel(sq){
   state.cs=state.cs||{};
-  const dateMode = sq.useDates && selectedDates(sq).length;
   const sec=(k,title,summary,open,body)=>`<div class="flt-sec"><button class="flt-toggle" onclick="csToggle('${k}')"><span class="flt-caret">${open?'\u25be':'\u25b8'}</span> ${title}${summary?` <span class="flt-sum">${summary}</span>`:''}</button>${open?`<div class="flt-body">${body}</div>`:''}</div>`;
   // Shift time
   const timeSummary = `${fmtClock(sq.specStart)}\u2013${fmtClock(sq.specEnd)}`;
   const timeBtns=TIME_CATS.map(([lab,s,e])=>`<button class="cov-preset ${sq.timeCat===lab?'on':''}" onclick="setSearchTimeCat('${lab}')">${lab}</button>`).join('')+`<button class="cov-preset ${sq.timeCat==='specific'?'on':''}" onclick="setSearchTimeCat('specific')">Specific</button>`;
   const timeBody=`<div class="cov-presets">${timeBtns}</div><div class="cov-row3"><div class="cov-field"><label>Start time</label><input type="time" value="${toTimeInput(sq.specStart)}" onchange="setSearch('start',this.value)"></div><div class="cov-field"><label>End time</label><input type="time" value="${toTimeInput(sq.specEnd)}" onchange="setSearch('end',this.value)"></div></div>`;
-  // Days / dates
-  const daysSummary = dateMode? `${selectedDates(sq).length} date${selectedDates(sq).length===1?'':'s'} selected` : daySpanLabel(sq.days);
-  const dayChips=REC_DAYS.map(d=>`<span class="sk big ${sq.days.includes(d)?'on':''}" onclick="toggleSearchDay('${d}')">${d}</span>`).join('');
-  const daysBody=`<div class="cov-dayblock"><div class="cov-lbl">Days \u2014 tap any combination</div><div class="cov-daychips">${dayChips}</div></div>${renderDateControls(sq)}`;
+  // Dates
+  const nDates=selectedDates(sq).length;
+  const daysSummary = nDates ? `${nDates} date${nDates===1?'':'s'} selected` : 'No dates chosen';
+  const daysBody=renderDateControls(sq);
   // Location
   const cityOpts=`<option value="">Any city</option>`+Object.keys(CITY).map(c=>`<option value="${c}" ${sq.city===c?'selected':''}>${c}</option>`).join('');
   const locBody=`<div class="cov-field"><label>City / location</label><select onchange="setSearch('city',this.value)">${cityOpts}</select></div>`;
   return `<div class="cov-searchpanel">
     <div class="csp-h"><span class="csp-hint">Expand a section to edit · changes apply instantly</span></div>
     ${sec('time','Shift time', timeSummary, state.cs.time, timeBody)}
-    ${sec('days', dateMode?'Dates':'Days / dates', daysSummary, state.cs.days, daysBody)}
+    ${sec('days', 'Dates', daysSummary, state.cs.days, daysBody)}
     ${renderSearchFilters(sq)}
     ${sec('loc','Location', sq.city||'Any city', state.cs.loc, locBody)}
   </div>`;
 }
 function toggleRefine(){ state.refineOpen=!state.refineOpen; render(); }
 function renderResultsHeader(sq){
-  return `<div class="cov-resbar"><span class="cov-sectitle">Matching Caregivers</span><button class="btn sm refine-btn ${state.refineOpen?'on':''}" onclick="toggleRefine()">${ic('gear',13)} Refine Search ${state.refineOpen?'\u25be':'\u25b8'}</button></div>`;
+  const run=state.covRun, busy=run&&run.status==='loading';
+  const n=selectedDates(sq||state.searchQuery).length;
+  return `<div class="cov-resbar"><span class="cov-sectitle">Matching Caregivers</span><button class="btn sm refine-btn ${state.refineOpen?'on':''}" onclick="toggleRefine()">${ic('gear',13)} Refine Search ${state.refineOpen?'\u25be':'\u25b8'}</button><button class="btn pri sm cov-search" ${busy?'disabled':''} onclick="runCoverageSearch()">${ic('coverage',13)} ${busy?'Searching\u2026':'Search'}</button>${run&&!busy?`<button class="btn sm" onclick="clearCoverageSearch()">Clear</button>`:''}</div>`;
 }
-function renderAvailabilityBar(sq){
-  if(!sq.days.length) return `<div class="aa-empty">Tap the days you need (below) to see how many caregivers are available by shift.</div>`;
-  const cards=TIME_CATS.map(([lab,s,e])=>`<button class="avc ${sq.timeCat===lab?'on':''}" onclick="setSearchTimeCat('${lab}')"><div class="avc-l">${lab} Shift</div><div class="avc-num">${availCount(sq,s,e)}</div><div class="avc-n">Available</div><div class="avc-sub">${fmtClock(s)}\u2013${fmtClock(e)}</div></button>`).join('');
-  return `<div class="avail-bar"><div class="ab-h">Caregivers available by shift \u00b7 <span class="ab-days">${daySpanLabel(sq.days)}</span></div><div class="avc-row">${cards}</div></div>`;
-}
-function renderSpecificSearch(sq){
-  const cityOpts=`<option value="">Any city</option>`+Object.keys(CITY).map(c=>`<option value="${c}" ${sq.city===c?'selected':''}>${c}</option>`).join('');
-  const dayChips=REC_DAYS.map(d=>`<span class="sk big ${sq.days.includes(d)?'on':''}" onclick="toggleSearchDay('${d}')">${d}</span>`).join('');
-  return `<div class="spec-search">
-    <div class="ss-h">Specific Time Search</div>
-    <div class="cov-dayblock"><div class="cov-lbl">Days \u2014 tap any combination</div><div class="cov-daychips">${dayChips}</div></div>
-    <div class="cov-row3">
-      <div class="cov-field"><label>Start time</label><input type="time" value="${toTimeInput(sq.specStart)}" onchange="setSearch('start',this.value)"></div>
-      <div class="cov-field"><label>End time</label><input type="time" value="${toTimeInput(sq.specEnd)}" onchange="setSearch('end',this.value)"></div>
-      <div class="cov-field"><label>City / location</label><select onchange="setSearch('city',this.value)">${cityOpts}</select></div>
-    </div>
-    ${renderSearchFilters(sq)}
-    ${renderDateControls(sq)}
-  </div>`;
-}
-function renderResultSummary(sq){
-  if(!sq.days.length) return '';
-  const n=availCount(sq,sq.start,sq.end);
-  const cityTx = sq.city?`, ${sq.city}`:'';
-  return `<div class="cov-sectitle">Matching Caregivers</div>`;
-}
-function renderSearchForm(sq){ return renderSpecificSearch(sq); }
 function toggleShowMore(key){ if(!state.showMore) state.showMore={}; state.showMore[key]=!state.showMore[key]; render(); }
-function toggleExpandSearch(){ state.expandSearch=!state.expandSearch; render(); }
 function clearSearchFilters(){ state.searchQuery.filters=[]; state.expandSearch=false; render(); }
-function renderExpandSearch(sq, expand){
-  const open=state.expandSearch;
-  const nF=(sq.filters||[]).length;
-  const clearBtn = nF ? `<button class="es-act" onclick="clearSearchFilters()">Loosen requirements \u2014 clear ${nF} filter${nF>1?'s':''}</button>` : '';
-  let body='';
-  if(open){
-    const list = expand.length
-      ? expand.map(e=>covCandRow(e,sq,false,true,null)).join('')
-      : `<div class="es-empty">No additional caregivers outside the current criteria.</div>`;
-    body = `<div class="es-body"><div class="es-note">Caregivers outside the current criteria \u2014 widen distance, loosen requirements, or call as a last resort.</div>${clearBtn}${list}</div>`;
-  }
-  return `<div class="cc-tier es-tier">
-    <button class="es-toggle" onclick="toggleExpandSearch()">${open?'\u25be':'\u25b8'} Expand Search <span class="cc-list-n">widen distance, loosen requirements, or show more caregivers${expand.length?' \u00b7 '+expand.length+' more':''}</span></button>
-    ${body}</div>`;
-}
-function renderSearchResults(){
-  const sq=state.searchQuery;
-  if(!sq.days.length) return '';
-  const r=searchAvailability(sq);
-  if(!r.total && !r.expand.length) return `<div class="q-empty">No caregivers found ${daysPlus(sq.days)} \u00b7 ${timeLabel(sq)}. Widen the days, time, or requirements.</div>`;
-  const CAP=6; let offset=0;
-  const grp=(key,label,desc,arr,ranked)=>{
-    if(!arr.length) return '';
-    const showAll=state.showMore&&state.showMore[key];
-    const shown=showAll?arr:arr.slice(0,CAP);
-    const rows=shown.map((e,i)=>covCandRow(e,sq,false,true, ranked?(offset+i+1):null)).join('');
-    if(ranked) offset+=arr.length;
-    const more=arr.length>CAP?`<button class="show-more" onclick="toggleShowMore('${key}')">${showAll?'Show fewer':'Show '+(arr.length-CAP)+' more caregivers'}</button>`:'';
-    return `<div class="cc-tier"><div class="cc-list-h">${label} <span class="cc-list-n">${arr.length} \u00b7 ${desc}</span></div>${rows}${more}</div>`;
-  };
-  return grp('best','Best Matches','exact fit \u2014 days, time, location & requirements',r.best,true)
-    + grp('other','Other Available','available for the day/time, not the strongest fit',r.other,true)
-    + grp('near','Near Matches','farther, possible overtime, or missing a preferred requirement',r.near,true)
-    + grp('partial','Partial Coverage','can cover part of the shift or some of the selected days',r.partial,false)
-    + renderExpandSearch(sq, r.expand);
-}
 /* ===================== DATE-BASED COVERAGE SEARCH ===================== */
 function addDaysStr(ds,n){ const d=new Date(ds+'T12:00:00'); d.setDate(d.getDate()+n); return toDateInput(d); }
 function datesBetween(a,b){ const out=[]; if(!a||!b) return out; let d=new Date(a+'T12:00:00'); const end=new Date(b+'T12:00:00'); if(end<d) return out; let g=0; while(d<=end && g<400){ out.push(toDateInput(d)); d.setDate(d.getDate()+1); g++; } return out; }
@@ -5507,15 +5401,18 @@ function dateSearch(sq){
     if(rg && cg.gender!==rg) return;
     /* never-confirmed is not a reason to hide somebody; lapsed is */
     if(!(sq.filters||[]).includes('Include Unverified Caregivers') && availVerifyStatus(cg).key==='overdue') return;
-    let covered=0; const perDate=dates.map(ds=>{ const dk=dayKeyFromDate(ds); const cd=coverageDetail(cg,dk,start,end,ds); const conflict=assignedOnDate(cg.id,ds,start,end);
+    let covered=0; const perDate=dates.map(ds=>{ const cd=coverageDetail(cg,ds,start,end); const conflict=assignedOnDate(cg.id,ds,start,end);
       let cov = conflict?'conflict':cd.cov, label = conflict?('Assigned \u00b7 '+conflict):cd.label;
-      if(cov==='full') covered++; return {ds, cov, label}; });
-    if(covered===0 && !dates.length) return;
+      if(cov==='full') covered++;
+      return {ds, cov, label}; });
+    /* Every selected date must be covered in full. A caregiver free on
+       two dates out of three cannot take the third, and listing them
+       invites a call that ends in no. */
+    if(covered!==dates.length) return;
     rows.push({cg, covered, total:dates.length, perDate});
   });
   rows.sort((a,b)=> b.covered-a.covered || availVerifyStatus(a.cg).rank-availVerifyStatus(b.cg).rank || b.cg.reliability-a.cg.reliability || miles(a.cg.base,sq.city||a.cg.base)-miles(b.cg.base,sq.city||b.cg.base));
-  const withCov=rows.filter(r=>r.covered>0);
-  return {dates, exact:withCov.filter(r=>r.covered===dates.length && dates.length>0), partial:withCov.filter(r=>r.covered>0 && r.covered<dates.length)};
+  return {dates, exact:rows};
 }
 function setSearchType(t){ const sq=state.searchQuery; sq.searchType=t; if(t==='single' && !(sq.dates&&sq.dates.length)) sq.dates=[toDateInput(NOW)]; render(); }
 function setSingleDate(v){ if(!v)return; state.searchQuery.dates=[v]; render(); }
@@ -5524,12 +5421,15 @@ function removeSearchDate(d){ const sq=state.searchQuery; sq.dates=(sq.dates||[]
 function toggleRecSearchDay(d){ const sq=state.searchQuery; if(!sq.recDays) sq.recDays=[]; const i=sq.recDays.indexOf(d); if(i>=0) sq.recDays.splice(i,1); else sq.recDays.push(d); render(); }
 function toggleUseDates(on){ const sq=state.searchQuery; sq.useDates=on; if(on && !(sq.dates&&sq.dates.length)) sq.dates=[toDateInput(NOW)]; render(); }
 function renderDateControls(sq){
+  /* Availability can only exist between these dates, so the pickers do
+     not offer anything outside them. */
+  const _sw=AVAIL.searchWindow();
   const on=!!sq.useDates;
   const types=[['single','Single date'],['multiple','Multiple dates'],['range','Date range'],['recurring','Recurring']];
   const tabs=types.map(t=>`<button class="dst ${sq.searchType===t[0]?'on':''}" onclick="setSearchType('${t[0]}')">${t[1]}</button>`).join('');
   let di='';
   if(sq.searchType==='single'){
-    di=`<div class="cov-field"><label>Date</label><input type="date" value="${(sq.dates&&sq.dates[0])||''}" onchange="setSingleDate(this.value)"></div>`;
+    di=`<div class="cov-field"><label>Date</label><input type="date" min="${_sw.from}" max="${_sw.to}" value="${(sq.dates&&sq.dates[0])||''}" onchange="setSingleDate(this.value)"></div>`;
   } else if(sq.searchType==='multiple'){
     const chips=(sq.dates||[]).length?(sq.dates||[]).map(d=>`<span class="ds-datechip">${fmtDateShort(d)}<button onclick="removeSearchDate('${d}')">\u00d7</button></span>`).join(''):'<span class="ds-none">No dates added yet</span>';
     di=`<div class="cov-field"><label>Dates <span class="cov-fhint">add each date you need</span></label><div class="ds-datechips">${chips}</div><div class="ds-addrow"><input type="date" id="dsAddDate"><button class="btn sm" onclick="addSearchDate()">+ Add date</button></div></div>`;
@@ -5541,28 +5441,62 @@ function renderDateControls(sq){
   }
   const dates=selectedDates(sq);
   const preview = on && dates.length?`<div class="ds-preview">${ic('calendar',13)} <b>${dates.length}</b> date${dates.length===1?'':'s'} selected \u00b7 ${dates.slice(0,6).map(fmtDateShort).join(', ')}${dates.length>6?' +'+(dates.length-6)+' more':''}</div>`:'';
-  const body = on ? `<div class="ds-controls"><div class="ds-tabs">${tabs}</div>${di}${preview}<div class="ds-note">Uses the start/end time above against each actual date. Results below switch to date matches (Exact / Partial).</div></div>` : '';
+  const body = on ? `<div class="ds-controls"><div class="ds-tabs">${tabs}</div>${di}${preview}<div class="ds-note">Press <b>Search</b> to check these dates against the start/end time above. Results below switch to date matches (Exact / Partial).</div></div>` : '';
   return `<div class="cov-dayblock ds-enh"><label class="ds-enh-tog"><input type="checkbox" ${on?'checked':''} onchange="toggleUseDates(this.checked)"> Search by specific dates <span class="cov-fhint">optional \u2014 single date, multiple dates, range, or recurring, instead of weekdays</span></label>${body}</div>`;
 }
 
 function dsRow(r,sq){
-  const exact=r.covered===r.total;
+  const exact=true;   /* only whole-shift matches reach this row */
   const chips=r.perDate.map(p=>{ const cls=p.cov==='full'?'ok':(p.cov==='partial'?'part':(p.cov==='conflict'?'conf':'no')); return `<span class="ds-chip ${cls}" title="${esc(p.label)}">${fmtDateShort(p.ds)}</span>`; }).join('');
   return `<div class="ds-row">
-    <div class="ds-rtop"><span class="ds-name">${esc(r.cg.name)}</span><span class="ds-badge ${exact?'ok':'part'}">${exact?ic('check',12):ic('alerts',12)} Available ${r.covered} of ${r.total} dates</span></div>
-    <div class="ds-meta">${miles(r.cg.base,sq.city||r.cg.base)}mi \u00b7 ${r.cg.weekHrs}h/wk \u00b7 ${r.cg.reliability}% reliable${r.cg.driver?' \u00b7 driver':''}</div>
+    <div class="ds-rtop"><span class="ds-name">${esc(r.cg.name)}</span><span class="ds-badge ${exact?'ok':'part'}">${ic('check',12)} Available ${r.total===1?'this date':('all '+r.total+' dates')}</span></div>
+    <div class="ds-meta">${miles(r.cg.base,sq.city||r.cg.base)}mi${hasVal(r.cg.weekHrs)?' \u00b7 '+r.cg.weekHrs+'h/wk':''}${hasVal(r.cg.reliability)?' \u00b7 '+r.cg.reliability+'% reliable':''}${r.cg.driver?' \u00b7 driver':''}</div>
     <div class="ds-chips">${chips}</div>
     <div class="ds-acts"><button class="btn sm" onclick="manualCall('${r.cg.id}')">${ic('phone',12)} Call</button></div>
   </div>`;
 }
+/* Find Coverage runs on a button. state.covRun records what was asked
+   for, so the results on screen always describe the search that produced
+   them rather than whatever the controls happen to say now. */
+function runCoverageSearch(){
+  const sq=state.searchQuery, dates=selectedDates(sq);
+  if(!dates.length){ toast('Pick at least one date first'); return; }
+  const w=AVAIL.searchWindow();
+  const outside=dates.filter(d=>d<w.from||d>w.to);
+  if(outside.length){
+    state.covRun={status:'error', dates, start:sq.specStart, end:sq.specEnd, city:sq.city,
+      error:'Availability can only be recorded from '+fmtDateShort(w.from)+' to '+fmtDateShort(w.to)+'.'};
+    render(); return;
+  }
+  state.covRun={status:'loading', dates, start:sq.specStart, end:sq.specEnd, city:sq.city, error:null};
+  render();
+  AVAIL.fetchDates(dates, true).then(function(){          /* always ask the database */
+    state.covRun={status:'done', dates, start:sq.specStart, end:sq.specEnd, city:sq.city, error:null};
+  }, function(e){
+    state.covRun={status:'error', dates, start:sq.specStart, end:sq.specEnd, city:sq.city,
+      error:(e&&e.message)||String(e)};
+  }).then(function(){ render(); });
+}
+function clearCoverageSearch(){ state.covRun=null; render(); }
+
 function renderDateSearchResults(sq){
-  const dates=selectedDates(sq);
-  if(!dates.length) return `<div class="q-empty">Add at least one date above to search for coverage.</div>`;
-  const r=dateSearch(sq);
+  const run=state.covRun;
+  const sel=selectedDates(sq);
+  if(!run) return `<div class="q-empty">Choose a date and time, then press <b>Search</b>.` +
+    (sel.length?'':' <br>No date is selected yet.') + `</div>`;
+  if(run.status==='loading')
+    return `<div class="q-empty">Searching \u2026</div>`;
+  if(run.status==='error')
+    return `<div class="q-empty">The search could not run.${run.error?' <span class="q-why">'+esc(run.error)+'</span>':''}</div>`;
+  /* Answer the search that was RUN, not the controls as they now stand. */
+  const dates=run.dates;
+  const rq=Object.assign({}, sq, {dates:dates, searchType:'multiple', specStart:run.start, specEnd:run.end, city:run.city});
+  const r=dateSearch(rq);
   const head=`<div class="ds-resulthead"><b>${dates.length}</b> date${dates.length===1?'':'s'} \u00b7 ${fmtClock(sq.specStart)}\u2013${fmtClock(sq.specEnd)}${sq.city?' \u00b7 '+esc(sq.city):''}</div>`;
-  if(!r.exact.length && !r.partial.length) return head+`<div class="q-empty">No caregivers available for these dates and time. Widen the time, city, or requirements.</div>`;
+  if(!r.exact.length)
+    return head+`<div class="q-empty">Nobody has availability entered for this date and time. A caregiver only appears here once someone logs an <b>Open</b> block on their calendar.</div>`;
   const grp=(label,desc,arr)=>{ if(!arr.length) return ''; const open=state.showMore&&state.showMore[label]; const shown=open?arr:arr.slice(0,8); const more=arr.length>8?`<button class="show-more" onclick="toggleShowMore('${label}')">${open?'Show fewer':'Show '+(arr.length-8)+' more'}</button>`:''; return `<div class="cc-tier"><div class="cc-list-h">${label} <span class="cc-list-n">${arr.length} \u00b7 ${desc}</span></div>${shown.map(x=>dsRow(x,sq)).join('')}${more}</div>`; };
-  return head + grp('Exact Matches','available for all selected dates & times',r.exact) + grp('Partial Matches','available for some of the selected dates',r.partial);
+  return head + grp('Available','free for the whole shift on every date selected',r.exact);
 }
 
 function setCovSearchType(t){ state.covSearchType=t; render(); }
@@ -5617,7 +5551,7 @@ function recurringSearch(rq){
     if(!ex && rq.skills.includes('Transfers') && cg.restrictions.includes('No transfers (back)')) ex='Caregiver restriction \u00b7 no transfers';
     if(ex){ excluded.push({cg,reason:ex}); return; }
     if(!caregiverPassesFilters(cg, rq.filters, {clientId:rq.clientId})){ excluded.push({cg, reason:'Does not match selected filters'}); return; }
-    const coverDays=reqDays.filter(d=>coversShift(windowsForDay(cg,d), rq.start, rq.end));
+    const coverDays=reqDays.filter(d=>AVAIL.coversOn(cg.id, upcomingDateFor(d), rq.start, rq.end));
     if(!coverDays.length){ excluded.push({cg,reason:'Not available on requested days/time'}); return; }
     const dist=rq.city?miles(cg.base,rq.city):0;
     const history=rq.clientId?cg.priorClients.includes(rq.clientId):null;
@@ -5702,18 +5636,31 @@ function viewCallOff(){
 }
 
 /* ============ AVAILABILITY ============ */
+/* Three honest outcomes. The old last line returned 'Not available' for
+   anybody without a class tag, which was most of the roster. */
 function availStatusOf(c){
-  if(c.today===1 && c.avail[dayKey(NOW)]===1) return {label:'Available today', tone:'good'};
-  if(Object.values(c.avail).some(v=>v===1)) return {label:'Available this week', tone:'watch'};
-  return {label:'Not available', tone:'soon'};
+  if(AVAIL.indexStatus()!=='ready') return {label:'Availability not loaded', tone:'neut'};
+  const od=AVAIL.openDays(c.id);
+  if(!od.length) return {label:'No availability entered', tone:'neut'};
+  if(od.some(o=>o.day===dateKey(NOW))) return {label:'Available today', tone:'good'};
+  return {label:od.length+' day'+(od.length===1?'':'s')+' entered', tone:'watch'};
 }
+/* The weekdays a caregiver has Open blocks entered on. Returns '' when
+   nothing is entered — daySpanLabel would otherwise answer the literal
+   string 'no days', which printed on the resume of every caregiver. */
 function availPattern(c){
-  const on=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].filter(d=>c.avail[d]===1);
+  const seen=AVAIL.openDays(c.id).map(o=>dayKeyFromDate(o.day));
+  const on=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].filter(d=>seen.includes(d));
+  if(!on.length) return '';
   if(on.length===7) return 'Every day';
   return daySpanLabel(on);
 }
 function openHrsOf(c){ return Math.max(0, 40-c.weekHrs); }
-function hasOpenSchedule(c){ if(!c.active) return false; const hasAvail=Object.values(c.avail).some(v=>v===1); return hasAvail && openHrsOf(c)>=6; }
+/* Has anyone entered an Open block for this caregiver in the loaded
+   window? The old test also required 6 spare hours off a 40-hour week,
+   but weekHrs has no AxisCare source and is null, so 40-null was 40 and
+   that half never rejected anybody. It read as "carries a WKDY tag". */
+function hasOpenSchedule(c){ if(!c.active) return false; return AVAIL.openDays(c.id).length>0; }
 function schedStatus(c){ return hasOpenSchedule(c) ? {label:'Open Schedule', tone:'good'} : {label:'No Open Availability', tone:'neut'}; }
 const FREQ_OPTS=['Weekly','Every 2 weeks','Every 3 weeks','Monthly','Every 3 months','As needed'];
 const STRENGTH_OPTS=['Companion Care','Dementia Care',"Alzheimer's Experience",'Hospice Support','Transfers & Mobility Assistance','Family Communication','Hospital Sitting','Overnight Care','Feeding Assistance','Fall Prevention'];
@@ -6517,14 +6464,19 @@ function viewCaregiverWorkspace(c){
   // ===== Availability (merged: schedule facts + preferences + capacity) =====
   const sp=ops.shiftPrefs||{};
   const spList=[sp.short&&'4\u20136 hours',sp.medium&&'6\u20138 hours',sp.long&&'8\u201312 hours',sp.twelve&&'12-hour shifts',ops.emergency.overnight&&'Overnight',sp.liveIn&&'24-Hour / Live-In'].filter(Boolean).join(', ')||'No preference set';
-  const availDaysList=DAY_ORDER.filter(d=>c.avail[d]===1);
-  const win=(c.win&&c.win[0])?c.win[0]:[8,17];
-  const daysStr = availDaysList.length?(availDaysList.length===7?'Every day':availDaysList.join(', ')):'None set';
-  const timeStr = (win[0]===win[1]||(win[0]===0&&win[1]%24===0))?'Anytime':_h12u(win[0])+'\u2013'+_h12u(win[1]);
+  /* The days and hours actually entered, not the class tags. c.win was a
+     guess: hours defaulted to 'Days' and the window to 8a-5p for every
+     caregiver AxisCare said nothing about. */
+  const _od=AVAIL.openDays(c.id);
+  const availDaysList=DAY_ORDER.filter(d=>_od.some(o=>dayKeyFromDate(o.day)===d));
+  const _wins=_od.reduce((a,o)=>a.concat(o.wins),[]);
+  const win=_wins.length?[Math.min.apply(null,_wins.map(w=>w[0])), Math.max.apply(null,_wins.map(w=>w[1]))]:null;
+  const daysStr = availDaysList.length?(availDaysList.length===7?'Every day':availDaysList.join(', ')):'None entered';
+  const timeStr = !win?'\u2014':((win[0]===win[1]||(win[0]===0&&win[1]%24===0))?'Anytime':_h12u(win[0])+'\u2013'+_h12u(win[1]));
   const avTags=[];
   if(ops.emergency.urgent||ops.emergency.sameDay) avTags.push('Last-Minute Available');
   if(ops.emergency.sitter) avTags.push('Hospital Sitter');
-  if(c.avail.Sat===1||c.avail.Sun===1) avTags.push('Weekend Available');
+  if(AVAIL.openDays(c.id).some(o=>['Sat','Sun'].includes(dayKeyFromDate(o.day)))) avTags.push('Weekend Available');
   const av2Row=(l,v)=>`<div class="av2-row"><div class="av2-l">${l}</div><div class="av2-v">${v}</div></div>`;
   const availabilityBody = `<div class="av2">`
     + av2Row('Availability Schedule', `<div class="av2-days">${daysStr}</div><div class="av2-time">${timeStr}</div>`)
@@ -6629,7 +6581,7 @@ function availRulesSummary(c){
   const avTags=[];
   if(ops.emergency&&(ops.emergency.urgent||ops.emergency.sameDay)) avTags.push('Last-Minute Available');
   if(ops.emergency&&ops.emergency.sitter) avTags.push('Hospital Sitter');
-  if(c.avail.Sat===1||c.avail.Sun===1) avTags.push('Weekend Available');
+  if(AVAIL.openDays(c.id).some(o=>['Sat','Sun'].includes(dayKeyFromDate(o.day)))) avTags.push('Weekend Available');
   const tagsHtml = avTags.length?`<div class="av2-tags">${avTags.map(t=>`<span class="av2-tag">${t}</span>`).join('')}</div>`:'';
   return `<div class="ws-card span2"><div class="ws-h ws-h-flex"><span>Desired Hours</span><button class="btn sm" onclick="editAvailability('${c.id}','prefs')">${ic('log',13)} Edit</button></div>
       <div class="av2">
@@ -6896,7 +6848,7 @@ function resumeData(c){
     years, experience:`${years}+ years of in-home senior care`,
     skills:c.skills, languages:c.languages, training, certs, traits,
     prefTypes:pr.bestWith, temperament:pr.temperament,
-    availability:`${availPattern(c)} \u00b7 ${ops.prefSched}${ops.shiftPref?' \u00b7 '+ops.shiftPref:''}`,
+    availability:[availPattern(c), ops.prefSched, ops.shiftPref].filter(Boolean).join(' \u00b7 '),
     summary:resumeSummaryText(c)
   };
 }
@@ -7181,22 +7133,32 @@ function aiAvailable(day, win, city){
   const cover=[];
   aiActive().forEach(c=>{
     if(city && !c.prefCities.includes(city)) return;
-    const wins=windowsForDay(c,dKey,ds); let full=false, partial=null;
+    const wins=AVAIL.dayAvail(c.id, ds).wins; let full=false, partial=null;
     wins.forEach(([a,b])=>{ if(a<=ws && b>=we) full=true; else if(a<we && b>ws){ const os=Math.max(a,ws),oe=Math.min(b,we); if(!partial||(oe-os)>(partial[1]-partial[0])) partial=[os,oe]; } });
-    if(full||partial) cover.push({c,full,partial});
+    /* Partial is not an answer: someone free for part of the window
+       cannot take the shift. */
+    if(full) cover.push({c,full,partial:null});
   });
   cover.sort((a,b)=>(b.full-a.full)||(b.c.reliability-a.c.reliability));
   const dayLbl=day.toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric'}), winLbl=_h12(ws)+'\u2013'+_h12(we);
-  if(!cover.length) return {title:`Available ${dayLbl}, ${winLbl}${city?' in '+city:''}`, html:aiEmpty('No caregivers match that window'+(city?' in '+city:'')+'. Widen the time or drop the city filter.')};
-  const rows=cover.map(({c,full,partial})=>aiRow(aiCgLink(c)+(full?' <span class="ai-tag good">Full</span>':` <span class="ai-tag soon">Partial ${_h12(partial[0])}\u2013${_h12(partial[1])}</span>`), `${c.prefCities.slice(0,2).join(', ')} \u00b7 ${c.weekHrs}h booked \u00b7 ${c.reliability}% reliable${c.skills.length?' \u00b7 '+c.skills.slice(0,3).join(', '):''}`));
+  if(AVAIL.indexStatus()!=='ready')
+    return {title:`Available ${dayLbl}, ${winLbl}`, html:aiEmpty('Availability has not loaded yet, so I cannot answer this.')};
+  if(!cover.length) return {title:`Available ${dayLbl}, ${winLbl}${city?' in '+city:''}`, html:aiEmpty('Nobody has availability entered for '+dayLbl+' at that time'+(city?' in '+city:'')+'. A caregiver appears here once an <b>Open</b> block is logged on their calendar.')};
+  const rows=cover.map(({c})=>aiRow(aiCgLink(c), `${c.prefCities.slice(0,2).join(', ')} \u00b7 ${c.weekHrs}h booked \u00b7 ${c.reliability}% reliable${c.skills.length?' \u00b7 '+c.skills.slice(0,3).join(', '):''}`));
   return {title:`${cover.length} available ${dayLbl}, ${winLbl}${city?' in '+city:''}`, html:aiRows(rows)};
 }
+/* An overnight block is stored on its start date running past 24, so it is
+   found by end>24 or by a start at 22:00 or later. The old test read
+   avail2, which only ever held {type:'Anytime'} or {type:'Off'} — its
+   w[1]>24 could never be true, so this always answered "nobody". */
 function aiOvernight(){
-  const ovDays=c=>DAY_ORDER.filter(d=>{ const w=dayWindow((c.ops.avail2||{})[d]); return w&&(w[1]>24||w[0]>=22); });
-  const list=aiActive().filter(c=>ovDays(c).length || (c.ops.emergency&&c.ops.emergency.overnight)).sort((a,b)=>b.reliability-a.reliability);
-  if(!list.length) return {title:'Overnight availability', html:aiEmpty('No caregivers are set up for overnight coverage right now.')};
-  const rows=list.map(c=>{ const dd=ovDays(c); return aiRow(aiCgLink(c), (dd.length?'Overnight: '+dd.join(', '):'Open to overnight coverage')+` \u00b7 ${c.reliability}% reliable`); });
-  return {title:`${list.length} available for overnights`, html:aiRows(rows)};
+  const ovDays=c=>AVAIL.openDays(c.id).filter(o=>o.wins.some(w=>w[1]>24||w[0]>=22));
+  const list=aiActive().map(c=>({c, dd:ovDays(c)})).filter(x=>x.dd.length);
+  if(AVAIL.indexStatus()!=='ready')
+    return {title:'Overnight availability', html:aiEmpty('Availability has not loaded yet, so I cannot answer this.')};
+  if(!list.length) return {title:'Overnight availability', html:aiEmpty('Nobody has an overnight block entered for the next couple of months. Overnight availability has to be logged on a caregiver\u2019s calendar before it shows here.')};
+  const rows=list.map(({c,dd})=>aiRow(aiCgLink(c), dd.length+' night'+(dd.length===1?'':'s')+' entered \u00b7 next ' + fmtDateShort(dd[0].day)));
+  return {title:`${list.length} with overnight availability entered`, html:aiRows(rows)};
 }
 function aiCallOffs(q){
   const m=q.match(/(\d{1,3})\s*day/); const days=m?parseInt(m[1]):90, cutoff=NOW.getTime()-days*864e5;
@@ -7223,7 +7185,7 @@ function aiReliability(top){
   return {title: top?'Highest reliability':'Lowest reliability \u2014 watch list', html:aiRows(rows)};
 }
 function aiNoSchedule(){
-  const list=state.caregivers.filter(c=>c.active===false || c.weekHrs===0 || !hasOpenSchedule(c));
+  const list=state.caregivers.filter(c=>c.active===false || !hasOpenSchedule(c));
   if(!list.length) return {title:'No active schedules', html:aiEmpty('Every caregiver is active with an open schedule.')};
   const rows=list.map(c=>aiRow(aiCgLink(c)+(c.active===false?' <span class="ai-tag">Inactive</span>':''), c.active===false?'Not active':(c.weekHrs===0?'No shifts scheduled':'No open availability')));
   return {title:`${list.length} caregiver${list.length>1?'s':''} with no active schedule`, html:aiRows(rows)};
@@ -7318,6 +7280,19 @@ function askAI(preset){
   const inp=document.getElementById('aiq');
   const q=(preset!=null?preset:(inp?inp.value:'')).trim();
   if(!q) return;
+  /* An availability answer must not come from a cache somebody has since
+     edited. Fetch first, answer second, and say so while it happens. */
+  if(/avail|overnight|free\b|open\b|who can|cover/i.test(q)){
+    const at=state.aiLog.push({q, title:'Checking availability',
+      html:aiEmpty('Reading the latest availability\u2026')})-1;
+    render();
+    availRefresh(true).then(function(){
+      const a2=aiAnswer(q);
+      state.aiLog[at]={q, title:a2.title, html:a2.html};
+      render();
+    });
+    return;
+  }
   const ans=aiAnswer(q);
   state.aiLog.push({q, title:ans.title, html:ans.html});
   render();
@@ -7502,12 +7477,6 @@ function confirmBlockOverride(){ const bw=state._bw; if(!bw) return; const reaso
 function dispUnskip(shiftId,cgId){ const log=state.contactLog[shiftId]||[]; for(let i=log.length-1;i>=0;i--){ if(log[i].caregiverId===cgId && log[i].result==='skipped'){ log.splice(i,1); break; } } render(); }
 function dispReopen(shiftId,cgId){ const log=state.contactLog[shiftId]||[]; for(let i=log.length-1;i>=0;i--){ if(log[i].caregiverId===cgId){ log.splice(i,1); break; } } render(); }
 function lastWorkedStr(cg){ const w=1+(parseInt(cg.id.slice(1))%6); return w+' wk'+(w>1?'s':'')+' ago'; }
-function partialGap(cg,q,dKey){
-  const wins=windowsForDay(cg,dKey,q&&q.date); let cs=null,ce=null;
-  wins.forEach(([ws,we])=>{ const s=Math.max(ws,q.start), e=Math.min(we,q.end); if(e>s){ if(cs===null||s<cs)cs=s; if(ce===null||e>ce)ce=e; } });
-  const gaps=[]; if(cs!==null){ if(cs>q.start) gaps.push([q.start,cs]); if(ce<q.end) gaps.push([ce,q.end]); }
-  return {cs,ce,gaps};
-}
 function logContact(result, opt){
   opt=opt||{};
   const {shiftId, cgId}=modalState; const cg=cgById(cgId);
@@ -9673,6 +9642,11 @@ const CLOUD = (function(){
     render();
     setStatus('local');
     connect();
+    /* Availability for the whole roster, for the screens that ask about
+       a date rather than about one caregiver. After reconcile(), so it is
+       built against the final roster, and after hookRender(), so its own
+       render() when it lands is a real one. Nothing waits on it. */
+    try{ AVAIL.primeIndex(); }catch(e){ console.warn('[avail] index prime threw',e); }
   }
   function boot(){
     primeLazy();
@@ -10282,24 +10256,255 @@ var AVAIL = (function () {
     return r.days[dateKey(date)] || [];
   }
 
-  /* Availability for ONE date across the whole roster — what Find Coverage
-     asks. Not cached: it is a different question from the calendar's, and
-     a scheduler runs it against a date they have usually just edited. */
-  function forDateAllCaregivers(dateStr) {
-    if (!configured()) return Promise.resolve({});
+  /* ---- the roster-wide index -------------------------------------
+     One query covering EVERY caregiver over a near-future window, held
+     separately from byCg and read synchronously by everything that asks
+     'who can work on this date'. The table holds only what a scheduler
+     typed, so this is small — it is empty today.
+
+     What is loaded is tracked as a SET OF DATES rather than a range, so
+     Find Coverage can pull any date on demand and have it answered like
+     any other. A date we have not fetched is 'unloaded' — never 'nobody
+     is free', which is the false negative this whole design exists to
+     prevent. */
+  var IDX_BACK_DAYS = 7;          /* far enough back that yesterday still answers */
+  var PAGE = 1000;                /* PostgREST caps a response at 1000 rows */
+  var idx = {};                   /* cgId -> { 'YYYY-MM-DD': [block] } */
+  var loaded = {};                /* 'YYYY-MM-DD' -> true, every date fetched */
+  var idxState = 'idle';          /* idle | loading | ready | error | unconfigured */
+  var idxFrom = null, idxTo = null, idxErr = null, idxCount = 0;
+  var pending = {};               /* date -> Promise, so two searches share one fetch */
+
+  function ymd(d) {
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') +
+           '-' + String(d.getDate()).padStart(2, '0');
+  }
+  function idxWindow() {
+    var base = (typeof NOW !== 'undefined' && NOW) ? NOW : new Date();
+    var from = new Date(base.getFullYear(), base.getMonth(), base.getDate() - IDX_BACK_DAYS);
+    /* day 0 of the month after next = the last day of next month */
+    var to = new Date(base.getFullYear(), base.getMonth() + 2, 0);
+    return { from: ymd(from), to: ymd(to) };
+  }
+
+  /* The span availability can be entered for at all — one month back to
+     eleven months on, matching the reach of the calendar's month arrows.
+     Find Coverage refuses dates outside it because nothing could have
+     been entered there. */
+  function searchWindow() {
+    var base = (typeof NOW !== 'undefined' && NOW) ? NOW : new Date();
+    return { from: ymd(new Date(base.getFullYear(), base.getMonth() - 1, 1)),
+             to:   ymd(new Date(base.getFullYear(), base.getMonth() + 12, 0)) };
+  }
+
+  function indexStatus() { return idxState; }
+  function isLoaded(ds) { return !!loaded[ds]; }
+  function indexInfo() {
+    return { status: idxState, from: idxFrom, to: idxTo, count: idxCount,
+             dates: Object.keys(loaded).length,
+             caregivers: Object.keys(idx).length, error: idxErr };
+  }
+
+  /* Merge a page of rows in. Used by both the boot prefetch and the
+     on-demand fetch, so they cannot drift apart. */
+  function absorb(rows) {
+    (rows || []).forEach(function (r) {
+      var k = 'a' + r.caregiver_id, b = toBlock(r);
+      var days = idx[k] || (idx[k] = {});
+      (days[b.day] || (days[b.day] = [])).push(b);
+      idxCount++;
+    });
+  }
+  /* Clear a span before absorbing it, so a refetch replaces rather than
+     doubles what is already held. */
+  function forget(from, to) {
+    Object.keys(idx).forEach(function (k) {
+      Object.keys(idx[k]).forEach(function (ds) {
+        if (ds >= from && ds <= to) { idxCount -= idx[k][ds].length; delete idx[k][ds]; }
+      });
+    });
+  }
+
+  /* Fetch specific dates for the whole roster.
+
+     force=true re-reads even dates already held. Find Coverage uses it so
+     a search is always answered from the database rather than from
+     whatever this tab happened to cache — a scheduler who has just
+     entered availability must see it without reloading, and no cache
+     invalidation scheme is worth trusting for an answer this cheap. */
+  function fetchDates(dates, force) {
+    if (!configured()) return Promise.reject(new Error('No Supabase keys on this build.'));
+    var want = (dates || []).filter(function (d) { return d && (force || !loaded[d]); });
+    if (!want.length) return Promise.resolve();
+    var lo = want.slice().sort()[0], hi = want.slice().sort()[want.length - 1];
+    var key = lo + '..' + hi;
+    if (pending[key]) return pending[key];   /* two searches share one request */
+
+    /* Clear the span first: a day saved through patchIndex, or a previous
+       overlapping fetch, would otherwise be absorbed a second time. */
+    forget(lo, hi);
+    var run = (function page(offset) {
+      return fetchPage(lo, hi, offset).then(function (rows) {
+        rows = rows || [];
+        absorb(rows);
+        if (rows.length === PAGE) return page(offset + PAGE);
+      });
+    })(0).then(function () {
+      /* Mark the WHOLE span loaded: a date inside it with no rows was
+         genuinely empty, which is an answer, not a gap. */
+      var d = new Date(lo + 'T12:00:00'), end = new Date(hi + 'T12:00:00');
+      while (d <= end) { loaded[ymd(d)] = true; d.setDate(d.getDate() + 1); }
+      if (idxState === 'idle') idxState = 'ready';
+      delete pending[key];
+    }).catch(function (e) {
+      delete pending[key];
+      forget(lo, hi);
+      throw e;
+    });
+    pending[key] = run;
+    return run;
+  }
+
+  function fetchPage(from, to, offset) {
     var c = cfg();
     var url = c.supabaseUrl.replace(/\/+$/, '') + '/rest/v1/caregiver_availability' +
-      '?on_date=eq.' + dateStr + '&select=caregiver_id,' + COLS + '&order=caregiver_id.asc,start_min.asc.nullsfirst';
+      '?on_date=gte.' + from + '&on_date=lte.' + to +
+      '&select=caregiver_id,' + COLS +
+      '&order=caregiver_id.asc,on_date.asc,start_min.asc.nullsfirst' +
+      '&limit=' + PAGE + '&offset=' + offset;
     return fetch(url, { headers: { apikey: c.supabaseAnonKey, Authorization: 'Bearer ' + c.supabaseAnonKey } })
-      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-      .then(function (rows) {
-        var out = {};
-        (rows || []).forEach(function (r) {
-          var k = 'a' + r.caregiver_id;
-          (out[k] || (out[k] = [])).push(toBlock(r));
-        });
-        return out;
+      .then(function (r) {
+        if (!r.ok) return r.text().then(function (t) { throw new Error('HTTP ' + r.status + ' ' + t.slice(0, 140)); });
+        return r.json();
       });
+  }
+
+  /* Fire and forget at boot. Resolves either way so a caller can chain,
+     but nothing waits on it — the app paints first and fills in. */
+  function primeIndex() {
+    if (idxState === 'loading') return Promise.resolve();
+    if (!configured()) {
+      idxState = 'unconfigured';
+      idxErr = 'No Supabase keys on this build.';
+      return Promise.resolve();
+    }
+    var w = idxWindow();
+    idxState = 'loading'; idxErr = null; idxFrom = w.from; idxTo = w.to;
+    var t0 = Date.now(), before = idxCount;
+    forget(w.from, w.to);
+
+    function page(offset) {
+      return fetchPage(w.from, w.to, offset).then(function (rows) {
+        rows = rows || [];
+        absorb(rows);
+        if (rows.length === PAGE) return page(offset + PAGE);   /* a full page may not be the last */
+      });
+    }
+
+    return page(0).then(function () {
+      var d = new Date(w.from + 'T12:00:00'), end = new Date(w.to + 'T12:00:00');
+      while (d <= end) { loaded[ymd(d)] = true; d.setDate(d.getDate() + 1); }
+      idxState = 'ready';
+      console.info('[avail] index: ' + idxCount + ' entr' + (idxCount === 1 ? 'y' : 'ies') +
+        ' for ' + Object.keys(idx).length + ' caregiver(s), ' + w.from + ' → ' + w.to +
+        ', ' + (Date.now() - t0) + 'ms');
+    }).catch(function (e) {
+      idxState = 'error'; idxErr = (e && e.message) || String(e);
+      console.warn('[avail] index failed', e);
+    }).then(function () {
+      try { render(); } catch (e) {}
+    });
+  }
+
+  /* What one caregiver can do on one date, answered synchronously.
+
+     A scheduler's typed row is the ONLY thing that makes somebody
+     available: no row means not available. But a date nobody has reached
+     yet is a different thing from a date we failed to load, so the two
+     load failures keep their own states and no caller may treat them as
+     an answer.
+
+        open      an Open row covers part of the day; wins says when
+        blocked   rows exist, none of them Open; label says which kind
+        none      inside the window, nothing recorded -> not available
+        unloaded  that date has not been fetched yet
+        unloaded  the index has not landed yet
+        error / unconfigured                                          */
+  function dayAvail(cgId, date) {
+    var ds = dateKey(date);
+    if (idxState === 'unconfigured' || idxState === 'error') {
+      return { state: idxState, wins: [], blocks: [], label: 'Availability not loaded' };
+    }
+    /* Judged per DATE, not by whether the roster-wide prefetch has finished.
+       Gating on idxState meant a day the scheduler had just saved \u2014 which we
+       know the contents of exactly \u2014 still answered "unloaded" until the
+       prefetch settled, so Find Coverage showed nobody and only a reload
+       fixed it. A date we hold is answerable whatever else is in flight. */
+    if (!loaded[ds]) {
+      return { state: 'unloaded', wins: [], blocks: [],
+               label: idxState === 'loading' ? 'Loading availability\u2026'
+                                             : 'Availability not loaded for that date' };
+    }
+    var days = idx[cgId];
+    var blocks = (days && days[ds]) || [];
+    if (!blocks.length) return { state: 'none', wins: [], blocks: [], label: 'No availability entered' };
+
+    var wins = [], words = [];
+    blocks.forEach(function (b) {
+      if (b.status === 'Open') { if (!b.allDay) wins.push([b.start, b.end]); }
+      else if (words.indexOf(b.status) < 0) words.push(b.status);
+    });
+    if (wins.length) {
+      wins.sort(function (a, b) { return a[0] - b[0]; });
+      return { state: 'open', wins: wins, blocks: blocks, label: '' };
+    }
+    return { state: 'blocked', wins: [], blocks: blocks, label: words.join(' \u00b7 ') || 'Unavailable' };
+  }
+
+  /* Every loaded day this caregiver has an Open block on. The reports and
+     the assistant ask about a span rather than about one date, and the
+     window the index already holds is exactly that span. */
+  function openDays(cgId) {
+    var days = idx[cgId], out = [];
+    if (idxState !== 'ready' || !days) return out;
+    Object.keys(days).sort().forEach(function (ds) {
+      var wins = [];
+      days[ds].forEach(function (b) { if (b.status === 'Open' && !b.allDay) wins.push([b.start, b.end]); });
+      if (wins.length) out.push({ day: ds, wins: wins });
+    });
+    return out;
+  }
+
+  /* True only when a typed Open row covers the whole of s..e (decimal
+     hours; an overnight is stored on its start date and runs past 24). */
+  function coversOn(cgId, date, s, e) {
+    var d = dayAvail(cgId, date);
+    if (d.state !== 'open') return false;
+    return d.wins.some(function (w) { return w[0] <= s && w[1] >= e; });
+  }
+
+  /* saveDays already re-reads byCg; the index is patched in place from the
+     segments just written, so Find Coverage agrees with the calendar
+     without a second round trip. */
+  function patchIndex(c, dates, segs) {
+    if (!c || c.axisId == null) return;
+    var k = c.id, days = idx[k] || (idx[k] = {});
+    (dates || []).forEach(function (ds) {
+      /* We now know exactly what this date holds, so it counts as loaded
+         even if no fetch ever covered it. Without this a later fetchDates
+         would pull the same rows in again and double them. */
+      loaded[ds] = true;
+      idxCount -= (days[ds] || []).length;
+      if (!segs || !segs.length) { delete days[ds]; return; }
+      days[ds] = segs.map(function (sg) {
+        return toBlock({
+          id: null, on_date: ds, status: sg.status, all_day: !!sg.allDay,
+          start_min: sg.allDay ? null : sg.startMin, end_min: sg.allDay ? null : sg.endMin,
+          note: sg.note || null, updated_at: null, updated_by: 'Carlo'
+        });
+      });
+      idxCount += days[ds].length;
+    });
   }
 
   /* Replace whole days, through the database function so the delete and
@@ -10341,6 +10546,7 @@ var AVAIL = (function () {
       });
     }).then(function (res) {
       delete byCg[c.id]; delete inFlight[c.id];   /* re-read rather than guess */
+      patchIndex(c, dates, segs);                 /* keep the roster index in step */
       load(c);
       return res;
     });
@@ -10349,8 +10555,10 @@ var AVAIL = (function () {
   return {
     load: load, forDay: forDay, status: status, info: info, retry: retry,
     saveDays: saveDays,
-    forDateAllCaregivers: forDateAllCaregivers,
-    _reset: function () { byCg = {}; inFlight = {}; }
+    primeIndex: primeIndex, dayAvail: dayAvail, coversOn: coversOn, openDays: openDays,
+    fetchDates: fetchDates, searchWindow: searchWindow, isLoaded: isLoaded,
+    indexStatus: indexStatus, indexInfo: indexInfo,
+    _reset: function () { byCg = {}; inFlight = {}; idx = {}; loaded = {}; pending = {}; idxState = 'idle'; idxCount = 0; }
   };
 })();
 

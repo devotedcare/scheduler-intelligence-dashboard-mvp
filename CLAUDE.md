@@ -376,6 +376,98 @@ has been entered for anyone — and papered over the visits that matter.
 That is also why green and red are rare on real data today: only assigned visits
 come from AxisCare. Availability is entered by schedulers, in the day panel.
 
+## How availability works
+
+**A caregiver is available only on dates where a scheduler logged an `Open`
+block.** A date with nothing recorded means not available. AxisCare class tags
+never count. This is Carlo's rule, decided 2026-08-26, and it is deliberately
+strict: Find Coverage should never offer somebody the desk has not confirmed.
+
+Rows live in `public.caregiver_availability`, one per segment, keyed by the
+**AxisCare numeric id**. An overnight is stored on its **start date** with
+`end_min` past 1440, so 8pm–8am is `1200..1920` and reads as `20..32` in the
+decimal hours the calendar uses — the same shape an AxisCare overnight visit has.
+
+**Partial coverage is never shown.** A caregiver free 10–1 cannot take a 9–5
+shift, and listing them costs a call that ends in no. `coverageDetail()` returns
+`full` or it returns `none`; there is no `partial`. If nobody can take the whole
+shift, the screen says so.
+
+### Two caches, one purpose each
+
+| | |
+|---|---|
+| `AVAIL.load(c)` | one caregiver, the full 13-month calendar window. Fetched when a profile is opened, for the month grid. |
+| `AVAIL.primeIndex()` | **every** caregiver, a week back to the end of next month. One paginated query at the end of `finishBoot()`. Warms the reports, the assistant and the profile. |
+| `AVAIL.fetchDates([…])` | **every** caregiver, specific dates, on demand. Find Coverage calls this when you press Search, so any date in the recordable span can be searched even though boot never warmed it. |
+
+What is loaded is tracked as a **set of dates**, not a range — that is what lets
+an on-demand fetch answer like any other date. `AVAIL.searchWindow()` is the
+span availability can exist for at all (one month back to eleven months on,
+matching the calendar's month arrows); the date pickers are bounded by it,
+because outside it there is nothing to find.
+
+Saving a day marks that date loaded, since the app then knows exactly what it
+holds. Without that a later `fetchDates` would pull the same rows in again and
+double them — and a fetch clears its span before absorbing, for the same reason.
+
+**Find Coverage runs on a button, not on every render.** `state.covRun` records
+the dates, times and city that were actually searched, so the results always
+describe the search that produced them rather than whatever the controls say now.
+
+**A search always asks the database.** `fetchDates(dates, true)` re-reads even
+dates already cached, so a scheduler who has just entered availability — or a
+colleague who entered it in another browser — sees it without reloading. A stale
+coverage search is the worst kind of wrong: it says nobody is free when somebody
+is, and gives the reader no way to tell. The round trip is cheap; do not
+"optimise" it back into a cache hit.
+
+`dayAvail()` judges a date by whether **that date** is loaded, never by whether
+the roster-wide prefetch has finished. Gating on the global status was a real
+bug: a day the scheduler had just saved still answered `unloaded` until the
+prefetch settled, so Find Coverage showed nobody and only a hard refresh fixed
+it.
+
+Keep them separate. `load()` returns early when its cache already has an entry,
+so priming it from the narrower window would leave a profile calendar marked
+`ready` with months that were never fetched — drawn blank, which reads as
+"nothing recorded".
+
+Neither belongs in `state`: they are not the scheduler's typed work, and a few
+hundred segments there would be diffed into the CLOUD overlay and written to
+Supabase. That is the 323KB bug in *Don't break these*.
+
+### `AVAIL.dayAvail()` returns a state, not an array
+
+**Claude: do not collapse these into a boolean.** Three of them mean "not
+available" and three mean "no answer yet", and the difference is the whole
+point — a failed fetch otherwise looks exactly like an empty agency.
+
+| State | Means |
+|---|---|
+| `open` | an `Open` block; `wins` carries the hours |
+| `blocked` | rows exist, none `Open` — `label` says which kind |
+| `none` | in range, nothing recorded → **not available** |
+| `outrange` | the date is outside the loaded window |
+| `unloaded` | the index has not landed yet |
+| `error` / `unconfigured` | it could not load, or there are no Supabase keys |
+
+Every caller must render the last three as "not loaded" and never as a
+negative. `AVAIL.openDays(cgId)` answers the same question over the whole
+window, for the reports and the assistant.
+
+`availTone()` is the single place the green/red judgement is made.
+
+### What this replaced
+
+Availability used to be a weekly rule (`ops.avail2`, keyed `Mon`..`Sun`) plus
+dated overrides, derived from the class tags. The editor for it was removed in
+full, along with `OFF_TYPES`, `NOT_OPEN`, `RULE_STATUS`, `dayAvail`,
+`availDayLabel`, `windowsForDay` and the day panel that wrote them. Find
+Coverage asked about **weekdays**; it now asks about **dates**, because per-date
+rows cannot answer "who works Mondays" without inferring a pattern — which is
+the weekly rule coming back through the side door.
+
 ### Long client names truncate; times do not
 
 Real names are long — `Duane & Lynne Georgeson`, `Raymond "Nacho" Banales Jr.`
@@ -558,17 +650,19 @@ they work is encoded as class tags. Counts are across active caregivers:
 availability. They should still appear in any roster with empty skills — hiding
 real staff would be worse than showing an incomplete profile.
 
-**"Not tagged" is not "not available".** On live data **93 of the 184** active
-caregivers have no `WKDY`/`WKND`/`AD` tag, so AxisCare has said nothing about
-when they work. `availKnown` records that. Their weekly rule is left **empty**,
-which makes the calendar draw an empty month — the honest reading. Writing
-`{type:'Off'}` instead once made the calendar assert a red **Unavailable** on
-every day of half the roster, which is how a scheduler skips someone who is free.
+**The class tags are not availability, and nothing reads them as availability
+any more.** On live data **93 of the 184** active caregivers have no
+`WKDY`/`WKND`/`AD` tag. Treating that silence as a schedule was the source of a
+whole family of bugs: every untagged caregiver was excluded from shift
+suggestions as *"Unavailable today"*, and because `hours` defaulted to `'Days'`
+and `c.win` to 8a–5p, the report tile *"Daytime Caregivers"* was arithmetically
+guaranteed to equal the size of the roster.
 
-Still open, same shape: `toAppCaregiver` sets `hours: m.hours || 'Days'`, so the
-**92** caregivers with no hours tag read as working *Days* and get a default
-`c.win` of 8a–5p. `hoursKnown` records that it is a guess and nothing reads it.
-The desired-hours filter and window matching use it as though it were fact.
+Availability now comes from **`public.caregiver_availability`** — per-date rows
+a scheduler typed. See *How availability works* below. The fields `c.avail`,
+`c.win`, `c.today`, `ops.avail2` and `ops.availOverrides` still exist on the
+caregiver record but no longer answer any availability question; they are due
+for removal and should not be given new readers.
 
 ### `/api/clients`
 
@@ -678,10 +772,10 @@ just explain what was found and move to what does work.
 | Caregiver reliability %, call-off count, decline count | **No such field.** `null` on real caregivers, rendered as "Not tracked". *Derivable* from `/api/visits` — compare `clockIn.time` against `scheduledStartDate`, and treat a visit with no `clockIn` as a no-show. |
 | Hours worked this week | **No such field.** Derivable by summing visit durations per caregiver over a date range. |
 | Which clients a caregiver has served before | **No such field**, but easily derived — `/api/visits?caregiverIds=…` returns exactly that. The caregiver calendar does it. |
-| A Mon–Sun availability grid | **Does not exist.** Only the coarse class tags above (`WKDY`, `WKND`, `MRNNG`, `NOVRN`…), and only for 60% of caregivers. |
+| A Mon–Sun availability grid | **Does not exist in AxisCare.** Only the coarse class tags above (`WKDY`, `WKND`, `MRNNG`, `NOVRN`…), and only for 60% of caregivers — and those are *not* read as availability. The dashboard keeps its own per-date availability in Supabase; see *How availability works*. |
 | A clinical skills list | **Does not exist** as a field. Only class tags. |
 | Client medications | **Cannot be fetched.** A limitation in AxisCare's own API, confirmed on the Client Concierge dashboard where the medications call returns `403` on every client. The Medication List screen here is demo data. Not fixable in code, and no re-sync or deploy would change it. |
-| Caregiver availability (a Mon–Sun grid) | **Does not exist.** The calendar shows *assigned visits*, which are real. The open/unavailable days beside them come from availability a scheduler typed in, not from AxisCare. |
+| Caregiver availability | **AxisCare has none.** The calendar shows *assigned visits*, which are real. The open and unavailable blocks beside them are per-date rows a scheduler typed into this app's own Supabase table, and only those count. |
 | Writing anything back to AxisCare | Not possible through this app. The proxy is read-only by design and forwards GET only. |
 
 The pattern worth internalising: **AxisCare knows identity, status, location,
