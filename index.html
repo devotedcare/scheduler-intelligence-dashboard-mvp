@@ -8148,6 +8148,17 @@ function cgpPick(id,name){
   if(p) p.setAttribute('hidden','');
   if(state.cgp&&state.cgp[id]) state.cgp[id].open=false;
 }
+/* Clients arrive asynchronously too. Refill the open Client selects in
+   place - same markup, same options, just the complete list. */
+function attClientsChanged(){
+  ['atClient','afClient'].forEach(function(id){
+    const el=document.getElementById(id); if(!el) return;
+    const cur=el.value, any=el.options.length?el.options[0]:null;
+    const head=(any && any.value==='') ? '<option value="">'+any.textContent+'</option>' : '';
+    el.innerHTML=head+(state.clients||[]).map(c=>`<option${c.name===cur?' selected':''}>${gEsc(c.name)}</option>`).join('');
+    el.value=cur;
+  });
+}
 /* Called when the roster is swapped in mid-session. */
 function cgpRosterChanged(){
   document.querySelectorAll('.cgp-panel:not([hidden])').forEach(function(p){
@@ -8871,8 +8882,13 @@ var AxisLive = (function () {
     };
   }
 
+  var lastClientFetch = null;   /* what the last client fetch actually returned */
+  /* Every active client, complete. This had the same silent truncation as
+     the caregiver roster: nextPage was followed only when it matched
+     startAfterId=<digits>, so any other cursor shape returned page one and
+     said nothing. The active filter stays local, on status.active. */
   function fetchClients(get) {
-    var out = [], guard = 0;
+    var out = [], seen = {}, pages = 0, cut = null;
     function page(after) {
       var q = { limit: 100 };
       if (after != null) q.startAfterId = after;
@@ -8880,16 +8896,30 @@ var AxisLive = (function () {
         var r = (res && res.data && res.data.results) || {};
         var raw = r.clients;
         var list = Array.isArray(raw) ? raw : Object.keys(raw || {}).map(function (k) { return raw[k]; });
-        out = out.concat(list);
-        var next = r.nextPage;
-        if (next && ++guard < 20) {
-          var m = /[?&]startAfterId=(\d+)/.exec(next);
-          if (m) return page(m[1]);
-        }
-        return out.filter(function (c) { return c.status && c.status.active; });
+        pages++;
+
+        var fresh = 0;
+        list.forEach(function (c) {
+          var id = c && c.id;
+          if (id == null || seen[id]) return;
+          seen[id] = 1; out.push(c); fresh++;
+        });
+
+        if (!r.nextPage) return out;
+        if (!fresh) return out;                        /* cursor stopped advancing */
+        if (pages >= 60) { cut = 'stopped after ' + pages + ' pages'; return out; }
+        var cur = axPageCursor(r.nextPage, list);
+        if (cur == null) { cut = 'could not read the nextPage cursor'; return out; }
+        return page(cur);
       });
     }
-    return page(null);
+    return page(null).then(function (all) {
+      var active = all.filter(function (c) { return c && c.status && c.status.active; });
+      lastClientFetch = { fetched: all.length, active: active.length, pages: pages, truncated: cut };
+      if (cut) console.warn('[clients] INCOMPLETE client fetch \u2014 ' + cut + '; got ' + all.length);
+      else console.info('[clients] fetched ' + all.length + ' clients over ' + pages + ' page(s) \u2014 ' + active.length + ' active');
+      return active;
+    });
   }
 
   /* ---------- open shifts ---------- */
@@ -9060,6 +9090,8 @@ var AxisLive = (function () {
   return {
     mapClient: mapClient,
     fetchClients: fetchClients,
+    /* What the last client fetch actually returned - for verifying the count. */
+    lastClientFetch: function () { return lastClientFetch; },
     fetchOpenShifts: fetchOpenShifts,
     mapOpenShift: mapOpenShift,
     fetchCaregiverVisits: fetchCaregiverVisits,
@@ -9395,6 +9427,7 @@ var ROSTER = (function () {
       state.caregivers = kept.concat(real);
       /* Anything showing a caregiver list needs to know it just changed. */
       try { if (typeof cgpRosterChanged === 'function') cgpRosterChanged(); } catch (e) {}
+      try { if (typeof attClientsChanged === 'function') attClientsChanged(); } catch (e) {}
 
       var valid = {};
       state.caregivers.forEach(function (c) { valid[c.id] = 1; });
@@ -9855,6 +9888,21 @@ const CLOUD = (function(){
    `_missing`, so the UI can say "not tracked" rather than
    showing a confident wrong value.
    ========================================================= */
+/* Reads the next-page cursor out of an AxisCare nextPage, whatever shape it
+   takes: a full URL, a bare query string, or a plain token. Falls back to the
+   highest id in the page just read, so an unfamiliar shape keeps paging
+   instead of silently returning a partial list. */
+function axPageCursor(next, list) {
+  var m = /[?&](?:startAfterId|after|afterId|cursor|pageToken)=([^&]+)/.exec(String(next || ''));
+  if (m) return decodeURIComponent(m[1]);
+  if (next != null && /^[\w.:-]+$/.test(String(next)) && String(next) !== 'true') return String(next);
+  var max = null;
+  (list || []).forEach(function (c) {
+    if (c && c.id != null && (max === null || Number(c.id) > Number(max))) max = c.id;
+  });
+  return max;
+}
+
 var AxisRoster = (function () {
   'use strict';
 
@@ -10025,18 +10073,6 @@ var AxisRoster = (function () {
     var limit = opts.limit || 100;
     var out = [], seen = {}, pages = 0, cut = null;
 
-    function cursorFrom(next, list) {
-      var m = /[?&](?:startAfterId|after|afterId|cursor|pageToken)=([^&]+)/.exec(String(next || ''));
-      if (m) return decodeURIComponent(m[1]);
-      if (next != null && /^[\w.:-]+$/.test(String(next)) && String(next) !== 'true') return String(next);
-      /* Unfamiliar shape: page from the highest id we hold rather than stop. */
-      var max = null;
-      list.forEach(function (c) {
-        if (c && c.id != null && (max === null || Number(c.id) > Number(max))) max = c.id;
-      });
-      return max;
-    }
-
     function page(after) {
       var q = { limit: limit };
       if (after != null) q.startAfterId = after;
@@ -10058,7 +10094,7 @@ var AxisRoster = (function () {
         if (!results.nextPage) return out;
         if (!fresh) return out;                       /* cursor stopped advancing */
         if (pages >= 60) { cut = 'stopped after ' + pages + ' pages'; return out; }
-        var cur = cursorFrom(results.nextPage, list);
+        var cur = axPageCursor(results.nextPage, list);
         if (cur == null) { cut = 'could not read the nextPage cursor'; return out; }
         return page(cur);
       });
