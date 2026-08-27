@@ -182,3 +182,364 @@ create policy "anon read care notes"
 -- Care-note sync health:
 --   select * from public.care_notes_sync;
 --   select count(*), min(visit_at), max(visit_at) from public.care_notes;
+
+-- ==============================================================
+-- 6. Caregiver availability  (scheduler-entered, one row per segment)
+-- --------------------------------------------------------------
+-- WHAT THIS REPLACES. The dashboard used to hold a weekly rule per
+-- caregiver plus a list of date overrides, generated from sample data and
+-- kept in the shared overlay blob. Both are gone. A caregiver's
+-- availability is now exactly what a scheduler typed against a DATE, and
+-- nothing else. A date nobody has filled in is BLANK, which honestly means
+-- "we have not been told" rather than "unavailable".
+--
+-- AxisCare visits are NOT stored here. They are fetched live per caregiver
+-- and painted on top. Storing them would create a second copy that goes
+-- stale the moment a visit moves.
+--
+-- WHAT A ROW IS. One segment of one caregiver's one day. The browser
+-- computes the segments before saving, so what is in this table is what is
+-- drawn:  "Open 8a-5p" then Add "Unavailable 12p-1p"  is stored as
+--     Open 08:00-12:00 | Unavailable 12:00-13:00 | Open 13:00-17:00
+-- and reading a day is a plain select with no merge logic on top.
+--
+-- WHY THE CHECKS ARE STRICT. The predecessor table in the other system
+-- allowed any status with any time shape, and accumulated malformed rows -
+-- untimed "Open" claiming 24 hours, part-of-day words nobody set. Those
+-- rows are why this is a fresh table rather than a shared one. The rules
+-- live in the DATABASE so a browser bug cannot write a shape the calendar
+-- then has to guess at.
+-- --------------------------------------------------------------
+
+-- Needed for the no-overlap guarantee below.
+create extension if not exists btree_gist;
+
+create table if not exists public.caregiver_availability (
+  id           bigint      generated always as identity primary key,
+  caregiver_id bigint      not null,          -- AxisCare id (312), not the app's 'a312'
+  on_date      date        not null,          -- the day this segment belongs to
+  status       text        not null,
+  all_day      boolean     not null default false,
+  -- Minutes from midnight on on_date. An overnight segment runs PAST 1440:
+  -- 8pm-8am is 1200 -> 1920. It belongs entirely to its START date, which is
+  -- the same rule the calendar already uses for AxisCare visits, so overnight
+  -- looks identical whoever recorded it.
+  start_min    smallint,
+  end_min      smallint,
+  note         text,
+  updated_by   text        not null default 'Carlo',   -- placeholder until there are logins
+  created_at   timestamptz not null default now(),
+  updated_at   timestamptz not null default now(),
+
+  -- 'Devoted Shift' is deliberately absent: those come from AxisCare.
+  -- 'Custom' is absent too - in the old table it was both a status and a
+  -- time mode, which is how half the bad rows happened.
+  constraint caregiver_availability_status_ck check (status in (
+    'Open', 'Unavailable', 'Vacation', 'Sick',
+    'School', 'Childcare', 'Appointment', 'Other Agency'
+  )),
+
+  -- All-day carries no hours; a timed segment carries both.
+  constraint caregiver_availability_shape_ck check (
+    (all_day and start_min is null and end_min is null)
+    or (not all_day and start_min is not null and end_min is not null)
+  ),
+
+  -- Open MAY be all-day: that is a caregiver free the whole of that date,
+  -- 00:00-24:00, and Find Coverage reads it as covering any shift inside the
+  -- day. It used to be forbidden (open_timed_ck) on the reasoning that an
+  -- untimed Open promised hours nobody had stated; the desk decided the
+  -- opposite - 'free all day' is a real answer a scheduler gives, and the
+  -- calendar shows no time because no time IS the statement. The drop is
+  -- applied below so databases created before 2026-08-27 pick it up.
+  -- Vacation is a whole-day state. Nobody takes two hours of vacation.
+  constraint caregiver_availability_vacation_allday_ck check (
+    status <> 'Vacation' or all_day
+  ),
+  -- Being somewhere at a time is what these mean, so they need the time.
+  constraint caregiver_availability_timed_only_ck check (
+    status not in ('School', 'Childcare', 'Appointment') or not all_day
+  ),
+
+  -- Within the day, and forward. end_min may pass 1440 (overnight) but a
+  -- segment can never be longer than 24 hours.
+  constraint caregiver_availability_range_ck check (
+    all_day or (
+      start_min >= 0 and start_min < 1440
+      and end_min > start_min and end_min <= 2880
+      and end_min - start_min <= 1440
+    )
+  )
+);
+
+-- A day is either one all-day statement or a set of timed segments, never
+-- both, and the timed ones never overlap. The browser already computes
+-- non-overlapping segments; this is the seatbelt, and it is the single
+-- constraint that would have prevented the old table's mess.
+create unique index if not exists caregiver_availability_allday_uq
+  on public.caregiver_availability (caregiver_id, on_date)
+  where all_day;
+
+-- Open became a whole-day state on 2026-08-27. Dropping a check only ever
+-- widens what is allowed, so no existing row can be invalidated by this.
+alter table public.caregiver_availability
+  drop constraint if exists caregiver_availability_open_timed_ck;
+
+alter table public.caregiver_availability
+  drop constraint if exists caregiver_availability_no_overlap;
+alter table public.caregiver_availability
+  add constraint caregiver_availability_no_overlap
+  exclude using gist (
+    caregiver_id with =,
+    on_date with =,
+    int4range(start_min::int, end_min::int) with &&
+  ) where (not all_day);
+
+-- The two reads this table gets, and nothing else:
+--   one caregiver's calendar   caregiver_id = X and on_date between A and B
+--   Find Coverage for a date   on_date = D  (across the whole roster)
+create index if not exists caregiver_availability_cg_date_idx
+  on public.caregiver_availability (caregiver_id, on_date);
+create index if not exists caregiver_availability_date_idx
+  on public.caregiver_availability (on_date);
+
+comment on table public.caregiver_availability is
+  'Scheduler-entered availability. One row per segment per caregiver per day. AxisCare visits are NOT stored here.';
+comment on column public.caregiver_availability.caregiver_id is
+  'AxisCare caregiver id, so the data transfers to the release app unchanged.';
+comment on column public.caregiver_availability.start_min is
+  'Minutes from midnight on on_date. end_min > 1440 means the segment runs into the next morning.';
+
+-- Keep updated_at honest without the browser having to remember.
+create or replace function public.touch_caregiver_availability()
+returns trigger language plpgsql as $$
+begin
+  new.updated_at = now();
+  return new;
+end $$;
+
+drop trigger if exists caregiver_availability_touch on public.caregiver_availability;
+create trigger caregiver_availability_touch
+  before update on public.caregiver_availability
+  for each row execute function public.touch_caregiver_availability();
+
+-- --------------------------------------------------------------
+-- Row-level security
+-- --------------------------------------------------------------
+-- The browser writes this table directly with the anon key, including
+-- DELETE - "Clear" empties a day and "Set day" replaces one. That is the
+-- same posture already accepted for scheduler_state, and it is reviewed in
+-- README.md under Security posture. It is an MVP on an unlisted URL; when
+-- logins arrive these become `to authenticated`.
+alter table public.caregiver_availability enable row level security;
+
+drop policy if exists "anon read availability"   on public.caregiver_availability;
+drop policy if exists "anon insert availability" on public.caregiver_availability;
+drop policy if exists "anon update availability" on public.caregiver_availability;
+drop policy if exists "anon delete availability" on public.caregiver_availability;
+
+create policy "anon read availability"
+  on public.caregiver_availability for select
+  to anon, authenticated using (true);
+
+create policy "anon insert availability"
+  on public.caregiver_availability for insert
+  to anon, authenticated with check (true);
+
+create policy "anon update availability"
+  on public.caregiver_availability for update
+  to anon, authenticated using (true) with check (true);
+
+create policy "anon delete availability"
+  on public.caregiver_availability for delete
+  to anon, authenticated using (true);
+
+-- --------------------------------------------------------------
+-- Pruning - keep only what the calendar can reach
+-- --------------------------------------------------------------
+-- The caregiver calendar shows last month through the same month next
+-- year. Once September arrives, July of last year can no longer be opened,
+-- so its rows are unreachable and are deleted. Nothing is written for
+-- empty months, so the table only ever holds days somebody filled in.
+create or replace function public.prune_caregiver_availability()
+returns integer language plpgsql security definer set search_path = public as $$
+declare
+  -- cast AFTER the subtraction: date - interval yields a timestamp, and
+  -- letting it coerce back to date on assignment is the kind of implicit
+  -- step that quietly shifts by a day under a non-UTC server timezone.
+  cutoff date := (date_trunc('month', current_date) - interval '1 month')::date;
+  removed integer;
+begin
+  delete from public.caregiver_availability where on_date < cutoff;
+  get diagnostics removed = row_count;
+  return removed;
+end $$;
+
+comment on function public.prune_caregiver_availability() is
+  'Deletes availability older than the first day of last month - the earliest date the calendar can open.';
+
+-- Run it monthly. pg_cron has to be enabled once, under
+-- Database > Extensions in the Supabase dashboard; until then, calling the
+-- function by hand does the same job.
+--   create extension if not exists pg_cron;
+--   select cron.schedule('prune-caregiver-availability', '0 3 1 * *',
+--                        $$select public.prune_caregiver_availability()$$);
+--
+-- By hand:  select public.prune_caregiver_availability();
+
+notify pgrst, 'reload schema';
+
+-- --------------------------------------------------------------
+-- Handy checks
+-- --------------------------------------------------------------
+--   select count(*), min(on_date), max(on_date) from public.caregiver_availability;
+--   select status, count(*) from public.caregiver_availability group by 1 order by 2 desc;
+--
+-- One caregiver's month, the way the calendar reads it:
+--   select on_date, status, all_day, start_min, end_min, note
+--     from public.caregiver_availability
+--    where caregiver_id = 312 and on_date between '2026-09-01' and '2026-09-30'
+--    order by on_date, start_min;
+--
+-- Prove the guards work (each of these should FAIL):
+--   insert into public.caregiver_availability (caregiver_id, on_date, status, all_day, start_min, end_min)
+--     values (312, '2026-09-01', 'Vacation', false, 540, 1020);    -- Vacation is whole-day
+--
+-- (An all-day Open used to belong in that list. Since 2026-08-27 it is
+--  LEGAL and means the caregiver is free the whole of that date.)
+--   insert into public.caregiver_availability (caregiver_id, on_date, status, all_day, start_min, end_min)
+--     values (312, '2026-09-02', 'Open', false, 540, 1020),
+--            (312, '2026-09-02', 'Open', false, 600, 1080);        -- segments may not overlap
+
+-- ==============================================================
+-- 6b. Writing a day  (run once, after section 6)
+-- --------------------------------------------------------------
+-- WHY A FUNCTION AND NOT TWO REQUESTS. Saving a day means "this date now
+-- holds exactly these segments", which is a DELETE followed by an INSERT.
+-- Done from the browser that is two round trips, and a dropped connection
+-- between them leaves the day EMPTY - the scheduler's work deleted and
+-- nothing put back. Inside a function the pair is one transaction: it
+-- either replaces the day or changes nothing.
+--
+-- It also takes an ARRAY of dates, so "apply to selected days" is one call
+-- that either writes all of them or none, instead of thirty writes that can
+-- half-fail.
+-- --------------------------------------------------------------
+
+-- A day is EITHER one whole-day statement OR a set of timed segments.
+-- The unique index already stops two all-day rows, and the exclusion
+-- constraint stops two timed rows overlapping, but nothing stopped an
+-- all-day row sitting alongside timed ones - which reads as a day that is
+-- both "Unavailable all day" and "Open 9-5", and the calendar would have to
+-- guess. The browser never writes that shape; this is the seatbelt.
+create or replace function public.caregiver_availability_day_shape()
+returns trigger language plpgsql as $$
+declare
+  n_allday integer;
+  n_timed  integer;
+begin
+  select count(*) filter (where all_day),
+         count(*) filter (where not all_day)
+    into n_allday, n_timed
+    from public.caregiver_availability
+   where caregiver_id = new.caregiver_id and on_date = new.on_date;
+
+  if n_allday > 0 and n_timed > 0 then
+    raise exception
+      'a day is either one whole-day entry or timed segments, not both (caregiver % on %)',
+      new.caregiver_id, new.on_date
+      using errcode = 'check_violation';
+  end if;
+  return null;
+end $$;
+
+drop trigger if exists caregiver_availability_day_shape_t on public.caregiver_availability;
+create constraint trigger caregiver_availability_day_shape_t
+  after insert or update on public.caregiver_availability
+  deferrable initially deferred
+  for each row execute function public.caregiver_availability_day_shape();
+
+-- --------------------------------------------------------------
+-- Replace one or more days with exactly these segments.
+--
+--   select public.set_availability_days(
+--     1108, array['2026-09-03','2026-09-04']::date[],
+--     '[{"status":"Open","all_day":false,"start_min":540,"end_min":1020,"note":null}]'::jsonb,
+--     'Carlo');
+--
+-- An empty array of segments CLEARS the days, which is what the panel's
+-- Clear does. Returns how many rows it wrote.
+-- --------------------------------------------------------------
+create or replace function public.set_availability_days(
+  p_caregiver_id bigint,
+  p_dates        date[],
+  p_segments     jsonb,
+  p_updated_by   text default 'Carlo'
+) returns integer
+language plpgsql
+security invoker
+set search_path = public
+as $$
+declare
+  written integer := 0;
+  n       integer;          -- GET DIAGNOSTICS needs its own target
+  d date;
+begin
+  if p_caregiver_id is null then
+    raise exception 'caregiver_id is required' using errcode = 'null_value_not_allowed';
+  end if;
+  if p_dates is null or array_length(p_dates, 1) is null then
+    return 0;
+  end if;
+
+  -- One transaction for every date named. The deferred shape trigger fires
+  -- at COMMIT, so a day passes through an intermediate state mid-statement
+  -- without tripping it.
+  foreach d in array p_dates loop
+    delete from public.caregiver_availability
+     where caregiver_id = p_caregiver_id and on_date = d;
+
+    insert into public.caregiver_availability
+      (caregiver_id, on_date, status, all_day, start_min, end_min, note, updated_by)
+    select p_caregiver_id, d,
+           s->>'status',
+           coalesce((s->>'all_day')::boolean, false),
+           nullif(s->>'start_min', '')::smallint,
+           nullif(s->>'end_min', '')::smallint,
+           nullif(btrim(coalesce(s->>'note', '')), ''),
+           coalesce(nullif(btrim(p_updated_by), ''), 'Carlo')
+      from jsonb_array_elements(coalesce(p_segments, '[]'::jsonb)) s;
+
+    -- GET DIAGNOSTICS assigns a diagnostic ITEM to a variable; it cannot
+    -- take an expression, so the running total is added separately.
+    get diagnostics n = row_count;
+    written := written + n;
+  end loop;
+
+  return written;
+end $$;
+
+comment on function public.set_availability_days(bigint, date[], jsonb, text) is
+  'Replaces each named date with exactly the given segments, in one transaction. Empty segments clears the days.';
+
+grant execute on function public.set_availability_days(bigint, date[], jsonb, text) to anon, authenticated;
+
+notify pgrst, 'reload schema';
+
+-- --------------------------------------------------------------
+-- Handy checks
+-- --------------------------------------------------------------
+-- Write a day, read it back, then clear it:
+--   select public.set_availability_days(999999, array['2026-09-03']::date[],
+--     '[{"status":"Open","all_day":false,"start_min":540,"end_min":720,"note":null},
+--       {"status":"Unavailable","all_day":false,"start_min":720,"end_min":780,"note":null},
+--       {"status":"Open","all_day":false,"start_min":780,"end_min":1020,"note":null}]'::jsonb);
+--   select on_date, status, all_day, start_min, end_min from public.caregiver_availability
+--    where caregiver_id = 999999 order by start_min;
+--   select public.set_availability_days(999999, array['2026-09-03']::date[], '[]'::jsonb);
+--
+-- The shape trigger should REFUSE this (all-day beside a timed segment):
+--   select public.set_availability_days(999999, array['2026-09-04']::date[],
+--     '[{"status":"Unavailable","all_day":true},
+--       {"status":"Open","all_day":false,"start_min":540,"end_min":1020}]'::jsonb);
+
