@@ -1696,7 +1696,7 @@
   .sp-body .field label.dp-timefield{display:flex;flex-direction:column;gap:7px;
     text-transform:none;letter-spacing:0;font-size:12px;font-weight:650;
     color:var(--ink-soft);margin-bottom:0}
-  .dp-scope{display:flex;flex-direction:column;gap:11px}
+  .dp-scope{display:flex;flex-direction:column;gap:8px}.dp-repeat{margin-top:10px;padding:10px 12px;background:var(--panel-head);border:1px solid var(--line);border-radius:8px}.dp-repeat .dp-timefield{margin-bottom:8px}.dp-rep-count{font-size:12px;color:var(--ink-soft);line-height:1.45}.dp-rep-count b{color:var(--ink)}.dp-rep-note{font-size:12px;color:var(--ink-soft);line-height:1.45;margin-top:6px}
   .dp-scope-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 
   /* A rule between sections rather than around them: the panel reads as
@@ -6559,6 +6559,8 @@ function openDayPanel(cgId, dateISO){
     allDay: false,               /* Custom is the common case; All day is now legal for Open too */
     from: '09:00', to: '17:00',
     note: '',
+    scope: 'one',                /* one | picked | weekly | biweekly | monthly | until */
+    repeatEnd: '',
     multi: false, picked: {}, pickOff: null,
     saving: false, error: null
   };
@@ -6578,10 +6580,66 @@ function dpSet(field, value){
 }
 function dpNote(v){ modalState.note = String(v||'').slice(0, AV_NOTE_MAX); }
 function dpTime(field, v){ modalState[field] = v; modalState.error = null; }
-function dpScope(multi){
-  modalState.multi = !!multi;
+/* One setter for all six choices. modalState.multi stays in step because the
+   day picker, the Deselect button and dpTargets all read it. */
+function dpScope(scope){
+  modalState.scope = scope;
+  modalState.multi = (scope === 'picked');
+  if(scope !== 'until') { /* an end date only means anything on a bounded repeat */ }
+  else modalState.repeatEnd = '';
   if(modalState.pickOff === null) modalState.pickOff = state.cgCalMonth || 0;
+  modalState.error = null;
   renderDayPanel();
+}
+function dpRepeatEnd(v){ modalState.repeatEnd = v || ''; modalState.error = null; renderDayPanel(); }
+const DP_REPEATS = {
+  weekly:   {label:'Repeat weekly',        step:'week',  n:1},
+  biweekly: {label:'Repeat every 2 weeks', step:'week',  n:2},
+  monthly:  {label:'Repeat monthly',       step:'month', n:1},
+  until:    {label:'Repeat until changed', step:'week',  n:1}
+};
+/* Every date a repeat would write, from the anchor forward.
+
+   Rows are MATERIALISED, one per date, exactly like a hand-entered day. That
+   is deliberate: every reader — the calendar, Find Coverage, the reports —
+   keeps working unchanged, the AxisCare carve still runs per date, and a
+   one-off exception saved later on a single date replaces only that date's
+   rows and leaves the rest of the series standing. A stored rule expanded at
+   read time would need a new table and a change to every reader.
+
+   The cost is a horizon: rows can only exist for dates the app can read, so a
+   repeat stops at the end of AVAIL.searchWindow() (the eleventh month ahead)
+   and is re-entered after that. dpRepeatCount() puts the number on screen so
+   nobody has to guess how far it reached. */
+function dpRepeatDates(scope, anchor, endISO){
+  const cfg = DP_REPEATS[scope];
+  if(!cfg) return [anchor];
+  const win = (typeof AVAIL!=='undefined' && AVAIL.searchWindow) ? AVAIL.searchWindow() : null;
+  let last = win ? win.to : null;
+  if(scope !== 'until' && endISO && (!last || endISO < last)) last = endISO;
+  if(!last) return [anchor];
+  const out = [], a = new Date(anchor+'T12:00:00');
+  const dom = a.getDate();
+  for(let i=0; i<400; i++){
+    let d;
+    if(cfg.step === 'week'){
+      d = new Date(a); d.setDate(d.getDate() + i*7*cfg.n);
+    } else {
+      d = new Date(a.getFullYear(), a.getMonth()+i*cfg.n, dom, 12, 0, 0);
+      /* A repeat anchored on the 31st simply has no March date. Skip it -
+         sliding to the 1st would record a day nobody asked for. */
+      if(d.getDate() !== dom) continue;
+    }
+    const ds = dateKey(d);
+    if(ds > last) break;
+    out.push(ds);
+  }
+  return out.length ? out : [anchor];
+}
+function dpRepeatCount(){
+  const scope = modalState.scope;
+  if(!DP_REPEATS[scope]) return 0;
+  return dpRepeatDates(scope, dateKey(new Date(modalState.dayDate)), modalState.repeatEnd).length;
 }
 function dpPickNav(d){
   const n = (modalState.pickOff||0) + d;
@@ -6616,8 +6674,10 @@ function dpDraft(){
 
 function dpTargets(){
   const anchor = dateKey(new Date(modalState.dayDate));
+  const scope = modalState.scope || (modalState.multi ? 'picked' : 'one');
+  if(DP_REPEATS[scope]) return dpRepeatDates(scope, anchor, modalState.repeatEnd);
   const others = Object.keys(modalState.picked).filter(k => k !== anchor);
-  return modalState.multi ? [anchor].concat(others) : [anchor];
+  return scope === 'picked' ? [anchor].concat(others) : [anchor];
 }
 
 /* The visits on one date that can actually be carved against, in MINUTES.
@@ -6773,6 +6833,50 @@ function dpClear(){
 /* The compact month grid for choosing which OTHER dates a save reaches.
    Numbers only: it answers "which days", not "what is on them" — repeating
    the schedule here would make it argue with the calendar behind. */
+/* The six choices, plus the end date a bounded repeat may carry. The count
+   line is not decoration: a repeat writes one row per date, so the scheduler
+   should see how many days they are about to record and how far it reaches. */
+function dpScopeHTML(busy){
+  const scope = modalState.scope || 'one';
+  const dis = busy ? 'disabled' : '';
+  const radio = (k,label) => `<label class="dp-radio"><input type="radio" name="dp-scope" ${scope===k?'checked':''} ${dis} onchange="dpScope('${k}')"><span>${label}</span></label>`;
+  const rows = `<div class="dp-scope">
+      ${radio('one','This date only')}
+      <div class="dp-scope-row">
+        ${radio('picked','Selected days')}
+        ${scope==='picked' && Object.keys(modalState.picked).length?`<button type="button" class="btn sm" onclick="dpDeselect()">Deselect all</button>`:''}
+      </div>
+      ${radio('weekly',DP_REPEATS.weekly.label)}
+      ${radio('biweekly',DP_REPEATS.biweekly.label)}
+      ${radio('monthly',DP_REPEATS.monthly.label)}
+      ${radio('until',DP_REPEATS.until.label)}
+    </div>`;
+  if(scope==='picked') return rows + dpPicker();
+  if(!DP_REPEATS[scope]) return rows;
+
+  const dates = dpTargets();
+  const n = dates.length;
+  const lastOn = n ? avLongDate(dates[n-1]) : '';
+  /* The horizon caveat is only worth saying when the repeat actually ran into
+     it. On a repeat the scheduler bounded themselves it is just noise. */
+  const win = (typeof AVAIL!=='undefined' && AVAIL.searchWindow) ? AVAIL.searchWindow() : null;
+  const hitEdge = !!(win && n && dates[n-1] > addDaysStr(win.to, -31));
+  const endField = scope==='until'
+    ? `<div class="dp-rep-note">No end date \u2014 this is their standing schedule.</div>`
+    : `<label class="dp-timefield"><span class="dp-timelabel">End date <span class="dp-optional">(optional)</span></span>
+         <input class="ein" type="date" value="${esc(modalState.repeatEnd||'')}" min="${esc(dateKey(new Date(modalState.dayDate)))}" ${dis} onchange="dpRepeatEnd(this.value)"></label>`;
+  return rows + `<div class="dp-repeat">
+      ${endField}
+      <div class="dp-rep-count">Records <b>${n} date${n===1?'':'s'}</b>, through ${lastOn}.${hitEdge?
+        ' Availability can only be stored up to eleven months ahead, so the repeat stops there and is entered again after that.':''}</div>
+      <div class="dp-rep-note">A one-off vacation or unavailable day saved later on a single date replaces only
+        that date \u2014 the rest of the repeat stays.</div>
+    </div>`;
+}
+function avLongDate(ds){
+  try{ return new Date(ds+'T12:00:00').toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}); }
+  catch(e){ return ds; }
+}
 function dpPicker(){
   const off = modalState.pickOff || 0;
   const first = new Date(NOW.getFullYear(), NOW.getMonth() + off, 1);
@@ -6857,14 +6961,7 @@ function renderDayPanel(){
 
     <div class="field">
       <label>Apply this to</label>
-      <div class="dp-scope">
-        <label class="dp-radio"><input type="radio" name="dp-scope" ${modalState.multi?'':'checked'} ${busy?'disabled':''} onchange="dpScope(false)"><span>This date only</span></label>
-        <div class="dp-scope-row">
-          <label class="dp-radio"><input type="radio" name="dp-scope" ${modalState.multi?'checked':''} ${busy?'disabled':''} onchange="dpScope(true)"><span>Selected days</span></label>
-          ${modalState.multi && Object.keys(modalState.picked).length?`<button type="button" class="btn sm" onclick="dpDeselect()">Deselect all</button>`:''}
-        </div>
-      </div>
-      ${modalState.multi?dpPicker():''}
+      ${dpScopeHTML(busy)}
     </div>
 
     <div class="field">
