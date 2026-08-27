@@ -383,6 +383,25 @@ block.** A date with nothing recorded means not available. AxisCare class tags
 never count. This is Carlo's rule, decided 2026-08-26, and it is deliberately
 strict: Find Coverage should never offer somebody the desk has not confirmed.
 
+**An `Open` block may be timed or whole-day.** Whole-day means free the whole
+of *that date*, 00:00—24:00, and Find Coverage reads it as covering any shift
+inside the day. The calendar draws it with **no time at all**, because no time
+*is* the statement — `dayBlocks()` sets `full` and `blkTime()` returns `''`.
+
+It covers that date and stops at midnight. A 10pm—2am shift is **not** matched
+by a whole-day Open, because somebody free "all day Tuesday" has said nothing
+about Wednesday. A caregiver who genuinely works overnight is entered as a
+timed block, which is stored past 1440 and carries — see *An overnight answers
+for the morning it runs into*.
+
+> This changed on **2026-08-27**. Until then a CHECK constraint
+> (`caregiver_availability_open_timed_ck`) forbade it, on the reasoning that an
+> untimed Open claimed hours nobody had stated. The desk decided the opposite:
+> "free all day" is a real answer a scheduler gives. The constraint is dropped
+> in `schema.sql`, and the 506 migrated rows that were `Open 00:00—24:00` — the
+> old app’s `Anytime` label — were converted to whole-day rows, which is what
+> they always meant.
+
 Rows live in `public.caregiver_availability`, one per segment, keyed by the
 **AxisCare numeric id**. An overnight is stored on its **start date** with
 `end_min` past 1440, so 8pm–8am is `1200..1920` and reads as `20..32` in the
@@ -399,6 +418,19 @@ already correct.
 **Only `Open` is carved.** A visit landing on Vacation, Unavailable, School or
 Other Agency is a *disagreement between two systems*, not something to resolve
 silently — `calDayStatus()` sets `conflict` and the day panel says so.
+
+**A whole-day `Open` is carved too, and loses its whole-day shape doing it.**
+The table has no way to say "all day except 1—2pm", so `Open all day` on a date
+with a 1pm—2pm visit stores `Open 00:00—13:00` and `Open 14:00—24:00`. That is
+not a wart: leaving it uncarved would hand Find Coverage a caregiver already on
+a visit, which is the single failure the carve exists to prevent. A deferred
+trigger (`caregiver_availability_day_shape_t`) enforces the rest — a day is one
+whole-day entry *or* timed segments, never both — so there is no shape where a
+whole-day Open sits beside a timed row.
+
+A visit of **24 hours or more is not carvable** (`carvableVisits` treats it as a
+`mapCgVisit` artefact) so the block is left standing and flagged, exactly as it
+was before.
 
 Consequences, all deliberate:
 
@@ -487,7 +519,7 @@ point — a failed fetch otherwise looks exactly like an empty agency.
 
 | State | Means |
 |---|---|
-| `open` | an `Open` block; `wins` carries the hours |
+| `open` | an `Open` block; `wins` carries the hours — a whole-day Open reads as `[[0,24]]` |
 | `blocked` | rows exist, none `Open` — `label` says which kind |
 | `none` | in range, nothing recorded → **not available** |
 | `outrange` | the date is outside the loaded window |
@@ -499,6 +531,36 @@ negative. `AVAIL.openDays(cgId)` answers the same question over the whole
 window, for the reports and the assistant.
 
 `availTone()` is the single place the green/red judgement is made.
+
+### Where the existing rows came from
+
+The table was seeded on **2026-08-27** from the previous app's
+`caregiver_availability_overrides`, so schedulers did not have to retype a
+year of availability. **6,693 rows, 138 caregivers, 2026-03-04 → 2026-12-31.**
+
+`updated_by` carries the original author across — Mae, Beatrice, Angelica,
+Sunshine, Tine, Jen and others who never used *this* app. That is deliberate:
+the day panel's history line should say who actually made the call.
+
+Three things about the old data are worth knowing before trusting a row:
+
+- The old table stored a **window label** (`Anytime`, `Morning`, `Afternoon`,
+  `Evening`, `Overnight`) where this one stores minutes. They were resolved
+  with the old app's own `TYPE_WIN` — `Anytime` 00:00–24:00, `Morning`
+  06:00–12:00, `Afternoon` 12:00–17:00, `Evening` 17:00–22:00, `Overnight`
+  22:00–06:00. So a migrated `Open` is often exactly 0–1440 or 1320–1800,
+  which is a *label*, not hours anyone typed.
+- The old table had **no unique constraint**, so an edit left its predecessor
+  behind. 6,628 of 6,692 days held one row; the rest were resolved
+  newest-wins. One day genuinely holds two segments (caregiver 1176 on
+  2026-08-08) and kept both.
+- **`Devoted Shift` was a status in the old table** and is deliberately not one
+  here — 24 such rows were dropped. AxisCare is the system of record for
+  visits; see *AxisCare visits carve, at save time* above.
+
+These rows predate the carve, so a migrated `Open` was **never carved against
+AxisCare visits**. A caregiver can therefore read as Open across hours they
+are already booked for. Re-saving the day in the panel carves it correctly.
 
 ### What this replaced
 

@@ -245,11 +245,13 @@ create table if not exists public.caregiver_availability (
     or (not all_day and start_min is not null and end_min is not null)
   ),
 
-  -- Open must state its hours. An untimed Open claims all 24 and Find
-  -- Coverage would read it as covering any shift - a promise nobody made.
-  constraint caregiver_availability_open_timed_ck check (
-    status <> 'Open' or not all_day
-  ),
+  -- Open MAY be all-day: that is a caregiver free the whole of that date,
+  -- 00:00-24:00, and Find Coverage reads it as covering any shift inside the
+  -- day. It used to be forbidden (open_timed_ck) on the reasoning that an
+  -- untimed Open promised hours nobody had stated; the desk decided the
+  -- opposite - 'free all day' is a real answer a scheduler gives, and the
+  -- calendar shows no time because no time IS the statement. The drop is
+  -- applied below so databases created before 2026-08-27 pick it up.
   -- Vacation is a whole-day state. Nobody takes two hours of vacation.
   constraint caregiver_availability_vacation_allday_ck check (
     status <> 'Vacation' or all_day
@@ -277,6 +279,11 @@ create table if not exists public.caregiver_availability (
 create unique index if not exists caregiver_availability_allday_uq
   on public.caregiver_availability (caregiver_id, on_date)
   where all_day;
+
+-- Open became a whole-day state on 2026-08-27. Dropping a check only ever
+-- widens what is allowed, so no existing row can be invalidated by this.
+alter table public.caregiver_availability
+  drop constraint if exists caregiver_availability_open_timed_ck;
 
 alter table public.caregiver_availability
   drop constraint if exists caregiver_availability_no_overlap;
@@ -395,10 +402,11 @@ notify pgrst, 'reload schema';
 --    order by on_date, start_min;
 --
 -- Prove the guards work (each of these should FAIL):
---   insert into public.caregiver_availability (caregiver_id, on_date, status, all_day)
---     values (312, '2026-09-01', 'Open', true);                    -- Open must be timed
 --   insert into public.caregiver_availability (caregiver_id, on_date, status, all_day, start_min, end_min)
 --     values (312, '2026-09-01', 'Vacation', false, 540, 1020);    -- Vacation is whole-day
+--
+-- (An all-day Open used to belong in that list. Since 2026-08-27 it is
+--  LEGAL and means the caregiver is free the whole of that date.)
 --   insert into public.caregiver_availability (caregiver_id, on_date, status, all_day, start_min, end_min)
 --     values (312, '2026-09-02', 'Open', false, 540, 1020),
 --            (312, '2026-09-02', 'Open', false, 600, 1080);        -- segments may not overlap

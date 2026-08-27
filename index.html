@@ -6106,10 +6106,23 @@ function _h12u(h){ const t=_hmin(h); let hr=Math.floor(t/60)%12; if(hr===0)hr=12
    the date held; `Add` carves the new entry into what is already there.  */
 
 const AV_STATUSES = ['Open','Unavailable','Vacation','Sick','School','Childcare','Appointment','Other Agency'];
-/* Open must state its hours — an untimed Open claims all 24, and Find
-   Coverage would read it as covering any shift. The others here are
-   statements about being somewhere at a time, so they need the time too. */
-const AV_TIMED_ONLY  = ['Open','School','Childcare','Appointment'];
+/* Being somewhere at a time is what these mean, so they need the time.
+
+   Open is deliberately NOT here. An untimed Open means the caregiver is
+   free the whole of that date, 00:00–24:00, and Find Coverage reads it as
+   covering any shift inside the day — which is the statement a scheduler
+   is making when they pick All day. The calendar draws it with no time,
+   because no time IS the statement.
+
+   It covers that DATE and stops at midnight. A 10pm–2am shift is NOT
+   matched by it, and marking the FOLLOWING date All day does not help —
+   carryWindows() contributes nothing from an all-day row, and
+   coverageDetail() needs one window covering 22..26. A caregiver who works
+   overnight is entered as hours, 20:00–08:00, which store as 1200..1920 and
+   carry into the next morning. That is the only shape that answers an
+   overnight, and it is deliberate: otherwise every all-day Open would
+   become a two-day claim nobody made. */
+const AV_TIMED_ONLY  = ['School','Childcare','Appointment'];
 /* Nobody takes two hours of vacation. */
 const AV_ALLDAY_ONLY = ['Vacation'];
 const AV_NOTE_MAX = 200;
@@ -6140,7 +6153,34 @@ function hhmmToMin(s){
    "Open 9-5" is Unavailable 12a-9a · Open 9a-5p · Unavailable 5p-12a,
    which is what a scheduler means by it. */
 function spliceDay(existing, add){
-  if(add.allDay) return [Object.assign({}, add)];
+  const cur = (existing||[]);
+
+  /* A whole-day statement replaces the day — you cannot be on Vacation and
+     at an appointment. The exception is a whole-day OPEN being ADDED to a
+     day that already holds something: `Add` promises to keep what the day
+     holds, and an entry that wins across all 24 hours would keep nothing,
+     which is what `Set day` is for. So the recorded entries stand and the
+     Open fills the gaps around them — Appointment 2–3p plus Add Open all day
+     is Open 12a–2p · Appointment 2–3p · Open 3p–12a, which is what a
+     scheduler means by it. On an empty day it is simply the whole-day row,
+     so the shape (and the calendar’s no-time rendering) is preserved. */
+  if(add.allDay && !(add.status === 'Open' && cur.length)) return [Object.assign({}, add)];
+  if(add.allDay){
+    const busy = cur.map(s0 => s0.allDay ? [0,1440] : [s0.startMin, s0.endMin])
+                    .sort((a,b)=>a[0]-b[0]);
+    const gaps = carveWindow(0, 1440, busy);
+    /* Nothing free — leave the day exactly as it is rather than rewriting
+       a whole-day row into an identical timed one. */
+    if(!gaps.length) return cur.map(s0=>Object.assign({}, s0));
+    const filled = cur.map(s0 => s0.allDay
+      ? { status:s0.status, allDay:false, startMin:0, endMin:1440, note:s0.note }
+      : Object.assign({}, s0));
+    gaps.forEach(([a,b]) => filled.push(
+      Object.assign({}, add, {allDay:false, startMin:a, endMin:b})));
+    filled.sort((a,b)=>a.startMin-b.startMin);
+    return filled;
+  }
+
   const out = [];
   (existing||[]).forEach(s0=>{
     const s = s0.allDay
@@ -6164,7 +6204,7 @@ function openDayPanel(cgId, dateISO){
     dayCg: cgId, dayDate: dateISO,
     verb: 'set',                 /* the common statement; Add is the exception */
     status: 'Open',
-    allDay: false,               /* Open must be timed, so Custom is the default */
+    allDay: false,               /* Custom is the common case; All day is now legal for Open too */
     from: '09:00', to: '17:00',
     note: '',
     multi: false, picked: {}, pickOff: null,
@@ -6263,15 +6303,27 @@ function carveWindow(a, b, vis){
 
 /* Only Open is carved. A visit landing on Vacation, Unavailable, School or
    Other Agency is a disagreement between AxisCare and the scheduler — that
-   is a conflict for somebody to look at, not something to resolve here. */
+   is a conflict for somebody to look at, not something to resolve here.
+
+   An all-day Open is carved too, and LOSES its all-day shape doing it:
+   the table has no way to say "all day except 1p–2p", so it becomes the
+   timed segments that survive the day’s visits. That is the whole point of
+   carving at save time — leaving an uncarved all-day Open standing would
+   hand Find Coverage a caregiver who is already on a visit, which is the
+   one failure this function exists to prevent.
+
+   A visit that swallows the entire day leaves NO segment, so nothing is
+   written for it. That is correct: they are fully booked, and the day",
+   reads as "nothing recorded", which already means not available. */
 function carveSegs(c, ds, segs){
   const v=carvableVisits(c, ds);
   if(!v.wins.length) return (segs||[]).map(x=>Object.assign({}, x));
   const out=[];
   (segs||[]).forEach(sg=>{
-    if(sg.status!=='Open' || sg.allDay){ out.push(Object.assign({}, sg)); return; }
-    carveWindow(sg.startMin, sg.endMin, v.wins)
-      .forEach(w=>out.push(Object.assign({}, sg, {startMin:w[0], endMin:w[1]})));
+    if(sg.status!=='Open'){ out.push(Object.assign({}, sg)); return; }
+    const a = sg.allDay ? 0 : sg.startMin, b = sg.allDay ? 1440 : sg.endMin;
+    carveWindow(a, b, v.wins)
+      .forEach(w=>out.push(Object.assign({}, sg, {allDay:false, startMin:w[0], endMin:w[1]})));
   });
   out.sort((x,y)=>(x.allDay?-1:x.startMin)-(y.allDay?-1:y.startMin));
   return out;
@@ -6300,26 +6352,34 @@ function dpSave(){
      visits. Reading `existing` per date is what stops a multi-date Add
      copying the anchor's carved holes onto days that have no such visit. */
   const byDate = {};
-  let allGone = false;
+  const swallowed = [];
   dates.forEach(ds=>{
     const base = modalState.verb === 'set'
       ? [d.entry]
       : spliceDay(((typeof AVAIL!=='undefined') ? AVAIL.forDay(c.id, ds) : []), d.entry);
     const carved = carveSegs(c, ds, base);
-    /* The entry the scheduler just typed was swallowed whole by a visit. */
-    if(!carveSegs(c, ds, [d.entry]).length) allGone = true;
+    /* The entry the scheduler just typed was swallowed whole by a visit.
+       SKIP the date rather than writing its empty result: saveDays treats an
+       empty segment list as “clear this date”, so writing it would erase what
+       the day already held — on a multi-date save, a silent wipe of the one
+       day that happened to be fully booked. Leaving it untouched is the
+       honest outcome, and the visit is already on the grid to explain it. */
+    if(!carveSegs(c, ds, [d.entry]).length){ swallowed.push(ds); return; }
     byDate[ds] = carved;
   });
 
-  if(allGone && dates.length===1){
-    modalState.error = 'That whole window is already a Devoted visit, so there is nothing left to record.';
+  const writing = Object.keys(byDate);
+  if(!writing.length){
+    modalState.error = dates.length===1
+      ? 'That whole window is already a Devoted visit, so there is nothing left to record.'
+      : 'Every date you picked is already covered by Devoted visits, so there is nothing left to record.';
     renderDayPanel(); return;
   }
 
   /* One write per distinct result, so each stays a single transaction and
      the in-memory index is patched with the same shape it was written in. */
   const groups = {};
-  dates.forEach(ds=>{ const k=JSON.stringify(byDate[ds]); (groups[k]||(groups[k]=[])).push(ds); });
+  writing.forEach(ds=>{ const k=JSON.stringify(byDate[ds]); (groups[k]||(groups[k]=[])).push(ds); });
 
   modalState.saving = true; modalState.error = null; renderDayPanel();
   Promise.all(Object.keys(groups).map(k=>AVAIL.saveDays(c, groups[k], JSON.parse(k))))
@@ -10602,7 +10662,12 @@ var AVAIL = (function () {
 
     var wins = [], words = [];
     blocks.forEach(function (b) {
-      if (b.status === 'Open') { if (!b.allDay) wins.push([b.start, b.end]); }
+      /* An all-day Open is the whole of this date and nothing beyond it.
+         Reading it as [0,24] is what lets every caller — coverageDetail,
+         the reports, the assistant — treat it like any other window
+         without special-casing. Before this it pushed no window at all,
+         so the function fell through and reported the day as blocked. */
+      if (b.status === 'Open') { wins.push(b.allDay ? [0, 24] : [b.start, b.end]); }
       else if (words.indexOf(b.status) < 0) words.push(b.status);
     });
     if (wins.length) {
@@ -10620,7 +10685,7 @@ var AVAIL = (function () {
     if (idxState !== 'ready' || !days) return out;
     Object.keys(days).sort().forEach(function (ds) {
       var wins = [];
-      days[ds].forEach(function (b) { if (b.status === 'Open' && !b.allDay) wins.push([b.start, b.end]); });
+      days[ds].forEach(function (b) { if (b.status === 'Open') wins.push(b.allDay ? [0, 24] : [b.start, b.end]); });
       if (wins.length) out.push({ day: ds, wins: wins });
     });
     return out;
