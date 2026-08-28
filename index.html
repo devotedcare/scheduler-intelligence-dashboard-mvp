@@ -1191,6 +1191,10 @@
   .cglr-go{flex:none;font-size:12px;font-weight:700;color:var(--brand);display:flex;align-items:center;gap:3px}
   /* ===== workspace ===== */
   .ws-back{background:none;border:none;color:var(--brand);font-weight:700;font-size:13px;cursor:pointer;display:inline-flex;align-items:center;gap:4px;padding:2px 0;margin-bottom:12px}
+  .ws-x{margin-left:4px;width:30px;height:30px;border:1px solid var(--line-strong);background:#fff;border-radius:var(--r);color:var(--ink-soft);font-size:19px;line-height:1;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;justify-content:center}
+  .ws-x:hover{border-color:var(--crit-solid);color:var(--crit-solid)}
+  .cvm-nmlink{font:inherit;color:inherit;background:none;border:none;padding:0;cursor:pointer;text-decoration:underline;text-underline-offset:2px;text-decoration-color:var(--line-strong)}
+  .cvm-nmlink:hover{color:var(--brand);text-decoration-color:var(--brand)}
   .ws-head{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:10px}
   .ws-name{font-size:23px;font-weight:800;letter-spacing:-.3px;color:var(--ink)}
   .ws-meta{font-size:13px;color:var(--ink-soft);margin-top:3px;font-weight:600}
@@ -1332,7 +1336,7 @@
   .pref-row{margin-top:11px;font-size:13px;color:var(--ink)}
   /* print: workspace only */
   @media print{
-    .sidebar,.topbar,.ws-back,.ws-head-acts,.ws-axis,.cal-nav,.resume-acts{display:none!important}
+    .sidebar,.topbar,.ws-back,.ws-x,.ws-head-acts,.ws-axis,.cal-nav,.resume-acts{display:none!important}
     .app,.main,.content{display:block!important;margin:0!important;padding:0!important}
     .ws-grid{grid-template-columns:1fr 1fr!important}
     body{background:#fff!important}
@@ -5820,7 +5824,7 @@ function covMatchRow(r,q,rank){
   return `<div class="cvm-row${rank===1?' first':''}">
     <div class="cvm-rank">${rank}</div>
     <div class="cvm-main">
-      <div class="cvm-nm">${cg.name}</div>
+      <div class="cvm-nm"><button type="button" class="cvm-nmlink" onclick="openCgFromCoverage('${cg.id}')" title="Open ${esc(cg.name)}\u2019s calendar">${cg.name}</button></div>
       <div class="cvm-facts">${facts}</div>
       ${why?`<div class="cvm-why">${why}</div>`:''}
     </div>
@@ -6270,7 +6274,16 @@ function availDaysUntilDue(c){ const d=availNextDue(c); return d?Math.ceil((d-NO
 function availDue(c){ const n=availDaysUntilDue(c); return n!=null && n<=0; }
 function fmtDate(d){ return new Date(d).toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}); }
 function fmtTenure(d){ const days=Math.max(0,Math.floor((NOW-new Date(d))/864e5)); const y=Math.floor(days/365), m=Math.floor((days%365)/30); const parts=[]; if(y)parts.push(y+' year'+(y===1?'':'s')); parts.push(m+' month'+(m===1?'':'s')); return parts.join(' '); }
-function openCaregiver(id){ state.cgOpen=id; state.cgCalMonth=0; state.view='avail'; render(); window.scrollTo(0,0); }
+function openCaregiver(id){ state.cgReturn=null; state.cgOpen=id; state.cgCalMonth=0; state.view='avail'; render(); window.scrollTo(0,0); }
+/* Opened from a row on Find Coverage. The only thing recorded is where to
+   go back to - none of the coverage state (client, date, shift, filters,
+   contact log, the ranked list) is touched, so closing re-renders exactly
+   the screen that was left. */
+function openCgFromCoverage(id){ openCaregiver(id); state.cgReturn='coverage'; render(); }
+function closeCgCalendar(){
+  state.cgOpen=null; state.cgReturn=null; state.view='coverage';
+  render(); window.scrollTo(0,0);
+}
 function backToCaregivers(){ state.cgOpen=null; render(); }
 function viewAvail(){
   if(state.cgOpen) return viewCaregiverWorkspace(cgById(state.cgOpen));
@@ -7458,7 +7471,8 @@ function viewCaregiverWorkspace(c){
   const travelBody = `<div class="ws-yn-grid">${tpRow('Has own vehicle',c.ownVehicle)}${tpRow('Can transport clients',c.driver)}</div>
     <div class="pref-row"><span class="pref-l">Maximum travel distance</span> ${nt(ops.maxMiles, ' miles')}</div>
     <div class="pref-row"><span class="pref-l">Preferred cities</span> ${c.prefCities.join(', ')||'\u2014'}</div>`;
-  return `<button class="ws-back" onclick="backToCaregivers()">${ic('chevL',14)} All caregivers</button>
+  const fromCov = state.cgReturn==='coverage';
+  return `<button class="ws-back" onclick="${fromCov?'closeCgCalendar()':'backToCaregivers()'}">${ic('chevL',14)} ${fromCov?'Back to Find Coverage':'All caregivers'}</button>
     <div class="dc-printhead">${dcLetterhead('Caregiver Profile', c.name)}</div>
     <div class="ws-headrow">
       <div class="ws-name">${c.name}${cgGoesBy(c)}</div>
@@ -7466,6 +7480,7 @@ function viewCaregiverWorkspace(c){
         <button class="btn sm" onclick="editCaregiver('${c.id}')">${ic('log',13)} Edit Profile</button>
         <button class="btn sm" onclick="openResumeModal('${c.id}')">${ic('coverage',13)} Send Resume</button>
         <button class="btn sm" onclick="printProfile('${c.id}')">${ic('log',13)} Print</button>
+        ${fromCov?`<button class="ws-x" onclick="closeCgCalendar()" title="Close and go back to Find Coverage" aria-label="Close">\u00d7</button>`:''}
       </div>
     </div>
     <div class="ws-updated">Last Updated: <b>${fmtUpdated(ops.lastUpdated)}</b> \u00b7 Updated by <b>${ops.lastUpdatedBy || "Not tracked"}</b></div>
