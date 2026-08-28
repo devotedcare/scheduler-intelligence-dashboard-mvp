@@ -5953,7 +5953,7 @@ function dsRow(r,sq){
   const exact=true;   /* only whole-shift matches reach this row */
   const chips=r.perDate.map(p=>{ const cls=p.cov==='full'?'ok':(p.cov==='partial'?'part':(p.cov==='conflict'?'conf':'no')); return `<span class="ds-chip ${cls}" title="${esc(p.label)}">${fmtDateShort(p.ds)}</span>`; }).join('');
   return `<div class="ds-row">
-    <div class="ds-rtop"><span class="ds-name">${esc(r.cg.name)}</span><span class="ds-badge ${exact?'ok':'part'}">${ic('check',12)} Available ${r.total===1?'this date':('all '+r.total+' dates')}</span></div>
+    <div class="ds-rtop"><span class="ds-name"><button type="button" class="cvm-nmlink" onclick="openCgFromCoverage('${r.cg.id}')" title="Open ${esc(r.cg.name)}\u2019s calendar">${esc(r.cg.name)}</button></span><span class="ds-badge ${exact?'ok':'part'}">${ic('check',12)} Available ${r.total===1?'this date':('all '+r.total+' dates')}</span></div>
     <div class="ds-meta">${miles(r.cg.base,sq.city||r.cg.base)}mi${hasVal(r.cg.weekHrs)?' \u00b7 '+r.cg.weekHrs+'h/wk':''}${hasVal(r.cg.reliability)?' \u00b7 '+r.cg.reliability+'% reliable':''}${r.cg.driver?' \u00b7 driver':''}</div>
     <div class="ds-chips">${chips}</div>
     <div class="ds-acts"><button class="btn sm" onclick="manualCall('${r.cg.id}')">${ic('phone',12)} Call</button></div>
