@@ -1727,7 +1727,7 @@
 
   /* The picker answers "which days", not "what is on them" — numbers only,
      so it never argues with the calendar behind the panel. */
-  .dp-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 16px 9px}.dp-date{font-size:13.5px;font-weight:650;color:var(--ink)}.dp-head .mc{cursor:pointer;color:var(--ink-faint);font-size:19px;line-height:1;background:none;border:none;padding:0 2px;font-family:inherit}.dp-head .mc:hover{color:var(--ink)}.dp-body{padding:4px 16px 14px}.dp-sec{margin-bottom:13px}.dp-sec:last-child{margin-bottom:4px}.dp-lab{font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-faint);margin-bottom:6px}.dp-segs{display:inline-flex;background:var(--panel-head);border:1px solid var(--line);border-radius:7px;padding:2px;gap:2px}.dp-seg{font-family:inherit;font-size:12.5px;font-weight:650;color:var(--ink-soft);background:none;border:none;border-radius:5px;padding:5px 13px;cursor:pointer;white-space:nowrap}.dp-seg.on{background:#fff;color:var(--ink);font-weight:700;box-shadow:0 1px 2px rgba(0,0,0,.08)}.dp-seg:disabled{opacity:.45;cursor:default}.dp-picked{display:flex;align-items:center;gap:9px;margin-top:7px;font-size:12.5px;color:var(--ink-soft)}.dp-link{font-family:inherit;font-size:12.5px;font-weight:650;color:var(--brand);background:none;border:none;padding:0;cursor:pointer;text-decoration:underline}.dp-link:disabled{opacity:.5;cursor:default}.dp-note{width:100%;box-sizing:border-box;font-family:inherit;font-size:13px;color:var(--ink);background:#fff;border:1px solid var(--line-strong);border-radius:7px;padding:8px 10px;min-height:62px;resize:vertical;outline:none}.dp-note:focus{border-color:var(--brand)}.dp-body .dp-times{margin-top:8px}.dp-body .dpk{margin-top:8px;padding:8px}.dpk{margin-top:11px;border:1px solid var(--line);border-radius:var(--r);padding:10px}
+  .dp-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 16px 9px}.dp-date{font-size:13.5px;font-weight:650;color:var(--ink)}.dp-head .mc{cursor:pointer;color:var(--ink-faint);font-size:19px;line-height:1;background:none;border:none;padding:0 2px;font-family:inherit}.dp-head .mc:hover{color:var(--ink)}.dp-body{padding:14px 16px 14px}.dp-sec{margin-bottom:13px}.dp-sec:last-child{margin-bottom:4px}.dp-lab{font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-faint);margin-bottom:6px}.dp-segs{display:inline-flex;background:var(--panel-head);border:1px solid var(--line);border-radius:7px;padding:2px;gap:2px}.dp-seg{font-family:inherit;font-size:12.5px;font-weight:650;color:var(--ink-soft);background:none;border:none;border-radius:5px;padding:5px 13px;cursor:pointer;white-space:nowrap}.dp-seg.on{background:#fff;color:var(--ink);font-weight:700;box-shadow:0 1px 2px rgba(0,0,0,.08)}.dp-seg:disabled{opacity:.45;cursor:default}.dp-picked{display:flex;align-items:center;gap:9px;margin-top:7px;font-size:12.5px;color:var(--ink-soft)}.dp-link{font-family:inherit;font-size:12.5px;font-weight:650;color:var(--brand);background:none;border:none;padding:0;cursor:pointer;text-decoration:underline}.dp-link:disabled{opacity:.5;cursor:default}.dp-note{width:100%;box-sizing:border-box;font-family:inherit;font-size:13px;color:var(--ink);background:#fff;border:1px solid var(--line-strong);border-radius:7px;padding:8px 10px;min-height:62px;resize:vertical;outline:none}.dp-note:focus{border-color:var(--brand)}.dp-body .dp-times{margin-top:8px}.dp-body .dpk{margin-top:8px;padding:8px}.dpk{margin-top:11px;border:1px solid var(--line);border-radius:var(--r);padding:10px}.dp-nav{display:grid;grid-template-columns:repeat(5,1fr);border-bottom:1px solid var(--line);padding:0 6px}.dp-tab{display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 2px;background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-1px;cursor:pointer;font-family:inherit;font-size:10.5px;font-weight:650;letter-spacing:-.1px;color:var(--ink-faint);min-width:0}.dp-tab svg{display:block;flex:none}.dp-tab:hover{color:var(--ink-soft)}.dp-tab.on{color:var(--brand);border-bottom-color:var(--brand);font-weight:750}.dp-tab:disabled{opacity:.45;cursor:default}.dp-soon{padding:30px 18px 34px;text-align:center;color:var(--ink-faint)}.dp-soon .dp-soon-i{color:var(--line-strong);margin-bottom:10px}.dp-soon-t{font-size:13.5px;font-weight:700;color:var(--ink-soft);margin-bottom:4px}.dp-soon-d{font-size:12.5px;line-height:1.5;max-width:30ch;margin:0 auto}.dp-hint{font-size:11.5px;line-height:1.45;color:var(--ink-faint);margin:8px 0 0}.dp-by{font-size:11.5px;color:var(--ink-faint);margin-top:7px}
   .dpk-bar{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:9px}
   .dpk-label{font-size:13px;font-weight:700;color:var(--ink)}
   .dpk-dow{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:2px;margin-bottom:4px}
@@ -2581,6 +2581,9 @@ const I = {
   droplet:'<path d="M12 3.5s6 6.3 6 10.5a6 6 0 11-12 0c0-4.2 6-10.5 6-10.5z" stroke="currentColor" stroke-width="2" fill="none" stroke-linejoin="round"/>',
   utensils:'<path d="M6 3v7a2.2 2.2 0 002.2 2.2L8 21M5 3v4.5M8 3v4.5M18.5 3c-1.8 0-3 2-3 5s1.2 4 3 4l-.2 9" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
   eye:'<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" stroke="currentColor" stroke-width="2" fill="none" stroke-linejoin="round"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2" fill="none"/>',
+  trash:'<path d="M3.5 6.5h17M9.5 6.5V4.6a1.1 1.1 0 011.1-1.1h2.8a1.1 1.1 0 011.1 1.1v1.9M6 6.5l.9 13.1a1.5 1.5 0 001.5 1.4h7.2a1.5 1.5 0 001.5-1.4L18 6.5M10 10.5v6.5M14 10.5v6.5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
+  refresh:'<path d="M20.5 12a8.5 8.5 0 11-2.49-6.01" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/><path d="M20.5 3.5v4.8h-4.8" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
+  history:'<path d="M3.5 12a8.5 8.5 0 108.5-8.5 8.4 8.4 0 00-6.01 2.49" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/><path d="M3.5 3.5v4.8h4.8" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 7.8V12l3.2 1.9" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
   bell:'<path d="M18 8.5a6 6 0 10-12 0c0 6-2.5 7.5-2.5 7.5h17S18 14.5 18 8.5M13.6 19.5a2 2 0 01-3.2 0" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
 };
 const ic = (k,sz=17) => `<svg class="ico" width="${sz}" height="${sz}" viewBox="0 0 24 24">${I[k]||''}</svg>`;
@@ -6379,10 +6382,12 @@ function dayBlocks(c, date){
 /* The day’s summary, for the note icon on the cell and the panel’s chip. */
 function calDayStatus(c, date){
   const av=(typeof AVAIL!=='undefined') ? AVAIL.forDay(c.id,date) : [];
-  const noted=av.filter(a=>a.note && a.note.trim());
   const last=av.length?av[av.length-1]:null;
-  const base={ hasNote:noted.length>0,
-               note:noted.map(a=>a.note.trim()).join(' \u00b7 '),
+  /* The note is its own record now, so a day can carry one with no
+     availability at all — which is why this reads NOTES and not the rows. */
+  const dn=(typeof NOTES!=='undefined') ? NOTES.forDay(c.id,date) : null;
+  const base={ hasNote:!!(dn && dn.note),
+               note:dn?dn.note:'',
                updatedAt:last?last.updatedAt:null,
                updatedBy:last?last.updatedBy:null };
 
@@ -6429,6 +6434,7 @@ function cgCalendar(c){
      month arrows cost nothing after the first load. */
   if(typeof CGVISITS!=='undefined') CGVISITS.load(c);
   if(typeof AVAIL!=='undefined') AVAIL.load(c);
+  if(typeof NOTES!=='undefined') NOTES.load(c);
   const off=Math.max(CAL_MIN_OFF, Math.min(CAL_MAX_OFF, state.cgCalMonth||0));
   const first=new Date(NOW.getFullYear(), NOW.getMonth()+off, 1);
   const y=first.getFullYear(), m=first.getMonth();
@@ -6606,15 +6612,28 @@ function openDayPanel(cgId, dateISO){
   state.cgCalSel = dateKey(date);
   modalState = {
     dayCg: cgId, dayDate: dateISO,
+    tab: 'avail',                /* every day opens on Availability */
     verb: 'set',                 /* the common statement; Add is the exception */
     status: 'Open',
     allDay: false,               /* Custom is the common case; All day is now legal for Open too */
     from: '09:00', to: '17:00',
     note: '',
     noteOpen: false,
-    multi: false, picked: {}, pickOff: null,
+    multi: false, picked: {}, delPicked: {}, pickOff: null,
     saving: false, error: null
   };
+
+  /* Open the note box on what is stored for THIS date. If the caregiver's
+     notes are not cached yet, load() re-renders the panel when they land and
+     the Notes tab shows Loading until then — which is why this is a seed and
+     not the only read. */
+  if(typeof NOTES!=='undefined'){
+    const _c = cgById(cgId);
+    if(_c) NOTES.load(_c);
+    const _dn = NOTES.forDay(cgId, date);
+    if(_dn && _dn.note) modalState.note = _dn.note;
+  }
+
   try{ render(); }catch(e){}
   renderDayPanel();
   document.getElementById('sidebg').classList.add('show');
@@ -6629,7 +6648,8 @@ function dpSet(field, value){
   modalState.error = null;
   renderDayPanel();
 }
-function dpNote(v){ modalState.note = String(v||'').slice(0, AV_NOTE_MAX); }
+function dpTab(t){ modalState.tab = t; modalState.error = null; renderDayPanel(); }
+function dpNote(v){ modalState.note = String(v||'').slice(0, AV_NOTE_MAX); modalState.noteTouched = true; }
 /* The note is hidden until asked for; once it holds text it stays open, so a
    re-render never swallows something already typed. */
 function dpToggleNote(){ modalState.noteOpen = true; renderDayPanel();
@@ -6637,26 +6657,83 @@ function dpToggleNote(){ modalState.noteOpen = true; renderDayPanel();
 function dpTime(field, v){ modalState[field] = v; modalState.error = null; }
 function dpScope(multi){
   modalState.multi = !!multi;
-  if(modalState.pickOff === null) modalState.pickOff = state.cgCalMonth || 0;
+  if(modalState.pickOff === null) modalState.pickOff = dpAnchorOff();
   renderDayPanel();
 }
 function dpPickNav(d){
-  const n = (modalState.pickOff||0) + d;
+  const n = dpPickCur() + d;
   if(n < CAL_MIN_OFF || n > CAL_MAX_OFF) return;
   modalState.pickOff = n; renderDayPanel();
 }
-function dpToggleDate(k){
+function dpToggleDate(k, mode){
+  if(mode === 'delete'){
+    const p = modalState.delPicked || (modalState.delPicked = {});
+    if(p[k]) delete p[k]; else p[k] = 1;
+    renderDayPanel(); return;
+  }
   if(modalState.picked[k]) delete modalState.picked[k]; else modalState.picked[k] = 1;
   renderDayPanel();
 }
 function dpDeselect(){ modalState.picked = {}; renderDayPanel(); }
+function dpDelDeselect(){ modalState.delPicked = {}; renderDayPanel(); }
+
+/* The dates the Delete tab will clear: the day the panel was opened on,
+   plus anything else ticked. Same shape as dpTargets, its own set. */
+function dpDelTargets(){
+  const anchor = dateKey(new Date(modalState.dayDate));
+  const others = Object.keys(modalState.delPicked||{}).filter(k => k !== anchor);
+  return [anchor].concat(others);
+}
+
+/* Save the day's note. An empty box deletes the note rather than storing a
+   blank, which is what makes “has a note” a simple row-exists test. */
+function dpNoteSave(){
+  const c = cgById(modalState.dayCg);
+  if(!c) return;
+  const ds = dateKey(new Date(modalState.dayDate));
+  modalState.saving = true; modalState.error = null; renderDayPanel();
+  NOTES.save(c, ds, modalState.note || '')
+    .then(function(){
+      modalState.saving = false;
+      closeSidePanel();
+      try{ render(); }catch(e){}
+    })
+    .catch(function(e){
+      modalState.saving = false;
+      modalState.error = 'That note could not be saved. ' + (e && e.message ? e.message : '');
+      renderDayPanel();
+    });
+}
+
+/* Clear the availability on every selected day. An empty segment list is
+   how saveDays says “this date holds nothing”, so one call per day does it.
+   The note is a separate record and is left exactly where it is. */
+function dpDelRun(){
+  const c = cgById(modalState.dayCg);
+  if(!c) return;
+  const days = dpDelTargets();
+  if(!days.length) return;
+  modalState.saving = true; modalState.error = null; renderDayPanel();
+  AVAIL.saveDays(c, days, [])
+    .then(function(){
+      modalState.saving = false;
+      modalState.delPicked = {};
+      closeSidePanel();
+      try{ render(); }catch(e){}
+    })
+    .catch(function(e){
+      modalState.saving = false;
+      modalState.error = 'Those days could not be cleared. ' + (e && e.message ? e.message : '');
+      renderDayPanel();
+    });
+}
 
 /* What the form is currently describing, or a reason it cannot be saved. */
 function dpDraft(){
   const st = modalState.status;
   if(modalState.allDay){
     if(avTimedOnly(st)) return { err: st + ' needs the hours it covers.' };
-    return { entry: { status:st, allDay:true, startMin:null, endMin:null, note:(modalState.note||'').trim() } };
+    return { entry: { status:st, allDay:true, startMin:null, endMin:null, note:null } };
   }
   if(avAllDayOnly(st)) return { err: st + ' is a whole-day state.' };
   const a = hhmmToMin(modalState.from), b = hhmmToMin(modalState.to);
@@ -6668,7 +6745,9 @@ function dpDraft(){
      an overnight shift is entered; it stays on this date */
   const end = b > a ? b : b + 1440;
   if(end - a > 1440) return { err: 'A single entry cannot be longer than 24 hours.' };
-  return { entry: { status:st, allDay:false, startMin:a, endMin:end, note:(modalState.note||'').trim() } };
+  /* The note is not part of the availability any more — it lives on its
+     own record under the Notes tab, so it survives these hours changing. */
+  return { entry: { status:st, allDay:false, startMin:a, endMin:end, note:null } };
 }
 
 function dpTargets(){
@@ -6830,8 +6909,27 @@ function dpClear(){
 /* The compact month grid for choosing which OTHER dates a save reaches.
    Numbers only: it answers "which days", not "what is on them" — repeating
    the schedule here would make it argue with the calendar behind. */
-function dpPicker(){
-  const off = modalState.pickOff || 0;
+/* Which month the picker is showing. Offsets count from NOW's month, the
+   same units the arrows and CAL_MIN_OFF/CAL_MAX_OFF use. Until somebody
+   presses an arrow there is no choice to honour, so it opens on the month
+   holding the day the panel was opened from — not on today's month, which
+   left the highlighted date sitting off screen whenever the two differed. */
+function dpAnchorOff(){
+  const d = new Date(modalState.dayDate);
+  return (d.getFullYear() - NOW.getFullYear()) * 12 + (d.getMonth() - NOW.getMonth());
+}
+function dpPickCur(){
+  return (modalState.pickOff === null || modalState.pickOff === undefined)
+    ? dpAnchorOff() : modalState.pickOff;
+}
+
+/* One picker, two selections. Delete keeps its own set so a multi-day
+   availability pick can never leak into a destructive one — the behaviour
+   of the grid is identical, only the set it writes to differs. */
+function dpPicker(mode){
+  const del = mode === 'delete';
+  const sel = del ? (modalState.delPicked||{}) : modalState.picked;
+  const off = dpPickCur();
   const first = new Date(NOW.getFullYear(), NOW.getMonth() + off, 1);
   const y = first.getFullYear(), m = first.getMonth();
   const dim = new Date(y, m+1, 0).getDate();
@@ -6840,8 +6938,8 @@ function dpPicker(){
   for(let i=0;i<first.getDay();i++) cells += '<span class="dpk-blank"></span>';
   for(let d=1; d<=dim; d++){
     const k = dateKey(new Date(y,m,d));
-    const on = modalState.picked[k] || k === anchor;
-    cells += `<button type="button" class="dpk-day ${on?'on':''}" onclick="dpToggleDate('${k}')">${d}</button>`;
+    const on = sel[k] || k === anchor;
+    cells += `<button type="button" class="dpk-day ${on?'on':''}" onclick="dpToggleDate('${k}','${del?'delete':'avail'}')">${d}</button>`;
   }
   return `<div class="dpk">
     <div class="dpk-bar">
@@ -6871,6 +6969,93 @@ function renderDayPanel(){
 
   const seg=(on,label,onclick,dis)=>`<button type="button" class="dp-seg${on?' on':''}" ${dis||busy?'disabled':''} onclick="${onclick}">${label}</button>`;
   const picked=Object.keys(modalState.picked).length;
+
+  /* The sections of a day. Availability is the editor that already exists;
+     the other four are placeholders until each is built. */
+  const TABS = [
+    ['avail',   'Availability', 'calendar'],
+    ['notes',   'Notes',        'forms'],
+    ['delete',  'Delete',       'trash'],
+    ['cadence', 'Cadence',      'refresh'],
+    ['history', 'History',      'history']
+  ];
+  const tab = modalState.tab || 'avail';
+  const nav = `<nav class="dp-nav" aria-label="Day sections">${TABS.map(([k,label,icon])=>
+    `<button type="button" class="dp-tab${tab===k?' on':''}" ${busy?'disabled':''}
+      ${tab===k?'aria-current="page"':''} onclick="dpTab('${k}')">${ic(icon,19)}${label}</button>`).join('')}</nav>`;
+
+  /* Nothing behind these yet. Say what each will hold rather than showing
+     an empty panel that reads as broken. */
+  /* ---- Notes ------------------------------------------------------
+     One note for the day, independent of the hours beside it. Saving here
+     writes only the note; saving Availability leaves it alone. */
+  if(tab === 'notes'){
+    const st = (typeof NOTES!=='undefined') ? NOTES.status(c.id) : 'idle';
+    const dn = (typeof NOTES!=='undefined') ? NOTES.forDay(c.id, date) : null;
+    const loading = st === 'loading' || st === 'idle';
+    /* The panel can open before the notes arrive. Once they have, adopt the
+       stored note unless the scheduler has already typed something. */
+    if(!loading && !modalState.noteTouched && dn && dn.note && !modalState.note) modalState.note = dn.note;
+    const who = dn && dn.updatedBy
+      ? `<div class="dp-by">Last written by ${esc(dn.updatedBy)}${dn.updatedAt?' \u00b7 '+new Date(dn.updatedAt).toLocaleDateString('en-US',{month:'short',day:'numeric'}):''}</div>`
+      : '';
+    sEl.innerHTML = head + nav + `<div class="sp-body dp-body">
+      <div class="dp-sec">
+        <div class="dp-lab">Note for this day</div>
+        ${loading
+          ? `<div class="dp-soon-d" style="text-align:left">Loading\u2026</div>`
+          : `<textarea class="dp-note" maxlength="${AV_NOTE_MAX}" ${busy?'disabled':''}
+               placeholder="e.g. Childcare until 3 PM." oninput="dpNote(this.value)">${esc(modalState.note||'')}</textarea>`}
+        ${who}
+        <p class="dp-hint">Kept with the date, not with the hours \u2014 changing or clearing
+          the availability leaves this alone.</p>
+      </div>
+      ${modalState.error?`<div class="dp-error">${ic('alerts',12)} ${esc(modalState.error)}</div>`:''}
+    </div>` + `<div class="sp-foot">
+      <button class="btn" ${busy?'disabled':''} onclick="closeSidePanel()">Cancel</button>
+      <button class="btn pri" ${busy||loading?'disabled':''} onclick="dpNoteSave()">${busy?'Saving\u2026':'Save'}</button>
+    </div>`;
+    return;
+  }
+
+  /* ---- Delete -----------------------------------------------------
+     The same month grid the Availability tab uses for Selected days, with
+     its own selection so a multi-day availability pick can never become a
+     multi-day delete by accident. It clears AVAILABILITY; the day's note
+     is a separate record and is deliberately left standing. */
+  if(tab === 'delete'){
+    const days = dpDelTargets();
+    sEl.innerHTML = head + nav + `<div class="sp-body dp-body">
+      <div class="dp-sec">
+        <div class="dp-lab">Clear availability on</div>
+        ${dpPicker('delete')}
+        <div class="dp-picked"><span>${days.length} day${days.length===1?'':'s'} selected</span>${
+          Object.keys(modalState.delPicked||{}).length
+            ? `<button type="button" class="dp-link" ${busy?'disabled':''} onclick="dpDelDeselect()">Clear</button>` : ''}</div>
+        <p class="dp-hint">Removes every Open and Unavailable entry on the days selected.
+          Devoted visits come from AxisCare and are not affected, and the day\u2019s note is kept.</p>
+      </div>
+      ${modalState.error?`<div class="dp-error">${ic('alerts',12)} ${esc(modalState.error)}</div>`:''}
+    </div>` + `<div class="sp-foot">
+      <button class="btn" ${busy?'disabled':''} onclick="closeSidePanel()">Cancel</button>
+      <button class="btn danger" ${busy?'disabled':''} onclick="dpDelRun()">${busy?'Clearing\u2026':'Delete'}</button>
+    </div>`;
+    return;
+  }
+
+  const SOON = {
+    cadence: ['refresh', 'Cadence', 'How often the office rings this caregiver to check what has changed.'],
+    history: ['history', 'History', 'Who changed this day, what they changed and when.']
+  };
+  if(SOON[tab]){
+    const [icon,title,line] = SOON[tab];
+    sEl.innerHTML = head + nav + `<div class="sp-body dp-body"><div class="dp-soon">
+      <div class="dp-soon-i">${ic(icon,26)}</div>
+      <div class="dp-soon-t">${title}</div>
+      <p class="dp-soon-d">${line}</p>
+    </div></div>`;
+    return;
+  }
 
   const body = `<div class="sp-body dp-body">
     ${S.conflict?`<div class="dp-clash">${ic('alerts',13)} <span>AxisCare has a <b>Devoted visit</b> on this day, but it is marked
@@ -6907,16 +7092,11 @@ function renderDayPanel(){
       </div>`}
     </div>
 
-    <div class="dp-sec">
-      ${modalState.noteOpen||modalState.note
-        ? `<textarea class="dp-note" maxlength="${AV_NOTE_MAX}" ${busy?'disabled':''} placeholder="e.g. Childcare until 3 PM." oninput="dpNote(this.value)">${esc(modalState.note||'')}</textarea>`
-        : `<button type="button" class="dp-link" ${busy?'disabled':''} onclick="dpToggleNote()">+ Add note</button>`}
-    </div>
 
     ${modalState.error?`<div class="dp-error">${ic('alerts',12)} ${esc(modalState.error)}</div>`:''}
   </div>`;
 
-  sEl.innerHTML = head + body + `<div class="sp-foot">
+  sEl.innerHTML = head + nav + body + `<div class="sp-foot">
       <button class="btn" ${busy?'disabled':''} onclick="closeSidePanel()">Cancel</button>
       <button class="btn pri" ${busy?'disabled':''} onclick="dpSave()">${busy?'Saving\u2026':'Save'}</button>
     </div>`;
@@ -9864,7 +10044,13 @@ var ROSTER = (function () {
     hydrate: function () { hydrating = hydrate(); return hydrating; },
     /* Resolves once the real roster has landed (or failed) - never rejects. */
     ready: function () { return (hydrating || Promise.resolve(false)).catch(function () { return false; }); },
-    loading: function () { return !!hydrating && !lastResult; },
+    /* True from the first paint until the roster settles, not merely while
+       a call is in flight: render() runs BEFORE hydrate() is called, so at
+       that moment `hydrating` is undefined and an empty list would read as
+       "nothing matched" when it means "still coming". lastResult is set on
+       every path out of hydrate — disabled, no client, success and error —
+       so this goes false however it ends. */
+    loading: function () { return enabled() && !lastResult; },
     reconcile: reconcile,
 
     status: function () { return lastResult; },
@@ -11189,6 +11375,111 @@ var AVAIL = (function () {
     indexStatus: indexStatus, indexInfo: indexInfo,
     _reset: function () { byCg = {}; inFlight = {}; idx = {}; loaded = {}; pending = {}; idxState = 'idle'; idxCount = 0; }
   };
+})();
+
+/* =========================================================
+   NOTES  —  what a scheduler wrote about ONE DAY
+   ---------------------------------------------------------
+   public.caregiver_day_notes, its own table — NOT a column on the
+   availability row, which is where this used to live.
+
+   A note is about the DAY, not about a block of hours. It has to survive
+   the hours being replaced, survive them being cleared, and be writable on
+   a day with no availability at all. While it rode along on the segment,
+   every save rewrote it from modalState.note and a Clear deleted it with
+   the row. The 1,182 notes already written — “Family Reunion”, “Dropping off
+   her daughter at LAX” — were moved across with their authors intact.
+
+   One note per caregiver per date, so the write is an upsert on
+   (caregiver_id, on_date). Clearing the box DELETES the row rather than
+   storing an empty string, which is why “has a note” is just “a row
+   exists” and the table refuses a blank. */
+var NOTES = (function () {
+  var byCg = {}, inFlight = {};
+
+  function cfg() { return window.SCHEDULER_CONFIG || {}; }
+  function configured() { var c = cfg(); return !!(c.supabaseUrl && c.supabaseAnonKey); }
+  function hdr(extra) {
+    var c = cfg(), h = { apikey: c.supabaseAnonKey, Authorization: 'Bearer ' + c.supabaseAnonKey,
+                         'Content-Type': 'application/json' };
+    if (extra) h.Prefer = extra;
+    return h;
+  }
+  function url(q) { return String(cfg().supabaseUrl || '').replace(/\/+$/, '') + '/rest/v1/caregiver_day_notes' + (q || ''); }
+  function status(cgId) { var r = byCg[cgId]; return r ? r.status : (inFlight[cgId] ? 'loading' : 'idle'); }
+  function info(cgId) { return byCg[cgId] || null; }
+
+  /* The same 13-month span the calendar arrows reach, so opening a profile
+     loads every note the grid can draw in one request. */
+  function load(c) {
+    if (!c || c.source !== 'axiscare' || c.axisId == null) return;
+    if (byCg[c.id] || inFlight[c.id]) return;
+    if (!configured()) { byCg[c.id] = { status: 'unconfigured', days: {}, count: 0 }; return; }
+    var w = AxisLive.visitWindow(new Date());
+    inFlight[c.id] = 1;
+    byCg[c.id] = { status: 'loading', days: {}, count: 0 };
+    fetch(url('?select=id,on_date,note,updated_at,updated_by&caregiver_id=eq.' + c.axisId +
+              '&on_date=gte.' + w.from + '&on_date=lte.' + w.to + '&order=on_date'), { headers: hdr() })
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function (rows) {
+        var days = {};
+        (rows || []).forEach(function (r) {
+          days[String(r.on_date).slice(0, 10)] =
+            { id: r.id, note: r.note, updatedAt: r.updated_at, updatedBy: r.updated_by };
+        });
+        byCg[c.id] = { status: 'ready', days: days, count: (rows || []).length };
+      })
+      .catch(function (e) {
+        byCg[c.id] = { status: 'error', days: {}, count: 0, error: e.message };
+        console.warn('[notes] ' + (c.name || c.id) + ': ' + e.message);
+      })
+      .then(function () { delete inFlight[c.id]; try { renderDayPanel(); } catch (e) {} try { render(); } catch (e) {} });
+  }
+
+  /* The note on one date, or null. Null means nobody wrote one — it never
+     means the fetch failed; status() answers that separately. */
+  function forDay(cgId, date) {
+    var r = byCg[cgId];
+    if (!r || r.status !== 'ready') return null;
+    return r.days[dateKey(date)] || null;
+  }
+
+  /* Write one date. Empty text deletes the row: a blank is not a note, and
+     the table refuses one. The cache is patched from what came back so the
+     calendar and the panel agree without a second round trip. */
+  function save(c, dateStr, text) {
+    if (!configured()) return Promise.reject(new Error('No Supabase keys on this build.'));
+    if (!c || c.axisId == null) return Promise.reject(new Error('That caregiver has no AxisCare id.'));
+    var body = String(text == null ? '' : text).trim();
+    var rec = byCg[c.id] || (byCg[c.id] = { status: 'ready', days: {}, count: 0 });
+
+    if (!body) {
+      return fetch(url('?caregiver_id=eq.' + c.axisId + '&on_date=eq.' + dateStr),
+                   { method: 'DELETE', headers: hdr() })
+        .then(function (r) {
+          if (!r.ok && r.status !== 404) throw new Error('HTTP ' + r.status);
+          delete rec.days[dateStr];
+          rec.count = Object.keys(rec.days).length;
+          return null;
+        });
+    }
+    return fetch(url('?on_conflict=caregiver_id,on_date'), {
+      method: 'POST',
+      headers: hdr('resolution=merge-duplicates,return=representation'),
+      body: JSON.stringify([{ caregiver_id: c.axisId, on_date: dateStr, note: body, updated_by: 'Carlo' }])
+    }).then(function (r) {
+      if (!r.ok) return r.text().then(function (t) { throw new Error('HTTP ' + r.status + ' ' + t.slice(0, 160)); });
+      return r.json();
+    }).then(function (rows) {
+      var w = (rows || [])[0] || {};
+      rec.days[dateStr] = { id: w.id, note: body, updatedAt: w.updated_at, updatedBy: w.updated_by || 'Carlo' };
+      rec.count = Object.keys(rec.days).length;
+      return rec.days[dateStr];
+    });
+  }
+
+  return { load: load, forDay: forDay, save: save, status: status, info: info,
+           _reset: function () { byCg = {}; inFlight = {}; } };
 })();
 
 /* Green means the caregiver can take a shift. Every other status they can

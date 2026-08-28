@@ -405,6 +405,64 @@ for the morning it runs into*.
 **A tag paints no further than the day it was typed on.** Every status behaves
 the same way: one day tagged is one day tagged.
 
+### The day panel has five tabs
+
+The panel that opens on a calendar day keeps its date header and ×, and
+carries a navbar beneath it. Every day opens on **Availability**; the tab is
+not remembered between days.
+
+| Tab | Icon | What it holds |
+|---|---|---|
+| **Availability** | `calendar` | The editor described above — status, Apply to, Time. The only tab that writes `caregiver_availability`. |
+| **Notes** | `forms` | One note for the day. Its own Save. |
+| **Delete** | `trash` | The same month picker as *Selected days*, and a Delete that clears the chosen days’ availability. |
+| **Cadence** | `refresh` | Placeholder. The existing review cadence (`availCheckFreq`) is edited elsewhere and was not touched. |
+| **History** | `history` | Placeholder. |
+
+**Only Availability has a Save that writes availability.** Notes has its own
+Save, Delete has a red Delete, and Cadence and History have no footer at all —
+a Save button on a tab with nothing to save is a lie.
+
+**Delete keeps its own date selection** (`modalState.delPicked`), separate
+from the Availability tab’s `picked`. The grid behaves identically; the sets
+are separate so a multi-day availability pick can never become a multi-day
+delete by accident.
+
+### The day note is NOT part of the availability
+
+**Claude: do not move it back onto the availability row.** It lived there
+until 2026-08-28 and every one of these was broken by it.
+
+A note is about the **date**, not about a block of hours. It lives in its own
+table, `public.caregiver_day_notes`, one row per caregiver per date:
+
+- it can be written on a day with **no availability at all**
+- **replacing** the day’s hours leaves it alone
+- **clearing** the day’s availability (the Delete tab) leaves it alone
+- an **empty** note deletes the row rather than storing a blank, so “has a
+  note” is simply “a row exists”. A CHECK constraint refuses `''`.
+
+While it was a column on `caregiver_availability`, none of that held: every
+save carried `modalState.note` onto the new segments, so editing the hours
+rewrote the note, and clearing the day deleted it with the rows. `dpDraft()`
+now sends `note: null` on every entry, and the column is legacy — nothing
+writes it any more.
+
+The **1,182 notes already written** — real sentences from Mae, Angelica,
+Beatrice, Joan and Tine, like “Family Reunion” and “Dropping off her daughter
+at LAX for a trip.” — were moved across on 2026-08-28 with their authors and
+timestamps intact. No day held two different notes, so it was a 1:1 move.
+
+`NOTES` (beside `AVAIL` at the bottom of the file) loads one caregiver’s notes
+over the same 13-month window the calendar arrows reach, and `calDayStatus()`
+reads it for the note marker on the grid — not the availability rows.
+
+> The panel can open before the notes land. `openDayPanel` seeds the box from
+> the cache if it is warm, `NOTES.load()` re-renders when the fetch resolves,
+> and the Notes tab adopts the stored note then — unless the scheduler has
+> already typed, which `modalState.noteTouched` records. Without that flag a
+> slow fetch would overwrite what somebody was in the middle of writing.
+
 > Between **2026-08-26 and 2026-08-28** it did not. `carriedBlocks()` let a
 > future date with nothing stored inherit the most recent SAME-WEEKDAY date
 > that was entirely `Open`, for up to twelve weeks — a caregiver’s "normal
