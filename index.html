@@ -1727,7 +1727,7 @@
 
   /* The picker answers "which days", not "what is on them" — numbers only,
      so it never argues with the calendar behind the panel. */
-  .dp-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 16px 9px}.dp-date{font-size:13.5px;font-weight:650;color:var(--ink)}.dp-head .mc{cursor:pointer;color:var(--ink-faint);font-size:19px;line-height:1;background:none;border:none;padding:0 2px;font-family:inherit}.dp-head .mc:hover{color:var(--ink)}.dp-body{padding:4px 16px 14px}.dp-sec{margin-bottom:13px}.dp-sec:last-child{margin-bottom:4px}.dp-lab{font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-faint);margin-bottom:6px}.dp-segs{display:inline-flex;background:var(--panel-head);border:1px solid var(--line);border-radius:7px;padding:2px;gap:2px}.dp-seg{font-family:inherit;font-size:12.5px;font-weight:650;color:var(--ink-soft);background:none;border:none;border-radius:5px;padding:5px 13px;cursor:pointer;white-space:nowrap}.dp-seg.on{background:#fff;color:var(--ink);font-weight:700;box-shadow:0 1px 2px rgba(0,0,0,.08)}.dp-seg:disabled{opacity:.45;cursor:default}.dp-picked{display:flex;align-items:center;gap:9px;margin-top:7px;font-size:12.5px;color:var(--ink-soft)}.dp-link{font-family:inherit;font-size:12.5px;font-weight:650;color:var(--brand);background:none;border:none;padding:0;cursor:pointer;text-decoration:underline}.dp-link:disabled{opacity:.5;cursor:default}.dp-note{width:100%;box-sizing:border-box;font-family:inherit;font-size:13px;color:var(--ink);background:#fff;border:1px solid var(--line-strong);border-radius:7px;padding:8px 10px;min-height:62px;resize:vertical;outline:none}.dp-note:focus{border-color:var(--brand)}.dp-body .dp-times{margin-top:8px}.dp-body .dpk{margin-top:8px;padding:8px}.dpk{margin-top:11px;border:1px solid var(--line);border-radius:var(--r);padding:10px}
+  .cls-head{margin:2px 0 11px}.cls-name{font-size:19px;font-weight:800;color:var(--ink);letter-spacing:-.2px}.cls-meta{font-size:13px;color:var(--ink-soft);margin-top:2px}.cls-note{font-size:12.5px;color:var(--ink-soft);background:var(--panel-head);border:1px solid var(--line);border-radius:8px;padding:9px 12px;margin-bottom:10px}.cls-note.err{color:var(--crit-tx);background:var(--crit-bg);border-color:#EEC2BC}.cv-clink{font:inherit;color:inherit;background:none;border:none;padding:0;cursor:pointer;text-decoration:underline;text-underline-offset:2px;text-decoration-color:var(--line-strong)}.cv-clink:hover{color:var(--brand);text-decoration-color:var(--brand)}.dp-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 16px 9px}.dp-date{font-size:13.5px;font-weight:650;color:var(--ink)}.dp-head .mc{cursor:pointer;color:var(--ink-faint);font-size:19px;line-height:1;background:none;border:none;padding:0 2px;font-family:inherit}.dp-head .mc:hover{color:var(--ink)}.dp-body{padding:4px 16px 14px}.dp-sec{margin-bottom:13px}.dp-sec:last-child{margin-bottom:4px}.dp-lab{font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-faint);margin-bottom:6px}.dp-segs{display:inline-flex;background:var(--panel-head);border:1px solid var(--line);border-radius:7px;padding:2px;gap:2px}.dp-seg{font-family:inherit;font-size:12.5px;font-weight:650;color:var(--ink-soft);background:none;border:none;border-radius:5px;padding:5px 13px;cursor:pointer;white-space:nowrap}.dp-seg.on{background:#fff;color:var(--ink);font-weight:700;box-shadow:0 1px 2px rgba(0,0,0,.08)}.dp-seg:disabled{opacity:.45;cursor:default}.dp-picked{display:flex;align-items:center;gap:9px;margin-top:7px;font-size:12.5px;color:var(--ink-soft)}.dp-link{font-family:inherit;font-size:12.5px;font-weight:650;color:var(--brand);background:none;border:none;padding:0;cursor:pointer;text-decoration:underline}.dp-link:disabled{opacity:.5;cursor:default}.dp-note{width:100%;box-sizing:border-box;font-family:inherit;font-size:13px;color:var(--ink);background:#fff;border:1px solid var(--line-strong);border-radius:7px;padding:8px 10px;min-height:62px;resize:vertical;outline:none}.dp-note:focus{border-color:var(--brand)}.dp-body .dp-times{margin-top:8px}.dp-body .dpk{margin-top:8px;padding:8px}.dpk{margin-top:11px;border:1px solid var(--line);border-radius:var(--r);padding:10px}
   .dpk-bar{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:9px}
   .dpk-label{font-size:13px;font-weight:700;color:var(--ink)}
   .dpk-dow{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:2px;margin-bottom:4px}
@@ -2631,7 +2631,7 @@ function navLink(it, sub){
 }
 /* Every screen the router can reach. Today is deliberately absent - the
    dashboard no longer has that page, and state.view falls back to 'avail'. */
-const VIEWS={open:viewOpen,coverage:viewCoverage,staff:viewStaffClient,calloff:viewCallOff,
+const VIEWS={open:viewOpen,coverage:viewCoverage,clientcal:viewClientSchedule,staff:viewStaffClient,calloff:viewCallOff,
     avail:viewAvail,log:viewLog,handoff:viewHandoff,assistant:viewAssistant,tasks:viewTasks,reports:viewReports,forms:viewForms,meds:viewMeds,guides:viewGuides,infographics:viewInfographics,attendance:viewAttendance,carenotes:viewCareNotes};
 function renderNav(){
   let html='';
@@ -5513,6 +5513,103 @@ function coverageMatches(q){
   return {eligible:eligible, excluded:out.filter(function(r){ return r.excluded; }), prefs:prefs};
 }
 
+/* ===================== CLIENT SCHEDULE =====================
+   Opened from the client's name on Find Coverage, focused on the client and
+   the month of the open shift, so the scheduler can see the surrounding
+   coverage without leaving the shift they are working. */
+var CLVISITS = (function(){
+  'use strict';
+  var byCl = {};        /* clientId|around -> {status, days, count, error, ...} */
+  function key(id, around){ return id + '|' + (around||''); }
+  function get(id, around){ return byCl[key(id,around)] || {status:'idle', days:{}}; }
+  function load(cl, around){
+    if(!cl || cl.axisId == null) return;                  /* demo client, nothing to fetch */
+    var k = key(cl.id, around);
+    if(byCl[k]) return;
+    if(typeof AxisCare==='undefined' || typeof AxisLive==='undefined') return;
+    byCl[k] = {status:'loading', days:{}, count:0, error:null};
+    AxisLive.fetchClientVisits(function(p,q){ return AxisCare.get(p,q); }, cl.axisId, {around:around})
+      .then(function(res){
+        var days={};
+        res.visits.forEach(function(v){ (days[v.day]||(days[v.day]=[])).push(v); });
+        byCl[k]={status:'ready', days:days, count:res.visits.length, error:null,
+                 from:res.from, to:res.to, requests:res.requests, filtered:res.filtered};
+        console.info('[clvisits] '+cl.name+': '+res.visits.length+' visit(s) over '+res.from+
+          ' \u2192 '+res.to+' in '+res.requests+' request(s)'+(res.filtered?'':' (clientIds was ignored \u2014 filtered locally)'));
+      })
+      .catch(function(e){
+        byCl[k]={status:'error', days:{}, count:0, error:(e&&e.message)||String(e)};
+      })
+      .then(function(){ try{ render(); }catch(e){} });
+  }
+  return {load:load, get:get, clear:function(){ byCl={}; }};
+})();
+
+/* From the Find Coverage header. Remembers the shift so Back returns to it. */
+function openClientSchedule(clientId, dateISO){
+  state.clSched = {clientId:clientId, date:dateISO, monthOff:0,
+                   fromShift:(state.coverageQuery&&state.coverageQuery.shiftId)||null};
+  var cl = clById(clientId);
+  if(cl) CLVISITS.load(cl, dateISO);
+  go('clientcal');
+}
+function avLongDate(ds){
+  try{ return new Date(ds+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'}); }
+  catch(e){ return ds; }
+}
+function clSchedMonth(d){ state.clSched.monthOff = (state.clSched.monthOff||0) + d; render(); }
+function clSchedBack(){
+  state.clSched = null;
+  if(state.coverageQuery && state.coverageQuery.shiftId) go('coverage'); else go('open');
+}
+function viewClientSchedule(){
+  var q = state.clSched;
+  if(!q) { state.view='open'; return viewOpen(); }
+  var cl = clById(q.clientId);
+  if(!cl) return '<div class="q-empty">That client is no longer on the board.</div>';
+
+  var focus = new Date(q.date + 'T12:00:00');
+  var off = q.monthOff||0;
+  var first = new Date(focus.getFullYear(), focus.getMonth()+off, 1);
+  var y = first.getFullYear(), m = first.getMonth();
+  var dim = new Date(y, m+1, 0).getDate();
+  var lead = first.getDay();
+  var rec = CLVISITS.get(cl.id, q.date);
+
+  var cells = '';
+  for(var i=0;i<lead;i++) cells += '<div class="cal-cell blank"></div>';
+  for(var d=1; d<=dim; d++){
+    var date = new Date(y, m, d, 12);
+    var ds = dateKey(date);
+    var vis = (rec.days && rec.days[ds]) || [];
+    var blocks = vis.map(function(v){
+      var t = v.end==null ? fmtHr(v.start) : fmtHr(v.start)+'\u2013'+fmtHr(v.end%24);
+      var nm = v.caregiverName || 'Unassigned';
+      return '<div class="cal-blk '+(v.caregiverName?'devoted':'unavail')+'" title="'+esc(nm+' \u00b7 '+t)+'">'+
+        '<span class="cb-l">'+esc(nm)+'</span><span class="cb-t">'+t+'</span></div>';
+    }).join('');
+    cells += '<div class="cal-cell'+(ds===q.date?' sel':'')+(vis.length?'':' offday')+'">'+
+      '<span class="cal-d">'+d+'</span>'+(blocks?'<div class="cal-blocks">'+blocks+'</div>':'')+'</div>';
+  }
+
+  var note = rec.status==='loading' ? '<div class="cls-note">Loading this client\u2019s visits from AxisCare\u2026</div>'
+    : rec.status==='error' ? '<div class="cls-note err">AxisCare didn\u2019t answer \u2014 '+esc(rec.error||'')+'</div>'
+    : cl.axisId==null ? '<div class="cls-note">This client isn\u2019t linked to AxisCare, so there are no visits to show.</div>'
+    : (rec.status==='ready' && !rec.count) ? '<div class="cls-note">AxisCare has no visits for this client in this window.</div>' : '';
+
+  return '<div class="cov-back"><button class="btn sm" onclick="clSchedBack()">\u2039 Back to Find Coverage</button></div>'+
+    '<div class="cls-head"><div class="cls-name">'+esc(cl.name)+'</div>'+
+      '<div class="cls-meta">'+esc(cl.city||'')+' \u00b7 open shift '+esc(avLongDate(q.date))+'</div></div>'+
+    note +
+    '<div class="cal-wrap'+(rec.status==='loading'?' cal-busy':'')+'">'+
+      '<div class="cal-bar"><button class="cal-nav" onclick="clSchedMonth(-1)">'+ic('chevL',16)+'</button>'+
+      '<div class="cal-month">'+first.toLocaleDateString('en-US',{month:'long',year:'numeric'})+'</div>'+
+      '<button class="cal-nav" onclick="clSchedMonth(1)">'+ic('chev',16)+'</button></div>'+
+      '<div class="cal-grid"><div class="cal-dowrow">'+
+        ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(function(x){return '<div class="cal-dow">'+x+'</div>';}).join('')+
+      '</div>'+cells+'</div></div>';
+}
+
 function viewCoverage(){
   if(state.coverageContext==='planner' && state.planner) return renderCoveragePlanner();
   // Came from an Open Shifts row -> coverage command center for that one shift
@@ -5544,7 +5641,7 @@ function renderShiftSummary(q){
   return `<div class="cov-back"><button class="btn sm" onclick="go('open')">\u2039 Back to Open Shifts</button></div>
   <div class="cov-summary${needsRepl?' repl':''}">
     <div class="cv-sum-top">
-      <div><div class="cv-client">${cl?cl.name:'Selected shift'}${cl&&cl.careType?` <span class="cc-part">${cl.careType}</span>`:''} ${statusBadge}</div><div class="cv-meta">${(q.city||(cl&&cl.city)||'')} \u00b7 ${dt}</div>${origLine}</div>
+      <div><div class="cv-client">${cl?`<button type="button" class="cv-clink" onclick="openClientSchedule('${cl.id}','${dateKey(s?s.start:new Date(q.date+'T12:00:00'))}')" title="Open ${esc(cl.name)}\u2019s schedule for this date">${cl.name}</button>`:'Selected shift'}${cl&&cl.careType?` <span class="cc-part">${cl.careType}</span>`:''} ${statusBadge}</div><div class="cv-meta">${(q.city||(cl&&cl.city)||'')} \u00b7 ${dt}</div>${origLine}</div>
     </div>
   </div>`;
 }
@@ -9431,6 +9528,72 @@ var AxisLive = (function () {
     };
   }
 
+  /* One CLIENT's visits over a bounded window, for their schedule view.
+
+     clientIds is used, but never trusted. AxisCare accepts several visit
+     filter names, answers 200, and then silently ignores the ones it does
+     not implement - caregiverId, caregiver, employeeId and
+     caregiverExternalId all do exactly that (see CLAUDE.md). Whether
+     clientIds filters has not been verified on this account, so every
+     visit is checked against the client id anyway and the result is
+     correct either way. `filtered` in the response records which happened,
+     so the console says whether the window cost 3 requests or 30.
+
+     The window is deliberately short - a month back, two months on - so a
+     silently unfiltered pull is still bounded rather than dragging the
+     whole account across thirteen months. */
+  function fetchClientVisits(get, axisId, opts) {
+    opts = opts || {};
+    var base = opts.around ? new Date(opts.around + 'T12:00:00') : (opts.now || new Date());
+    var from = ymd(new Date(base.getFullYear(), base.getMonth() - 1, 1));
+    var to = ymd(new Date(base.getFullYear(), base.getMonth() + 3, 0));
+    var out = [], pages = 0, scanned = 0, kept = 0;
+
+    function page(token) {
+      var q = { startDate: from, endDate: to, clientIds: axisId };
+      if (token) q.nextPageToken = token;
+      return get('/api/visits', q).then(function (res) {
+        var r = (res && res.data && res.data.results) || {};
+        var list = r.visits || [];
+        scanned += list.length;
+        list.forEach(function (v) {
+          if (v.removed) return;                          /* cancelled */
+          if (!v.client || String(v.client.id) !== String(axisId)) return;
+          kept++;
+          var m = mapClientVisit(v);
+          if (m) out.push(m);
+        });
+        var next = r.nextPage;
+        if (next && ++pages < 30) {
+          var t = /[?&]nextPageToken=([^&]+)/.exec(next);
+          if (t) return page(decodeURIComponent(t[1]));
+        }
+        out.sort(function (a, b) { return a.day === b.day ? a.start - b.start : (a.day < b.day ? -1 : 1); });
+        return { visits: out, scanned: scanned, requests: pages + 1, from: from, to: to,
+                 filtered: scanned > 0 && kept === scanned };
+      });
+    }
+    return page(null).catch(function (err) {
+      /* 404 on /api/visits is an empty window, not a failure. */
+      if (err && err.status === 404) {
+        return { visits: [], scanned: 0, requests: 1, from: from, to: to, empty: true, filtered: true };
+      }
+      throw err;
+    });
+  }
+
+  /* Same shape as mapCgVisit, but labelled with the CAREGIVER - on a
+     client's calendar the client's own name on every block says nothing. */
+  function mapClientVisit(v) {
+    var m = mapCgVisit(v);
+    if (!m) return null;
+    var cg = v.caregiver || {};
+    var nm = ((cg.firstName || '') + ' ' + (cg.lastName || '')).replace(/\s+/g, ' ').trim();
+    m.caregiverId = cg.id != null ? 'a' + cg.id : null;
+    m.caregiverName = nm || null;
+    return m;
+  }
+
   function fetchCaregiverVisits(get, axisId, opts) {
     opts = opts || {};
     var w = visitWindow(opts.now || new Date());
@@ -9477,6 +9640,7 @@ var AxisLive = (function () {
     fetchOpenShifts: fetchOpenShifts,
     mapOpenShift: mapOpenShift,
     fetchCaregiverVisits: fetchCaregiverVisits,
+    fetchClientVisits: fetchClientVisits,
     mapCgVisit: mapCgVisit,
     visitWindow: visitWindow,
     shiftId: shiftId
