@@ -402,6 +402,29 @@ for the morning it runs into*.
 > old app’s `Anytime` label — were converted to whole-day rows, which is what
 > they always meant.
 
+**A tag paints no further than the day it was typed on.** Every status behaves
+the same way: one day tagged is one day tagged.
+
+> Between **2026-08-26 and 2026-08-28** it did not. `carriedBlocks()` let a
+> future date with nothing stored inherit the most recent SAME-WEEKDAY date
+> that was entirely `Open`, for up to twelve weeks — a caregiver’s "normal
+> week" answering for dates nobody had typed. Because the search skipped any
+> day that was not entirely Open, **only Open carried**, and in a month grid
+> the same weekday is a vertical column: an Open block painted straight down
+> it while Unavailable stayed put. That asymmetry is what the desk reported.
+>
+> It also contradicted the rule directly above, and Find Coverage acted on it
+> — offering caregivers at 3am on dates nobody had confirmed. Removed on
+> 2026-08-28 along with `CARRY_WEEKS`, the `carried`/`carriedFrom` flags, the
+> faded `.cal-blk.carried` styling and the `dayAvail` branch that read it.
+>
+> Nothing was ever written by the carry — it was read-time only — so no rows
+> needed cleaning up. The one path that could have made a phantom real was
+> `dpSave`’s **Add** verb, which reads `AVAIL.forDay()` as "what the day already
+> holds"; `forDay` returned carried blocks, so an Add on a carried day would
+> have written them. The table was checked and no such row exists: every
+> app-written day holds exactly one status.
+
 Rows live in `public.caregiver_availability`, one per segment, keyed by the
 **AxisCare numeric id**. An overnight is stored on its **start date** with
 `end_min` past 1440, so 8pm–8am is `1200..1920` and reads as `20..32` in the

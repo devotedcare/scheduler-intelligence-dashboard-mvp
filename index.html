@@ -1597,7 +1597,7 @@
   /* stacked day blocks */
   .cal-cell{min-height:62px!important;padding:6px 7px 7px 8px!important;border-left:1px solid var(--line)!important}
   .cal-blocks{display:flex;flex-direction:column;gap:2px;margin-top:4px}
-  .cal-blk{display:flex;justify-content:space-between;align-items:baseline;gap:5px;padding:2px 6px;border-radius:2px;border-left:2.5px solid}.cal-blk.carried{opacity:.62;border-left-style:dashed}
+  .cal-blk{display:flex;justify-content:space-between;align-items:baseline;gap:5px;padding:2px 6px;border-radius:2px;border-left:2.5px solid}
   .cb-l{font-weight:800;text-transform:uppercase;letter-spacing:.2px;font-size:9px;white-space:nowrap}
   .cb-t{font-size:9px;font-weight:600;white-space:nowrap;opacity:.9;font-variant-numeric:tabular-nums}
   /* Keeping a long client name inside its day.
@@ -6073,9 +6073,8 @@ function cadenceTimePeriod(c){ const fr=c.ops.availCheckFreq; const M={'Weekly':
 
 /* ---- AVAILABILITY REVIEW CADENCE ---------------------------------
    How often the office rings this caregiver to ask whether anything has
-   changed. It has NOTHING to do with the calendar: the calendar carries
-   itself forward until somebody edits it (see carriedBlocks in AVAIL).
-   This is only the reminder to go and ask.
+   changed. It has NOTHING to do with the calendar, which shows only the
+   dates somebody actually recorded. This is the reminder to go and ask.
 
    Completing a review stamps availLastConfirmed, and the next date falls
    out of that plus the cadence - so it recalculates itself and there is
@@ -6367,7 +6366,7 @@ function dayBlocks(c, date){
   /* Then the scheduler’s own entries, straight from the table. Segments
      are stored already carved, so they need no merging here. */
   ((typeof AVAIL!=='undefined') ? AVAIL.forDay(c.id,date) : []).forEach(a=>{
-    const b={type:availTone(a.status),label:a.status,note:a.note,availId:a.id,carried:!!a.carried,carriedFrom:a.carriedFrom};
+    const b={type:availTone(a.status),label:a.status,note:a.note,availId:a.id};
     if(a.allDay) b.full=true; else { b.start=a.start; b.end=a.end; }
     blocks.push(b);
   });
@@ -6450,11 +6449,9 @@ function cgCalendar(c){
        Raymond "Nacho" Banales Jr., and an unescaped quote would end the
        title attribute early and mangle the rest of the cell. */
     const body = blocks.length ? `<div class="cal-blocks">${blocks.map(b=>{ const tt=blkTime(b);
-      /* A carried day is the caregiver's usual week answering for a date
-         nobody has typed yet. It draws faintly so it never reads as a
-         confirmed entry, and the tooltip names the week it came from. */
-      const ct=b.carried?' · usual hours, carried forward from '+(b.carriedFrom||'an earlier week'):'';
-      return `<div class="cal-blk ${b.type}${b.carried?' carried':''}" title="${esc(b.label+(tt?' · '+tt:'')+ct)}"><span class="cb-l">${esc(b.label)}</span>${tt?`<span class="cb-t">${tt}</span>`:''}</div>`;
+      /* Every block on the grid is a row somebody typed. Nothing is
+         inferred, so there is no faint state to distinguish. */
+      return `<div class="cal-blk ${b.type}" title="${esc(b.label+(tt?' · '+tt:''))}"><span class="cb-l">${esc(b.label)}</span>${tt?`<span class="cb-t">${tt}</span>`:''}</div>`;
     }).join('')}</div>` : '';
     const note = S.hasNote?`<span class="cal-note" title="${esc(S.note||'Has a note')}">${ic('log',9)}</span>`:'';
     cells+=`<div class="cal-cell ${isToday?'today':''} ${ds===sel?'sel':''} ${blocks.length?'':'offday'}" onclick="openDayPanel('${c.id}','${date.toISOString()}')">
@@ -10849,11 +10846,9 @@ var AVAIL = (function () {
   function forDay(cgId, date) {
     var r = byCg[cgId];
     if (!r || r.status !== 'ready') return [];
-    var ds = dateKey(date), stored = r.days[ds];
-    if (stored && stored.length) return stored;
-    /* Same carry-forward as the roster index below, so the month grid and
-       Find Coverage never disagree about whether somebody works Wednesdays. */
-    return carriedBlocks(r.days, ds) || [];
+    /* A date with nothing stored holds nothing. Availability is never
+       inferred from another date - see dayAvail below. */
+    return r.days[dateKey(date)] || [];
   }
 
   /* ---- the roster-wide index -------------------------------------
@@ -11030,46 +11025,6 @@ var AVAIL = (function () {
         unloaded  that date has not been fetched yet
         unloaded  the index has not landed yet
         error / unconfigured                                          */
-  /* CARRY FORWARD ---------------------------------------------------
-     A caregiver's normal week continues into future months by itself. A
-     future date with nothing stored inherits the most recent SAME-WEEKDAY
-     date that has Open hours, so "Mon-Fri 9-5" entered once keeps answering
-     for September, October and beyond until somebody records something
-     different.
-
-     Three rules make it safe:
-
-       - only FORWARD, and only from today. Back-filling empty days in the
-         past would invent a history nobody entered.
-       - a stored row always wins. Saving Vacation on one date writes a row
-         for that date, so the carry never reaches it - which is exactly why
-         a one-off exception overrides without erasing the pattern.
-       - an exception never BECOMES the pattern. A Vacation Monday is
-         stepped over and the search continues to the normal Monday behind
-         it, so one week off does not cancel every Monday after it.
-
-     Nothing is written. This is read-time only, so there is no horizon and
-     no rows to clean up, and a change to the normal week takes effect from
-     the date it is saved on with no back-fill. */
-  var CARRY_WEEKS = 12;          /* same-weekday tries before giving up */
-  function carriedBlocks(days, ds) {
-    if (!days || !ds) return null;
-    var today = ymd((typeof NOW !== 'undefined' && NOW) ? NOW : new Date());
-    if (ds < today) return null;
-    var t = new Date(ds + 'T12:00:00');
-    for (var i = 1; i <= CARRY_WEEKS; i++) {
-      var d = new Date(t); d.setDate(d.getDate() - 7 * i);
-      var k = ymd(d), b = days[k];
-      if (!b || !b.length) continue;
-      if (!b.every(function (x) { return x.status === 'Open'; })) continue;
-      return b.map(function (x) {
-        var c = {}; for (var kk in x) c[kk] = x[kk];
-        c.carried = true; c.carriedFrom = k; return c;
-      });
-    }
-    return null;
-  }
-
   function dayAvail(cgId, date) {
     var ds = dateKey(date);
     if (idxState === 'unconfigured' || idxState === 'error') {
@@ -11087,11 +11042,9 @@ var AVAIL = (function () {
     }
     var days = idx[cgId];
     var blocks = (days && days[ds]) || [];
-    var carried = false;
-    if (!blocks.length) {
-      var cb = carriedBlocks(days, ds);
-      if (cb) { blocks = cb; carried = true; }
-    }
+    /* Nothing recorded means NOT available, and it means it for this date
+       alone. An earlier date is never read forward onto this one: a
+       scheduler who tags one day has tagged one day. */
     if (!blocks.length) return { state: 'none', wins: [], blocks: [], label: 'No availability entered' };
 
     var wins = [], words = [];
@@ -11106,8 +11059,7 @@ var AVAIL = (function () {
     });
     if (wins.length) {
       wins.sort(function (a, b) { return a[0] - b[0]; });
-      return { state: 'open', wins: wins, blocks: blocks, carried: carried,
-               label: carried ? 'Usual hours for this day' : '' };
+      return { state: 'open', wins: wins, blocks: blocks, label: '' };
     }
     return { state: 'blocked', wins: [], blocks: blocks, label: words.join(' \u00b7 ') || 'Unavailable' };
   }
