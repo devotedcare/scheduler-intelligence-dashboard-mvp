@@ -1641,6 +1641,15 @@
   /* waiting on AxisCare — say so rather than showing an empty result that
      is about to be replaced */
   .cgf-loading{display:flex;align-items:center;gap:9px;padding:18px 16px;font-size:13px;color:var(--ink-soft)}
+  /* The photo slot keeps its size whether or not an image lands, so rows
+     never reflow as pictures stream in. */
+  .cgf-ri-photo{width:44px;height:44px;flex:0 0 auto;border-radius:10px;overflow:hidden;background:var(--panel-head);display:flex;align-items:center;justify-content:center;line-height:0}
+  .cgf-ri-photo img{width:100%;height:100%;object-fit:cover;display:block}
+  /* `noimg`, NOT `empty`: this app already has a generic .empty for empty-state
+     panels that carries padding:30px 20px, and it collided here - the slot grew
+     to 44x60 and the glyph was squeezed to 4px wide. */
+  .cgf-ri-photo.noimg{background:var(--panel-head);border:0;color:var(--ink-faint)}
+  .cgf-ri-photo.noimg svg{display:block;width:20px;height:20px}
   /* ---- the day panel, which is always the availability editor ----
      Laid out like the reference design, but wearing this app's type,
      spacing and colours rather than the other system's. */
@@ -2581,6 +2590,7 @@ const I = {
   droplet:'<path d="M12 3.5s6 6.3 6 10.5a6 6 0 11-12 0c0-4.2 6-10.5 6-10.5z" stroke="currentColor" stroke-width="2" fill="none" stroke-linejoin="round"/>',
   utensils:'<path d="M6 3v7a2.2 2.2 0 002.2 2.2L8 21M5 3v4.5M8 3v4.5M18.5 3c-1.8 0-3 2-3 5s1.2 4 3 4l-.2 9" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
   eye:'<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" stroke="currentColor" stroke-width="2" fill="none" stroke-linejoin="round"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2" fill="none"/>',
+  camera:'<path d="M3.5 7.5h3.3l1.5-2.5h7.4l1.5 2.5h3.3A1.5 1.5 0 0122 9v9a1.5 1.5 0 01-1.5 1.5h-17A1.5 1.5 0 012 18V9a1.5 1.5 0 011.5-1.5z" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linejoin="round"/><circle cx="12" cy="13.4" r="3.4" stroke="currentColor" stroke-width="1.8" fill="none"/>',
   trash:'<path d="M3.5 6.5h17M9.5 6.5V4.6a1.1 1.1 0 011.1-1.1h2.8a1.1 1.1 0 011.1 1.1v1.9M6 6.5l.9 13.1a1.5 1.5 0 001.5 1.4h7.2a1.5 1.5 0 001.5-1.4L18 6.5M10 10.5v6.5M14 10.5v6.5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
   refresh:'<path d="M20.5 12a8.5 8.5 0 11-2.49-6.01" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/><path d="M20.5 3.5v4.8h-4.8" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
   history:'<path d="M3.5 12a8.5 8.5 0 108.5-8.5 8.4 8.4 0 00-6.01 2.49" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/><path d="M3.5 3.5v4.8h4.8" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 7.8V12l3.2 1.9" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
@@ -6256,6 +6266,41 @@ function cgNameMatch(c, q){
   if(!q) return true;
   return ((c.name||'')+' '+(c.goesBy||'')).toLowerCase().includes(q);
 }
+/* Where a caregiver's photo lives.
+
+   AxisCare has NO photo - not a field, not an endpoint, nothing in its spec -
+   so there is nothing to pull and nothing to keep in sync. The bytes are in
+   this app's own Supabase Storage bucket “caregiver-photos”, one object per
+   caregiver named for the AxisCare id. Returns null when we could not build a
+   URL at all (no keys, a demo record with no axisId); a caregiver who simply
+   has no photo yet still gets a URL, and the 404 is what triggers the
+   placeholder - see cgPhotoFail. */
+function cgPhotoUrl(c, px){
+  const cfg = window.SCHEDULER_CONFIG || {};
+  if(!cfg.supabaseUrl || !c || c.axisId == null) return null;
+  const base = String(cfg.supabaseUrl).replace(/\/+$/,'');
+  const key = encodeURIComponent(String(c.axisId));
+  /* Ask Supabase to resize from the stored object rather than shipping the
+     original to a 44px slot. Nothing extra is stored and the original is
+     untouched - this is only which URL the browser requests. Worth it: a
+     third of these are PNGs over 1MB, and the biggest (2268KB) comes back
+     at 14KB. Omit px to get the original bytes. */
+  if(!px) return base + '/storage/v1/object/public/caregiver-photos/' + key;
+  return base + '/storage/v1/render/image/public/caregiver-photos/' + key +
+    '?width=' + px + '&height=' + px + '&resize=cover&quality=72';
+}
+
+/* The image did not load - no photo, or the network. Swap in the placeholder
+   rather than leaving a broken-image glyph. Clearing onerror first stops a
+   loop if the swap itself ever fails. */
+function cgPhotoFail(img){
+  img.onerror = null;
+  const box = img.parentNode;
+  if(!box) return;
+  box.classList.add('noimg');
+  box.innerHTML = ic('camera',18);
+}
+
 /* Is the roster still on its way from AxisCare? An empty list means two
    very different things before and after that call returns. */
 function rosterLoading(){
@@ -6273,7 +6318,15 @@ function cgDirMatch(c){
 function cgDirRow(c){
   const bits=[c.base, c.gender==='F'?'Female':(c.gender==='M'?'Male':null), c.driver?'Driver':'No Car'].filter(Boolean);
   const tags=(c.languages||[]).concat((c.skills||[]).filter(s=>s!=='Companion'));
+  /* The row is already a flex line, so the photo is simply its first child
+     and everything after it shifts right on its own. loading="lazy" keeps a
+     184-row list from fetching every image at once. */
+  const photo = cgPhotoUrl(c, 96);          /* 2x the 44px slot */
+  const av = photo
+    ? `<div class="cgf-ri-photo"><img src="${gEsc(photo)}" alt="" loading="lazy" decoding="async" onerror="cgPhotoFail(this)"></div>`
+    : `<div class="cgf-ri-photo noimg">${ic('camera',18)}</div>`;
   return `<div class="cgf-row-item" onclick="openCaregiver('${c.id}')" role="button" tabindex="0" onkeydown="if(event.key==='Enter')openCaregiver('${c.id}')">
+    ${av}
     <div class="cgf-ri-main">
       <div class="cgf-ri-name">${gEsc(c.name)}</div>
       <div class="cgf-ri-meta">${bits.map(gEsc).join(' \u2022 ')}</div>
