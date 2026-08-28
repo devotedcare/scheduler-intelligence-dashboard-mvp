@@ -402,6 +402,87 @@ for the morning it runs into*.
 > old app’s `Anytime` label — were converted to whole-day rows, which is what
 > they always meant.
 
+**A tag paints no further than the day it was typed on.** Every status behaves
+the same way: one day tagged is one day tagged.
+
+### The day panel has five tabs
+
+The panel that opens on a calendar day keeps its date header and ×, and
+carries a navbar beneath it. Every day opens on **Availability**; the tab is
+not remembered between days.
+
+| Tab | Icon | What it holds |
+|---|---|---|
+| **Availability** | `calendar` | The editor described above — status, Apply to, Time. The only tab that writes `caregiver_availability`. |
+| **Notes** | `forms` | One note for the day. Its own Save. |
+| **Delete** | `trash` | The same month picker as *Selected days*, and a Delete that clears the chosen days’ availability. |
+| **Cadence** | `refresh` | Placeholder. The existing review cadence (`availCheckFreq`) is edited elsewhere and was not touched. |
+| **History** | `history` | Placeholder. |
+
+**Only Availability has a Save that writes availability.** Notes has its own
+Save, Delete has a red Delete, and Cadence and History have no footer at all —
+a Save button on a tab with nothing to save is a lie.
+
+**Delete keeps its own date selection** (`modalState.delPicked`), separate
+from the Availability tab’s `picked`. The grid behaves identically; the sets
+are separate so a multi-day availability pick can never become a multi-day
+delete by accident.
+
+### The day note is NOT part of the availability
+
+**Claude: do not move it back onto the availability row.** It lived there
+until 2026-08-28 and every one of these was broken by it.
+
+A note is about the **date**, not about a block of hours. It lives in its own
+table, `public.caregiver_day_notes`, one row per caregiver per date:
+
+- it can be written on a day with **no availability at all**
+- **replacing** the day’s hours leaves it alone
+- **clearing** the day’s availability (the Delete tab) leaves it alone
+- an **empty** note deletes the row rather than storing a blank, so “has a
+  note” is simply “a row exists”. A CHECK constraint refuses `''`.
+
+While it was a column on `caregiver_availability`, none of that held: every
+save carried `modalState.note` onto the new segments, so editing the hours
+rewrote the note, and clearing the day deleted it with the rows. `dpDraft()`
+now sends `note: null` on every entry, and the column is legacy — nothing
+writes it any more.
+
+The **1,182 notes already written** — real sentences from Mae, Angelica,
+Beatrice, Joan and Tine, like “Family Reunion” and “Dropping off her daughter
+at LAX for a trip.” — were moved across on 2026-08-28 with their authors and
+timestamps intact. No day held two different notes, so it was a 1:1 move.
+
+`NOTES` (beside `AVAIL` at the bottom of the file) loads one caregiver’s notes
+over the same 13-month window the calendar arrows reach, and `calDayStatus()`
+reads it for the note marker on the grid — not the availability rows.
+
+> The panel can open before the notes land. `openDayPanel` seeds the box from
+> the cache if it is warm, `NOTES.load()` re-renders when the fetch resolves,
+> and the Notes tab adopts the stored note then — unless the scheduler has
+> already typed, which `modalState.noteTouched` records. Without that flag a
+> slow fetch would overwrite what somebody was in the middle of writing.
+
+> Between **2026-08-26 and 2026-08-28** it did not. `carriedBlocks()` let a
+> future date with nothing stored inherit the most recent SAME-WEEKDAY date
+> that was entirely `Open`, for up to twelve weeks — a caregiver’s "normal
+> week" answering for dates nobody had typed. Because the search skipped any
+> day that was not entirely Open, **only Open carried**, and in a month grid
+> the same weekday is a vertical column: an Open block painted straight down
+> it while Unavailable stayed put. That asymmetry is what the desk reported.
+>
+> It also contradicted the rule directly above, and Find Coverage acted on it
+> — offering caregivers at 3am on dates nobody had confirmed. Removed on
+> 2026-08-28 along with `CARRY_WEEKS`, the `carried`/`carriedFrom` flags, the
+> faded `.cal-blk.carried` styling and the `dayAvail` branch that read it.
+>
+> Nothing was ever written by the carry — it was read-time only — so no rows
+> needed cleaning up. The one path that could have made a phantom real was
+> `dpSave`’s **Add** verb, which reads `AVAIL.forDay()` as "what the day already
+> holds"; `forDay` returned carried blocks, so an Add on a carried day would
+> have written them. The table was checked and no such row exists: every
+> app-written day holds exactly one status.
+
 Rows live in `public.caregiver_availability`, one per segment, keyed by the
 **AxisCare numeric id**. An overnight is stored on its **start date** with
 `end_min` past 1440, so 8pm–8am is `1200..1920` and reads as `20..32` in the
@@ -878,6 +959,7 @@ just explain what was found and move to what does work.
 | Which clients a caregiver has served before | **No such field**, but easily derived — `/api/visits?caregiverIds=…` returns exactly that. The caregiver calendar does it. |
 | A Mon–Sun availability grid | **Does not exist in AxisCare.** Only the coarse class tags above (`WKDY`, `WKND`, `MRNNG`, `NOVRN`…), and only for 60% of caregivers — and those are *not* read as availability. The dashboard keeps its own per-date availability in Supabase; see *How availability works*. |
 | A clinical skills list | **Does not exist** as a field. Only class tags. |
+| Caregiver photos | **AxisCare has none.** No field on `/api/caregivers`, no photo/document/attachment endpoint among the 17 that exist, and zero mentions of photo, image, avatar or headshot anywhere in its 559KB OpenAPI spec. The photos this app shows are its own — see *Where the caregiver photos come from*. |
 | Client medications | **Cannot be fetched.** A limitation in AxisCare's own API, confirmed on the Client Concierge dashboard where the medications call returns `403` on every client. The Medication List screen here is demo data. Not fixable in code, and no re-sync or deploy would change it. |
 | Caregiver availability | **AxisCare has none.** The calendar shows *assigned visits*, which are real. The open and unavailable blocks beside them are per-date rows a scheduler typed into this app's own Supabase table, and only those count. |
 | Writing anything back to AxisCare | Not possible through this app. The proxy is read-only by design and forwards GET only. |
@@ -885,6 +967,53 @@ just explain what was found and move to what does work.
 The pattern worth internalising: **AxisCare knows identity, status, location,
 tags and what happened on each visit. It does not know derived judgements about a
 caregiver.** Anything evaluative has to be computed from visit history.
+
+---
+
+## Where the caregiver photos come from
+
+**Not from AxisCare.** It has no photo of any kind (see the table above), so
+there is nothing to pull and nothing to keep in sync. Do not go looking for a
+sync job — there has never been one, in this app or any other.
+
+They live in this project’s own Supabase Storage bucket **`caregiver-photos`**,
+public-read, one object per caregiver named for the **AxisCare numeric id**
+(`312`, not `a312`). **177 photos, 157 of the 173 Active caregivers (91%)**, and
+96 of Carlo’s Active 103.
+
+They were copied on **2026-08-28** from `devoted-care-system`, which had been
+collecting them through its own upload route — somebody uploaded each one by
+hand; its `docs/DEFERRED_ITEMS_PLAN.md` records photos as Mitch’s to supply.
+Both systems key on the AxisCare id, so it was a straight copy, and every one
+was verified byte-for-byte over the public URL afterwards. **This app depends
+on nothing outside its own Supabase** — that project and its keys can be
+deleted.
+
+### The list asks for a resized rendition, not the original
+
+`cgPhotoUrl(c, px)` returns the plain object URL with no `px`, and a Supabase
+**image-transformation** URL with one. The row asks for 96 (twice its 44px
+slot).
+
+That is not premature tuning. The 177 split in two: 144 JPEGs averaging well
+under 100KB, and **33 PNGs over 1MB** — about 55MB of the 64.9MB total. The
+largest, caregiver 38, is **2268KB as stored and 14KB at 96px**. Nothing extra
+is stored and the originals are untouched; it is only which URL the browser
+asks for.
+
+### A missing photo is not an error
+
+Sixteen Active caregivers have no photo. The row asks anyway and lets the
+request fail — `onerror="cgPhotoFail(this)"` swaps in the plain camera
+placeholder, which covers “never had one” and “could not load it” with the same
+fallback. Supabase answers a missing public object with **400, not 404**; the
+`<img>` fails either way.
+
+> `devoted-care-system` needed a has-photo manifest endpoint to avoid a
+> “150+ 404 fan-out” on every render. That was because its bytes were
+> auth-gated, so each miss cost a gated round trip. Ours are public, a miss is
+> a plain 400, and `loading="lazy"` means only visible rows ask at all — so
+> the manifest would be machinery with nothing to buy.
 
 ---
 

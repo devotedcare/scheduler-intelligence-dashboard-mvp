@@ -543,3 +543,79 @@ notify pgrst, 'reload schema';
 --     '[{"status":"Unavailable","all_day":true},
 --       {"status":"Open","all_day":false,"start_min":540,"end_min":1020}]'::jsonb);
 
+-- ==============================================================
+--  caregiver_day_notes  -  what a scheduler wrote about ONE DAY
+-- ==============================================================
+-- Deliberately its OWN table rather than a column on
+-- caregiver_availability. A note is about the DAY, not about a block of
+-- hours: it can exist on a day with no availability at all, replacing the
+-- day's hours must not rewrite it, and clearing the day's availability must
+-- not delete it. None of that held while it lived on the availability row -
+-- every save carried modalState.note onto the new segments, and a Clear
+-- took the note with them.
+--
+-- One row per caregiver per date. An empty note is not stored; the panel
+-- deletes the row instead, so "has a note" is simply "a row exists".
+
+create table if not exists public.caregiver_day_notes (
+  id           bigint      generated always as identity primary key,
+  caregiver_id bigint      not null,          -- AxisCare id (312), not 'a312'
+  on_date      date        not null,
+  note         text        not null,
+  updated_by   text        not null default 'Carlo',
+  created_at   timestamptz not null default now(),
+  updated_at   timestamptz not null default now(),
+
+  -- blank is not a note. Clearing the box removes the row.
+  constraint caregiver_day_notes_note_ck check (btrim(note) <> ''),
+  -- the browser caps typing far below this; the table only stops absurdity
+  constraint caregiver_day_notes_len_ck  check (length(note) <= 2000),
+  -- one note per day, which is what makes an upsert on (caregiver, date) work
+  constraint caregiver_day_notes_uq unique (caregiver_id, on_date)
+);
+
+-- the roster-wide read: every caregiver's notes over a window of dates
+create index if not exists caregiver_day_notes_date_idx
+  on public.caregiver_day_notes (on_date);
+
+-- keep updated_at honest without the browser having to send it
+create or replace function public.touch_caregiver_day_notes()
+returns trigger language plpgsql as $$
+begin
+  new.updated_at = now();
+  return new;
+end $$;
+
+drop trigger if exists caregiver_day_notes_touch on public.caregiver_day_notes;
+create trigger caregiver_day_notes_touch
+  before update on public.caregiver_day_notes
+  for each row execute function public.touch_caregiver_day_notes();
+
+-- Same posture as caregiver_availability: anon may read and write, because
+-- there are no logins yet and the schedulers are the only people with the
+-- URL. Reviewed in README.md under Security posture; when logins arrive
+-- these become `to authenticated`.
+alter table public.caregiver_day_notes enable row level security;
+
+drop policy if exists "anon read day notes"   on public.caregiver_day_notes;
+drop policy if exists "anon insert day notes" on public.caregiver_day_notes;
+drop policy if exists "anon update day notes" on public.caregiver_day_notes;
+drop policy if exists "anon delete day notes" on public.caregiver_day_notes;
+
+create policy "anon read day notes"
+  on public.caregiver_day_notes for select
+  to anon, authenticated using (true);
+
+create policy "anon insert day notes"
+  on public.caregiver_day_notes for insert
+  to anon, authenticated with check (true);
+
+create policy "anon update day notes"
+  on public.caregiver_day_notes for update
+  to anon, authenticated using (true) with check (true);
+
+create policy "anon delete day notes"
+  on public.caregiver_day_notes for delete
+  to anon, authenticated using (true);
+
+notify pgrst, 'reload schema';
