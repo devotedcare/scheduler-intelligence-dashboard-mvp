@@ -1727,7 +1727,7 @@
 
   /* The picker answers "which days", not "what is on them" — numbers only,
      so it never argues with the calendar behind the panel. */
-  .dpk{margin-top:11px;border:1px solid var(--line);border-radius:var(--r);padding:10px}
+  .dp-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 16px 9px}.dp-date{font-size:13.5px;font-weight:650;color:var(--ink)}.dp-head .mc{cursor:pointer;color:var(--ink-faint);font-size:19px;line-height:1;background:none;border:none;padding:0 2px;font-family:inherit}.dp-head .mc:hover{color:var(--ink)}.dp-body{padding:4px 16px 14px}.dp-sec{margin-bottom:13px}.dp-sec:last-child{margin-bottom:4px}.dp-lab{font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-faint);margin-bottom:6px}.dp-segs{display:inline-flex;background:var(--panel-head);border:1px solid var(--line);border-radius:7px;padding:2px;gap:2px}.dp-seg{font-family:inherit;font-size:12.5px;font-weight:650;color:var(--ink-soft);background:none;border:none;border-radius:5px;padding:5px 13px;cursor:pointer;white-space:nowrap}.dp-seg.on{background:#fff;color:var(--ink);font-weight:700;box-shadow:0 1px 2px rgba(0,0,0,.08)}.dp-seg:disabled{opacity:.45;cursor:default}.dp-picked{display:flex;align-items:center;gap:9px;margin-top:7px;font-size:12.5px;color:var(--ink-soft)}.dp-link{font-family:inherit;font-size:12.5px;font-weight:650;color:var(--brand);background:none;border:none;padding:0;cursor:pointer;text-decoration:underline}.dp-link:disabled{opacity:.5;cursor:default}.dp-note{width:100%;box-sizing:border-box;font-family:inherit;font-size:13px;color:var(--ink);background:#fff;border:1px solid var(--line-strong);border-radius:7px;padding:8px 10px;min-height:62px;resize:vertical;outline:none}.dp-note:focus{border-color:var(--brand)}.dp-body .dp-times{margin-top:8px}.dp-body .dpk{margin-top:8px;padding:8px}.dpk{margin-top:11px;border:1px solid var(--line);border-radius:var(--r);padding:10px}
   .dpk-bar{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:9px}
   .dpk-label{font-size:13px;font-weight:700;color:var(--ink)}
   .dpk-dow{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:2px;margin-bottom:4px}
@@ -6614,6 +6614,7 @@ function openDayPanel(cgId, dateISO){
     allDay: false,               /* Custom is the common case; All day is now legal for Open too */
     from: '09:00', to: '17:00',
     note: '',
+    noteOpen: false,
     multi: false, picked: {}, pickOff: null,
     saving: false, error: null
   };
@@ -6632,6 +6633,10 @@ function dpSet(field, value){
   renderDayPanel();
 }
 function dpNote(v){ modalState.note = String(v||'').slice(0, AV_NOTE_MAX); }
+/* The note is hidden until asked for; once it holds text it stays open, so a
+   re-render never swallows something already typed. */
+function dpToggleNote(){ modalState.noteOpen = true; renderDayPanel();
+  const t=document.querySelector('.dp-note'); if(t) t.focus(); }
 function dpTime(field, v){ modalState[field] = v; modalState.error = null; }
 function dpScope(multi){
   modalState.multi = !!multi;
@@ -6861,89 +6866,62 @@ function renderDayPanel(){
   const busy = !!modalState.saving;
   const count = dpTargets().length;
 
-  const head = `<div class="sp-head">
-      <div class="sp-headings">
-        ${count>1?'':`<div class="sp-eyebrow">${date.toLocaleDateString('en-US',{weekday:'long'})}</div>`}
-        <div class="sp-dateline">
-          <div class="sp-date">${count>1 ? count+' days selected' : date.toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})}</div>
-          ${count>1?'':`<button class="sp-clear" ${busy?'disabled':''} onclick="dpClear()" title="Remove everything recorded on this day">Clear</button>`}
-        </div>
-      </div>
+  /* The date is context, not a headline: plain small text, no card. */
+  const head = `<div class="dp-head">
+      <span class="dp-date">${date.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'})}</span>
       <button class="mc" onclick="closeSidePanel()">×</button>
     </div>`;
 
-  const timedOnly = avTimedOnly(modalState.status);
-  const allDayOnly = avAllDayOnly(modalState.status);
-  const tone = availTone(modalState.status);
+  const seg=(on,label,onclick,dis)=>`<button type="button" class="dp-seg${on?' on':''}" ${dis||busy?'disabled':''} onclick="${onclick}">${label}</button>`;
+  const picked=Object.keys(modalState.picked).length;
 
-  const body = `<div class="sp-body">
+  const body = `<div class="sp-body dp-body">
     ${S.conflict?`<div class="dp-clash">${ic('alerts',13)} <span>AxisCare has a <b>Devoted visit</b> on this day, but it is marked
       <b>${esc(S.conflict)}</b>. The visit is not removed and the hours are not adjusted \u2014 check which is right.</span></div>`:''}
-    <div class="field">
-      <div class="dp-fieldhead">
-        <label>Status</label>
-        <span class="dp-verbs">
-          <button type="button" class="dp-win ${modalState.verb==='set'?'on':''}" ${busy?'disabled':''} onclick="dpSet('verb','set')" title="Replace everything this day holds">Set day</button>
-          <button type="button" class="dp-win ${modalState.verb==='add'?'on':''}" ${busy?'disabled':''} onclick="dpSet('verb','add')" title="Keep what the day holds and carve this in">Add</button>
-        </span>
-      </div>
-      <div class="dp-status">
-        <span class="dp-dot ${tone}"></span>
-        <select class="ein" ${busy?'disabled':''} onchange="dpSet('status',this.value)">
-          ${AV_STATUSES.map(s=>`<option ${modalState.status===s?'selected':''}>${s}</option>`).join('')}
-        </select>
+
+    <div class="dp-sec">
+      <div class="dp-lab">Availability</div>
+      <div class="dp-segs">
+        ${seg(modalState.status==='Open','Open',"dpSet('status','Open')")}
+        ${seg(modalState.status!=='Open','Unavailable',"dpSet('status','Unavailable')")}
       </div>
     </div>
 
-    <div class="field">
-      <label>Time</label>
-      <div class="dp-mode">
-        <button type="button" class="dp-win ${modalState.allDay?'on':''}" ${busy||timedOnly?'disabled':''} onclick="dpSet('allDay',true)" title="${timedOnly?modalState.status+' needs the hours it covers':''}">All day</button>
-        <button type="button" class="dp-win ${modalState.allDay?'':'on'}" ${busy||allDayOnly?'disabled':''} onclick="dpSet('allDay',false)" title="${allDayOnly?modalState.status+' is a whole-day state':''}">Custom</button>
+    <div class="dp-sec">
+      <div class="dp-lab">Apply to</div>
+      <div class="dp-segs">
+        ${seg(!modalState.multi,'This date only','dpScope(false)')}
+        ${seg(modalState.multi,'Selected days','dpScope(true)')}
+      </div>
+      ${modalState.multi?dpPicker()+`<div class="dp-picked"><span>${count} day${count===1?'':'s'} selected</span>${picked?`<button type="button" class="dp-link" ${busy?'disabled':''} onclick="dpDeselect()">Clear</button>`:''}</div>`:''}
+    </div>
+
+    <div class="dp-sec">
+      <div class="dp-lab">Time</div>
+      <div class="dp-segs">
+        ${seg(modalState.allDay,'All day',"dpSet('allDay',true)",avTimedOnly(modalState.status))}
+        ${seg(!modalState.allDay,'Custom',"dpSet('allDay',false)",avAllDayOnly(modalState.status))}
       </div>
       ${modalState.allDay?'':`<div class="dp-times">
         <label class="dp-timefield"><span class="dp-timelabel">From</span>
           <input class="ein" type="time" value="${modalState.from}" ${busy?'disabled':''} oninput="dpTime('from',this.value)"></label>
         <label class="dp-timefield"><span class="dp-timelabel">To</span>
           <input class="ein" type="time" value="${modalState.to}" ${busy?'disabled':''} oninput="dpTime('to',this.value)"></label>
-      </div>
-      `}
+      </div>`}
     </div>
 
-    <div class="field">
-      <label>Apply this to</label>
-      <div class="dp-scope">
-        <label class="dp-radio"><input type="radio" name="dp-scope" ${modalState.multi?'':'checked'} ${busy?'disabled':''} onchange="dpScope(false)"><span>This date only</span></label>
-        <div class="dp-scope-row">
-          <label class="dp-radio"><input type="radio" name="dp-scope" ${modalState.multi?'checked':''} ${busy?'disabled':''} onchange="dpScope(true)"><span>Selected days</span></label>
-          ${modalState.multi && Object.keys(modalState.picked).length?`<button type="button" class="btn sm" onclick="dpDeselect()">Deselect all</button>`:''}
-        </div>
-      </div>
-      ${modalState.multi?dpPicker():''}
-    </div>
-
-    <div class="field">
-      <label>Scheduling notes <span class="dp-optional">(optional)</span></label>
-      <textarea maxlength="${AV_NOTE_MAX}" ${busy?'disabled':''} placeholder="e.g. Childcare until 3 PM." oninput="dpNote(this.value)">${esc(modalState.note||'')}</textarea>
-      <div class="dp-count">${(modalState.note||'').length}/${AV_NOTE_MAX}</div>
+    <div class="dp-sec">
+      ${modalState.noteOpen||modalState.note
+        ? `<textarea class="dp-note" maxlength="${AV_NOTE_MAX}" ${busy?'disabled':''} placeholder="e.g. Childcare until 3 PM." oninput="dpNote(this.value)">${esc(modalState.note||'')}</textarea>`
+        : `<button type="button" class="dp-link" ${busy?'disabled':''} onclick="dpToggleNote()">+ Add note</button>`}
     </div>
 
     ${modalState.error?`<div class="dp-error">${ic('alerts',12)} ${esc(modalState.error)}</div>`:''}
-
-    ${count>1?'':`<div class="sp-row">
-      <div class="sp-l"><span>History</span></div>
-      <div class="sp-v">${S.updatedAt
-        ? esc(new Date(S.updatedAt).toLocaleString('en-US',{month:'long',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'}) + ' by ' + (S.updatedBy||'—'))
-        : '<span class="sp-none">No update recorded</span>'}</div>
-    </div>`}
   </div>`;
-
-  const verbLabel = modalState.verb==='set' ? 'Set' : 'Add to';
-  const saveLabel = busy ? 'Saving…' : (count>1 ? verbLabel+' '+count+' days' : verbLabel+' day');
 
   sEl.innerHTML = head + body + `<div class="sp-foot">
       <button class="btn" ${busy?'disabled':''} onclick="closeSidePanel()">Cancel</button>
-      <button class="btn pri" ${busy?'disabled':''} onclick="dpSave()">${saveLabel}</button>
+      <button class="btn pri" ${busy?'disabled':''} onclick="dpSave()">${busy?'Saving\u2026':'Save'}</button>
     </div>`;
 }
 
