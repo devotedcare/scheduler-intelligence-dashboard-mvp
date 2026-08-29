@@ -1473,7 +1473,7 @@
   .cal-tag.agency{color:#6D28D9;background:#E7DEFA}
   .cal-tag.vacation{color:#0B7A70;background:#CDEEEB}
   .cal-tag.sick{color:var(--crit-solid);background:#F7D9D5}
-  .cal-note{position:absolute;top:5px;right:5px;font-size:9px;font-weight:800;letter-spacing:.3px;line-height:1;color:var(--soon-tx);background:var(--soon-bg);border:1px solid #EBD5A6;border-radius:9px;padding:2px 6px}
+  
   /* status legend swatches */
   .cal-sw{width:11px;height:11px;border-radius:2px;display:inline-block;border-left:3px solid}
   .cal-sw.avail{background:#EAF6EF;border-left-color:var(--good-solid)}
@@ -1740,7 +1740,7 @@
 
   /* The picker answers "which days", not "what is on them" — numbers only,
      so it never argues with the calendar behind the panel. */
-  .cls-head{margin:2px 0 11px}.cls-name{font-size:19px;font-weight:800;color:var(--ink);letter-spacing:-.2px}.cls-meta{font-size:13px;color:var(--ink-soft);margin-top:2px}.cls-note{font-size:12.5px;color:var(--ink-soft);background:var(--panel-head);border:1px solid var(--line);border-radius:8px;padding:9px 12px;margin-bottom:10px}.cls-note.err{color:var(--crit-tx);background:var(--crit-bg);border-color:#EEC2BC}.cv-clink{font:inherit;color:inherit;background:none;border:none;padding:0;cursor:pointer;text-decoration:underline;text-underline-offset:2px;text-decoration-color:var(--line-strong)}.cv-clink:hover{color:var(--brand);text-decoration-color:var(--brand)}.dp-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 16px 9px}.dp-date{font-size:13.5px;font-weight:650;color:var(--ink)}.dp-head .mc{cursor:pointer;color:var(--ink-faint);font-size:19px;line-height:1;background:none;border:none;padding:0 2px;font-family:inherit}.dp-head .mc:hover{color:var(--ink)}.dp-body{padding:14px 16px 14px}.dp-sec{margin-bottom:13px}.dp-sec:last-child{margin-bottom:4px}.dp-lab{font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-faint);margin-bottom:6px}.dp-segs{display:inline-flex;background:var(--panel-head);border:1px solid var(--line);border-radius:7px;padding:2px;gap:2px}.dp-seg{font-family:inherit;font-size:12.5px;font-weight:650;color:var(--ink-soft);background:none;border:none;border-radius:5px;padding:5px 13px;cursor:pointer;white-space:nowrap}.dp-seg.on{background:#fff;color:var(--ink);font-weight:700;box-shadow:0 1px 2px rgba(0,0,0,.08)}.dp-seg:disabled{opacity:.45;cursor:default}.dp-picked{display:flex;align-items:center;gap:9px;margin-top:7px;font-size:12.5px;color:var(--ink-soft)}.dp-link{font-family:inherit;font-size:12.5px;font-weight:650;color:var(--brand);background:none;border:none;padding:0;cursor:pointer;text-decoration:underline}.dp-link:disabled{opacity:.5;cursor:default}.dp-note{width:100%;box-sizing:border-box;font-family:inherit;font-size:13px;line-height:1.45;color:var(--ink);background:#fff;border:1px solid var(--line-strong);border-radius:7px;padding:8px 10px;min-height:62px;resize:vertical;outline:none}.dp-note.grow{min-height:64px;overflow-y:hidden;resize:none}.dp-note:focus{border-color:var(--brand)}.dp-body .dp-times{margin-top:8px}.dp-body .dpk{margin-top:8px;padding:8px}.dpk{margin-top:11px;border:1px solid var(--line);border-radius:var(--r);padding:10px}.dp-nav{display:grid;grid-template-columns:repeat(5,1fr);border-bottom:1px solid var(--line);padding:0 6px}.dp-tab{display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 2px;background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-1px;cursor:pointer;font-family:inherit;font-size:10.5px;font-weight:650;letter-spacing:-.1px;color:var(--ink-faint);min-width:0}.dp-tab svg{display:block;flex:none}.dp-tab:hover{color:var(--ink-soft)}.dp-tab.on{color:var(--brand);border-bottom-color:var(--brand);font-weight:750}.dp-tab:disabled{opacity:.45;cursor:default}.dp-soon{padding:30px 18px 34px;text-align:center;color:var(--ink-faint)}.dp-soon .dp-soon-i{color:var(--line-strong);margin-bottom:10px}.dp-soon-t{font-size:13.5px;font-weight:700;color:var(--ink-soft);margin-bottom:4px}.dp-soon-d{font-size:12.5px;line-height:1.5;max-width:30ch;margin:0 auto}.dp-hint{font-size:11.5px;line-height:1.45;color:var(--ink-faint);margin:8px 0 0}.dp-by{font-size:11.5px;color:var(--ink-faint);margin-top:7px}
+  .cls-head{margin:2px 0 11px}.cls-name{font-size:19px;font-weight:800;color:var(--ink);letter-spacing:-.2px}.cls-meta{font-size:13px;color:var(--ink-soft);margin-top:2px}.cls-note{font-size:12.5px;color:var(--ink-soft);background:var(--panel-head);border:1px solid var(--line);border-radius:8px;padding:9px 12px;margin-bottom:10px}.cls-note.err{color:var(--crit-tx);background:var(--crit-bg);border-color:#EEC2BC}.cv-clink{font:inherit;color:inherit;background:none;border:none;padding:0;cursor:pointer;text-decoration:underline;text-underline-offset:2px;text-decoration-color:var(--line-strong)}.cv-clink:hover{color:var(--brand);text-decoration-color:var(--brand)}.dp-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 16px 9px}.dp-date{font-size:13.5px;font-weight:650;color:var(--ink)}.dp-head .mc{cursor:pointer;color:var(--ink-faint);font-size:19px;line-height:1;background:none;border:none;padding:0 2px;font-family:inherit}.dp-head .mc:hover{color:var(--ink)}.dp-body{padding:14px 16px 14px}.dp-sec{margin-bottom:13px}.dp-sec:last-child{margin-bottom:4px}.dp-lab{font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-faint);margin-bottom:6px}.dp-segs{display:inline-flex;background:var(--panel-head);border:1px solid var(--line);border-radius:7px;padding:2px;gap:2px}.dp-seg{font-family:inherit;font-size:12.5px;font-weight:650;color:var(--ink-soft);background:none;border:none;border-radius:5px;padding:5px 13px;cursor:pointer;white-space:nowrap}.dp-seg.on{background:#fff;color:var(--ink);font-weight:700;box-shadow:0 1px 2px rgba(0,0,0,.08)}.dp-seg:disabled{opacity:.45;cursor:default}.dp-picked{display:flex;align-items:center;gap:9px;margin-top:7px;font-size:12.5px;color:var(--ink-soft)}.dp-link{font-family:inherit;font-size:12.5px;font-weight:650;color:var(--brand);background:none;border:none;padding:0;cursor:pointer;text-decoration:underline}.dp-link:disabled{opacity:.5;cursor:default}.dp-note{width:100%;box-sizing:border-box;font-family:inherit;font-size:13px;line-height:1.45;color:var(--ink);background:#fff;border:1px solid var(--line-strong);border-radius:7px;padding:8px 10px;min-height:62px;resize:vertical;outline:none}.dp-note.grow{min-height:64px;overflow-y:hidden;resize:none}.dp-note:focus{border-color:var(--brand)}.dp-body .dp-times{margin-top:8px}.dp-body .dpk{margin-top:8px;padding:8px}.dpk{margin-top:11px;border:1px solid var(--line);border-radius:var(--r);padding:10px}.dp-nav{display:grid;grid-template-columns:repeat(5,1fr);border-bottom:1px solid var(--line);padding:0 6px}.dp-tab{display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 2px;background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-1px;cursor:pointer;font-family:inherit;font-size:10.5px;font-weight:650;letter-spacing:-.1px;color:var(--ink-faint);min-width:0}.dp-tab svg{display:block;flex:none}.dp-tab:hover{color:var(--ink-soft)}.dp-tab.on{color:var(--brand);border-bottom-color:var(--brand);font-weight:750}.dp-tab:disabled{opacity:.45;cursor:default}.dp-tabl{display:inline-flex;align-items:center;gap:4px;min-width:0}.dp-tabn{display:inline-flex;align-items:center;justify-content:center;min-width:14px;height:14px;padding:0 4px;border-radius:7px;background:var(--brand);color:#fff;font-size:9.5px;font-weight:800;line-height:1}.dp-tab.on .dp-tabn{background:var(--brand)}.dp-saved{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:700;color:var(--good-tx);margin-left:2px}.dp-soon{padding:30px 18px 34px;text-align:center;color:var(--ink-faint)}.dp-soon .dp-soon-i{color:var(--line-strong);margin-bottom:10px}.dp-soon-t{font-size:13.5px;font-weight:700;color:var(--ink-soft);margin-bottom:4px}.dp-soon-d{font-size:12.5px;line-height:1.5;max-width:30ch;margin:0 auto}.dp-hint{font-size:11.5px;line-height:1.45;color:var(--ink-faint);margin:8px 0 0}.dp-by{font-size:11.5px;color:var(--ink-faint);margin-top:7px}
   .dp-q{font-size:13px;color:var(--ink);margin:0 0 9px;line-height:1.4}
   .dp-radios{display:flex;flex-direction:column;gap:7px}
   .dp-radios .dp-radio{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink);cursor:pointer}
@@ -6806,9 +6806,9 @@ function cgCalendar(c){
          inferred, so there is no faint state to distinguish. */
       return `<div class="cal-blk ${b.type}" title="${esc(b.label+(tt?' · '+tt:'')+(b.note?' · '+b.note:''))}"><span class="cb-l">${esc(b.label)}</span>${tt?`<span class="cb-t">${tt}</span>`:''}</div>`;
     }).join('')}</div>` : '';
-    /* Only when a note actually exists. A word reads at a glance where the
-       bare icon did not, and stays small enough not to crowd the cell. */
-    const note = S.hasNote?`<span class="cal-note" title="${esc(S.note||'Has a note')}">Note</span>`:'';
+    /* No note marker in the cell - the count lives on the Notes tab in the
+       side panel instead, so the grid stays about availability. */
+    const note = '';
     cells+=`<div class="cal-cell ${isToday?'today':''} ${ds===sel?'sel':''} ${blocks.length?'':'offday'}" onclick="openDayPanel('${c.id}','${date.toISOString()}')">
       <span class="cal-d">${d}</span>${note}
       ${body}
@@ -7097,8 +7097,16 @@ function dpNoteSave(){
   NOTES.save(c, ds, modalState.note || '')
     .then(function(){
       modalState.saving = false;
-      closeSidePanel();
+      /* Stay put. Saving a note is not finishing with the day, and closing
+         the panel used to throw the scheduler back to the calendar. */
+      modalState.noteSaved = true;
+      renderDayPanel();
       try{ render(); }catch(e){}
+      setTimeout(function(){
+        if(!modalState || !modalState.noteSaved) return;
+        modalState.noteSaved = false;
+        if(modalState.tab==='notes') renderDayPanel();
+      }, 2200);
     })
     .catch(function(e){
       modalState.saving = false;
@@ -7384,9 +7392,13 @@ function renderDayPanel(){
     ['history', 'History',      'history']
   ];
   const tab = modalState.tab || 'avail';
+  /* One note per day is all the table holds, so the badge is 1 or nothing. */
+  const _dn = (typeof NOTES!=='undefined') ? NOTES.forDay(c.id, date) : null;
+  const noteCount = (_dn && _dn.note) ? 1 : 0;
   const nav = `<nav class="dp-nav" aria-label="Day sections">${TABS.map(([k,label,icon])=>
     `<button type="button" class="dp-tab${tab===k?' on':''}" ${busy?'disabled':''}
-      ${tab===k?'aria-current="page"':''} onclick="dpTab('${k}')">${ic(icon,19)}${label}</button>`).join('')}</nav>`;
+      ${tab===k?'aria-current="page"':''} onclick="dpTab('${k}')">${ic(icon,19)}<span class="dp-tabl">${label}${
+        k==='notes'&&noteCount?`<span class="dp-tabn">${noteCount}</span>`:''}</span></button>`).join('')}</nav>`;
 
   /* Nothing behind these yet. Say what each will hold rather than showing
      an empty panel that reads as broken. */
@@ -7416,6 +7428,7 @@ function renderDayPanel(){
     </div>` + `<div class="sp-foot">
       <button class="btn" ${busy?'disabled':''} onclick="closeSidePanel()">Cancel</button>
       <button class="btn pri" ${busy||loading?'disabled':''} onclick="dpNoteSave()">${busy?'Saving\u2026':'Save'}</button>
+      ${modalState.noteSaved&&!busy?`<span class="dp-saved">${ic('check',13)} Saved</span>`:''}
     </div>`;
     dpNoteGrow(document.getElementById('dpNoteBox'));
     return;
