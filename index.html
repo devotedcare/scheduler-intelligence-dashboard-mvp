@@ -6361,6 +6361,26 @@ const CADENCE_CHOICES=[['Weekly','Weekly'],['Every 2 weeks','Every 2 Weeks'],['M
   ['Every 3 months','Every 3 Months'],['Every 6 months','Every 6 Months'],['Every 9 months','Every 9 Months'],
   ['Yearly','Yearly'],['','No Cadence']];
 function cadenceDays(c){ const fr=c.ops.availCheckFreq; if(fr==='Custom') return Math.max(1, c.ops.customCadenceDays||30); return CADENCE_MAP[fr]!=null?CADENCE_MAP[fr]:30; }
+/* A monthly cadence means the same date next MONTH, not 30 days on. Checked
+   on 28 Aug, Every 3 Months is due 28 Nov - which is what the office reads
+   it as, and what 90 days would have got wrong by a day or two every time.
+   CADENCE_MAP stays in days for the rough windows (due-soon, task chasing);
+   this is what the two dates on screen count with. */
+const CADENCE_MONTHS={'Monthly':1,'Every 3 months':3,'Every 6 months':6,'Every 9 months':9,'Yearly':12};
+function cadenceNext(from, freq, customDays){
+  if(!from) return null;
+  const d=new Date(from), m=CADENCE_MONTHS[freq];
+  if(m){
+    const day=d.getDate();
+    const out=new Date(d.getFullYear(), d.getMonth()+m, day, d.getHours(), d.getMinutes());
+    /* 31 Jan + 1 month has no 31 Feb: clamp to the last day of the target
+       month rather than rolling into March. */
+    if(out.getDate()!==day) out.setDate(0);
+    return out;
+  }
+  const days = freq==='Custom' ? Math.max(1, customDays||30) : (CADENCE_MAP[freq]!=null?CADENCE_MAP[freq]:30);
+  return new Date(d.getTime()+days*86400000);
+}
 function verifyDays(c){ return cadenceDays(c); }
 function cadenceTimePeriod(c){ const fr=c.ops.availCheckFreq; const M={'Weekly':'week','Every 2 weeks':'2 weeks','Monthly':'month','Every 3 months':'3 months','Every 6 months':'6 months'}; if(fr==='Custom') return (c.ops.customCadenceDays||30)+' days'; return M[fr]||'period'; }
 
@@ -6381,7 +6401,7 @@ function reviewCadence(c){
 }
 function nextReview(c){
   if(!reviewCadence(c) || !c.ops.availLastConfirmed) return null;
-  return new Date(new Date(c.ops.availLastConfirmed).getTime()+cadenceDays(c)*86400000);
+  return cadenceNext(c.ops.availLastConfirmed, c.ops.availCheckFreq, c.ops.customCadenceDays);
 }
 /* not-set | ok | due-soon | due | overdue */
 function reviewState(c){
@@ -6447,7 +6467,7 @@ function vfInactive(id){ const c=cgById(id); c.active=false; c.ops.inPool=false;
 function vfRemovePool(id){ const c=cgById(id); c.ops.inPool=false; vfEntries(c).unshift({date:new Date(),by:state.onShift,result:'pool'}); render(); toast(c.name+' removed from the available pool'); }
 function vfArchive(id){ const c=cgById(id); c.ops.archived=true; c.active=false; c.ops.inPool=false; vfEntries(c).unshift({date:new Date(),by:state.onShift,result:'archived'}); render(); toast(c.name+' archived'); }
 function avPill(c){ const st=availVerifyStatus(c); return `<span class="avst avst-${st.key}"><span class="avst-dot"></span>${st.label}</span>`; }
-function availNextDue(c){ if(!c.ops.availLastConfirmed) return null; return new Date(new Date(c.ops.availLastConfirmed).getTime()+cadenceDays(c)*86400000); }
+function availNextDue(c){ if(!c.ops.availLastConfirmed) return null; return cadenceNext(c.ops.availLastConfirmed, c.ops.availCheckFreq, c.ops.customCadenceDays); }
 function availDaysSince(c){ if(!c.ops.availLastConfirmed) return null; return Math.floor((NOW-new Date(c.ops.availLastConfirmed))/86400000); }
 function availDaysUntilDue(c){ const d=availNextDue(c); return d?Math.ceil((d-NOW)/86400000):null; }
 function availDue(c){ const n=availDaysUntilDue(c); return n!=null && n<=0; }
@@ -7054,10 +7074,37 @@ function dpSaveCadence(){
   /* No Cadence stores null, which is what reviewCadence reads as "not
      scheduled" - not a zero-day interval. */
   c.ops.availCheckFreq = v || null;
+
+  /* Setting a cadence IS the check: the scheduler has just been through
+     this caregiver's availability. Stamping today is what stops the panel
+     reading "Never checked" the moment after a cadence was chosen, and it
+     is what Next Check Due counts forward from.
+
+     The same stamp confirmAvail writes, for the same reason it writes it:
+     a caregiver carrying a run of no-responses would otherwise still read
+     Unverified straight after somebody actually reached them. Choosing No
+     Cadence is not a check, so it stamps nothing - there is no next date
+     for it to feed. */
+  if(v){
+    c.ops.availLastConfirmed = new Date();
+    c.ops.availConfirmedBy = state.onShift;
+    c.ops.noResponseStreak = 0;
+    if(!c.ops.verifyHistory) c.ops.verifyHistory = [];
+    c.ops.verifyHistory.unshift({date:new Date(), by:state.onShift, result:'verified'});
+  }
   modalState.cadence = undefined;
-  closeSidePanel();
+  /* Stay on the tab so the two dates it just changed are visible. */
+  modalState.cadenceSaved = true;
+  renderDayPanel();
   try{ render(); }catch(e){}
-  toast(v ? 'Availability check cadence set to '+v : 'Availability check cadence removed');
+  setTimeout(function(){
+    if(!modalState || !modalState.cadenceSaved) return;
+    modalState.cadenceSaved = false;
+    if(modalState.tab==='cadence') renderDayPanel();
+  }, 2200);
+  const nd = v ? nextReview(c) : null;
+  toast(v ? 'Availability check cadence set to '+v+(nd?' \u00b7 next check '+fmtDate(nd):'')
+          : 'Availability check cadence removed');
 }
 function dpToggleNote(){ modalState.noteOpen = true; renderDayPanel();
   const t=document.querySelector('.dp-note'); if(t) t.focus(); }
@@ -7474,7 +7521,7 @@ function renderDayPanel(){
     const cur = (modalState.cadence !== undefined) ? modalState.cadence : (c.ops.availCheckFreq || '');
     const days = CADENCE_MAP[cur] || null;
     const last = c.ops.availLastConfirmed ? new Date(c.ops.availLastConfirmed) : null;
-    const next = (days && last) ? new Date(last.getTime() + days*86400000) : null;
+    const next = (days && last) ? cadenceNext(last, cur, c.ops.customCadenceDays) : null;
     const overdue = next && next < NOW;
     sEl.innerHTML = head + nav + `<div class="sp-body dp-body">
       <div class="dp-sec">
@@ -7493,6 +7540,7 @@ function renderDayPanel(){
     </div>` + `<div class="sp-foot">
       <button class="btn" ${busy?'disabled':''} onclick="closeSidePanel()">Cancel</button>
       <button class="btn pri" ${busy?'disabled':''} onclick="dpSaveCadence()">Save Cadence</button>
+      ${modalState.cadenceSaved&&!busy?`<span class="dp-saved">${ic('check',13)} Saved</span>`:''}
     </div>`;
     return;
   }
