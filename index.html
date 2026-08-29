@@ -8579,13 +8579,20 @@ function cgCallPanel(c, all){
    app or in AxisCare, so none are shown. */
 const VERIFY_TEXT={verified:'Availability verified', noresponse:'No response to availability check',
   reminder:'Availability reminder sent'};
+/* System-generated entries — "Profile updated by …" and "Availability
+   verified by …" — are OFF. That tracking is not in use yet, so the feed was
+   showing bookkeeping nobody had asked for. The panel stays; flip this to
+   true to bring the derived entries back, nothing else changes. */
+const CG_UPDATES_SYSTEM = false;
 function cgUpdatesFor(c){
   const out=(state.cgUpdates||[]).filter(u=>u.cgId===c.id)
     .map(u=>({at:u.at, text:u.text, by:u.by}));
-  (c.ops.verifyHistory||[]).forEach(function(v){
-    out.push({at:v.date, text:VERIFY_TEXT[v.result]||'Availability checked', by:v.by});
-  });
-  if(c.ops.lastUpdated) out.push({at:c.ops.lastUpdated, text:'Profile updated', by:c.ops.lastUpdatedBy});
+  if(CG_UPDATES_SYSTEM){
+    (c.ops.verifyHistory||[]).forEach(function(v){
+      out.push({at:v.date, text:VERIFY_TEXT[v.result]||'Availability checked', by:v.by});
+    });
+    if(c.ops.lastUpdated) out.push({at:c.ops.lastUpdated, text:'Profile updated', by:c.ops.lastUpdatedBy});
+  }
   return out.filter(x=>x.at).sort((a,b)=>new Date(b.at)-new Date(a.at));
 }
 function cgUpdatesPanel(c, all){
