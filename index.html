@@ -1215,6 +1215,22 @@
   .ws-grid .ws-card.span2{grid-column:1 / -1}
   /* a short card should not stretch to its neighbour and go hollow */
   .ws-grid.ws-prof{align-items:start}
+  /* Half-width cards: one field per row. Two columns inside a ~545px card
+     leaves ~250px per field, narrower than labels like "Can assist with
+     client transfers", and the value would wrap under its own label. */
+  /* the rating wrapper is a plain div, so .ws-card.span2 does not reach it */
+  .pf2 > .span2{grid-column:1 / -1}
+  .pf2 .emp-grid{grid-template-columns:1fr;gap:0}
+  .pf2 .cb-grid{grid-template-columns:1fr}
+  .pf2 .wp-wide,.pf2 .wp-travel .emp-row{grid-column:auto}
+  /* The row is no longer a metre wide, so the value sits a readable
+     distance from its label rather than at the far edge. */
+  .pf2 .emp-row{gap:18px}
+  .pf2 .emp-l{flex:1 1 auto;min-width:0}
+  .pf2 .emp-v{flex:0 0 auto;max-width:52%}
+  .pf2 .cgp-hint,.pf2 .cb-note{font-size:11.5px}
+  @media(max-width:1100px){.ws-grid.pf2{grid-template-columns:1fr}
+    .pf2 .span2,.pf2 .ws-card.span2{grid-column:auto}}
   @media(max-width:1000px){.ws-grid{grid-template-columns:1fr}}
   .ws-list{margin:0;padding-left:0;list-style:none;display:flex;flex-direction:column;gap:7px}
   .ws-list li{font-size:13.5px;color:var(--ink);line-height:1.5;position:relative;padding-left:17px}
@@ -8576,7 +8592,7 @@ function prefVal(c,k){
 function prefYN(v){ return v===null||v===undefined ? 'Not recorded' : (v?'Yes':'No'); }
 function prefsCard(c){
   const row=(l,v)=>`<div class="emp-row"><span class="emp-l">${l}</span><span class="emp-v">${v}</span></div>`;
-  return `<div class="ws-card span2"><div class="ws-h ws-h-flex h-tint h-prefs2"><span>Client &amp; Assignment Preferences</span>
+  return `<div class="ws-card"><div class="ws-h ws-h-flex h-tint h-prefs2"><span>Client &amp; Assignment Preferences</span>
       <button class="btn sm" onclick="openPrefsEdit('${c.id}')">${ic('log',12)} Edit</button></div>
     <div class="emp-grid">
       ${row('Client gender preference', prefVal(c,'clientGender') ? esc(prefVal(c,'clientGender')) : 'Not recorded')}
@@ -9419,28 +9435,38 @@ function viewCaregiverWorkspace(c){
       ${cgUpdatesPanel(c,false)}
     </div>`;
 
-  const profile = `
-    ${cgRatingStrip(c)}
+  /* TWO COLUMNS. Every section was full width with three or four fields in
+     it, so a 1440px screen showed a column of short rows with a metre of
+     nothing beside each value. Paired side by side, twice as much is on
+     screen and the label and its value are no longer a hand-span apart.
+     Inside a half-width card the field grid collapses to one column — two
+     would leave ~250px per field, which is narrower than several of the
+     labels. */
+  const profile = `<div class="ws-grid ws-prof pf2">
+    <div class="span2">${cgRatingStrip(c)}</div>
+
     ${workPrefsCard(c)}
-    <div class="ws-card span2"><div class="ws-h ws-h-flex h-tint h-emp"><span>Employment Summary</span>
+    <div class="ws-card"><div class="ws-h ws-h-flex h-tint h-emp"><span>Employment Summary</span>
       <button class="btn sm" onclick="openEmpEdit('${c.id}')">${ic('log',12)} Edit</button></div><div class="emp-grid">${employmentBody}</div></div>
-    <div class="ws-card span2"><div class="ws-h ws-h-flex h-tint h-rules"><span>Assignment &amp; Client Rules</span>
+
+    <div class="ws-card"><div class="ws-h ws-h-flex h-tint h-rules"><span>Assignment &amp; Client Rules</span>
       <button class="btn sm" onclick="openAcrEdit('${c.id}')">${ic('log',12)} Edit</button></div>
       <div class="ws-grp"><div class="ws-grp-h">Client Blocks — Do Not Assign</div>${cbBody}</div>
       <div class="ws-grp"><div class="ws-grp-h">Assignment Restrictions</div>${restrBody}</div>
     </div>
     ${prefsCard(c)}
-    <div class="ws-grid ws-prof">
-      <div class="ws-card"><div class="ws-h ws-h-flex h-tint h-pers"><span>Personality</span>
-          <button class="btn sm" onclick="openTraitPick('${c.id}','personality')">${ic('log',12)} Edit</button></div>
-        ${traitTags(cgPersonality(c),'No caregiver styles recorded yet.')}
-      </div>
-      <div class="ws-card"><div class="ws-h ws-h-flex h-tint h-skills"><span>Skills &amp; Experience</span>
-          <button class="btn sm" onclick="openTraitPick('${c.id}','skills')">${ic('log',12)} Edit</button></div>
-        ${traitTags(cgCareSkills(c),'No skills or experience recorded yet.')}
-      </div>
-      ${languagesCard(c)}
-    </div>`;
+
+    ${languagesCard(c)}
+    <div class="ws-card"><div class="ws-h ws-h-flex h-tint h-skills"><span>Skills &amp; Experience</span>
+        <button class="btn sm" onclick="openTraitPick('${c.id}','skills')">${ic('log',12)} Edit</button></div>
+      ${traitTags(cgCareSkills(c),'No skills or experience recorded yet.')}
+    </div>
+
+    <div class="ws-card span2"><div class="ws-h ws-h-flex h-tint h-pers"><span>Personality</span>
+        <button class="btn sm" onclick="openTraitPick('${c.id}','personality')">${ic('log',12)} Edit</button></div>
+      ${traitTags(cgPersonality(c),'No caregiver styles recorded yet.')}
+    </div>
+  </div>`;
 
   return `<button class="ws-back" onclick="${fromCov?'closeCgCalendar()':'backToCaregivers()'}">${ic('chevL',14)} ${fromCov?'Back to Find Coverage':'Back to Caregivers'}</button>
     <div class="dc-printhead">${dcLetterhead('Caregiver Profile', c.name)}</div>
@@ -9532,7 +9558,7 @@ function workPrefsCard(c){
   if(AVAIL.openDays(c.id).some(o=>['Sat','Sun'].includes(dayKeyFromDate(o.day)))) avTags.push('Weekend Available');
   const tagsHtml = avTags.length?`<div class="av2-tags">${avTags.map(t=>`<span class="av2-tag">${t}</span>`).join('')}</div>`:'';
   const row=(l,v)=>`<div class="emp-row"><span class="emp-l">${l}</span><span class="emp-v">${v}</span></div>`;
-  return `<div class="ws-card span2"><div class="ws-h ws-h-flex h-tint h-prefs"><span>Work Preferences</span><button class="btn sm" onclick="editAvailability('${c.id}','prefs')">${ic('log',13)} Edit</button></div>
+  return `<div class="ws-card"><div class="ws-h ws-h-flex h-tint h-prefs"><span>Work Preferences</span><button class="btn sm" onclick="editAvailability('${c.id}','prefs')">${ic('log',13)} Edit</button></div>
       <div class="emp-grid">
         ${row('Preferred minimum shift', fmtHours(span.min))}
         ${row('Preferred maximum shift', fmtHours(span.max))}
