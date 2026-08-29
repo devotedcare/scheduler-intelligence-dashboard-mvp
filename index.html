@@ -4227,9 +4227,6 @@ function deleteNote(cgId, noteId){
   const c=cgById(cgId), ops=c.ops; ops.schedNotes=(ops.schedNotes||[]).filter(x=>x.id!==noteId);
   ops.lastUpdated=new Date(); ops.lastUpdatedBy=state.onShift; toast('Note deleted'); render();
 }
-function schedNotesCard(c){
-  return `<div class="ws-card span2"><div class="ws-h ws-h-flex"><span>Caregiver Intelligence <span class="sn-subh">Internal profile — scheduler &amp; management knowledge</span></span><button class="btn pri sm" onclick="openNoteModal('${c.id}')">+ Add Note</button></div>${schedNotesBody(c)}</div>`;
-}
 function repAcc(key, title, sub, bodyFn){
   const open=state.reportOpen[key];
   return `<div class="rep-acc${open?' open':''}" id="rep-${key}"><div class="rep-head"><button class="rep-headmain" onclick="toggleReport('${key}')"><span class="rep-chev">${ic('chev',16)}</span><span class="rep-ht"><span class="rep-title">${title}</span><span class="rep-desc">${sub}</span></span></button></div><div class="rep-body">${open?bodyFn():''}</div></div>`;
@@ -8084,9 +8081,6 @@ function viewCaregiverWorkspace(c){
     ${cgCalMeta(c)}
     <div class="ws-card span2"><div class="ws-h"><span class="ws-h-ic">${ic('calendar',15)}<span>Availability</span></span></div>${cgCalendar(c)}</div>
     ${availRulesSummary(c)}
-    ${availVerifyPanel(c)}
-    ${schedNotesCard(c)}
-    ${attendancePanel(c)}
     <div class="ws-card span2"><div class="ws-h">Employment Summary</div><div class="emp-grid">${employmentBody}</div></div>
     <div class="ws-card span2"><div class="ws-h ws-h-flex"><span>Client Blocks \u2014 Do Not Assign</span><button class="btn sm" onclick="editAvailability('${c.id}','blocks')">${ic('shield',12)} Manage blocks</button></div>${cbBody}</div>
     <div class="ws-grid">
@@ -8128,93 +8122,6 @@ function availRulesSummary(c){
 }
 function setAvailFilter(k,v){ state.filters[k]=v; render(); }
 function editCaregiver(id){ state.cgEdit=id; render(); window.scrollTo(0,0); }
-function attendancePanel(c){
-  const st=attendanceStats(c);
-  const f=(l,v,tone)=>`<div class="att-f"><div class="att-n ${tone||''}">${v}</div><div class="att-l">${l}</div></div>`;
-  const concernText = st.callOffsWeek>=2?`${st.callOffsWeek} call-offs this week`
-    : st.lastMinuteMonth?`${st.lastMinuteMonth} last-minute call-off${st.lastMinuteMonth>1?'s':''} in 30 days`
-    : st.noShowMonth?`${st.noShowMonth} no-show in 30 days`
-    : st.lateMonth>=3?`${st.lateMonth} late arrivals in 30 days`:'review attendance';
-  const banner = st.concern
-    ? `<div class="att-flag">${ic('alerts',13)} Attendance Concern \u2014 ${concernText}</div>`
-    : `<div class="att-ok">${ic('check',13)} No current attendance concerns</div>`;
-  return `<div class="ws-card span2 att-panel ${st.concern?'concern':''}">
-    <div class="ws-h">Reliability / Attendance <span class="att-rel">${hasVal(c.reliability) ? c.reliability+'% reliability score' : 'Reliability not tracked \u2014 no AxisCare source'}</span></div>
-    <div class="att-status">${banner}</div>
-    <div class="att-grid att-grid4">
-      ${f('Call-Off With Notice', st.withNotice)}
-      ${f('Last-Minute Call-Off', st.lastMinute, st.lastMinute?'soon':'')}
-      ${f('No-Show', st.noShows, st.noShows?'crit':'')}
-      ${f('Late Arrival', st.lateArrivals)}
-    </div>
-    <div class="att-defs">
-      <span><b>With notice:</b> caregiver gave reasonable notice (day before or earlier)</span>
-      <span><b>Last-minute:</b> same-day or under ~12 hours' notice</span>
-    </div>
-    <div class="att-dates">
-      <span>Last call-off: <b>${st.lastCallOff?fmtDate(st.lastCallOff):'\u2014'}</b></span>
-      <span class="att-dot">\u00b7</span>
-      <span>Last late arrival: <b>${st.lastLate?fmtDate(st.lastLate):'\u2014'}</b></span>
-    </div>
-  </div>`;
-}
-function availVerifyPanel(c){
-  const ops=c.ops, st=availVerifyStatus(c), since=availDaysSince(c), next=availNextDue(c), du=availDaysUntilDue(c);
-  const danger=(st.key==='overdue'||st.key==='unverified');
-  const f=(l,v,tone)=>`<div class="av-f"><div class="av-l">${l}</div><div class="av-v ${tone||''}">${v}</div></div>`;
-  const dueTxt = next ? (fmtDate(next) + (du!=null?` \u00b7 ${du>0?du+' day'+(du===1?'':'s')+' away':(du===0?'today':Math.abs(du)+' day'+(du===-1?'':'s')+' overdue')}`:'')) : '\u2014';
-  const cadSel=`<select class="ein" onchange="setCadence('${c.id}',this.value)">${CADENCE_OPTS.map(o=>`<option ${ops.availCheckFreq===o?'selected':''}>${o}</option>`).join('')}</select>`;
-  const customInput= ops.availCheckFreq==='Custom'?` <input class="ein num" type="number" min="1" style="max-width:78px" value="${ops.customCadenceDays||30}" onchange="setCustomCadence('${c.id}',this.value)"> days`:'';
-  const u=noRespCount(c);
-  // ---- Guided workflow ----
-  const flow=verifyFlow(c);
-  const confirming=state.cgConfirmOpen===c.id;
-  const steps=`<div class="vf-steps">`+WF_STAGES.map(([k,l],ix)=>{ const cls= flow.idx<0?'' : (ix<flow.idx?'done':(ix===flow.idx?'active '+flow.tone:'')); return `<div class="vf-step ${cls}"><span class="vf-dot"></span><span class="vf-sl">${l}</span></div>`; }).join('<span class="vf-sep"></span>')+`</div>`;
-  const actionBtns = confirming
-    ? `<div class="av-confirm"><span class="av-confirm-l">Confirmed via:</span>${CONFIRM_METHODS.map(m=>`<button class="btn sm" onclick="confirmAvail('${c.id}','${m}')">${m}</button>`).join('')}<button class="btn sm ghost" onclick="toggleConfirm()">Cancel</button></div>`
-    : `<div class="vf-actions">${flow.actions.map(a=>`<button class="btn ${a.kind==='pri'?'pri ':''}sm" onclick="${a.fn}">${a.label}</button>`).join('')}</div>`;
-  const workflow=`<div class="vf">
-    <div class="vf-h">Verification workflow</div>
-    ${steps}
-    <div class="vf-rec ${flow.tone}">
-      <div class="vf-rec-top"><span class="vf-rec-l">Next recommended action</span></div>
-      <div class="vf-rec-title">${flow.title}</div>
-      <div class="vf-rec-text">${flow.rec}</div>
-      ${actionBtns}
-    </div>
-    <div class="vf-note">${ic('alerts',11)} Escalation steps and timeframes shown here are placeholders for review \u2014 exact rules (e.g. days until inactive/archived) to be finalized.</div>
-  </div>`;
-  // ---- History ----
-  const hist=vfEntries(c).slice();
-  const HMAP={ verified:['ok','Verified by '], reminder:['rem','Verification text sent by '], noresponse:['no','No response'], reached:['ok','Caregiver reached'], inactive:['no','Marked inactive'], pool:['no','Removed from available pool'], archived:['no','Archived'] };
-  const hRow=r=>{ const m=HMAP[r.result]||['rem',r.result]; const needsBy=['verified','reminder'].includes(r.result); return `<div class="vh-row"><span class="vh-dot ${m[0]}"></span><span class="vh-date">${fmtDate(r.date)}</span><span class="vh-by">${m[1]}${needsBy?esc(r.by||'\u2014'):''}</span></div>`; };
-  const histHtml = hist.length ? `<div class="vh-list">${hist.map(hRow).join('')}</div>` : `<div class="ws-none">No verification history yet.</div>`;
-  // ---- Reminder template ----
-  const tpl=state.verifyTemplate||VERIFY_TPL_DEFAULT;
-  const tplOpen=state.verifyTplOpen===c.id;
-  const tplEditor = tplOpen
-    ? `<div class="vt-editor"><div class="vt-l">Reminder template <span class="cov-fhint">use [Caregiver Name] and [time period] \u00b7 saved for all caregivers</span></div><textarea class="ein vt-ta" rows="4" oninput="setVerifyTemplate(this.value)">${esc(tpl)}</textarea><div class="vt-prev"><span class="vt-prev-l">Preview for ${esc(c.name)} (${cadenceTimePeriod(c)})</span>${esc(fillVerifyTemplate(c))}</div><button class="lnk" onclick="toggleVerifyTpl()">Done editing</button></div>`
-    : `<button class="lnk" onclick="toggleVerifyTpl('${c.id}')">Edit reminder template</button>`;
-  return `<div class="ws-card span2 av-panel ${danger?'due':''}">
-    <div class="ws-h">Availability Verification</div>
-    <div class="av-statusrow"><span class="avst avst-${st.key}"><span class="avst-dot"></span>${st.label}</span><span class="av-cadence">${st.desc}</span></div>
-    ${danger?`<div class="av-stale">${ic('alerts',12)} <span>Days left blank on the calendar have no confirmed availability on file \u2014 check with the caregiver before relying on them.</span></div>`:''}
-    <div class="av-grid">
-      ${f('Last Verified', ops.availLastConfirmed?fmtDate(ops.availLastConfirmed):'\u2014')}
-      ${f('Verified By', esc(ops.availConfirmedBy||'\u2014'))}
-      ${f('Availability Review Cadence', esc(reviewCadence(c)||'Not set'))}
-      ${f('Next Review', esc(reviewLabel(c)))}
-      ${f('Next Review', dueTxt, danger?'crit':'')}
-      ${f('Days Since Last Review', since!=null?since+' day'+(since===1?'':'s'):'\u2014')}
-      ${u?f('Unsuccessful Attempts', u, 'crit'):''}
-    </div>
-    <div class="av-cadrow"><span class="av-cadrow-l">Availability review cadence</span> ${cadSel}${customInput}</div>
-    ${workflow}
-    <div class="vh-h">Attempt history</div>
-    ${histHtml}
-    <div class="vt-wrap">${tplEditor}</div>
-  </div>`;
-}
 function fillVerifyTemplate(c){ return (state.verifyTemplate||VERIFY_TPL_DEFAULT).replace(/\[Caregiver Name\]/g, c.name).replace(/\[time period\]/g, cadenceTimePeriod(c)); }
 function setVerifyTemplate(v){ state.verifyTemplate=v; }
 function toggleVerifyTpl(id){ state.verifyTplOpen = id&&state.verifyTplOpen!==id ? id : null; render(); }
