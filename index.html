@@ -8011,29 +8011,10 @@ function viewCaregiverWorkspace(c){
   if(state.cgStrengthEdit===c.id) return cgStrengthForm(c);
   const ops=c.ops, st=schedStatus(c);
   const openHrs=openHrsOf(c), near40=c.weekHrs>=38, canOT=!near40;
-  // ===== Availability (merged: schedule facts + preferences + capacity) =====
-  const sp=ops.shiftPrefs||{};
-  const spList=[sp.short&&'4\u20136 hours',sp.medium&&'6\u20138 hours',sp.long&&'8\u201312 hours',sp.twelve&&'12-hour shifts',ops.emergency.overnight&&'Overnight',sp.liveIn&&'24-Hour / Live-In'].filter(Boolean).join(', ')||'No preference set';
-  /* The days and hours actually entered, not the class tags. c.win was a
-     guess: hours defaulted to 'Days' and the window to 8a-5p for every
-     caregiver AxisCare said nothing about. */
-  const _od=AVAIL.openDays(c.id);
-  const availDaysList=DAY_ORDER.filter(d=>_od.some(o=>dayKeyFromDate(o.day)===d));
-  const _wins=_od.reduce((a,o)=>a.concat(o.wins),[]);
-  const win=_wins.length?[Math.min.apply(null,_wins.map(w=>w[0])), Math.max.apply(null,_wins.map(w=>w[1]))]:null;
-  const daysStr = availDaysList.length?(availDaysList.length===7?'Every day':availDaysList.join(', ')):'None entered';
-  const timeStr = !win?'\u2014':((win[0]===win[1]||(win[0]===0&&win[1]%24===0))?'Anytime':_h12u(win[0])+'\u2013'+_h12u(win[1]));
-  const avTags=[];
-  if(ops.emergency.urgent||ops.emergency.sameDay) avTags.push('Last-Minute Available');
-  if(ops.emergency.sitter) avTags.push('Hospital Sitter');
-  if(AVAIL.openDays(c.id).some(o=>['Sat','Sun'].includes(dayKeyFromDate(o.day)))) avTags.push('Weekend Available');
-  const av2Row=(l,v)=>`<div class="av2-row"><div class="av2-l">${l}</div><div class="av2-v">${v}</div></div>`;
-  const availabilityBody = `<div class="av2">`
-    + av2Row('Availability Schedule', `<div class="av2-days">${daysStr}</div><div class="av2-time">${timeStr}</div>`)
-    + av2Row('Preferred Shift Length', spList)
-    + av2Row('Desired Weekly Hours', ops.minHours+'\u2013'+ops.maxHours+' hours')
-    + (avTags.length?`<div class="av2-tags">${avTags.map(t=>`<span class="av2-tag">${t}</span>`).join('')}</div>`:'')
-    + `</div>`;
+  /* The Desired Hours card that used to render here is gone: shift length,
+     weekly hours, language and travel all read together under Work
+     Preferences now, so showing weekly hours twice was the only thing this
+     block still did. Availability itself is the calendar above. */
   // ===== Employment Summary (now includes utilization) =====
   const hasCase=!!ops.devoted;
   const empRow=(l,v,tone)=>`<div class="emp-row"><span class="emp-l">${l}</span><span class="emp-v ${tone||''}">${v}</span></div>`;
