@@ -1653,6 +1653,7 @@
      the colour is the legend, so there is no legend. */
   .cal-blk.open{background:#15803d;border-color:#15803d;color:#fff}
   .cal-blk.devoted{background:#1e40af;border-color:#1e40af;color:#fff}
+.cal-clash{position:absolute;top:4px;right:5px;width:13px;height:13px;border-radius:50%;background:var(--soon-bg,#FDF3E3);color:#9A6212;border:1px solid #E8CFA0;font-size:9.5px;font-weight:800;line-height:11px;text-align:center;cursor:help}
   .cal-blk.unavail,
   .cal-blk.agency,
   .cal-blk.school,
@@ -7187,8 +7188,15 @@ function dayBlocks(c, date){
     blocks.push(b);
   });
 
-  /* whole-day statements first, then by start time */
-  blocks.sort((x,y)=>((x.full||x.noTime)?-1:x.start)-((y.full||y.noTime)?-1:y.start));
+  /* AXISCARE VISITS FIRST, then what the desk typed. A whole-day
+     Unavailable sorted to the top of the cell and pushed the visit under it,
+     so the authoritative record read as the afterthought on exactly the days
+     it matters most. Availability says when somebody CAN work; a visit is
+     what they are actually booked for, and it leads. Within each group,
+     whole-day statements first, then by start time. */
+  const rank=b=> b.type==='devoted' ? 0 : 1;
+  const at=b=> (b.full||b.noTime) ? -1 : b.start;
+  blocks.sort((x,y)=> (rank(x)-rank(y)) || (at(x)-at(y)));
   return blocks;
 }
 
@@ -7278,8 +7286,14 @@ function cgCalendar(c){
     /* No note marker in the cell - the count lives on the Notes tab in the
        side panel instead, so the grid stays about availability. */
     const note = '';
+    /* AxisCare has them booked on a day the desk marked unavailable. Both
+       stay on the grid - the visit is never hidden or removed - and this
+       says the two disagree without asking anybody to pick. */
+    const clash = S.conflict
+      ? `<span class="cal-clash" title="${esc('Scheduled visit on a day marked '+S.conflict+' \u2014 the AxisCare visit is the actual assignment')}" aria-label="Conflicts with entered availability">!</span>`
+      : '';
     cells+=`<div class="cal-cell ${isToday?'today':''} ${ds===sel?'sel':''} ${blocks.length?'':'offday'}" onclick="openDayPanel('${c.id}','${date.toISOString()}')">
-      <span class="cal-d">${d}</span>${note}
+      <span class="cal-d">${d}</span>${note}${clash}
       ${body}
     </div>`;
   }
@@ -13046,6 +13060,14 @@ var AVAIL = (function () {
     var pw = patternWeek(cgId);
     if (!pw || ds <= pw.end) return [];
     var src = pw.byDow[new Date(ds + 'T12:00:00').getDay()] || [];
+    /* AN AXISCARE VISIT OUTRANKS THE PATTERN. A carried Unavailable on a day
+       the caregiver is actually booked would have the calendar contradict
+       the authoritative record on a date nobody typed - a projection
+       overriding a real assignment. A typed Unavailable still stands and is
+       flagged as a conflict; a guess does not get to. */
+    var booked = (typeof CGVISITS !== 'undefined' && CGVISITS.forDay)
+      ? CGVISITS.forDay(cgId, ds).length > 0 : false;
+    if (booked) src = src.filter(function (b) { return b.status === 'Open'; });
     return src.map(function (b) {
       var o = {}; for (var k in b) if (Object.prototype.hasOwnProperty.call(b, k)) o[k] = b[k];
       o.id = null; o.day = ds; o.carried = true; o.carriedFrom = pw.start;
