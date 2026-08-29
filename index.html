@@ -9061,7 +9061,6 @@ function viewCaregiverWorkspace(c){
       <nav class="cgnav">${tabBtn('overview','Overview')}${tabBtn('profile','Profile')}</nav>
       <div class="ws-headbtns">
         <button class="btn sm" onclick="openResumeModal('${c.id}')">${ic('coverage',13)} Create Resume</button>
-        <button class="btn pri sm" onclick="editCaregiver('${c.id}')">${ic('log',13)} Edit Profile</button>
         <button class="btn sm cgdots" title="More" aria-label="More" onclick="openCgMore('${c.id}')">${ic('dots',15)}</button>
         ${fromCov?`<button class="ws-x" onclick="closeCgCalendar()" title="Close and go back to Find Coverage" aria-label="Close">×</button>`:''}
       </div>
@@ -9070,15 +9069,20 @@ function viewCaregiverWorkspace(c){
     ${tab==='overview' ? overview : profile}`;
 }
 function setCgTab(t){ state.cgTab = t==='profile' ? 'profile' : 'overview'; render(); window.scrollTo(0,0); }
-/* Print and the availability meta line moved off the button row into the
-   overflow menu; the row now carries the two actions staff use. */
+/* ONE editing path: each Profile section carries its own Edit. The
+   top-level Edit Profile is gone — cgEditForm is the pre-split editor and
+   writes weekly availability, vacation, restrictions and strengths, all of
+   which those sections now own, so it was a second and conflicting way to
+   change the same fields. Availability is edited on the calendar and in the
+   day panel, not from here.
+
+   That leaves Print, which is the only thing in this menu. */
 function openCgMore(id){
   const c=cgById(id); if(!c) return;
   mEl.innerHTML=`<div class="mh"><span class="mt">${esc(c.name)}</span>
       <button class="mc" onclick="closeModal()">×</button></div>
     <div class="mb"><div class="aem-list">
       <button class="aem-item" onclick="closeModal();printProfile('${c.id}')">${ic('print',18)}<span class="aem-tx"><span class="aem-t">Print profile</span><span class="aem-d">Print or save this page as a PDF</span></span></button>
-      <button class="aem-item" onclick="closeModal();editAvailability('${c.id}')">${ic('avail',18)}<span class="aem-tx"><span class="aem-t">Edit availability preferences</span><span class="aem-d">Shift length, hours wanted, client blocks</span></span></button>
     </div></div>`;
   mbg.classList.add('show');
 }
