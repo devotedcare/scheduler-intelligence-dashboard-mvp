@@ -2215,7 +2215,7 @@
 .rt-ot{font-size:11.5px;line-height:1.4;color:var(--ink-soft)}
 .rt-opt.on .rt-ot{color:var(--ink)}
 .rt-ot b{font-weight:800;color:var(--ink)}
-.cgf-ri-stars{margin-top:2px}
+.cgf-ri-meta .stars{vertical-align:-1px}
 /* background-COLOR, not the shorthand: .fb-type carries the chevron as a
    background-image and the shorthand would clear it. */
 .fb-type.pos{background-color:#EAF5F0;color:#1E7A5C;border-color:#CDE7DD}
@@ -7042,8 +7042,11 @@ function cgDirMatch(c){
   return true;
 }
 function cgDirRow(c){
-  const bits=[c.base, c.gender==='F'?'Female':(c.gender==='M'?'Male':null), c.driver?'Driver':'No Car'].filter(Boolean);
-  const tags=(c.languages||[]).concat((c.skills||[]).filter(s=>s!=='Companion'));
+  /* City and rating, and nothing else. Gender, driver status, languages and
+     the skill tags all belong on the profile — six lines of chips per row
+     made a 184-row list unreadable, and none of it is what a scheduler scans
+     this list for. */
+  const rt=cgRating(c);
   /* The row is already a flex line, so the photo is simply its first child
      and everything after it shifts right on its own. loading="lazy" keeps a
      184-row list from fetching every image at once. */
@@ -7055,9 +7058,7 @@ function cgDirRow(c){
     ${av}
     <div class="cgf-ri-main">
       <div class="cgf-ri-name">${gEsc(c.name)}</div>
-      ${cgRating(c)?`<div class="cgf-ri-stars">${starRow(cgRating(c).stars,'sm')}</div>`:''}
-      <div class="cgf-ri-meta">${bits.map(gEsc).join(' \u2022 ')}</div>
-      ${tags.length?`<div class="cgf-ri-tags">${tags.map(gEsc).join(' \u2022 ')}</div>`:''}
+      <div class="cgf-ri-meta">${c.base?gEsc(c.base):'\u2014'}${rt?` \u00b7 ${starRow(rt.stars,'sm')}`:''}</div>
     </div>
     ${cgReviewCell(c)}
     <span class="cgf-ri-chev">${ic('chev',16)}</span>
@@ -8332,7 +8333,11 @@ function ratingSave(){
   state.cgRatings=list;
   if(c.ops && c.ops.rating) delete c.ops.rating;   /* one home, not two */
   c.ops.lastUpdated=new Date(); c.ops.lastUpdatedBy=state.onShift;
-  state.rating=null; closeModal(); render(); toast('Rating saved');
+  state.rating=null; closeModal(); render();
+  /* Push now instead of waiting out the debounce: a refresh in the next
+     second was losing it. */
+  try{ CLOUD.save(); }catch(e){}
+  toast('Rating saved');
 }
 
 /* ---- The caregiver header, Overview only -----------------------------
@@ -12483,9 +12488,15 @@ const CLOUD = (function(){
         try{ if(typeof ROSTER!=='undefined') ROSTER.reconcile(); }catch(e){ console.warn('[roster] reconcile failed',e); }
         muted=false;
         lastBody=null;                        /* remote may differ from ours */
-        saveLocal(res.data.overlay);
+        /* Cache the MERGED result, not the server's overlay. Saving the raw
+           remote copy dropped anything entered locally that the debounced
+           push had not sent yet - click Save, let a poll land, refresh, and
+           the work was gone from the cache AND the server. applyOverlay
+           merges into state, so buildOverlay() here is remote plus ours. */
+        try{ saveLocal(booted ? buildOverlay() : res.data.overlay); }
+        catch(e){ saveLocal(res.data.overlay); }
         setStatus('synced');
-        if(booted) render();
+        if(booted){ render(); scheduleSave(); }
       }, function(err){ setStatus('offline',(err&&err.message)||'network'); });
   }
 
