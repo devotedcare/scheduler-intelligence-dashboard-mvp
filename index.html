@@ -2201,19 +2201,20 @@
 .rt-meta{font-size:12px;color:var(--ink-soft)}
 .rt-pen{margin-left:auto;background:none;border:none;padding:3px 5px;line-height:0;color:var(--ink-faint);cursor:pointer;border-radius:5px}
 .rt-pen:hover{color:var(--brand);background:var(--panel-head)}
-.rt-picker{display:flex;align-items:center;gap:4px}
-.rt-pick{font-family:inherit;font-size:26px;line-height:1;background:none;border:none;padding:0 2px;cursor:pointer;color:var(--line-strong)}
-.rt-pick.on{color:#E0A53E}
-.rt-pick:hover{color:#E0A53E}
-.rt-picknum{margin-left:9px;font-size:12.5px;font-weight:700;color:var(--ink-soft)}
-/* A list, not a card: no border, no fill, just enough leading to scan. The
-   chosen level lifts so the definition being picked is obvious. */
-.rt-guide{margin-top:8px;display:flex;flex-direction:column;gap:1px}
-.rt-g{display:flex;gap:8px;align-items:baseline;font-size:11.5px;line-height:1.4;color:var(--ink-soft);padding:2px 6px;border-radius:4px}
-.rt-g.on{background:#FBF3E3;color:var(--ink)}
-.rt-gn{flex:0 0 auto;font-weight:800;color:#B98724;font-variant-numeric:tabular-nums}
-.rt-g.on .rt-gn{color:#8A6314}
-.rt-gt b{font-weight:800;color:var(--ink)}
+/* One row per level: the radio, the stars, and the definition beside them.
+   Compact — a list of choices, not five cards. */
+.rt-opts{display:flex;flex-direction:column;gap:2px}
+.rt-opt{display:flex;gap:9px;align-items:flex-start;width:100%;text-align:left;font-family:inherit;
+  background:none;border:1px solid transparent;border-radius:6px;padding:6px 8px;cursor:pointer}
+.rt-opt:hover{background:var(--panel-head)}
+.rt-opt.on{background:#FBF3E3;border-color:#EBD9AE}
+.rt-radio{flex:0 0 auto;width:14px;height:14px;margin-top:1px;border-radius:50%;border:1.5px solid var(--line-strong);background:#fff}
+.rt-opt.on .rt-radio{border-color:#B98724;border-width:4px}
+.rt-on{flex:0 0 auto;font-size:12px;font-weight:800;color:#B98724;font-variant-numeric:tabular-nums;line-height:1.4}
+.rt-opt.on .rt-on{color:#8A6314}
+.rt-ot{font-size:11.5px;line-height:1.4;color:var(--ink-soft)}
+.rt-opt.on .rt-ot{color:var(--ink)}
+.rt-ot b{font-weight:800;color:var(--ink)}
 .cgf-ri-stars{margin-top:2px}
 /* background-COLOR, not the shorthand: .fb-type carries the chevron as a
    background-image and the shorthand would clear it. */
@@ -2299,7 +2300,7 @@ const state = {
   contactLog:{},
   handoff:{opener:[], closer:[]},
   updates:[],
-  cgConcerns:[], cgUpdates:[], cgNotes:[],
+  cgConcerns:[], cgUpdates:[], cgNotes:[], cgRatings:[],
   updEdit:null,          /* id being edited, or 'new' while composing */
   view:'avail',
   filters:{schedFilter:'open', availSearch:''},
@@ -8241,9 +8242,15 @@ function traitGroup(c,kind,label,none){
    reason is what makes it answerable later. Kept on ops.rating so it rides
    the caregiver record like the rest of the desk's own fields. */
 function cgRating(c){
-  const r=c && c.ops && c.ops.rating;
+  if(!c) return null;
+  let r=(state.cgRatings||[]).find(x=>x.id===c.id);
+  /* Anything written before this moved off the caregiver record still reads,
+     so a rating already set is not lost. */
+  if(!r && c.ops && c.ops.rating) r=c.ops.rating;
   const n=r && Number(r.stars);
-  return (n>=1 && n<=5) ? {stars:Math.round(n), reason:r.reason||'', by:r.by||null, at:r.at||null} : null;
+  return (n>=1 && n<=5)
+    ? {stars:Math.round(n), reason:r.reason||'', by:r.by||null, at:r.at||null, prevStars:r.prevStars||null}
+    : null;
 }
 function starRow(n, cls){
   let out='';
@@ -8264,7 +8271,9 @@ function cgRatingStrip(c){
 function openRating(id){
   const c=cgById(id); if(!c) return;
   const r=cgRating(c);
-  state.rating={id:id, stars:r?r.stars:0, reason:''};
+  /* Reopening preselects what is saved and shows the reason that came with
+     it, so an edit starts from the current answer rather than a blank one. */
+  state.rating={id:id, stars:r?r.stars:0, reason:r?r.reason:''};
   renderRatingModal(); mbg.classList.add('show');
 }
 /* What each star is supposed to mean, so five schedulers rate the same
@@ -8277,27 +8286,28 @@ const RATING_GUIDE=[
   [2,'Needs Improvement','Repeated concerns, call-offs, complaints, or needs closer supervision.'],
   [1,'High Concern','Serious or repeated performance, reliability, or safety concerns.']
 ];
-function ratingGuide(sel){
-  return `<div class="rt-guide">${RATING_GUIDE.map(function(g){
-    return `<div class="rt-g${sel===g[0]?' on':''}"><span class="rt-gn">${g[0]}★</span>`
-      + `<span class="rt-gt"><b>${g[1]}</b> — ${g[2]}</span></div>`;
-  }).join('')}</div>`;
-}
 function ratingSet(n){ if(state.rating){ state.rating.stars=n; renderRatingModal(); } }
 function ratingReason(v){ if(state.rating) state.rating.reason=v; }
 function ratingCancel(){ state.rating=null; closeModal(); }
 function renderRatingModal(){
   const r=state.rating; if(!r) return;
   const c=cgById(r.id), cur=cgRating(c);
-  const picker=[1,2,3,4,5].map(function(n){
-    return `<button type="button" class="rt-pick${n<=r.stars?' on':''}" title="${n} star${n===1?'':'s'}"
-      aria-label="${n} star${n===1?'':'s'}" onclick="ratingSet(${n})">★</button>`; }).join('');
+  /* One choice per level, with its definition beside it. Clicking a star in
+     a row of five reads as "at least this many" and had schedulers counting
+     rather than choosing; a radio is the shape of the decision. */
+  const picker=RATING_GUIDE.map(function(g){
+    const on=r.stars===g[0];
+    return `<button type="button" class="rt-opt${on?' on':''}" role="radio" aria-checked="${on}"
+        onclick="ratingSet(${g[0]})">
+      <span class="rt-radio"></span>
+      <span class="rt-on">${g[0]}★</span>
+      <span class="rt-ot"><b>${g[1]}</b> — ${g[2]}</span>
+    </button>`; }).join('');
   mEl.innerHTML=`<div class="mh"><span class="mt">Caregiver Rating — ${esc(c?c.name:'')}</span>
       <button class="mc" onclick="ratingCancel()">×</button></div>
     <div class="mb">
       <div class="dp-lab">Rating</div>
-      <div class="rt-picker">${picker}<span class="rt-picknum">${r.stars?r.stars+' of 5':'Choose 1–5'}</span></div>
-      ${ratingGuide(r.stars)}
+      <div class="rt-opts" role="radiogroup" aria-label="Rating">${picker}</div>
       <div class="dp-lab" style="margin-top:14px">Reason for this rating</div>
       <textarea class="ein acr-ta" maxlength="500" placeholder="Why this rating? e.g. Consistently on time and families ask for her by name."
         oninput="ratingReason(this.value)">${esc(r.reason||'')}</textarea>
@@ -8312,10 +8322,15 @@ function ratingSave(){
   if(!(r.stars>=1 && r.stars<=5)){ toast('Choose a rating from 1 to 5'); return; }
   const reason=String(r.reason||'').trim();
   if(!reason){ toast('Add a short reason for this rating'); return; }
-  const prev=c.ops.rating;
-  c.ops.rating={ stars:r.stars, reason:reason, by:state.onShift, at:new Date().toISOString(),
+  const prev=cgRating(c);
+  const row={ id:c.id, stars:r.stars, reason:reason, by:state.onShift,
+    at:new Date().toISOString(),
     /* what it was before, so a change is readable after the fact */
-    prevStars: prev && prev.stars ? prev.stars : null };
+    prevStars: prev ? prev.stars : null };
+  const list=(state.cgRatings||[]).filter(x=>x.id!==c.id);
+  list.push(row);
+  state.cgRatings=list;
+  if(c.ops && c.ops.rating) delete c.ops.rating;   /* one home, not two */
   c.ops.lastUpdated=new Date(); c.ops.lastUpdatedBy=state.onShift;
   state.rating=null; closeModal(); render(); toast('Rating saved');
 }
@@ -12197,6 +12212,12 @@ const CLOUD = (function(){
     { path:'cgConcerns',        key:'id' },
     { path:'cgUpdates',         key:'id' },
     { path:'cgNotes',           key:'id' },
+    /* One row per caregiver, keyed by their id. NOT on c.ops: the caregivers
+       slice is patchOnly, so a change there is only saved when that exact
+       record was in the boot baseline — and the roster is rebuilt from
+       AxisCare on every load, which is how a rating saved, looked right, and
+       came back "Not rated". */
+    { path:'cgRatings',         key:'id' },
     { path:'taskArchive',       key:'id' },
     { path:'careNotes',         key:'id' },
     { path:'followUps',         key:'id' },
