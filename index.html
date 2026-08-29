@@ -3632,15 +3632,6 @@ function availReportBody(){
    CAMARILLO, Camarilllo, "Oxnard " and oxnard are four distinct values on
    this account - so tallying c.base raw would split one city across
    several bars. */
-/* Three steps of the brand hue, light to dark. A single-hue ramp rather
-   than three separate colours: the app's other hues are status colours
-   (good / warning / critical) and reusing them for a pie slice would say
-   something the data does not mean. Lightness carries the separation, so
-   the slices stay distinguishable in greyscale and to a colourblind
-   reader - and every slice is directly labelled with its name, count and
-   share, so identity never rests on colour alone. */
-const PIE_STEPS=['#1D4459','#37718F','#7FAAC2'];
-
 /* A compact pie. Slices are a real partition of one total; a slice with a
    count of zero is dropped rather than drawn as a hairline. */
 function pieCard(title, slices, foot){
@@ -3683,21 +3674,32 @@ function pieCard(title, slices, foot){
 }
 
 /* Chart colours. The app's own tokens are STATUS colours - good, warning,
-   critical - and using one for a city would say something the data does
-   not mean, so the charts carry their own small palette instead.
+   critical - so borrowing one for a city or an age band would say something
+   the data does not mean. The charts carry their own palette instead.
 
-   CHART_CAT is a fixed order, never cycled: the eighth city is the last
-   slot and anything beyond it folds into Other. Validated for adjacent-pair
-   separation under protan/deutan/tritan simulation, and every bar is
-   labelled with its city and count anyway, so identity never rests on
-   colour alone.
+   Eight muted hues rather than one blue at eight lightnesses: blue,
+   terracotta, teal, ochre, plum, moss, violet, clay. Soft enough to read as
+   a professional dashboard, saturated enough not to fall back to grey - the
+   first pass at "soft" put five of them under the chroma floor, which is
+   the point where a colour stops carrying identity at all.
 
-   AGE_RAMP is one hue light-to-dark rather than eight hues, because age
-   bands are ORDERED - 18-24 through 65+ is a scale, not a set of unrelated
-   categories, and a rainbow across it would imply they are unrelated. */
-const CHART_CAT=['#2a78d6','#eb6834','#1baf7a','#eda100','#e87ba4','#008300','#4a3aa7','#e34948'];
-const AGE_RAMP=['#86b6ef','#5598e7','#3987e5','#2a78d6','#1c5cab','#184f95'];
-const CHART_NONE='#BFC9D3';   /* a gap in the data, never a category colour */
+   Assigned in fixed order, never cycled: the ninth city is not a generated
+   hue, it folds into Other. Checked with the palette validator on the light
+   surface - lightness band, chroma floor, adjacent-pair separation under
+   protan/deutan/tritan simulation, and contrast against the card - and
+   every mark is directly labelled anyway, so identity never rests on colour
+   alone. */
+const CHART_CAT=['#2E7BB0','#CC7A4A','#2FA37E','#C39A3C','#B05C93','#5F9440','#7A6BC4','#BC635A'];
+/* Pie slices touch each other, so their three are checked as ALL pairs
+   rather than adjacent ones; this trio is the one that passes. The same
+   three serve every pie, so slice one means the same thing on each card. */
+const PIE_STEPS=CHART_CAT.slice(0,3);
+/* Age bands get the spread too. They are ordered, so a single hue
+   light-to-dark would encode that ordering - but the office asked for
+   distinct colours across the bars, and the band label under each bar
+   carries the order regardless. */
+const AGE_RAMP=CHART_CAT;
+const CHART_NONE='#98A4B0';   /* a gap in the data, never a category colour */
 
 /* Neighbouring places the desk staffs as one area. Port Hueneme is
    enclaved inside Oxnard and the schedulers treat it as Oxnard, so it is
