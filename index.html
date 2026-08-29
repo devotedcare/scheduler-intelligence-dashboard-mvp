@@ -2268,7 +2268,7 @@ const state = {
   contactLog:{},
   handoff:{opener:[], closer:[]},
   updates:[],
-  cgConcerns:[], cgUpdates:[],
+  cgConcerns:[], cgUpdates:[], cgNotes:[],
   updEdit:null,          /* id being edited, or 'new' while composing */
   view:'avail',
   filters:{schedFilter:'open', availSearch:''},
@@ -8516,19 +8516,32 @@ function cgPanelMore(label,onclick,shown,total){
 /* ---- Notes ---------------------------------------------------------
    The same caregiver-level notes the day panel writes; this is a second
    way in, not a second store. */
-function cgNotesList(c){ return (typeof NOTES!=='undefined') ? NOTES.all(c.id) : []; }
+/* PROFILE NOTES ARE NOT CALENDAR NOTES. This panel used to read NOTES —
+   public.caregiver_day_notes — which is the store the day panel writes, so
+   a note typed on a calendar square surfaced here and the two were one
+   list. They are separate things: a calendar note is about that date, this
+   is free-form scheduling and matching knowledge about the caregiver.
+
+   Its own record store, tracked like cgConcerns and cgUpdates so all three
+   schedulers see the same notes. Nothing is copied or synced either way —
+   the two never read each other. */
+/* Newest first. Two notes typed in the same second tie on `at`, so
+   insertion order breaks it — otherwise the second one sorts above or below
+   the first at random. */
+function cgNotesList(c){
+  return (state.cgNotes||[]).map((n,i)=>({n:n,i:i})).filter(x=>x.n.cgId===c.id)
+    .sort((a,b)=> String(b.n.at).localeCompare(String(a.n.at)) || (b.i-a.i))
+    .map(x=>x.n);
+}
 function cgNotesPanel(c, all){
   const list=cgNotesList(c), shown=all?list:list.slice(0,4);
-  const st=(typeof NOTES!=='undefined')?NOTES.status(c.id):'idle';
-  const body = (st==='loading'||st==='idle')
-    ? `<div class="ws-none">Loading…</div>`
-    : (shown.length
-      ? `<div class="cgp-list">${shown.map(n=>`<div class="cgp-row">
-           <span class="cgp-ic">${ic('forms',13)}</span>
-           <span class="cgp-tx">${esc(n.note||'')}</span>
-           <span class="cgp-when">${esc(cgDateTime(n.updatedAt||(n.date+'T12:00:00')))}</span>
-         </div>`).join('')}</div>`
-      : `<div class="ws-none">No notes yet.</div>`);
+  const body = shown.length
+    ? `<div class="cgp-list">${shown.map(n=>`<div class="cgp-row">
+         <span class="cgp-ic">${ic('forms',13)}</span>
+         <span class="cgp-tx">${esc(n.text||'')}</span>
+         <span class="cgp-when">${esc(cgDateTime(n.at))}</span>
+       </div>`).join('')}</div>`
+    : `<div class="ws-none">No notes yet.</div>`;
   return `<div class="ws-card cgp">
     ${cgPanelHead('Notes','forms',`<button class="btn xs" onclick="openCgNoteAdd('${c.id}')">+ Add Note</button>`)}
     ${body}${all?'':cgPanelMore('','openCgAll(\''+c.id+'\',\'notes\')',4,list.length)}
@@ -8551,26 +8564,21 @@ function renderCgNoteModal(){
       <textarea class="ein acr-ta" maxlength="${DAY_NOTE_MAX}"
         placeholder="e.g. Prefers morning shifts, not available for evening coverage."
         oninput="cgNoteDraft(this.value)">${esc(n.text||'')}</textarea>
-      <div class="cgp-hint">Dated today, the day it is written. Notes belong to the caregiver, not to a calendar date.</div>
+      <div class="cgp-hint">An internal note about this caregiver — anything that helps with future scheduling or matching. Separate from the notes on the calendar, which stay on their own date.</div>
       <div class="upd-acts"><button class="btn" onclick="cgNoteCancel()">Cancel</button>
         <button class="btn pri" ${n.saving?'disabled':''} onclick="cgNoteSave()">${n.saving?'Saving…':'Save note'}</button></div>
     </div>`;
 }
-/* One row per caregiver per date, so a second note today is appended to
-   today's rather than replacing it — the same rule the day panel uses. */
+/* Its own record, not a row in the calendar's note table — so there is no
+   one-per-day limit here and nothing is appended to anything. */
 function cgNoteSave(){
   const n=state.cgNote; if(!n) return;
   const c=cgById(n.id), text=String(n.text||'').trim();
   if(!c) return cgNoteCancel();
   if(!text){ toast('Type the note first'); return; }
-  const ds=dateKey(NOW);
-  const existing=(NOTES.all(c.id)||[]).find(x=>x.date===ds);
-  const body = existing&&existing.note ? existing.note.replace(/\s+$/,'')+'\n\n'+text : text;
-  n.saving=true; renderCgNoteModal();
-  NOTES.save(c, ds, body)
-    .then(function(){ state.cgNote=null; closeModal(); render(); toast('Note saved'); })
-    .catch(function(e){ n.saving=false; renderCgNoteModal();
-      toast('That note could not be saved. '+(e&&e.message?e.message:'')); });
+  state.cgNotes=(state.cgNotes||[]).concat([{ id:cgUid('cn'), cgId:c.id, text:text,
+    at:new Date().toISOString(), by:state.onShift }]);
+  state.cgNote=null; closeModal(); render(); toast('Note saved');
 }
 
 /* ---- Client Feedback & Concerns ------------------------------------ */
@@ -12037,6 +12045,7 @@ const CLOUD = (function(){
        entries never collide. */
     { path:'cgConcerns',        key:'id' },
     { path:'cgUpdates',         key:'id' },
+    { path:'cgNotes',           key:'id' },
     { path:'taskArchive',       key:'id' },
     { path:'careNotes',         key:'id' },
     { path:'followUps',         key:'id' },
