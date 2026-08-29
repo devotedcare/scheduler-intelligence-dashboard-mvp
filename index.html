@@ -1601,7 +1601,7 @@
   /* stacked day blocks */
   .cal-cell{min-height:62px!important;padding:6px 7px 7px 8px!important;border-left:1px solid var(--line)!important}
   .cal-blocks{display:flex;flex-direction:column;gap:2px;margin-top:4px}
-  .cal-blk{display:flex;justify-content:space-between;align-items:baseline;gap:5px;padding:2px 6px;border-radius:2px;border-left:2.5px solid}
+  .cal-blk{display:flex;justify-content:space-between;align-items:flex-start;gap:5px;padding:2px 6px;border-radius:2px;border-left:2.5px solid}
   .cb-l{font-weight:800;text-transform:uppercase;letter-spacing:.2px;font-size:9px;white-space:nowrap}
   .cb-t{font-size:9px;font-weight:600;white-space:nowrap;opacity:.9;font-variant-numeric:tabular-nums}
   /* Keeping a long client name inside its day.
@@ -1623,6 +1623,14 @@
   .cal-blocks{min-width:0}
   .cal-blk{min-width:0}
   .cb-l{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+  /* A status alone fits on one line; a status plus its reason does not,
+     and an ellipsis would hide the very thing being shown. Only the
+     labels carrying a reason wrap. */
+  .cb-l.wrap{white-space:normal;line-height:1.2;text-overflow:clip}
+  /* With a reason the time moves under the label instead of beside it,
+     so the label gets the block's full width to wrap into. */
+  .cal-blk.hasnote{flex-direction:column;align-items:stretch;gap:1px}
+  .cal-blk.hasnote .cb-t{align-self:flex-start}
   .cb-t{flex:0 0 auto}
   /* ---- three states, three colours ----
      Green is open, blue is a Devoted visit, red is everything else:
@@ -7063,7 +7071,12 @@ function cgCalendar(c){
     const body = blocks.length ? `<div class="cal-blocks">${blocks.map(b=>{ const tt=blkTime(b);
       /* Every block on the grid is a row somebody typed. Nothing is
          inferred, so there is no faint state to distinguish. */
-      return `<div class="cal-blk ${b.type}" title="${esc(b.label+(tt?' · '+tt:'')+(b.note?' · '+b.note:''))}"><span class="cb-l">${esc(b.label)}</span>${tt?`<span class="cb-t">${tt}</span>`:''}</div>`;
+      /* The reason rides on the segment's note, so an Unavailable day reads
+         "Unavailable — Vacation" rather than just its status. b.label itself
+         is left alone; only what is drawn is composed. The cell already
+         truncates with an ellipsis, and the tooltip carries it in full. */
+      const lab = b.note ? b.label+' \u2014 '+b.note : b.label;
+      return `<div class="cal-blk ${b.type}${b.note?' hasnote':''}" title="${esc(b.label+(tt?' · '+tt:'')+(b.note?' · '+b.note:''))}"><span class="cb-l${b.note?' wrap':''}">${esc(lab)}</span>${tt?`<span class="cb-t">${tt}</span>`:''}</div>`;
     }).join('')}</div>` : '';
     /* No note marker in the cell - the count lives on the Notes tab in the
        side panel instead, so the grid stays about availability. */
