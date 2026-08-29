@@ -9335,10 +9335,53 @@ function viewCaregiverWorkspace(c){
   // ===== Operational Alerts (concerns only) =====
   const alerts=[];
   if(availDue(c)) alerts.push({t:'Availability verification due',sev:'soon'});
+  /* ATTENDANCE IS NOT RELIABILITY. Attendance keeps its own badge and its
+     own rule — call-offs, no-shows, late arrivals — and says so.
+     attendanceStats().concern is what drives it and nothing else. */
   const ast=attendanceStats(c);
   if(ast.concern) alerts.push({t:'Attendance concern',sev:'crit'});
-  if(hasVal(c.reliability) && c.reliability<85) alerts.push({t:'Performance concern \u2014 '+c.reliability+'% reliability',sev:'crit'});
-  (ops.flags||[]).forEach(f=>{ if(/schedule change|returning from leave|pending|document|complaint|reliability|frequent|transportation|late/i.test(f)) alerts.push({t:f, sev:/document|complaint|reliability|concern/i.test(f)?'crit':'soon'}); });
+
+  /* Reliability concern requires something a person RECORDED about this
+     caregiver's reliability: a rating of Needs Improvement or High Concern
+     with its reason, a complaint logged in Client Feedback, or a flag
+     somebody wrote. Attendance data on its own never raises it — a
+     caregiver with two logged late arrivals has an attendance record, not
+     a documented reliability problem, and the badge is what a scheduler
+     reads before deciding whether to send somebody.
+
+     c.reliability is deliberately not a trigger. It has no AxisCare source
+     and is null on every live caregiver, so it says nothing about who is
+     reliable; where a real figure has been recorded it is named as
+     supporting detail on a concern raised by one of the above. */
+  let relRaised=false;
+  const relBits=[];
+  const _rt=(typeof cgRating==='function')?cgRating(c):null;
+  if(_rt && _rt.stars<=2){ relRaised=true;
+    relBits.push('rated '+_rt.stars+' of 5'+(_rt.reason?' — “'+_rt.reason.replace(/\.$/,'')+'”':'')); }
+  const _cmp=((typeof cgConcernsFor==='function')?cgConcernsFor(c.id):[]).filter(f=>f.type==='Complaint').length;
+  if(_cmp){ relRaised=true; relBits.push(_cmp+' complaint'+(_cmp===1?'':'s')+' on file'); }
+  const _relFlag=(ops.flags||[]).filter(f=>/reliability|performance/i.test(f));
+  if(_relFlag.length){
+    relRaised=true;
+    /* A flag that just says "Reliability concern" IS the badge — repeating
+       it as its own detail reads "Reliability concern — reliability
+       concern". Only a flag that says something more is carried through. */
+    const _extra=_relFlag.filter(f=>!/^\s*(reliability|performance)\s+concerns?\s*$/i.test(String(f)));
+    if(_extra.length) relBits.push(String(_extra[0]).toLowerCase());
+  }
+  if(relRaised){
+    if(hasVal(c.reliability)) relBits.push(c.reliability+'% reliability');
+    alerts.push({t:'Reliability concern'+(relBits.length?' \u2014 '+relBits.join(' · '):''), sev:'crit'});
+  }
+
+  /* The remaining written flags. Reliability and performance are handled
+     above, so they are not matched again here and cannot produce a second
+     badge saying the same thing. */
+  (ops.flags||[]).forEach(f=>{
+    if(/reliability|performance/i.test(f)) return;
+    if(/schedule change|returning from leave|pending|document|complaint|frequent|transportation|late/i.test(f))
+      alerts.push({t:f, sev:/document|complaint|concern/i.test(f)?'crit':'soon'});
+  });
   const seen=new Set();
   const alertList=alerts.filter(a=>{ if(seen.has(a.t))return false; seen.add(a.t); return true; });
   const alertsBody = alertList.length
