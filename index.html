@@ -2206,6 +2206,14 @@
 .rt-pick.on{color:#E0A53E}
 .rt-pick:hover{color:#E0A53E}
 .rt-picknum{margin-left:9px;font-size:12.5px;font-weight:700;color:var(--ink-soft)}
+/* A list, not a card: no border, no fill, just enough leading to scan. The
+   chosen level lifts so the definition being picked is obvious. */
+.rt-guide{margin-top:8px;display:flex;flex-direction:column;gap:1px}
+.rt-g{display:flex;gap:8px;align-items:baseline;font-size:11.5px;line-height:1.4;color:var(--ink-soft);padding:2px 6px;border-radius:4px}
+.rt-g.on{background:#FBF3E3;color:var(--ink)}
+.rt-gn{flex:0 0 auto;font-weight:800;color:#B98724;font-variant-numeric:tabular-nums}
+.rt-g.on .rt-gn{color:#8A6314}
+.rt-gt b{font-weight:800;color:var(--ink)}
 .cgf-ri-stars{margin-top:2px}
 /* background-COLOR, not the shorthand: .fb-type carries the chevron as a
    background-image and the shorthand would clear it. */
@@ -8259,6 +8267,22 @@ function openRating(id){
   state.rating={id:id, stars:r?r.stars:0, reason:''};
   renderRatingModal(); mbg.classList.add('show');
 }
+/* What each star is supposed to mean, so five schedulers rate the same
+   caregiver the same way. Read at the moment of choosing rather than kept in
+   somebody's head or a separate document. */
+const RATING_GUIDE=[
+  [5,'Excellent','Highly reliable, professional, strong client feedback, follows instructions, trusted for difficult cases.'],
+  [4,'Very Good','Dependable and performs well with only minor concerns.'],
+  [3,'Average','Acceptable performance, but may have some reliability, communication, or performance concerns.'],
+  [2,'Needs Improvement','Repeated concerns, call-offs, complaints, or needs closer supervision.'],
+  [1,'High Concern','Serious or repeated performance, reliability, or safety concerns.']
+];
+function ratingGuide(sel){
+  return `<div class="rt-guide">${RATING_GUIDE.map(function(g){
+    return `<div class="rt-g${sel===g[0]?' on':''}"><span class="rt-gn">${g[0]}★</span>`
+      + `<span class="rt-gt"><b>${g[1]}</b> — ${g[2]}</span></div>`;
+  }).join('')}</div>`;
+}
 function ratingSet(n){ if(state.rating){ state.rating.stars=n; renderRatingModal(); } }
 function ratingReason(v){ if(state.rating) state.rating.reason=v; }
 function ratingCancel(){ state.rating=null; closeModal(); }
@@ -8273,6 +8297,7 @@ function renderRatingModal(){
     <div class="mb">
       <div class="dp-lab">Rating</div>
       <div class="rt-picker">${picker}<span class="rt-picknum">${r.stars?r.stars+' of 5':'Choose 1–5'}</span></div>
+      ${ratingGuide(r.stars)}
       <div class="dp-lab" style="margin-top:14px">Reason for this rating</div>
       <textarea class="ein acr-ta" maxlength="500" placeholder="Why this rating? e.g. Consistently on time and families ask for her by name."
         oninput="ratingReason(this.value)">${esc(r.reason||'')}</textarea>
