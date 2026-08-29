@@ -5945,9 +5945,21 @@ function updSorted(){
     String(b.at).localeCompare(String(a.at)) ||
     String(b.created||'').localeCompare(String(a.created||'')));
 }
-function updDate(iso){
-  try{ return new Date(iso).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); }
+/* Date from `at` - the day the update is about - and the time from
+   `created`, which is when it was actually posted. `at` is stored at noon
+   on the chosen date, so reading a time off it would show 12:00 PM for
+   everything. An update posted before `created` existed has no real time
+   to show, so it shows the date alone rather than an invented one. */
+function updDate(u){
+  const iso = (u && u.at) || u;
+  let out='';
+  try{ out = new Date(iso).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); }
   catch(e){ return ''; }
+  if(u && u.created){
+    try{ out += ' \u00b7 ' + new Date(u.created).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}); }
+    catch(e){}
+  }
+  return out;
 }
 /* The composer is a popup, not an inline row: an update is a short thing
    typed occasionally, and an inline form pushed the list it belongs to
@@ -6006,7 +6018,7 @@ function viewUpdates(){
   const list=updSorted();
   const rows = list.length
     ? list.map(u=>`<div class="upd-row">
-         <div class="upd-meta"><span class="upd-date">${updDate(u.at)}</span>
+         <div class="upd-meta"><span class="upd-date">${updDate(u)}</span>
            <button class="upd-editb" onclick="updOpen('${u.id}')">Edit</button></div>
          <div class="upd-text">${esc(u.text||'')}</div>
        </div>`).join('')
