@@ -6894,6 +6894,11 @@ const AV_TIMED_ONLY  = ['School','Childcare','Appointment'];
 /* Nobody takes two hours of vacation. */
 const AV_ALLDAY_ONLY = ['Vacation'];
 const AV_NOTE_MAX = 200;
+/* The day note is prose - a scheduler writes paragraphs and bullet points -
+   so it gets its own, far larger cap. 200 was the real reason long notes
+   looked "cut off": the box grew fine, but maxlength stopped the typing.
+   The availability REASON keeps the short cap; it is a phrase, not prose. */
+const DAY_NOTE_MAX = 2000;
 
 function avTimedOnly(s){ return AV_TIMED_ONLY.indexOf(s) >= 0; }
 function avAllDayOnly(s){ return AV_ALLDAY_ONLY.indexOf(s) >= 0; }
@@ -7008,7 +7013,7 @@ function dpSet(field, value){
   renderDayPanel();
 }
 function dpTab(t){ modalState.tab = t; modalState.error = null; renderDayPanel(); }
-function dpNote(v){ modalState.note = String(v||'').slice(0, AV_NOTE_MAX); modalState.noteTouched = true; }
+function dpNote(v){ modalState.note = String(v||'').slice(0, DAY_NOTE_MAX); modalState.noteTouched = true; }
 /* Grow the note box to its content instead of scrolling inside a fixed
    box. Height is reset to auto first, or scrollHeight only ever reports
    the height it already has and the box can never shrink again. The panel
@@ -7016,8 +7021,13 @@ function dpNote(v){ modalState.note = String(v||'').slice(0, AV_NOTE_MAX); modal
    text. There is no max: a cap would put the scrollbar back inside the box,
    which is the thing being fixed, and the field's own character limit
    already bounds how tall it can get. */
-function dpNoteGrow(el){
+function dpNoteGrow(el, again){
   if(!el) return;
+  /* Measure again next frame on the first call. The panel slides in on a
+     transition, so a first open can measure before layout settles and the
+     box would open at its minimum with the saved note clipped. */
+  if(!again && typeof requestAnimationFrame==='function')
+    requestAnimationFrame(function(){ dpNoteGrow(document.getElementById(el.id)||el, true); });
   el.style.height='auto';
   /* box-sizing is border-box here, and scrollHeight counts padding but not
      border - so setting height straight from it leaves the content area a
@@ -7429,7 +7439,7 @@ function renderDayPanel(){
         <div class="dp-lab">Note for this day</div>
         ${loading
           ? `<div class="dp-soon-d" style="text-align:left">Loading\u2026</div>`
-          : `<textarea id="dpNoteBox" class="dp-note grow" maxlength="${AV_NOTE_MAX}" ${busy?'disabled':''}
+          : `<textarea id="dpNoteBox" class="dp-note grow" maxlength="${DAY_NOTE_MAX}" ${busy?'disabled':''}
                placeholder="e.g. Childcare until 3 PM." oninput="dpNote(this.value);dpNoteGrow(this)">${esc(modalState.note||'')}</textarea>`}
         ${who}
       </div>
