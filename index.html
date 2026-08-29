@@ -2184,8 +2184,6 @@
 .cgp-tx{flex:1;min-width:0;overflow-wrap:anywhere}
 .cgp-when{flex:0 0 auto;font-size:12px;color:var(--ink-soft);font-variant-numeric:tabular-nums}
 .cgp-when.fixed{width:152px}
-.cgp-when.inline{display:block;margin-bottom:1px}
-.cgp-utx{display:block;font-weight:650}
 .cgp-st{flex:0 0 auto;font-size:11.5px;font-weight:700;border-radius:12px;padding:2px 10px}
 .cgp-st.plain{background:none;padding:0;color:var(--ink-soft);font-weight:650}
 .cgp-stack{flex-direction:column;align-items:flex-start;gap:3px}
@@ -2222,8 +2220,10 @@
 .fb-type.pos{background-color:#EAF5F0;color:#1E7A5C;border-color:#CDE7DD}
 .fb-type.con{background-color:#FAF2EA;color:#97572E;border-color:#EEDECB}
 .fb-type.cmp{background-color:#FBECEA;color:#A33227;border-color:#EFCFC9}
-.cgp-row.up{align-items:flex-start}
-.cgp-dot{width:7px;height:7px;border-radius:50%;background:var(--brand);flex:0 0 auto;margin-top:5px}
+.cgp-toprow{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%}
+.cgp-acts{display:flex;gap:2px;flex:0 0 auto}
+.icobtn{background:none;border:none;padding:2px 4px;line-height:0;color:var(--ink-faint);cursor:pointer;border-radius:4px}
+.icobtn:hover{color:var(--brand);background:var(--panel-head)}
 .cgp-all{background:none;border:none;padding:9px 0 0;font-size:12.5px;font-weight:700;color:var(--brand);cursor:pointer;text-align:left}
 .cgp-all:hover{text-decoration:underline}
 .cgp-hint{font-size:12px;color:var(--ink-soft);margin:9px 0 2px;line-height:1.45}
@@ -8965,29 +8965,90 @@ const VERIFY_TEXT={verified:'Availability verified', noresponse:'No response to 
    true to bring the derived entries back, nothing else changes. */
 const CG_UPDATES_SYSTEM = false;
 function cgUpdatesFor(c){
-  const out=(state.cgUpdates||[]).filter(u=>u.cgId===c.id)
-    .map(u=>({at:u.at, text:u.text, by:u.by}));
+  /* The id rides along: only a posted update has one, and only a posted
+     update can be edited or deleted. A derived entry (when
+     CG_UPDATES_SYSTEM is on) has no id and gets no pencil or trash — it is
+     not the desk's to change. */
+  /* seq is the insertion index: two updates posted in the same second tie on
+     `at`, and without it the earlier one sorts on top of the later. */
+  const out=(state.cgUpdates||[]).map((u,i)=>({u:u,i:i})).filter(x=>x.u.cgId===c.id)
+    .map(x=>({id:x.u.id, at:x.u.at, text:x.u.text, by:x.u.by, seq:x.i}));
   if(CG_UPDATES_SYSTEM){
     (c.ops.verifyHistory||[]).forEach(function(v){
       out.push({at:v.date, text:VERIFY_TEXT[v.result]||'Availability checked', by:v.by});
     });
     if(c.ops.lastUpdated) out.push({at:c.ops.lastUpdated, text:'Profile updated', by:c.ops.lastUpdatedBy});
   }
-  return out.filter(x=>x.at).sort((a,b)=>new Date(b.at)-new Date(a.at));
+  return out.filter(x=>x.at)
+    .sort((a,b)=> (new Date(b.at)-new Date(a.at)) || ((b.seq||0)-(a.seq||0)));
 }
 function cgUpdatesPanel(c, all){
   const list=cgUpdatesFor(c), shown=all?list:list.slice(0,20);
   const body = shown.length
-    ? `<div class="cgp-scroll${all?' tall':''}">${shown.map(u=>`<div class="cgp-row up">
-         <span class="cgp-dot"></span>
-         <span class="cgp-tx"><span class="cgp-when inline">${esc(cgDateTime(u.at))}</span>
-           <span class="cgp-utx">${esc(u.text)}${u.by?' · '+esc(u.by):''}</span></span>
-       </div>`).join('')}</div>`
-    : `<div class="ws-none">No activity recorded for this caregiver yet.</div>`;
+    ? `<div class="cgp-scroll${all?' tall':''}">${shown.map(function(u){
+        const del = u.id && state.cgUpdDel===u.id;
+        return `<div class="cgp-row cgp-stack">
+         <span class="cgp-toprow"><span class="cgp-when">${esc(cgDateTime(u.at))}</span>
+           ${u.id?`<span class="cgp-acts">${del
+             ? `<button class="btn xs danger" onclick="cgUpdDelete('${u.id}')">Delete</button>
+                <button class="btn xs" onclick="cgUpdDelAsk(null)">Keep</button>`
+             : `<button class="icobtn" title="Edit" aria-label="Edit update" onclick="openCgUpdate('${c.id}','${u.id}')">${ic('log',13)}</button>
+                <button class="icobtn" title="Delete" aria-label="Delete update" onclick="cgUpdDelAsk('${u.id}')">${ic('trash',13)}</button>`}</span>`:''}</span>
+         <span class="cgp-tx">${esc(u.text)}</span>
+       </div>`; }).join('')}</div>`
+    : `<div class="ws-none">No updates recorded for this caregiver yet.</div>`;
   return `<div class="ws-card cgp">
-    ${cgPanelHead('Updates','refresh','')}
+    ${cgPanelHead('Updates','refresh',`<button class="btn xs" onclick="openCgUpdate('${c.id}')">+ Add Update</button>`)}
     ${body}${all?'':cgPanelMore('','openCgAll(\''+c.id+'\',\'updates\')',20,list.length)}
   </div>`;
+}
+/* The form is a popup, like the note and feedback composers — an update is
+   typed occasionally, and a box standing open above the list pushes it down
+   for everyone only reading. */
+function openCgUpdate(cgId,id){
+  const ex = id ? (state.cgUpdates||[]).find(x=>x.id===id) : null;
+  state.cgUpd={cgId:cgId, id:id||null, text:ex?ex.text:''};
+  state.cgUpdDel=null;
+  renderCgUpdModal(); mbg.classList.add('show');
+}
+function cgUpdDraft(v){ if(state.cgUpd) state.cgUpd.text=v; }
+function cgUpdCancel(){ state.cgUpd=null; closeModal(); }
+function renderCgUpdModal(){
+  const u=state.cgUpd; if(!u) return;
+  const c=cgById(u.cgId);
+  mEl.innerHTML=`<div class="mh"><span class="mt">${u.id?'Edit Update':'Add Update'} — ${esc(c?c.name:'')}</span>
+      <button class="mc" onclick="cgUpdCancel()">×</button></div>
+    <div class="mb">
+      <div class="dp-lab">Update</div>
+      <textarea class="ein acr-ta" maxlength="1000" placeholder="e.g. Completed annual skills review."
+        oninput="cgUpdDraft(this.value)">${esc(u.text||'')}</textarea>
+      <div class="upd-acts"><button class="btn" onclick="cgUpdCancel()">Cancel</button>
+        <button class="btn pri" onclick="cgUpdSave()">${ic('check',13)} Save</button></div>
+    </div>`;
+}
+function cgUpdSave(){
+  const u=state.cgUpd; if(!u) return;
+  const text=String(u.text||'').trim();
+  if(!text){ toast('Type the update first'); return; }
+  if(u.id){
+    const ex=(state.cgUpdates||[]).find(x=>x.id===u.id);
+    if(ex){ ex.text=text; ex.editedBy=state.onShift; ex.editedAt=new Date().toISOString(); }
+  } else {
+    state.cgUpdates=(state.cgUpdates||[]).concat([{ id:cgUid('up'), cgId:u.cgId, text:text,
+      at:new Date().toISOString(), by:state.onShift }]);
+  }
+  state.cgUpd=null; closeModal(); render();
+  try{ CLOUD.save(); }catch(e){}
+  toast(u.id?'Update saved':'Update added');
+}
+/* Asks once in place rather than through a browser dialog, which the rest
+   of the app does not use. */
+function cgUpdDelAsk(id){ state.cgUpdDel=id; render(); }
+function cgUpdDelete(id){
+  state.cgUpdates=(state.cgUpdates||[]).filter(x=>x.id!==id);
+  state.cgUpdDel=null; render();
+  try{ CLOUD.save(); }catch(e){}
+  toast('Update deleted');
 }
 
 /* View All opens the same panel with no cap, rather than a second layout
