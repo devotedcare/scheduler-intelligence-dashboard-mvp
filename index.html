@@ -8282,8 +8282,9 @@ function starRow(n, cls){
 }
 function cgRatingStrip(c){
   const r=cgRating(c);
-  const meta = r && r.at
-    ? `<span class="rt-meta">${esc(r.by?r.by+' · ':'')}${esc(cgDateTime(r.at))}</span>` : '';
+  /* Date and time only. Who set it is still recorded on the row — it is
+     just not what a scheduler needs beside the stars. */
+  const meta = r && r.at ? `<span class="rt-meta">${esc(cgDateTime(r.at))}</span>` : '';
   return `<div class="ws-card rt-strip">
     <span class="rt-lab">Caregiver Rating</span>
     ${r ? starRow(r.stars) : `<span class="rt-none">Not rated</span>`}
@@ -8334,7 +8335,7 @@ function renderRatingModal(){
       <div class="dp-lab" style="margin-top:14px">Reason for this rating <span class="lab-opt">optional</span></div>
       <textarea class="ein acr-ta" maxlength="500" placeholder="Why this rating? e.g. Consistently on time and families ask for her by name."
         oninput="ratingReason(this.value)">${esc(r.reason||'')}</textarea>
-      ${cur?`<div class="cgp-hint">Current: ${starRow(cur.stars,'sm')}${cur.reason?` “${esc(cur.reason)}”`:''} — ${esc(cur.by||'')}${cur.at?' · '+esc(cgDateTime(cur.at)):''}</div>`:''}
+      ${cur?`<div class="cgp-hint">Current: ${starRow(cur.stars,'sm')}${cur.reason?` “${esc(cur.reason)}”`:''}${cur.at?' · '+esc(cgDateTime(cur.at)):''}</div>`:''}
       <div class="upd-acts"><button class="btn" onclick="ratingCancel()">Cancel</button>
         <button class="btn pri" onclick="ratingSave()">${ic('check',13)} Save rating</button></div>
     </div>`;
