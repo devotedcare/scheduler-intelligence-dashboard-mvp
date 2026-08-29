@@ -2215,6 +2215,7 @@
 .rt-ot{font-size:11.5px;line-height:1.4;color:var(--ink-soft)}
 .rt-opt.on .rt-ot{color:var(--ink)}
 .rt-ot b{font-weight:800;color:var(--ink)}
+.lab-opt{margin-left:6px;font-size:10.5px;font-weight:700;text-transform:none;letter-spacing:0;color:var(--ink-faint)}
 .cgf-ri-meta .stars{vertical-align:-1px}
 /* background-COLOR, not the shorthand: .fb-type carries the chevron as a
    background-image and the shorthand would clear it. */
@@ -8309,10 +8310,10 @@ function renderRatingModal(){
     <div class="mb">
       <div class="dp-lab">Rating</div>
       <div class="rt-opts" role="radiogroup" aria-label="Rating">${picker}</div>
-      <div class="dp-lab" style="margin-top:14px">Reason for this rating</div>
+      <div class="dp-lab" style="margin-top:14px">Reason for this rating <span class="lab-opt">optional</span></div>
       <textarea class="ein acr-ta" maxlength="500" placeholder="Why this rating? e.g. Consistently on time and families ask for her by name."
         oninput="ratingReason(this.value)">${esc(r.reason||'')}</textarea>
-      ${cur&&cur.reason?`<div class="cgp-hint">Current: ${starRow(cur.stars,'sm')} “${esc(cur.reason)}” — ${esc(cur.by||'')}${cur.at?' · '+esc(cgDateTime(cur.at)):''}</div>`:''}
+      ${cur?`<div class="cgp-hint">Current: ${starRow(cur.stars,'sm')}${cur.reason?` “${esc(cur.reason)}”`:''} — ${esc(cur.by||'')}${cur.at?' · '+esc(cgDateTime(cur.at)):''}</div>`:''}
       <div class="upd-acts"><button class="btn" onclick="ratingCancel()">Cancel</button>
         <button class="btn pri" onclick="ratingSave()">${ic('check',13)} Save rating</button></div>
     </div>`;
@@ -8321,8 +8322,9 @@ function ratingSave(){
   const r=state.rating; if(!r) return;
   const c=cgById(r.id); if(!c) return ratingCancel();
   if(!(r.stars>=1 && r.stars<=5)){ toast('Choose a rating from 1 to 5'); return; }
+  /* The reason is optional — the rating is the point, and making a sentence
+     mandatory just produced "good" to get past the button. */
   const reason=String(r.reason||'').trim();
-  if(!reason){ toast('Add a short reason for this rating'); return; }
   const prev=cgRating(c);
   const row={ id:c.id, stars:r.stars, reason:reason, by:state.onShift,
     at:new Date().toISOString(),
