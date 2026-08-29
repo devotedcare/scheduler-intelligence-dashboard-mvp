@@ -1741,6 +1741,15 @@
   /* The picker answers "which days", not "what is on them" — numbers only,
      so it never argues with the calendar behind the panel. */
   .cls-head{margin:2px 0 11px}.cls-name{font-size:19px;font-weight:800;color:var(--ink);letter-spacing:-.2px}.cls-meta{font-size:13px;color:var(--ink-soft);margin-top:2px}.cls-note{font-size:12.5px;color:var(--ink-soft);background:var(--panel-head);border:1px solid var(--line);border-radius:8px;padding:9px 12px;margin-bottom:10px}.cls-note.err{color:var(--crit-tx);background:var(--crit-bg);border-color:#EEC2BC}.cv-clink{font:inherit;color:inherit;background:none;border:none;padding:0;cursor:pointer;text-decoration:underline;text-underline-offset:2px;text-decoration-color:var(--line-strong)}.cv-clink:hover{color:var(--brand);text-decoration-color:var(--brand)}.dp-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 16px 9px}.dp-date{font-size:13.5px;font-weight:650;color:var(--ink)}.dp-head .mc{cursor:pointer;color:var(--ink-faint);font-size:19px;line-height:1;background:none;border:none;padding:0 2px;font-family:inherit}.dp-head .mc:hover{color:var(--ink)}.dp-body{padding:14px 16px 14px}.dp-sec{margin-bottom:13px}.dp-sec:last-child{margin-bottom:4px}.dp-lab{font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-faint);margin-bottom:6px}.dp-segs{display:inline-flex;background:var(--panel-head);border:1px solid var(--line);border-radius:7px;padding:2px;gap:2px}.dp-seg{font-family:inherit;font-size:12.5px;font-weight:650;color:var(--ink-soft);background:none;border:none;border-radius:5px;padding:5px 13px;cursor:pointer;white-space:nowrap}.dp-seg.on{background:#fff;color:var(--ink);font-weight:700;box-shadow:0 1px 2px rgba(0,0,0,.08)}.dp-seg:disabled{opacity:.45;cursor:default}.dp-picked{display:flex;align-items:center;gap:9px;margin-top:7px;font-size:12.5px;color:var(--ink-soft)}.dp-link{font-family:inherit;font-size:12.5px;font-weight:650;color:var(--brand);background:none;border:none;padding:0;cursor:pointer;text-decoration:underline}.dp-link:disabled{opacity:.5;cursor:default}.dp-note{width:100%;box-sizing:border-box;font-family:inherit;font-size:13px;color:var(--ink);background:#fff;border:1px solid var(--line-strong);border-radius:7px;padding:8px 10px;min-height:62px;resize:vertical;outline:none}.dp-note:focus{border-color:var(--brand)}.dp-body .dp-times{margin-top:8px}.dp-body .dpk{margin-top:8px;padding:8px}.dpk{margin-top:11px;border:1px solid var(--line);border-radius:var(--r);padding:10px}.dp-nav{display:grid;grid-template-columns:repeat(5,1fr);border-bottom:1px solid var(--line);padding:0 6px}.dp-tab{display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 2px;background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-1px;cursor:pointer;font-family:inherit;font-size:10.5px;font-weight:650;letter-spacing:-.1px;color:var(--ink-faint);min-width:0}.dp-tab svg{display:block;flex:none}.dp-tab:hover{color:var(--ink-soft)}.dp-tab.on{color:var(--brand);border-bottom-color:var(--brand);font-weight:750}.dp-tab:disabled{opacity:.45;cursor:default}.dp-soon{padding:30px 18px 34px;text-align:center;color:var(--ink-faint)}.dp-soon .dp-soon-i{color:var(--line-strong);margin-bottom:10px}.dp-soon-t{font-size:13.5px;font-weight:700;color:var(--ink-soft);margin-bottom:4px}.dp-soon-d{font-size:12.5px;line-height:1.5;max-width:30ch;margin:0 auto}.dp-hint{font-size:11.5px;line-height:1.45;color:var(--ink-faint);margin:8px 0 0}.dp-by{font-size:11.5px;color:var(--ink-faint);margin-top:7px}
+  .dp-q{font-size:13px;color:var(--ink);margin:0 0 9px;line-height:1.4}
+  .dp-radios{display:flex;flex-direction:column;gap:7px}
+  .dp-radios .dp-radio{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink);cursor:pointer}
+  .dp-radios .dp-radio input{margin:0;flex:none}
+  .dp-kvs{border-top:1px solid var(--line);padding-top:11px;display:flex;flex-direction:column;gap:6px}
+  .dp-kv{display:flex;align-items:baseline;justify-content:space-between;gap:12px;font-size:13px}
+  .dp-k{color:var(--ink);font-weight:700}
+  .dp-v{color:var(--ink);text-align:right}
+  .dp-v.due{color:var(--crit-tx);font-weight:700}
   .dpk-bar{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:9px}
   .dpk-label{font-size:13px;font-weight:700;color:var(--ink)}
   .dpk-dow{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:2px;margin-bottom:4px}
@@ -6177,10 +6186,16 @@ const STRENGTH_SOURCES=['Scheduler evaluation','Client feedback','Performance re
 const FREQ_DAYS={'Weekly':7,'Every 2 weeks':14,'Every 3 weeks':21,'Monthly':30,'Every 3 months':90,'As needed':null};
 const CONFIRM_METHODS=['Call','Text','App','In Person'];
 const VERIFY_TPL_DEFAULT="Hi [Caregiver Name], this is Devoted Care. Please reply with your current availability for the next [time period], including days, times, preferred cities, and whether you are available for weekends or overnights. Thank you.";
-const CADENCE_OPTS=['Weekly','Every 2 weeks','Monthly','Every 3 months','Every 6 months'];
+const CADENCE_OPTS=['Weekly','Every 2 weeks','Monthly','Every 3 months','Every 6 months','Every 9 months','Yearly'];
 /* 'Custom' is no longer offered, but caregivers already saved on it still
    read correctly - cadenceDays keeps that branch. */
-const CADENCE_MAP={'Weekly':7,'Every 2 weeks':14,'Monthly':30,'Every 3 months':90,'Every 6 months':180};
+const CADENCE_MAP={'Weekly':7,'Every 2 weeks':14,'Monthly':30,'Every 3 months':90,'Every 6 months':180,'Every 9 months':270,'Yearly':365};
+/* [stored value, label]. The stored half is never re-spelled - caregivers are
+   already saved on 'Every 2 weeks' and re-casing it would orphan them. '' is
+   No Cadence, which stores null and simply has no next date. */
+const CADENCE_CHOICES=[['Weekly','Weekly'],['Every 2 weeks','Every 2 Weeks'],['Monthly','Monthly'],
+  ['Every 3 months','Every 3 Months'],['Every 6 months','Every 6 Months'],['Every 9 months','Every 9 Months'],
+  ['Yearly','Yearly'],['','No Cadence']];
 function cadenceDays(c){ const fr=c.ops.availCheckFreq; if(fr==='Custom') return Math.max(1, c.ops.customCadenceDays||30); return CADENCE_MAP[fr]!=null?CADENCE_MAP[fr]:30; }
 function verifyDays(c){ return cadenceDays(c); }
 function cadenceTimePeriod(c){ const fr=c.ops.availCheckFreq; const M={'Weekly':'week','Every 2 weeks':'2 weeks','Monthly':'month','Every 3 months':'3 months','Every 6 months':'6 months'}; if(fr==='Custom') return (c.ops.customCadenceDays||30)+' days'; return M[fr]||'period'; }
@@ -6829,6 +6844,19 @@ function dpTab(t){ modalState.tab = t; modalState.error = null; renderDayPanel()
 function dpNote(v){ modalState.note = String(v||'').slice(0, AV_NOTE_MAX); modalState.noteTouched = true; }
 /* The note is hidden until asked for; once it holds text it stays open, so a
    re-render never swallows something already typed. */
+function dpCadence(v){ modalState.cadence = v; modalState.error = null; renderDayPanel(); }
+function dpSaveCadence(){
+  const c = cgById(modalState.dayCg);
+  if(!c) return;
+  const v = (modalState.cadence !== undefined) ? modalState.cadence : (c.ops.availCheckFreq || '');
+  /* No Cadence stores null, which is what reviewCadence reads as "not
+     scheduled" - not a zero-day interval. */
+  c.ops.availCheckFreq = v || null;
+  modalState.cadence = undefined;
+  closeSidePanel();
+  try{ render(); }catch(e){}
+  toast(v ? 'Availability check cadence set to '+v : 'Availability check cadence removed');
+}
 function dpToggleNote(){ modalState.noteOpen = true; renderDayPanel();
   const t=document.querySelector('.dp-note'); if(t) t.focus(); }
 function dpTime(field, v){ modalState[field] = v; modalState.error = null; }
@@ -7220,8 +7248,40 @@ function renderDayPanel(){
     return;
   }
 
+  /* ---- Cadence ----------------------------------------------------
+     How often the office checks this caregiver's availability. It has
+     nothing to do with the calendar beside it - it is the reminder to go
+     and ask. Next Check Due follows from the last check plus the chosen
+     interval, so it needs no field of its own and previews the pending
+     choice before it is saved. */
+  if(tab === 'cadence'){
+    const cur = (modalState.cadence !== undefined) ? modalState.cadence : (c.ops.availCheckFreq || '');
+    const days = CADENCE_MAP[cur] || null;
+    const last = c.ops.availLastConfirmed ? new Date(c.ops.availLastConfirmed) : null;
+    const next = (days && last) ? new Date(last.getTime() + days*86400000) : null;
+    const overdue = next && next < NOW;
+    sEl.innerHTML = head + nav + `<div class="sp-body dp-body">
+      <div class="dp-sec">
+        <div class="dp-lab">Cadence</div>
+        <p class="dp-q">How often should the office check this caregiver\u2019s availability?</p>
+        <div class="dp-radios">${CADENCE_CHOICES.map(([val,label])=>
+          `<label class="dp-radio"><input type="radio" name="dp-cadence" value="${esc(val)}" ${cur===val?'checked':''} ${busy?'disabled':''} onchange="dpCadence(this.value)"><span>${label}</span></label>`).join('')}</div>
+      </div>
+      <div class="dp-sec dp-kvs">
+        <div class="dp-kv"><span class="dp-k">Last Checked</span><span class="dp-v">${last?fmtDate(last):'Never checked'}</span></div>
+        <div class="dp-kv"><span class="dp-k">Next Check Due</span><span class="dp-v${overdue?' due':''}">${
+          !days ? 'No cadence set' : (!last ? 'After the first check' : fmtDate(next)+(overdue?' \u00b7 overdue':''))
+        }</span></div>
+      </div>
+      ${modalState.error?`<div class="dp-error">${ic('alerts',12)} ${esc(modalState.error)}</div>`:''}
+    </div>` + `<div class="sp-foot">
+      <button class="btn" ${busy?'disabled':''} onclick="closeSidePanel()">Cancel</button>
+      <button class="btn pri" ${busy?'disabled':''} onclick="dpSaveCadence()">Save Cadence</button>
+    </div>`;
+    return;
+  }
+
   const SOON = {
-    cadence: ['refresh', 'Cadence', 'How often the office rings this caregiver to check what has changed.'],
     history: ['history', 'History', 'Who changed this day, what they changed and when.']
   };
   if(SOON[tab]){
