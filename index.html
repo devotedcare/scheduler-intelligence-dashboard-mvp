@@ -2129,12 +2129,17 @@
 .acr-fields .ein{font-size:12.5px}
 .acr-ta{width:100%;min-height:86px;resize:vertical;font:inherit;font-size:13px;line-height:1.45;padding:8px 10px}
 /* ---- caregiver page: tabs, header card, overview panels ---- */
-.cgtop{display:flex;align-items:flex-end;justify-content:space-between;gap:14px;flex-wrap:wrap;margin:2px 0 14px;border-bottom:1px solid var(--line)}
-.cgtabs{display:flex;gap:4px}
-.cgtab{background:none;border:none;border-bottom:2px solid transparent;padding:9px 14px;margin-bottom:-1px;font-size:14px;font-weight:700;color:var(--ink-soft);cursor:pointer}
-.cgtab:hover{color:var(--ink)}
-.cgtab.on{color:var(--brand);border-bottom-color:var(--brand)}
-.cgtop .ws-headbtns{padding-bottom:7px}
+/* Named cgnav, not cgtab: .cgtab is already the caregiver-directory stat
+   tile (.cgtab-grid / .cgtab-n / .cgtab.tab-open …) and is defined further
+   down this sheet, so it won and drew each tab as an outlined card. */
+.cgtop{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:0 0 10px;border-bottom:1px solid var(--line)}
+.ws-back+.dc-printhead+.cgtop{margin-top:-4px}
+.ws-back:has(+.dc-printhead+.cgtop){margin-bottom:8px}
+.cgnav{display:flex;gap:2px}
+.cgnav-t{height:34px;padding:0 10px;background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-1px;font-size:13.5px;font-weight:400;color:var(--ink-soft);cursor:pointer;line-height:32px}
+.cgnav-t:hover{color:var(--ink)}
+.cgnav-t.on{color:var(--ink);font-weight:700;border-bottom-color:var(--ink)}
+.cgtop .ws-headbtns{padding-bottom:4px}
 .cgdots{padding:5px 9px;line-height:0}
 .cgh{display:flex;gap:26px;align-items:flex-start;flex-wrap:wrap}
 .cgh-main{display:flex;gap:18px;align-items:flex-start;flex:1 1 380px;min-width:0}
@@ -8898,7 +8903,7 @@ function viewCaregiverWorkspace(c){
     : `<div class="ws-none">No client blocks on file \u2014 this caregiver can be assigned to any client.</div>`;
   const fromCov = state.cgReturn==='coverage';
   const tab = state.cgTab==='profile' ? 'profile' : 'overview';
-  const tabBtn=(k,label)=>`<button class="cgtab${tab===k?' on':''}" onclick="setCgTab('${k}')">${label}</button>`;
+  const tabBtn=(k,label)=>`<button class="cgnav-t${tab===k?' on':''}" onclick="setCgTab('${k}')">${label}</button>`;
 
   /* OVERVIEW — who this person is and what has happened with them.
      PROFILE — what the desk has decided about them. Nothing appears on
@@ -8940,7 +8945,7 @@ function viewCaregiverWorkspace(c){
   return `<button class="ws-back" onclick="${fromCov?'closeCgCalendar()':'backToCaregivers()'}">${ic('chevL',14)} ${fromCov?'Back to Find Coverage':'Back to Caregivers'}</button>
     <div class="dc-printhead">${dcLetterhead('Caregiver Profile', c.name)}</div>
     <div class="cgtop">
-      <nav class="cgtabs">${tabBtn('overview','Overview')}${tabBtn('profile','Profile')}</nav>
+      <nav class="cgnav">${tabBtn('overview','Overview')}${tabBtn('profile','Profile')}</nav>
       <div class="ws-headbtns">
         <button class="btn sm" onclick="openResumeModal('${c.id}')">${ic('coverage',13)} Create Resume</button>
         <button class="btn pri sm" onclick="editCaregiver('${c.id}')">${ic('log',13)} Edit Profile</button>
