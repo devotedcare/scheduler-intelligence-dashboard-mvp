@@ -7807,7 +7807,12 @@ function dpSave(){
   dates.forEach(ds=>{
     const base = modalState.verb === 'set'
       ? [d.entry]
-      : spliceDay(((typeof AVAIL!=='undefined') ? AVAIL.forDay(c.id, ds) : []), d.entry);
+      /* storedForDay, NOT forDay: Add means "keep what the day already holds
+         and splice this in", and forDay now also answers with the carried
+         pattern. Reading that here would write the pattern to the table as
+         though a scheduler had typed it - the one path that turns a
+         read-time projection into a real row. */
+      : spliceDay(((typeof AVAIL!=='undefined') ? AVAIL.storedForDay(c.id, ds) : []), d.entry);
     const carved = carveSegs(c, ds, base);
     /* The entry the scheduler just typed was swallowed whole by a visit.
        SKIP the date rather than writing its empty result: saveDays treats an
@@ -12925,12 +12930,73 @@ var AVAIL = (function () {
   /* One day's segments, oldest first. Empty until the fetch lands, which
      is why the calendar says it is loading rather than drawing a blank
      month that fills in a second later. */
-  function forDay(cgId, date) {
+  function storedForDay(cgId, date) {
     var r = byCg[cgId];
     if (!r || r.status !== 'ready') return [];
-    /* A date with nothing stored holds nothing. Availability is never
-       inferred from another date - see dayAvail below. */
     return r.days[dateKey(date)] || [];
+  }
+
+  /* ---- the pattern week ------------------------------------------
+     The most recent Sun-Sat week in which EVERY day has something
+     recorded. A complete week is a week somebody actually sat down and
+     filled in, which is the whole point: it carries as a WEEK, with its
+     Unavailable days intact.
+
+     The 2026-08-26 carry did not do that. It scavenged, per weekday, the
+     most recent date that was ENTIRELY Open - so only Open ever carried,
+     and since one weekday is a vertical column in a month grid, an Open
+     block painted straight down the column while the Unavailable days
+     beside it stayed blank. That asymmetry is what the desk reported, and
+     it is why this reads a whole week or nothing.
+
+     Cached on the record, which saveDays replaces wholesale, so an edit
+     recomputes it rather than serving a stale pattern. */
+  function patternWeek(cgId) {
+    var r = byCg[cgId];
+    if (!r || r.status !== 'ready') return null;
+    if (r._pw !== undefined) return r._pw;
+    var days = r.days, today = dateKey(new Date());
+    var probe = new Date(today + 'T12:00:00');
+    probe.setDate(probe.getDate() - probe.getDay());        /* the Sunday of this week */
+    var floor = r.from || '2000-01-01', found = null;
+    for (var w = 0; w < 60 && !found; w++) {
+      var start = new Date(probe.getTime() - w * 7 * 86400000);
+      if (ymd(start) < floor) break;
+      var byDow = {}, whole = true;
+      for (var i = 0; i < 7; i++) {
+        var d = new Date(start.getTime() + i * 86400000), k = ymd(d);
+        var segs = days[k];
+        if (!segs || !segs.length) { whole = false; break; }
+        byDow[d.getDay()] = segs;
+      }
+      if (whole) found = { byDow: byDow, start: ymd(start), end: ymd(new Date(start.getTime() + 6 * 86400000)) };
+    }
+    r._pw = found;
+    return found;
+  }
+
+  /* A date the desk has not typed, on or after today and after the pattern
+     week, shows that weekday's entries from the pattern. Read-time only -
+     nothing is written, so entering anything on the date simply replaces
+     what is drawn, and clearing it hands the day back to the pattern.
+
+     `carried` is set on every projected block. NOTHING THAT WRITES MAY READ
+     THESE: dpSave's Add verb treats forDay as "what the day already holds",
+     so a carried block would be saved as though a scheduler had typed it.
+     That path uses storedForDay. */
+  function forDay(cgId, date) {
+    var own = storedForDay(cgId, date);
+    if (own.length) return own;
+    var ds = dateKey(date);
+    if (ds < dateKey(new Date())) return [];
+    var pw = patternWeek(cgId);
+    if (!pw || ds <= pw.end) return [];
+    var src = pw.byDow[new Date(ds + 'T12:00:00').getDay()] || [];
+    return src.map(function (b) {
+      var o = {}; for (var k in b) if (Object.prototype.hasOwnProperty.call(b, k)) o[k] = b[k];
+      o.id = null; o.day = ds; o.carried = true; o.carriedFrom = pw.start;
+      return o;
+    });
   }
 
   /* ---- the roster-wide index -------------------------------------
@@ -13263,7 +13329,8 @@ var AVAIL = (function () {
   }
 
   return {
-    load: load, forDay: forDay, status: status, info: info, retry: retry,
+    load: load, forDay: forDay, storedForDay: storedForDay, patternWeek: patternWeek,
+    status: status, info: info, retry: retry,
     saveDays: saveDays,
     primeIndex: primeIndex, dayAvail: dayAvail, coversOn: coversOn, openDays: openDays,
     windowsOn: windowsOn, carryWindows: carryWindows,
