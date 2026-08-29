@@ -2050,16 +2050,19 @@
   .upd-list{background:#fff;border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
   .upd-row{padding:11px 14px;border-bottom:1px solid var(--line-soft)}
   .upd-row:last-child{border-bottom:none}
-  .upd-meta{display:flex;align-items:center;gap:9px;margin-bottom:3px}
-  .upd-date{font-size:12.5px;font-weight:700;color:var(--ink)}
-  .upd-by{font-size:12.5px;color:var(--ink-soft)}
+  .upd-meta{display:flex;align-items:center;gap:9px;margin-bottom:4px}
+  /* The date carries the accent so it reads before the body text does -
+     colour and weight, no fill behind it. */
+  .upd-date{font-size:12.5px;font-weight:800;color:var(--brand);letter-spacing:.2px}
   .upd-editb{margin-left:auto;font-family:inherit;font-size:12.5px;font-weight:650;color:var(--brand);background:none;border:none;padding:0;cursor:pointer;text-decoration:underline}
   .upd-text{font-size:13.5px;color:var(--ink);line-height:1.5;white-space:pre-wrap}
   .upd-empty{padding:16px;font-size:13px;color:var(--ink-soft)}
-  .upd-edit{display:flex;flex-direction:column;gap:8px}
-  .upd-ta{width:100%;box-sizing:border-box;font-family:inherit;font-size:13.5px;line-height:1.5;color:var(--ink);background:#fff;border:1px solid var(--line-strong);border-radius:7px;padding:9px 11px;min-height:74px;resize:vertical;outline:none}
+  .upd-f{margin-bottom:11px}
+  .upd-f label{display:block;font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-faint);margin-bottom:5px}
+  .upd-f input[type=date]{width:100%;box-sizing:border-box}
+  .upd-ta{width:100%;box-sizing:border-box;font-family:inherit;font-size:13.5px;line-height:1.5;color:var(--ink);background:#fff;border:1px solid var(--line-strong);border-radius:7px;padding:9px 11px;min-height:96px;resize:vertical;outline:none}
   .upd-ta:focus{border-color:var(--brand)}
-  .upd-acts{display:flex;gap:8px;justify-content:flex-end}
+  .upd-acts{display:flex;gap:8px;justify-content:flex-end;margin-top:2px}
   .halfrow .ccy{margin-top:14px}
   /* Fixed-width columns that scroll sideways: with every city named and no
      Other bucket, flexible columns would squeeze the labels away again.
@@ -5935,57 +5938,76 @@ function viewClientSchedule(){
 function updSorted(){
   return (state.updates||[]).slice().sort((a,b)=> String(b.at).localeCompare(String(a.at)));
 }
-function updAdd(){ state.updEdit='new'; state.updDraft=''; render(); }
-function updEditRow(id){ const u=(state.updates||[]).find(x=>x.id===id); if(!u) return;
-  state.updEdit=id; state.updDraft=u.text||''; render(); }
-function updCancel(){ state.updEdit=null; state.updDraft=''; render(); }
-function updSetDraft(v){ state.updDraft=v; }
-function updSave(){
-  const text=(state.updDraft||'').trim();
-  if(!text){ toast('Type the update first'); return; }
-  if(!state.updates) state.updates=[];
-  if(state.updEdit==='new'){
-    state.updates.unshift({id:'u'+Date.now(), at:new Date().toISOString(), text:text, by:state.onShift});
-    toast('Update posted');
-  }else{
-    const u=(state.updates||[]).find(x=>x.id===state.updEdit);
-    /* The date and the author stay as posted - an edit is a correction to
-       the wording, not a new announcement by whoever happened to fix it. */
-    if(u) u.text=text;
-    toast('Update saved');
-  }
-  state.updEdit=null; state.updDraft='';
-  render();
-}
 function updDate(iso){
   try{ return new Date(iso).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); }
   catch(e){ return ''; }
 }
-function updComposer(){
-  return `<div class="upd-edit">
-    <textarea class="upd-ta" placeholder="What do the schedulers need to know?" oninput="updSetDraft(this.value)">${esc(state.updDraft||'')}</textarea>
-    <div class="upd-acts">
-      <button class="btn sm" onclick="updCancel()">Cancel</button>
-      <button class="btn pri sm" onclick="updSave()">${state.updEdit==='new'?'Post Update':'Save'}</button>
-    </div>
-  </div>`;
+/* The composer is a popup, not an inline row: an update is a short thing
+   typed occasionally, and an inline form pushed the list it belongs to
+   down the page every time. */
+function updOpen(id){
+  const u = id ? (state.updates||[]).find(x=>x.id===id) : null;
+  state.updEdit = id || 'new';
+  state.updDraft = u ? (u.text||'') : '';
+  /* An update can be dated for the day it concerns, not only the day it was
+     typed. Editing keeps whatever date it already carries. */
+  state.updDate = u ? String(u.at).slice(0,10) : toDateInput(NOW);
+  renderUpdModal();
+  mbg.classList.add('show');
+}
+function updSetDraft(v){ state.updDraft=v; }
+function updSetDate(v){ state.updDate=v; }
+function updCancel(){ state.updEdit=null; state.updDraft=''; closeModal(); }
+function renderUpdModal(){
+  const isNew = state.updEdit==='new';
+  mEl.innerHTML = `<div class="mh"><span class="mt">${isNew?'Add Update':'Edit Update'}</span>
+      <button class="mc" onclick="updCancel()">\u00d7</button></div>
+    <div class="mb">
+      <div class="upd-f"><label>Date</label>
+        <input class="ein" type="date" value="${esc(state.updDate||'')}" onchange="updSetDate(this.value)"></div>
+      <div class="upd-f"><label>Update</label>
+        <textarea class="upd-ta" placeholder="What do the schedulers need to know?"
+          oninput="updSetDraft(this.value)">${esc(state.updDraft||'')}</textarea></div>
+      <div class="upd-acts">
+        <button class="btn" onclick="updCancel()">Cancel</button>
+        <button class="btn pri" onclick="updSave()">${isNew?'Post Update':'Save'}</button>
+      </div>
+    </div>`;
+}
+function updSave(){
+  const text=(state.updDraft||'').trim();
+  if(!text){ toast('Type the update first'); return; }
+  const d=state.updDate || toDateInput(NOW);
+  if(!state.updates) state.updates=[];
+  if(state.updEdit==='new'){
+    /* Date.now() alone is not unique - two updates posted in the same
+       millisecond collided, and since the id is the CLOUD slice key that
+       merges two records rather than keeping both. */
+    const id='u'+Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+    state.updates.unshift({id:id, at:new Date(d+'T12:00:00').toISOString(), text:text, by:state.onShift});
+    toast('Update posted');
+  }else{
+    const u=(state.updates||[]).find(x=>x.id===state.updEdit);
+    if(u){ u.text=text; u.at=new Date(d+'T12:00:00').toISOString(); }
+    toast('Update saved');
+  }
+  state.updEdit=null; state.updDraft='';
+  closeModal();
+  render();
 }
 function viewUpdates(){
   const list=updSorted();
-  const rows = list.length ? list.map(u=> state.updEdit===u.id
-    ? `<div class="upd-row">${updComposer()}</div>`
-    : `<div class="upd-row">
+  const rows = list.length
+    ? list.map(u=>`<div class="upd-row">
          <div class="upd-meta"><span class="upd-date">${updDate(u.at)}</span>
-           <span class="upd-by">${esc(u.by||'')}</span>
-           <button class="upd-editb" onclick="updEditRow('${u.id}')">Edit</button></div>
+           <button class="upd-editb" onclick="updOpen('${u.id}')">Edit</button></div>
          <div class="upd-text">${esc(u.text||'')}</div>
        </div>`).join('')
     : `<div class="upd-empty">No updates posted yet.</div>`;
   return `<div class="upd-head">
       <span class="upd-h">Updates</span>
-      ${state.updEdit==='new'?'':`<button class="btn pri sm" onclick="updAdd()">+ Add Update</button>`}
+      <button class="btn pri sm" onclick="updOpen()">+ Add Update</button>
     </div>
-    ${state.updEdit==='new'?`<div class="upd-row">${updComposer()}</div>`:''}
     <div class="upd-list">${rows}</div>`;
 }
 
