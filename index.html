@@ -7226,7 +7226,10 @@ function dpReasonOther(v){ modalState.reasonOther = String(v||'').slice(0, AV_NO
 /* The reason a caregiver cannot work, for the entry being saved. Optional,
    and only meaningful on an Unavailable one. */
 function dpReasonText(){
-  if(modalState.status==='Open') return null;
+  /* Hidden on Selected days, and not written either - picking a reason on
+     This date only and then switching would otherwise attach that one
+     reason to every date in the selection. */
+  if(modalState.status==='Open' || modalState.multi) return null;
   const r=modalState.reason;
   if(!r) return null;
   if(r==='Other'){ const t=(modalState.reasonOther||'').trim(); return t||null; }
@@ -7768,7 +7771,7 @@ function renderDayPanel(){
       </div>`}
     </div>
 
-    ${modalState.status==='Open'?'':`<div class="dp-sec">
+    ${(modalState.status==='Open'||modalState.multi)?'':`<div class="dp-sec">
       <div class="dp-lab">Reason <span class="dp-opt">optional</span></div>
       <div class="dp-rchips">${DP_REASONS.map((r,i)=>
         `<button type="button" class="dp-rchip${modalState.reason===r?' on':''}" ${busy?'disabled':''} onclick="dpReason(${i})">${r}</button>`).join('')}</div>
