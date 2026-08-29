@@ -7148,31 +7148,32 @@ function dpReasonText(){
   return r;
 }
 function dpCadence(v){ modalState.cadence = v; modalState.error = null; renderDayPanel(); }
+/* Setting a cadence IS the check: the scheduler has just been through this
+   caregiver's availability, so today becomes Last Checked and Next Check Due
+   counts forward from it. Both places that set a cadence come through here -
+   the side panel's Save Cadence and the dropdown on the caregiver profile -
+   because a cadence set in one and a date stamped only by the other is
+   exactly how the profile kept reading "Never checked".
+
+   It writes the same stamp confirmAvail does, for the same reason: a
+   caregiver carrying a run of no-responses would otherwise still read
+   Unverified straight after somebody actually reached them. No Cadence is
+   not a check and stamps nothing - there is no next date for it to feed. */
+function applyCadence(c, v){
+  if(!c) return;
+  c.ops.availCheckFreq = v || null;
+  if(!v) return;
+  c.ops.availLastConfirmed = new Date();
+  c.ops.availConfirmedBy = state.onShift;
+  c.ops.noResponseStreak = 0;
+  if(!c.ops.verifyHistory) c.ops.verifyHistory = [];
+  c.ops.verifyHistory.unshift({date:new Date(), by:state.onShift, result:'verified'});
+}
 function dpSaveCadence(){
   const c = cgById(modalState.dayCg);
   if(!c) return;
   const v = (modalState.cadence !== undefined) ? modalState.cadence : (c.ops.availCheckFreq || '');
-  /* No Cadence stores null, which is what reviewCadence reads as "not
-     scheduled" - not a zero-day interval. */
-  c.ops.availCheckFreq = v || null;
-
-  /* Setting a cadence IS the check: the scheduler has just been through
-     this caregiver's availability. Stamping today is what stops the panel
-     reading "Never checked" the moment after a cadence was chosen, and it
-     is what Next Check Due counts forward from.
-
-     The same stamp confirmAvail writes, for the same reason it writes it:
-     a caregiver carrying a run of no-responses would otherwise still read
-     Unverified straight after somebody actually reached them. Choosing No
-     Cadence is not a check, so it stamps nothing - there is no next date
-     for it to feed. */
-  if(v){
-    c.ops.availLastConfirmed = new Date();
-    c.ops.availConfirmedBy = state.onShift;
-    c.ops.noResponseStreak = 0;
-    if(!c.ops.verifyHistory) c.ops.verifyHistory = [];
-    c.ops.verifyHistory.unshift({date:new Date(), by:state.onShift, result:'verified'});
-  }
+  applyCadence(c, v);
   modalState.cadence = undefined;
   /* Stay on the tab so the two dates it just changed are visible. */
   modalState.cadenceSaved = true;
@@ -7606,7 +7607,10 @@ function renderDayPanel(){
   if(tab === 'cadence'){
     const cur = (modalState.cadence !== undefined) ? modalState.cadence : (c.ops.availCheckFreq || '');
     const days = CADENCE_MAP[cur] || null;
-    const last = c.ops.availLastConfirmed ? new Date(c.ops.availLastConfirmed) : null;
+    /* Saving stamps today, so the preview counts from today when nothing has
+       been recorded yet. Showing "Never checked" here described a state the
+       Save about to be pressed would remove. */
+    const last = c.ops.availLastConfirmed ? new Date(c.ops.availLastConfirmed) : (days ? new Date(NOW) : null);
     const next = (days && last) ? cadenceNext(last, cur, c.ops.customCadenceDays) : null;
     const overdue = next && next < NOW;
     sEl.innerHTML = head + nav + `<div class="sp-body dp-body">
@@ -7617,9 +7621,9 @@ function renderDayPanel(){
           `<label class="dp-radio"><input type="radio" name="dp-cadence" value="${esc(val)}" ${cur===val?'checked':''} ${busy?'disabled':''} onchange="dpCadence(this.value)"><span>${label}</span></label>`).join('')}</div>
       </div>
       <div class="dp-sec dp-kvs">
-        <div class="dp-kv"><span class="dp-k">Last Checked</span><span class="dp-v">${last?fmtDate(last):'Never checked'}</span></div>
+        <div class="dp-kv"><span class="dp-k">Last Checked</span><span class="dp-v">${last?fmtDate(last):'\u2014'}</span></div>
         <div class="dp-kv"><span class="dp-k">Next Check Due</span><span class="dp-v${overdue?' due':''}">${
-          !days ? 'No cadence set' : (!last ? 'After the first check' : fmtDate(next)+(overdue?' \u00b7 overdue':''))
+          !days ? 'No cadence set' : fmtDate(next)+(overdue?' \u00b7 overdue':'')
         }</span></div>
       </div>
       ${modalState.error?`<div class="dp-error">${ic('alerts',12)} ${esc(modalState.error)}</div>`:''}
@@ -8052,7 +8056,7 @@ function availVerifyPanel(c){
 function fillVerifyTemplate(c){ return (state.verifyTemplate||VERIFY_TPL_DEFAULT).replace(/\[Caregiver Name\]/g, c.name).replace(/\[time period\]/g, cadenceTimePeriod(c)); }
 function setVerifyTemplate(v){ state.verifyTemplate=v; }
 function toggleVerifyTpl(id){ state.verifyTplOpen = id&&state.verifyTplOpen!==id ? id : null; render(); }
-function setCadence(id,val){ const c=cgById(id); c.ops.availCheckFreq=val; render(); }
+function setCadence(id,val){ applyCadence(cgById(id), val); render(); }
 function setCustomCadence(id,val){ const n=parseInt(val); cgById(id).ops.customCadenceDays=isNaN(n)?30:Math.max(1,n); render(); }
 function sendVerifyText(id){ const c=cgById(id), ops=c.ops; if(!ops.verifyHistory) ops.verifyHistory=[]; ops.verifyHistory.unshift({date:new Date(), by:state.onShift, result:'reminder'}); ops.lastReminder=new Date(); render(); toast('Verification text sent to '+c.name+' (simulated) \u2014 '+cadenceTimePeriod(c)+' availability requested'); }
 function logNoResponse(id){ const c=cgById(id), ops=c.ops; ops.noResponseStreak=(ops.noResponseStreak||0)+1; if(!ops.verifyHistory) ops.verifyHistory=[]; ops.verifyHistory.unshift({date:new Date(), by:state.onShift, result:'noresponse'}); render(); toast('Logged no response from '+c.name+(ops.noResponseStreak>=2?' \u2014 now marked Unverified':' \u2014 '+ops.noResponseStreak+' attempt'+(ops.noResponseStreak===1?'':'s'))); }
