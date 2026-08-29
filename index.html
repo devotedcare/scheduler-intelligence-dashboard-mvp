@@ -8200,9 +8200,14 @@ function cgHeaderCard(c){
    Each reads the field the rest of the app already uses, so nothing here
    is a second copy: the client-gender preference and pets come from
    AxisCare's own CFC / CMC / OWP class tags until a scheduler answers
-   them, smoking home is c.smokerHomeOk, the lift limit is c.liftLimit,
-   overnight is ops.emergency.overnight and live-in is
-   ops.shiftPrefs.liveIn. Stairs is the one AxisCare has nothing for. */
+   them, smoking home is c.smokerHomeOk, transfers comes from the Hoyer Lift
+   tag, overnight is ops.emergency.overnight and live-in is
+   ops.shiftPrefs.liveIn. Stairs is the one AxisCare has nothing for.
+
+   c.liftLimit is left alone — the Edit Profile and availability forms still
+   write it, and the resume reads it — but it is no longer shown here. It is
+   DERIVED from the same Hoyer tag (100 with it, 50 without), so printing it
+   as a number read like a figure somebody had measured. */
 function cgTag(c,code){ return (c.axisTags||[]).some(function(t){ return t.code===code; }); }
 function prefVal(c,k){
   const p=(c.ops.prefs)||{};
@@ -8218,7 +8223,12 @@ function prefVal(c,k){
     return null;
   }
   if(k==='smokingHome') return hasVal(c.smokerHomeOk) ? !!c.smokerHomeOk : null;
-  if(k==='liftLimit')   return hasVal(c.liftLimit) ? c.liftLimit : null;
+  /* Hoyer Lift experience is a recorded AxisCare tag and is a plain yes to
+     assisting with transfers. Nothing infers a NO: c.liftLimit is itself
+     derived from that same tag (100 with it, 50 without), so reading a low
+     number as a refusal would invent one — and a wrong No would quietly
+     drop somebody out of assignments. */
+  if(k==='transfers')   return cgTag(c,'HLE') ? true : null;
   if(k==='overnight')   return !!(c.ops.emergency && c.ops.emergency.overnight);
   if(k==='liveIn')      return !!(c.ops.shiftPrefs && c.ops.shiftPrefs.liveIn);
   return null;
@@ -8226,15 +8236,14 @@ function prefVal(c,k){
 function prefYN(v){ return v===null||v===undefined ? 'Not recorded' : (v?'Yes':'No'); }
 function prefsCard(c){
   const row=(l,v)=>`<div class="emp-row"><span class="emp-l">${l}</span><span class="emp-v">${v}</span></div>`;
-  const lim=prefVal(c,'liftLimit');
   return `<div class="ws-card span2"><div class="ws-h ws-h-flex h-tint h-prefs2"><span>Preferences &amp; Restrictions</span>
       <button class="btn sm" onclick="openPrefsEdit('${c.id}')">${ic('log',12)} Edit</button></div>
     <div class="emp-grid">
       ${row('Client gender preference', prefVal(c,'clientGender') ? esc(prefVal(c,'clientGender')) : 'Not recorded')}
       ${row('Pets in home', prefYN(prefVal(c,'pets')))}
       ${row('Smoking home', prefYN(prefVal(c,'smokingHome')))}
-      ${row('Stairs', prefYN(prefVal(c,'stairs')))}
-      ${row('Lift / weight limit', hasVal(lim) ? lim+' lbs' : 'Not recorded')}
+      ${row('Can assist with client transfers', prefYN(prefVal(c,'transfers')))}
+      ${row('Comfortable with stairs', prefYN(prefVal(c,'stairs')))}
       ${row('Overnight OK', prefYN(prefVal(c,'overnight')))}
       ${row('Live-in OK', prefYN(prefVal(c,'liveIn')))}
     </div></div>`;
@@ -8244,8 +8253,7 @@ function openPrefsEdit(id){
   const c=cgById(id); if(!c) return;
   const yn=k=>{ const v=prefVal(c,k); return v===null||v===undefined?'':(v?'yes':'no'); };
   state.prefEdit={id:id, clientGender:prefVal(c,'clientGender')||'', pets:yn('pets'),
-    smokingHome:yn('smokingHome'), stairs:yn('stairs'),
-    liftLimit:hasVal(prefVal(c,'liftLimit'))?String(prefVal(c,'liftLimit')):'',
+    smokingHome:yn('smokingHome'), transfers:yn('transfers'), stairs:yn('stairs'),
     overnight:yn('overnight'), liveIn:yn('liveIn')};
   renderPrefsModal(); mbg.classList.add('show');
 }
@@ -8263,9 +8271,8 @@ function renderPrefsModal(){
       ${sel('clientGender','Client gender preference',[['','Not recorded'],['Either','Either'],['Female clients','Female clients'],['Male clients','Male clients']])}
       ${sel('pets','Pets in home',PREF_YN)}
       ${sel('smokingHome','Smoking home',PREF_YN)}
-      ${sel('stairs','Stairs',PREF_YN)}
-      <div class="pf-f"><label class="el">Lift / weight limit (lbs)</label>
-        <input class="ein" type="number" min="0" max="300" value="${esc(p.liftLimit||'')}" oninput="prefSet('liftLimit',this.value)"></div>
+      ${sel('transfers','Can assist with client transfers',PREF_YN)}
+      ${sel('stairs','Comfortable with stairs',PREF_YN)}
       ${sel('overnight','Overnight OK',PREF_YN)}
       ${sel('liveIn','Live-in OK',PREF_YN)}
     </div>
@@ -8279,10 +8286,8 @@ function prefSave(){
   const c=cgById(p.id); if(!c) return prefCancel();
   const b=v=> v===''?null:(v==='yes');
   c.ops.prefs=Object.assign({}, c.ops.prefs, {clientGender:p.clientGender||null,
-    pets:b(p.pets), smokingHome:b(p.smokingHome), stairs:b(p.stairs)});
+    pets:b(p.pets), smokingHome:b(p.smokingHome), transfers:b(p.transfers), stairs:b(p.stairs)});
   if(b(p.smokingHome)!==null) c.smokerHomeOk=b(p.smokingHome);
-  const lim=parseInt(p.liftLimit,10);
-  if(p.liftLimit==='') c.liftLimit=null; else if(!isNaN(lim)) c.liftLimit=lim;
   c.ops.emergency=Object.assign({}, c.ops.emergency, {overnight: b(p.overnight)===true});
   c.ops.shiftPrefs=Object.assign({}, c.ops.shiftPrefs, {liveIn: b(p.liveIn)===true});
   c.ops.lastUpdated=new Date(); c.ops.lastUpdatedBy=state.onShift;
