@@ -7235,6 +7235,17 @@ function dpReasonText(){
   if(r==='Other'){ const t=(modalState.reasonOther||'').trim(); return t||null; }
   return r;
 }
+/* A Save saves; only the X or Cancel closes. Each tab flashes "Saved" for a
+   moment through this one flag rather than carrying its own timer. */
+function dpSaved(tab){
+  modalState.savedFlash = tab;
+  renderDayPanel();
+  setTimeout(function(){
+    if(!modalState || modalState.savedFlash !== tab) return;
+    modalState.savedFlash = null;
+    if(modalState.tab === tab) renderDayPanel();
+  }, 2200);
+}
 function dpCadence(v){ modalState.cadence = v; modalState.error = null; renderDayPanel(); }
 /* Setting a cadence IS the check: the scheduler has just been through this
    caregiver's availability, so today becomes Last Checked and Next Check Due
@@ -7263,15 +7274,8 @@ function dpSaveCadence(){
   const v = (modalState.cadence !== undefined) ? modalState.cadence : (c.ops.availCheckFreq || '');
   applyCadence(c, v);
   modalState.cadence = undefined;
-  /* Stay on the tab so the two dates it just changed are visible. */
-  modalState.cadenceSaved = true;
-  renderDayPanel();
   try{ render(); }catch(e){}
-  setTimeout(function(){
-    if(!modalState || !modalState.cadenceSaved) return;
-    modalState.cadenceSaved = false;
-    if(modalState.tab==='cadence') renderDayPanel();
-  }, 2200);
+  dpSaved('cadence');
   const nd = v ? nextReview(c) : null;
   toast(v ? 'Availability check cadence set to '+v+(nd?' \u00b7 next check '+fmtDate(nd):'')
           : 'Availability check cadence removed');
@@ -7319,16 +7323,8 @@ function dpNoteSave(){
   NOTES.save(c, ds, modalState.note || '')
     .then(function(){
       modalState.saving = false;
-      /* Stay put. Saving a note is not finishing with the day, and closing
-         the panel used to throw the scheduler back to the calendar. */
-      modalState.noteSaved = true;
-      renderDayPanel();
       try{ render(); }catch(e){}
-      setTimeout(function(){
-        if(!modalState || !modalState.noteSaved) return;
-        modalState.noteSaved = false;
-        if(modalState.tab==='notes') renderDayPanel();
-      }, 2200);
+      dpSaved('notes');
     })
     .catch(function(e){
       modalState.saving = false;
@@ -7350,8 +7346,9 @@ function dpDelRun(){
     .then(function(){
       modalState.saving = false;
       modalState.delPicked = {};
-      closeSidePanel();
       try{ render(); }catch(e){}
+      dpSaved('delete');
+      toast(days.length > 1 ? days.length + ' days cleared' : 'Day cleared');
     })
     .catch(function(e){
       modalState.saving = false;
@@ -7509,10 +7506,8 @@ function dpSave(){
       modalState.saving = false;
       modalState.picked = {}; modalState.multi = false;
       modalState.note = '';
-      /* The work is done and written; keeping the panel open just makes
-         the scheduler close it. The calendar behind now shows the day. */
-      closeSidePanel();
       try{ render(); }catch(e){}
+      dpSaved('avail');
       toast(dates.length > 1 ? dates.length + ' days updated' : 'Day updated');
     })
     .catch(function(e){
@@ -7655,7 +7650,7 @@ function renderDayPanel(){
     </div>` + `<div class="sp-foot">
       <button class="btn" ${busy?'disabled':''} onclick="closeSidePanel()">Cancel</button>
       <button class="btn pri" ${busy||loading?'disabled':''} onclick="dpNoteSave()">${busy?'Saving\u2026':'Save'}</button>
-      ${modalState.noteSaved&&!busy?`<span class="dp-saved">${ic('check',13)} Saved</span>`:''}
+      ${modalState.savedFlash==='notes'&&!busy?`<span class="dp-saved">${ic('check',13)} Saved</span>`:''}
     </div>`;
     dpNoteGrow(document.getElementById('dpNoteBox'));
     return;
@@ -7682,6 +7677,7 @@ function renderDayPanel(){
     </div>` + `<div class="sp-foot">
       <button class="btn" ${busy?'disabled':''} onclick="closeSidePanel()">Cancel</button>
       <button class="btn danger" ${busy?'disabled':''} onclick="dpDelRun()">${busy?'Clearing\u2026':'Delete'}</button>
+      ${modalState.savedFlash==='delete'&&!busy?`<span class="dp-saved">${ic('check',13)} Cleared</span>`:''}
     </div>`;
     return;
   }
@@ -7718,7 +7714,7 @@ function renderDayPanel(){
     </div>` + `<div class="sp-foot">
       <button class="btn" ${busy?'disabled':''} onclick="closeSidePanel()">Cancel</button>
       <button class="btn pri" ${busy?'disabled':''} onclick="dpSaveCadence()">Save Cadence</button>
-      ${modalState.cadenceSaved&&!busy?`<span class="dp-saved">${ic('check',13)} Saved</span>`:''}
+      ${modalState.savedFlash==='cadence'&&!busy?`<span class="dp-saved">${ic('check',13)} Saved</span>`:''}
     </div>`;
     return;
   }
@@ -7785,6 +7781,7 @@ function renderDayPanel(){
   sEl.innerHTML = head + nav + body + `<div class="sp-foot">
       <button class="btn" ${busy?'disabled':''} onclick="closeSidePanel()">Cancel</button>
       <button class="btn pri" ${busy?'disabled':''} onclick="dpSave()">${busy?'Saving\u2026':'Save Availability'}</button>
+      ${modalState.savedFlash==='avail'&&!busy?`<span class="dp-saved">${ic('check',13)} Saved</span>`:''}
     </div>`;
 }
 
