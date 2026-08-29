@@ -2141,8 +2141,10 @@
 .cgnav-t.on{color:var(--ink);font-weight:700;border-bottom-color:var(--ink)}
 .cgtop .ws-headbtns{padding-bottom:4px}
 .cgdots{padding:5px 9px;line-height:0}
-.cgh{display:flex;gap:26px;align-items:flex-start;flex-wrap:wrap}
-.cgh-main{display:flex;gap:18px;align-items:flex-start;flex:1 1 380px;min-width:0}
+.cgh{display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap}
+/* Sizes to its content rather than growing, so the rule sits just past the
+   longest contact line instead of halfway across the card. */
+.cgh-main{display:flex;gap:18px;align-items:flex-start;flex:0 1 auto;min-width:0;max-width:460px}
 .cgh-photo{width:104px;height:104px;border-radius:50%;background:var(--panel-head);flex:0 0 auto;overflow:hidden}
 .cgh-photo img{width:100%;height:100%;object-fit:cover;display:block}
 /* cgPhotoFail replaces this box's contents with the camera glyph, which is
@@ -2159,7 +2161,7 @@
 .cgh-line{display:flex;align-items:center;gap:9px;font-size:13px;color:var(--ink);min-width:0}
 .cgh-line svg{color:var(--ink-faint);flex:0 0 auto}
 .cgh-line span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.cgh-about{flex:1 1 300px;min-width:0;border-left:1px solid var(--line);padding-left:26px}
+.cgh-about{flex:1 1 300px;min-width:0;border-left:1px solid var(--line);padding-left:20px}
 .cgh-abouth{font-size:14px;font-weight:800;color:var(--ink);margin-bottom:8px}
 .cgh-aboutx{font-size:13.5px;line-height:1.55;color:var(--ink)}
 @media(max-width:900px){.cgh-about{border-left:none;padding-left:0;border-top:1px solid var(--line);padding-top:14px}}
@@ -8208,7 +8210,55 @@ function cgLangLine(c){
   var ep=c.englishProficiency;
   return l.join(', ') + (ep ? ' ('+ep+')' : '');
 }
-function cgAbout(c){ return (c.ops.persona && c.ops.persona.summary) || c.ops.summary || ''; }
+/* The About line is written from the profile, not stored. What it used to
+   show was ops.persona.summary — seed strings like "Steady dementia-care
+   aide" — which is a label, not something a scheduler can act on.
+
+   Built from the three things the desk actually records: years of
+   experience, the personality styles, and the skills. The option labels are
+   pickers, not prose, so each has a short reading here. */
+const ABOUT_STYLE={'Quiet / Low Conversation':'quiet','Talkative / Social':'talkative',
+  'Calm / Low Energy':'calm','Energetic / Active':'energetic',
+  'Gentle / Soft Approach':'gentle','Firm / Direct Approach':'direct',
+  'Independent Worker':'independent','Needs Clear Instructions':'best with clear instructions',
+  'Routine-Oriented':'routine-oriented','Flexible / Adapts Easily':'flexible'};
+const ABOUT_SKILL={'Dementia Care':'dementia care',"Alzheimer's Experience":"Alzheimer's care",
+  'Hospice Support':'hospice support','Transfers & Mobility Assistance':'mobility assistance',
+  'Toileting Assistance':'toileting assistance','Bathing Assistance':'bathing assistance',
+  'Incontinence Care':'incontinence care','Medication Reminders':'medication reminders',
+  'Meal Preparation':'meal preparation','Companionship':'companionship'};
+/* "a, b and c" — the strongest few, in the order the pickers list them, so
+   the sentence stays short enough to read at a glance.
+
+   An Oxford comma whenever an item carries its own "and": without it,
+   "transfers and mobility assistance" runs into the list conjunction and
+   reads as two separate items. */
+function aboutList(arr){
+  if(!arr.length) return '';
+  if(arr.length===1) return arr[0];
+  const ox = (arr.length>2 && arr.some(function(x){ return x.indexOf(' and ')>=0; })) ? ',' : '';
+  return arr.slice(0,-1).join(', ')+ox+' and '+arr[arr.length-1];
+}
+function cgAbout(c){
+  const first=(c.name||'').split(' ')[0]||'This caregiver';
+  const yrs=c.ops.experience, n=Number(yrs);
+  const hasYrs=hasVal(yrs) && !isNaN(n) && n>0;
+  const styles=cgPersonality(c).slice(0,4).map(t=>ABOUT_STYLE[t]||t.toLowerCase());
+  const skills=cgCareSkills(c).slice(0,3).map(t=>ABOUT_SKILL[t]||t.toLowerCase());
+  const bits=[];
+  /* No pronoun anywhere: AxisCare records a gender, which is not the same
+     thing, and the name reads fine in both sentences. */
+  const yrText = n+'+ year'+(n===1?'':'s')+' of caregiving experience';
+  if(hasYrs && styles.length)
+    bits.push(first+' has '+yrText+' and is '+aboutList(styles)+'.');
+  else if(hasYrs) bits.push(first+' has '+yrText+'.');
+  else if(styles.length) bits.push(first+' is '+aboutList(styles)+'.');
+  if(skills.length) bits.push('Strongest experience is in '+aboutList(skills)+'.');
+  if(bits.length) return bits.join(' ');
+  /* Nothing recorded to write from — a summary somebody typed is better
+     than an empty box. */
+  return (c.ops.persona && c.ops.persona.summary) || c.ops.summary || '';
+}
 function cgHeaderCard(c){
   const active = c.active!==false && c.ops.employmentStatus!=='Inactive';
   const line=(icon,v)=> v ? `<div class="cgh-line">${ic(icon,13)}<span>${esc(v)}</span></div>` : '';
