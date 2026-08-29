@@ -1213,6 +1213,9 @@
   .ws-none{font-size:13px;color:var(--ink-faint)}
   .ws-big{font-size:16px;font-weight:800;color:var(--ink)}
   .ws-sub{font-size:12.5px;color:var(--ink-soft);margin-top:6px}
+  .ws-grp{padding-top:9px;margin-top:9px;border-top:1px solid var(--line)}
+  .ws-grp:first-of-type{padding-top:0;margin-top:0;border-top:none}
+  .ws-grp-h{font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-faint);margin-bottom:7px}
   .ci-row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:7px 0;border-bottom:1px solid var(--line)}
   .ci-row:last-child{border-bottom:none}
   .ci-l{font-size:12.5px;color:var(--ink-soft);font-weight:600}
@@ -8029,18 +8032,16 @@ function viewCaregiverWorkspace(c){
     + (avTags.length?`<div class="av2-tags">${avTags.map(t=>`<span class="av2-tag">${t}</span>`).join('')}</div>`:'')
     + `</div>`;
   // ===== Employment Summary (now includes utilization) =====
-  const scheduled=c.weekHrs, desired=ops.maxHours, gap=desired-scheduled, hasCase=!!ops.devoted;
+  const hasCase=!!ops.devoted;
   const empRow=(l,v,tone)=>`<div class="emp-row"><span class="emp-l">${l}</span><span class="emp-v ${tone||''}">${v}</span></div>`;
   const statusTone={Active:'good',Leave:'soon',Inactive:'crit'}[ops.employmentStatus]||'';
   const lastClient=ops.devoted?ops.devoted.client:(ops.lastClient||null);
   const lastClientName=lastClient?(clById(lastClient)?clById(lastClient).name:lastClient):'\u2014';
   const employmentBody=empRow('Hire date', fmtDate(ops.hireDate))
-    + empRow('Length of employment', fmtTenure(ops.hireDate))
     + empRow('Employment status', ops.employmentStatus || (c.active===false?'Inactive':'Active'), statusTone)
+    + empRow('Length of employment', fmtTenure(ops.hireDate))
     + empRow('Total hours worked', hasVal(ops.totalHoursWorked) ? ops.totalHoursWorked.toLocaleString()+' h' : 'Not tracked')
-    + empRow('Scheduled this week', nt(scheduled,'h'))
     + empRow('Desired weekly hours', (hasVal(ops.minHours)&&hasVal(ops.maxHours))?ops.minHours+'\u2013'+ops.maxHours+'h':'Not tracked')
-    + empRow('Hours gap', gap>0?gap+'h available':(gap<0?Math.abs(gap)+'h over':'Full'), gap>0?'good':(gap<0?'crit':''))
     + empRow('Has active client', hasCase?'Yes':'No', hasCase?'good':'soon')
     + empRow('Last shift worked', fmtDate(ops.lastShiftWorked))
     + empRow('Last client served', lastClientName);
@@ -8096,12 +8097,17 @@ function viewCaregiverWorkspace(c){
     <div class="ws-card span2"><div class="ws-h"><span class="ws-h-ic">${ic('calendar',15)}<span>Availability</span></span></div>${cgCalendar(c)}</div>
     ${availRulesSummary(c)}
     <div class="ws-card span2"><div class="ws-h">Employment Summary</div><div class="emp-grid">${employmentBody}</div></div>
-    <div class="ws-card span2"><div class="ws-h ws-h-flex"><span>Client Blocks \u2014 Do Not Assign</span><button class="btn sm" onclick="editAvailability('${c.id}','blocks')">${ic('shield',12)} Manage blocks</button></div>${cbBody}</div>
+
     <div class="ws-grid">
-      <div class="ws-card"><div class="ws-h ws-h-flex"><span>Assignment Restrictions</span><button class="btn sm" onclick="editAvailability('${c.id}','prefs')">${ic('log',12)} Edit</button></div>${restrBody}</div>
-      <div class="ws-card"><div class="ws-h ws-h-flex"><span>Travel Preferences</span><button class="btn sm" onclick="editAvailability('${c.id}','prefs')">${ic('log',12)} Edit</button></div>${travelBody}</div>
+      <div class="ws-card span2"><div class="ws-h ws-h-flex"><span>Assignment &amp; Client Rules</span><button class="btn sm" onclick="editAvailability('${c.id}','prefs')">${ic('log',12)} Edit</button></div>
+        <div class="ws-grp"><div class="ws-grp-h ws-h-flex"><span>Client Blocks \u2014 Do Not Assign</span><button class="btn xs" onclick="editAvailability('${c.id}','blocks')">${ic('shield',11)} Manage blocks</button></div>${cbBody}</div>
+        <div class="ws-grp"><div class="ws-grp-h">Assignment Restrictions</div>${restrBody}</div>
+      </div>
+      <div class="ws-card"><div class="ws-h ws-h-flex"><span>Travel &amp; Transportation</span><button class="btn sm" onclick="editAvailability('${c.id}','prefs')">${ic('log',12)} Edit</button></div>${travelBody}</div>
       ${wsSection('Operational Alerts', alertsBody)}
-      <div class="ws-card span2"><div class="ws-h ws-h-flex"><span>Caregiver Strengths</span><button class="btn sm" onclick="editStrengths('${c.id}')">${ic('log',12)} Edit Strengths</button></div>${strengthsBody}</div>
+      <div class="ws-card span2"><div class="ws-h ws-h-flex"><span>Caregiver Profile</span><button class="btn sm" onclick="editStrengths('${c.id}')">${ic('log',12)} Edit Strengths</button></div>
+        <div class="ws-grp"><div class="ws-grp-h">Caregiver Strengths</div>${strengthsBody}</div>
+      </div>
     </div>`;
 }
 /* Weekly rules and time off used to be summarised here with their own Edit
