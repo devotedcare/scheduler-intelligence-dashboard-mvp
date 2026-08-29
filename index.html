@@ -8550,7 +8550,10 @@ function prefSave(){
    (SS Speaks Spanish, FES Fluent English) and from the profile table's
    extra_languages, and are editable here. */
 const LANG_OPTS=['English','Spanish','Tagalog','Ilocano','Vietnamese','Korean','Mandarin','Armenian','Russian','American Sign Language'];
-const ENGLISH_LEVELS=['','Native','Fluent','Conversational','Basic'];
+const ENGLISH_LEVELS=['Native/Bilingual','Fluent','Good','Conversational','Basic'];
+/* "Native" predates the list. Preselect it as its replacement so reopening
+   the editor does not read as unanswered. */
+const ENGLISH_ALIAS={'Native':'Native/Bilingual'};
 function languagesCard(c){
   const langs=(c.languages||[]).slice();
   return `<div class="ws-card"><div class="ws-h ws-h-flex h-tint h-lang"><span>Languages</span>
@@ -8564,8 +8567,9 @@ function languagesCard(c){
 }
 function openLangEdit(id){
   const c=cgById(id); if(!c) return;
+  const ep=c.englishProficiency||'';
   state.langEdit={id:id, langs:(c.languages||[]).slice(), other:'',
-    english:c.englishProficiency||''};
+    english:ENGLISH_ALIAS[ep]||ep};
   renderLangModal(); mbg.classList.add('show');
 }
 function langToggle(i,on){
@@ -8589,8 +8593,13 @@ function renderLangModal(){
       <div class="pf-f"><label class="el">Another language (comma separated)</label>
         <input class="ein" placeholder="e.g. Cebuano" value="${esc(l.other||'')}" oninput="langSet('other',this.value)"></div>
       <div class="pf-f"><label class="el">English proficiency</label>
-        <select class="ein" onchange="langSet('english',this.value)">${ENGLISH_LEVELS.map(function(x){
-          return `<option value="${x}" ${l.english===x?'selected':''}>${x||'Not recorded'}</option>`; }).join('')}</select></div>
+        <select class="ein" onchange="langSet('english',this.value)">
+          ${ENGLISH_LEVELS.indexOf(l.english)>=0 ? '' :
+            /* Disabled, so nothing is recorded by simply opening this and
+               saving — but not an option anybody can pick. */
+            '<option value="" disabled selected>Select proficiency…</option>'}
+          ${ENGLISH_LEVELS.map(function(x){
+            return `<option ${l.english===x?'selected':''}>${x}</option>`; }).join('')}</select></div>
       <div class="upd-acts"><button class="btn" onclick="langCancel()">Cancel</button>
         <button class="btn pri" onclick="langSave()">${ic('check',13)} Save</button></div>
     </div>`;
