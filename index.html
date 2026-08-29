@@ -2188,11 +2188,8 @@
 .cgp-utx{display:block;font-weight:650}
 .cgp-st{flex:0 0 auto;font-size:11.5px;font-weight:700;border-radius:12px;padding:2px 10px}
 .cgp-st.plain{background:none;padding:0;color:var(--ink-soft);font-weight:650}
-.fb-type{flex:0 0 auto;font-family:inherit;font-size:11px;font-weight:800;letter-spacing:.2px;border-radius:11px;padding:2px 22px 2px 9px;border:1px solid;white-space:nowrap;cursor:pointer;
-  -webkit-appearance:none;appearance:none;
-  background-image:url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 5l3 3 3-3' fill='none' stroke='%23667' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E");
-  background-repeat:no-repeat;background-position:right 6px center;background-size:10px}
-.fb-type.unset{background-color:#fff;color:var(--ink-soft);border-color:var(--line);font-weight:700}
+.fb-row{flex-direction:column;align-items:flex-start;gap:3px}
+.fb-type{align-self:flex-start;font-size:11px;font-weight:800;letter-spacing:.2px;border-radius:11px;padding:2px 9px;border:1px solid;white-space:nowrap}
 /* ---- caregiver rating ---- */
 .rt-strip{display:flex;align-items:center;gap:11px;padding:9px 14px}
 .rt-lab{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;color:var(--ink-faint)}
@@ -8717,12 +8714,11 @@ function cgConcernsPanel(c, all){
      not a queue of tickets to work through. */
   const body = shown.length
     ? `<div class="cgp-list">${shown.map(f=>{ const t=fbType(f);
-        return `<div class="cgp-row">
-         <select class="fb-type ${t?FB_CLASS[t]:'unset'}" aria-label="Type"
-           onchange="cgFbSetType('${f.id}',this.value)">
-           ${t?'':'<option value="" selected>Set type…</option>'}
-           ${FB_TYPES.map(function(x){ return `<option ${t===x?'selected':''}>${x}</option>`; }).join('')}
-         </select>
+        /* Type reads as a label above the note, not a control. It is chosen
+           once, in the form; an entry recorded before the field existed
+           simply has none rather than showing an empty picker. */
+        return `<div class="cgp-row fb-row">
+         ${t?`<span class="fb-type ${FB_CLASS[t]}">${t}</span>`:''}
          <span class="cgp-tx">${esc(f.text||'')}</span>
          <span class="cgp-when">${esc(cgDateTime(f.at))}</span>
        </div>`; }).join('')}</div>`
@@ -8731,12 +8727,6 @@ function cgConcernsPanel(c, all){
     ${cgPanelHead('Client Feedback &amp; Concerns','',`<button class="btn xs" onclick="openCgConcern('${c.id}')">+ Add Complaint / Concern</button>`)}
     ${body}${all?'':cgPanelMore('','openCgAll(\''+c.id+'\',\'concerns\')',3,list.length)}
   </div>`;
-}
-/* Straight onto the record, so it is the stored answer from then on. */
-function cgFbSetType(fid,v){
-  const f=(state.cgConcerns||[]).find(x=>x.id===fid); if(!f) return;
-  if(FB_TYPES.indexOf(v)<0) return;
-  f.type=v; f.typeBy=state.onShift; render();
 }
 function openCgConcern(id){
   /* No default: the scheduler picks, or nothing is filed. */
@@ -8751,13 +8741,13 @@ function renderCgConcernModal(){
   mEl.innerHTML=`<div class="mh"><span class="mt">Client Feedback or Concern — ${esc(c?c.name:'')}</span>
       <button class="mc" onclick="cgFbCancel()">×</button></div>
     <div class="mb">
-      <div class="dp-lab">What was said</div>
-      <textarea class="ein acr-ta" maxlength="1000" placeholder="e.g. Family says the caregiver is patient and communicates well."
-        oninput="cgFbSet('text',this.value)">${esc(f.text||'')}</textarea>
-      <div class="dp-lab" style="margin-top:14px">Type</div>
+      <div class="dp-lab">Type</div>
       <div class="dp-segs">${FB_TYPES.map(function(t,i){
         return `<button type="button" class="dp-seg${f.type===t?' on':''}" onclick="cgFbSet('type',FB_TYPES[${i}])">${t}</button>`;
       }).join('')}</div>
+      <div class="dp-lab" style="margin-top:14px">Notes</div>
+      <textarea class="ein acr-ta" maxlength="1000" placeholder="e.g. Family says the caregiver is patient and communicates well."
+        oninput="cgFbSet('text',this.value)">${esc(f.text||'')}</textarea>
       <div class="upd-acts"><button class="btn" onclick="cgFbCancel()">Cancel</button>
         <button class="btn pri" onclick="cgFbSave()">${ic('check',13)} Save</button></div>
     </div>`;
@@ -8765,8 +8755,8 @@ function renderCgConcernModal(){
 function cgFbSave(){
   const f=state.cgFb; if(!f) return;
   const text=String(f.text||'').trim();
-  if(!text){ toast('Type the feedback first'); return; }
   if(FB_TYPES.indexOf(f.type)<0){ toast('Choose a type first'); return; }
+  if(!text){ toast('Add the notes first'); return; }
   state.cgConcerns=(state.cgConcerns||[]).concat([{ id:cgUid('fb'), cgId:f.id, text:text,
     type:f.type,
     at:new Date().toISOString(), by:state.onShift }]);
