@@ -2036,6 +2036,15 @@
   /* Two equal halves below the pies; they stack on a narrow window rather
      than squeezing eight bars into 200px. */
   .halfrow{display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:12px;align-items:start}
+  .cnp{margin-top:10px;border-top:1px solid var(--line);padding-top:9px}
+  .cnp-h{display:flex;align-items:baseline;gap:9px;margin-bottom:7px}
+  .cnp-city{font-size:13px;font-weight:800;color:var(--ink)}
+  .cnp-n{font-size:12px;color:var(--ink-soft)}
+  .cnp-x{margin-left:auto;font-family:inherit;font-size:16px;line-height:1;color:var(--ink-soft);background:none;border:none;cursor:pointer;padding:0 2px}
+  .cnp-x:hover{color:var(--ink)}
+  .cnp-list{display:flex;flex-wrap:wrap;gap:5px 8px;max-height:132px;overflow-y:auto;overflow-x:hidden}
+  .cnp-name{font-size:12.5px;color:var(--ink);background:var(--panel-head);border-radius:4px;padding:2px 7px}
+  .cnp-none{font-size:12.5px;color:var(--ink-soft)}
   .upd-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
   .upd-h{font-size:20px;font-weight:800;color:var(--ink);letter-spacing:-.2px}
   .upd-list{background:#fff;border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
@@ -2052,8 +2061,15 @@
   .upd-ta:focus{border-color:var(--brand)}
   .upd-acts{display:flex;gap:8px;justify-content:flex-end}
   .halfrow .ccy{margin-top:14px}
-  .vb-plot{display:flex;align-items:flex-end;justify-content:space-around;gap:6px;padding-top:2px}
-  .vb-col{flex:1 1 0;min-width:0;display:flex;flex-direction:column;align-items:center}
+  /* Fixed-width columns that scroll sideways: with every city named and no
+     Other bucket, flexible columns would squeeze the labels away again.
+     overflow-y:hidden is spelled out - setting one axis to auto computes
+     the other to auto and adds a phantom vertical scrollbar. */
+  .vb-plot{display:flex;align-items:flex-end;gap:6px;padding:2px 2px 0;overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain}
+  .vb-col{flex:0 0 auto;width:54px;display:flex;flex-direction:column;align-items:center;border-radius:4px}
+  .vb-col.clickable{cursor:pointer}
+  .vb-col.clickable:hover{background:var(--panel-head)}
+  .vb-col.picked{background:var(--panel-head);outline:1px solid var(--line-strong)}
   .vb-n{font-size:12px;font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums;margin-bottom:4px}
   .vb-bar{width:100%;max-width:34px;border-radius:3px 3px 0 0}
   /* Two lines rather than an ellipsis: 'Thousand Oaks' does not fit a
@@ -3736,28 +3752,32 @@ function cityKeyOf(raw){
    label beneath. Bars are sized against the tallest, and the label sits
    straight rather than angled - which is only possible because each chart
    shows a handful of bars, not forty. */
-function vbarChart(title, sub, bars, foot){
+function vbarChart(title, sub, bars, foot, onclick, extra){
   if(!bars.length) return `<div class="ccy"><div class="ccy-h">${esc(title)}</div>
     <div class="ccy-empty">Nothing to chart yet.</div></div>`;
   const max=bars.reduce((m,b)=>Math.max(m,b.n),0)||1;
   const H=108;
-  const cols=bars.map(b=>`<div class="vb-col" title="${esc(b.title||(b.label+' \u2014 '+b.n))}">
+  const cols=bars.map(b=>{
+    const act = onclick ? ` onclick="${onclick}('${esc(b.label).replace(/'/g,"\\'")}')" role="button" tabindex="0"` : '';
+    const on = onclick && state.cityPick===b.label ? ' picked' : '';
+    return `<div class="vb-col${onclick?' clickable':''}${on}" title="${esc(b.title||(b.label+' \u2014 '+b.n))}"${act}>
       <span class="vb-n">${b.n}</span>
       <span class="vb-bar" style="height:${Math.max(3,Math.round(b.n/max*H))}px;background:${b.color}"></span>
       <span class="vb-lab">${esc(b.label)}</span>
-    </div>`).join('');
+    </div>`;
+  }).join('');
   return `<div class="ccy">
     <div class="ccy-h">${esc(title)}</div>
     ${sub?`<div class="ccy-sum">${esc(sub)}</div>`:''}
     <div class="vb-plot">${cols}</div>
     ${foot?`<div class="pie-foot">${esc(foot)}</div>`:''}
+    ${extra||''}
   </div>`;
 }
 
 /* Caregivers by City. Half the width means a handful of bars, so the
    longest tail folds into one Other bar rather than being dropped - the
    total still adds up, and its tooltip names what is in it. */
-const CITY_TOP=5;
 function cityChartV(act){
   const by={};
   act.forEach(c=>{ const k=cityKeyOf(c.base); by[k]=(by[k]||0)+1; });
@@ -3767,26 +3787,43 @@ function cityChartV(act){
   const places=all.filter(r=>r[0]!=='Not set').length;
   const topPlace=all.filter(r=>r[0]!=='Not set')[0];
 
-  /* Not set is a gap in the data, not a small city - it is pulled out of the
-     ranking and shown on its own, so Other never means two different
-     things at once. */
+  /* Every real city gets its own bar, named. There is no Other bucket: a
+     caregiver in Los Angeles belongs under Los Angeles, not lumped in with
+     four other places under a label that names none of them. The plot
+     scrolls sideways when there are more cities than fit.
+
+     Not set is the one grouping left, and it means exactly one thing -
+     no city recorded on the AxisCare record. */
   const gap=all.filter(r=>r[0]==='Not set')[0];
   const named=all.filter(r=>r[0]!=='Not set');
-  const shown=named.slice(0,CITY_TOP);
-  const rest=named.slice(CITY_TOP);
-  const bars=shown.map((r,i)=>({label:r[0], n:r[1], color:CHART_CAT[i%CHART_CAT.length],
-    title: r[0]+' \u2014 '+r[1]+' caregiver'+(r[1]===1?'':'s')}));
-  if(rest.length){
-    const n=rest.reduce((a,r)=>a+r[1],0);
-    bars.push({label:'Other', n:n, color:CHART_CAT[7],
-      title:rest.length+' more cit'+(rest.length===1?'y':'ies')+': '+rest.map(r=>r[0]+' ('+r[1]+')').join(', ')});
-  }
+  const bars=named.map((r,i)=>({label:r[0], n:r[1], color:CHART_CAT[i%CHART_CAT.length],
+    title: r[0]+' \u2014 '+r[1]+' caregiver'+(r[1]===1?'':'s')+' \u00b7 click for names'}));
   if(gap) bars.push({label:'Not set', n:gap[1], color:CHART_NONE,
-    title:gap[1]+' caregiver'+(gap[1]===1?'':'s')+' with no city recorded'});
+    title:gap[1]+' caregiver'+(gap[1]===1?'':'s')+' with no city recorded \u00b7 click for names'});
   const sub=`${total} caregiver${total===1?'':'s'} \u00b7 ${places} cit${places===1?'y':'ies'}`
     + (topPlace?` \u00b7 most in ${topPlace[0]} (${topPlace[1]})`:'');
-  return vbarChart('Caregivers by City', sub, bars,
-    rest.length?('Other groups the '+rest.length+' cit'+(rest.length===1?'y':'ies')+' with the fewest caregivers.'):'');
+  return vbarChart('Caregivers by City', sub, bars, '', 'cityPick', cityNamesPanel(act));
+}
+
+/* The names behind one bar. Clicking a bar opens it under the chart rather
+   than in a modal, so the chart it came from stays on screen. */
+function cityPick(label){
+  state.cityPick = (state.cityPick===label) ? null : label;
+  render();
+}
+function cityNamesPanel(act){
+  const city=state.cityPick;
+  if(!city) return '';
+  const names=act.filter(c=>cityKeyOf(c.base)===city)
+    .map(c=>c.name).sort((a,b)=>a.localeCompare(b));
+  return `<div class="cnp">
+    <div class="cnp-h"><span class="cnp-city">${esc(city)}</span>
+      <span class="cnp-n">${names.length} caregiver${names.length===1?'':'s'}</span>
+      <button class="cnp-x" onclick="cityPick('${esc(city).replace(/'/g,"\\'")}')" aria-label="Close">\u00d7</button></div>
+    <div class="cnp-list">${names.length
+      ? names.map(n=>`<span class="cnp-name">${esc(n)}</span>`).join('')
+      : '<span class="cnp-none">No caregivers in this group.</span>'}</div>
+  </div>`;
 }
 
 /* Caregiver Age Range. dateOfBirth is on the AxisCare caregiver record but
