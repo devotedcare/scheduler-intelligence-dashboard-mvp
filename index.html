@@ -2216,7 +2216,7 @@
 .rt-opt.on .rt-ot{color:var(--ink)}
 .rt-ot b{font-weight:800;color:var(--ink)}
 .lab-opt{margin-left:6px;font-size:10.5px;font-weight:700;text-transform:none;letter-spacing:0;color:var(--ink-faint)}
-.cgf-ri-meta .stars{vertical-align:-1px}
+.cgf-ri-stars{margin-top:3px;line-height:1}
 /* background-COLOR, not the shorthand: .fb-type carries the chevron as a
    background-image and the shorthand would clear it. */
 .fb-type.pos{background-color:#EAF5F0;color:#1E7A5C;border-color:#CDE7DD}
@@ -7059,7 +7059,8 @@ function cgDirRow(c){
     ${av}
     <div class="cgf-ri-main">
       <div class="cgf-ri-name">${gEsc(c.name)}</div>
-      <div class="cgf-ri-meta">${c.base?gEsc(c.base):'\u2014'}${rt?` \u00b7 ${starRow(rt.stars,'sm')}`:''}</div>
+      ${rt?`<div class="cgf-ri-stars">${starRow(rt.stars,'sm')}</div>`:''}
+      <div class="cgf-ri-meta">${c.base?gEsc(c.base):'\u2014'}</div>
     </div>
     ${cgReviewCell(c)}
     <span class="cgf-ri-chev">${ic('chev',16)}</span>
