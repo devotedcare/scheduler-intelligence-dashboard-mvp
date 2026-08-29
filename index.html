@@ -8417,25 +8417,93 @@ function aboutList(arr){
   const ox = (arr.length>2 && arr.some(function(x){ return x.indexOf(' and ')>=0; })) ? ',' : '';
   return arr.slice(0,-1).join(', ')+ox+' and '+arr[arr.length-1];
 }
+/* THE SUMMARY READS THE WHOLE PROFILE, not just three fields. Four short
+   sentences, in the order a scheduler decides in: who they are, what they
+   are strongest at, how they have been standing up, and what to watch.
+
+   Sources: caregiving experience, personality, skills, the rating and its
+   reason, client feedback and concerns, reliability and attendance,
+   tenure and current assignment, assignment restrictions and client blocks,
+   and how many scheduling notes are on file.
+
+   It is COMPUTED, not fetched. This app has no Claude backend — Ask AI is
+   local pattern matching — and even with one, the About block renders on
+   every profile view, every save and every poll, which is precisely the
+   render-path call that has to be paid for again on each one. Nothing here
+   is inferred either: every clause restates something somebody recorded, so
+   a sparse profile yields a short summary rather than a confident-sounding
+   guess. */
 function cgAbout(c){
   const first=(c.name||'').split(' ')[0]||'This caregiver';
-  const yrs=c.ops.experience, n=Number(yrs);
+  const ops=c.ops||{};
+  const bits=[];
+
+  /* 1 — who they are */
+  const yrs=ops.experience, n=Number(yrs);
   const hasYrs=hasVal(yrs) && !isNaN(n) && n>0;
   const styles=cgPersonality(c).slice(0,4).map(t=>ABOUT_STYLE[t]||t.toLowerCase());
-  const skills=cgCareSkills(c).slice(0,3).map(t=>ABOUT_SKILL[t]||t.toLowerCase());
-  const bits=[];
   /* No pronoun anywhere: AxisCare records a gender, which is not the same
-     thing, and the name reads fine in both sentences. */
+     thing, and the name reads fine in every sentence. */
   const yrText = n+'+ year'+(n===1?'':'s')+' of caregiving experience';
-  if(hasYrs && styles.length)
-    bits.push(first+' has '+yrText+' and is '+aboutList(styles)+'.');
+  if(hasYrs && styles.length) bits.push(first+' has '+yrText+' and is '+aboutList(styles)+'.');
   else if(hasYrs) bits.push(first+' has '+yrText+'.');
   else if(styles.length) bits.push(first+' is '+aboutList(styles)+'.');
-  if(skills.length) bits.push('Strongest experience is in '+aboutList(skills)+'.');
+
+  /* 2 — what they are strongest at */
+  const skills=cgCareSkills(c).slice(0,3).map(t=>ABOUT_SKILL[t]||t.toLowerCase());
+  const langs=(c.languages||[]).filter(l=>l!=='English');
+  let s2='';
+  if(skills.length) s2='Strongest experience is in '+aboutList(skills);
+  if(langs.length) s2 = s2 ? s2+', and speaks '+aboutList(langs) : first+' speaks '+aboutList(langs.concat(['English']));
+  if(s2) bits.push(s2+'.');
+
+  /* 3 — how they have been standing up */
+  const stand=[];
+  const rt=cgRating(c);
+  if(rt) stand.push('rated '+rt.stars+' of 5'+(rt.reason?' — “'+rt.reason.replace(/\s*$/,'').replace(/\.$/,'')+'”':''));
+  /* fmtTenure is built for a label — "1 year 0 months" reads badly mid-
+     sentence, so prose gets the coarser unit. */
+  if(ops.hireDate) stand.push(tenureShort(ops.hireDate)+' Devoted Care');
+  if(cgScheduleState(c)==='ready') stand.push(cgActiveClient(c)?'currently on a case':'not on a case right now');
+  /* hasVal first: null < 85 is TRUE, so an untracked caregiver would read
+     as a performance concern on evidence that does not exist. */
+  if(hasVal(c.reliability)) stand.push(c.reliability+'% reliability');
+  const att=(typeof attendanceStats==='function')?attendanceStats(c):null;
+  if(att && att.concern) stand.push('attendance flagged for review');
+  if(stand.length) bits.push(cap(aboutList(stand.slice(0,4)))+'.');
+
+  /* 4 — what to watch */
+  const watch=[];
+  const fb=(typeof cgConcernsFor==='function')?cgConcernsFor(c.id):[];
+  const nOf=t=>fb.filter(f=>f.type===t).length;
+  const pos=nOf('Positive Feedback'), con=nOf('Concern'), cmp=nOf('Complaint');
+  const fbBits=[];
+  if(pos) fbBits.push(pos+' positive');
+  if(con) fbBits.push(con+' concern'+(con===1?'':'s'));
+  if(cmp) fbBits.push(cmp+' complaint'+(cmp===1?'':'s'));
+  if(fbBits.length) watch.push('client feedback records '+aboutList(fbBits));
+  const blocks=(ops.clientRestr||[]).length;
+  if(blocks) watch.push('must not be assigned to '+blocks+' client'+(blocks===1?'':'s'));
+  const restr=(c.restrictions||[]).slice(0,2).map(r=>String(r).replace(/\.$/,'').toLowerCase());
+  if(restr.length) watch.push(aboutList(restr));
+  /* The notes count is a pointer, not a finding — it earns a place only
+     when the sentence is not already full. Nothing paraphrases the note
+     text: summarising free prose by rule invents meaning. */
+  const notes=(typeof cgNotesList==='function')?cgNotesList(c).length:0;
+  if(notes && watch.length<3) watch.push(notes+' scheduling note'+(notes===1?'':'s')+' on file');
+  if(watch.length) bits.push(cap(aboutList(watch.slice(0,3)))+'.');
+
   if(bits.length) return bits.join(' ');
   /* Nothing recorded to write from — a summary somebody typed is better
      than an empty box. */
-  return (c.ops.persona && c.ops.persona.summary) || c.ops.summary || '';
+  return (ops.persona && ops.persona.summary) || ops.summary || '';
+}
+function cap(t){ return t ? t.charAt(0).toUpperCase()+t.slice(1) : t; }
+function tenureShort(d){
+  const days=Math.max(0,Math.floor((NOW-new Date(d))/864e5));
+  const y=Math.floor(days/365), m=Math.round((days%365)/30.44);
+  if(y>=1) return y+' year'+(y===1?'':'s')+' with';
+  return (m||1)+' month'+(m===1?'':'s')+' with';
 }
 function cgHeaderCard(c){
   const active = c.active!==false && c.ops.employmentStatus!=='Inactive';
