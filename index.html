@@ -2188,6 +2188,10 @@
 .cgp-utx{display:block;font-weight:650}
 .cgp-st{flex:0 0 auto;font-size:11.5px;font-weight:700;border-radius:12px;padding:2px 10px}
 .cgp-st.plain{background:none;padding:0;color:var(--ink-soft);font-weight:650}
+.fb-type{flex:0 0 auto;font-size:11px;font-weight:800;letter-spacing:.2px;border-radius:11px;padding:2px 9px;border:1px solid;white-space:nowrap}
+.fb-type.pos{background:#EAF5F0;color:#1E7A5C;border-color:#CDE7DD}
+.fb-type.con{background:#FAF2EA;color:#97572E;border-color:#EEDECB}
+.fb-type.cmp{background:#FBECEA;color:#A33227;border-color:#EFCFC9}
 .cgp-row.up{align-items:flex-start}
 .cgp-dot{width:7px;height:7px;border-radius:50%;background:var(--brand);flex:0 0 auto;margin-top:5px}
 .cgp-all{background:none;border:none;padding:9px 0 0;font-size:12.5px;font-weight:700;color:var(--brand);cursor:pointer;text-align:left}
@@ -8519,7 +8523,7 @@ function cgDateTime(v){
        + ' · ' + d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
 }
 function cgPanelHead(title,icon,btn){
-  return `<div class="cgp-h"><span class="cgp-t">${ic(icon,14)}<span>${title}</span></span>${btn||''}</div>`;
+  return `<div class="cgp-h"><span class="cgp-t">${icon?ic(icon,14):''}<span>${title}</span></span>${btn||''}</div>`;
 }
 function cgPanelMore(label,onclick,shown,total){
   return `<button class="cgp-all" onclick="${onclick}">View All${total>shown?' ('+total+')':''}</button>`;
@@ -8598,28 +8602,51 @@ function cgConcernsFor(id){
   return (state.cgConcerns||[]).filter(x=>x.cgId===id)
     .slice().sort((a,b)=>String(b.at).localeCompare(String(a.at)));
 }
+/* What an entry IS — not how far along it is. Positive feedback belongs in
+   the same history as a complaint, so the section needs a kind, and the
+   warning triangle had to go: it is wrong above a compliment. */
+const FB_TYPES=['Positive Feedback','Concern','Complaint'];
+const FB_CLASS={'Positive Feedback':'pos','Concern':'con','Complaint':'cmp'};
+/* Entries recorded before the field existed carry no type. They read as
+   Concern, except one case the desk asked for by name: sleeping on duty is
+   a complaint, not a concern.
+
+   Both halves have to match — a sleep word AND a duty word — so "client
+   sleeping well since she started" stays a Concern rather than being read
+   as a complaint about the caregiver. This is a DISPLAY default for records
+   that predate the field; nothing is rewritten, and a type saved on an
+   entry always wins. */
+const FB_SLEEP=/\b(asleep|sleeping|slept)\b/i;
+const FB_DUTY=/\b(duty|shift|shifts|on the job|at work|while working)\b/i;
+function fbType(f){
+  if(FB_TYPES.indexOf(f.type)>=0) return f.type;
+  const t=String(f.text||'');
+  if(FB_SLEEP.test(t) && FB_DUTY.test(t)) return 'Complaint';
+  return 'Concern';
+}
 function cgConcernsPanel(c, all){
   const list=cgConcernsFor(c.id), shown=all?list:list.slice(0,3);
   /* No status, and nothing to resolve or reopen. This is a record of what
      clients and families said about the caregiver — part of their history,
      not a queue of tickets to work through. */
   const body = shown.length
-    ? `<div class="cgp-list">${shown.map(f=>`<div class="cgp-row">
-         <span class="cgp-ic">${ic('alerts',13)}</span>
+    ? `<div class="cgp-list">${shown.map(f=>{ const t=fbType(f);
+        return `<div class="cgp-row">
+         <span class="fb-type ${FB_CLASS[t]}">${t}</span>
          <span class="cgp-tx">${esc(f.text||'')}</span>
          <span class="cgp-when">${esc(cgDateTime(f.at))}</span>
-       </div>`).join('')}</div>`
+       </div>`; }).join('')}</div>`
     : `<div class="ws-none">No client feedback or concerns recorded.</div>`;
   return `<div class="ws-card cgp">
-    ${cgPanelHead('Client Feedback &amp; Concerns','alerts',`<button class="btn xs" onclick="openCgConcern('${c.id}')">+ Add Complaint / Concern</button>`)}
+    ${cgPanelHead('Client Feedback &amp; Concerns','',`<button class="btn xs" onclick="openCgConcern('${c.id}')">+ Add Complaint / Concern</button>`)}
     ${body}${all?'':cgPanelMore('','openCgAll(\''+c.id+'\',\'concerns\')',3,list.length)}
   </div>`;
 }
 function openCgConcern(id){
-  state.cgFb={id:id, text:''};
+  state.cgFb={id:id, text:'', type:'Concern'};
   renderCgConcernModal(); mbg.classList.add('show');
 }
-function cgFbSet(f,v){ if(state.cgFb) state.cgFb[f]=v; }
+function cgFbSet(f,v){ if(state.cgFb) state.cgFb[f]=v; if(f==='type') renderCgConcernModal(); }
 function cgFbCancel(){ state.cgFb=null; closeModal(); }
 function renderCgConcernModal(){
   const f=state.cgFb; if(!f) return;
@@ -8630,6 +8657,10 @@ function renderCgConcernModal(){
       <div class="dp-lab">What was said</div>
       <textarea class="ein acr-ta" maxlength="1000" placeholder="e.g. Family says the caregiver is patient and communicates well."
         oninput="cgFbSet('text',this.value)">${esc(f.text||'')}</textarea>
+      <div class="dp-lab" style="margin-top:14px">Type</div>
+      <div class="dp-segs">${FB_TYPES.map(function(t,i){
+        return `<button type="button" class="dp-seg${f.type===t?' on':''}" onclick="cgFbSet('type',FB_TYPES[${i}])">${t}</button>`;
+      }).join('')}</div>
       <div class="upd-acts"><button class="btn" onclick="cgFbCancel()">Cancel</button>
         <button class="btn pri" onclick="cgFbSave()">${ic('check',13)} Save</button></div>
     </div>`;
@@ -8639,6 +8670,7 @@ function cgFbSave(){
   const text=String(f.text||'').trim();
   if(!text){ toast('Type the feedback first'); return; }
   state.cgConcerns=(state.cgConcerns||[]).concat([{ id:cgUid('fb'), cgId:f.id, text:text,
+    type:FB_TYPES.indexOf(f.type)>=0?f.type:'Concern',
     at:new Date().toISOString(), by:state.onShift }]);
   state.cgFb=null; closeModal(); render(); toast('Feedback recorded');
 }
