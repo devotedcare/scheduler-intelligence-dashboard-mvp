@@ -2036,6 +2036,21 @@
   /* Two equal halves below the pies; they stack on a narrow window rather
      than squeezing eight bars into 200px. */
   .halfrow{display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:12px;align-items:start}
+  .upd-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+  .upd-h{font-size:20px;font-weight:800;color:var(--ink);letter-spacing:-.2px}
+  .upd-list{background:#fff;border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+  .upd-row{padding:11px 14px;border-bottom:1px solid var(--line-soft)}
+  .upd-row:last-child{border-bottom:none}
+  .upd-meta{display:flex;align-items:center;gap:9px;margin-bottom:3px}
+  .upd-date{font-size:12.5px;font-weight:700;color:var(--ink)}
+  .upd-by{font-size:12.5px;color:var(--ink-soft)}
+  .upd-editb{margin-left:auto;font-family:inherit;font-size:12.5px;font-weight:650;color:var(--brand);background:none;border:none;padding:0;cursor:pointer;text-decoration:underline}
+  .upd-text{font-size:13.5px;color:var(--ink);line-height:1.5;white-space:pre-wrap}
+  .upd-empty{padding:16px;font-size:13px;color:var(--ink-soft)}
+  .upd-edit{display:flex;flex-direction:column;gap:8px}
+  .upd-ta{width:100%;box-sizing:border-box;font-family:inherit;font-size:13.5px;line-height:1.5;color:var(--ink);background:#fff;border:1px solid var(--line-strong);border-radius:7px;padding:9px 11px;min-height:74px;resize:vertical;outline:none}
+  .upd-ta:focus{border-color:var(--brand)}
+  .upd-acts{display:flex;gap:8px;justify-content:flex-end}
   .halfrow .ccy{margin-top:14px}
   .vb-plot{display:flex;align-items:flex-end;justify-content:space-around;gap:6px;padding-top:2px}
   .vb-col{flex:1 1 0;min-width:0;display:flex;flex-direction:column;align-items:center}
@@ -2108,6 +2123,8 @@ const state = {
   shifts:[],
   contactLog:{},
   handoff:{opener:[], closer:[]},
+  updates:[],
+  updEdit:null,          /* id being edited, or 'new' while composing */
   view:'avail',
   filters:{schedFilter:'open', availSearch:''},
   activeShift:null,
@@ -2656,6 +2673,7 @@ const NAVGROUPS=[
   {link:{id:'handoff', label:'Shift Handoff'}},
   {link:{id:'attendance', label:'Attendance'}},
   {link:{id:'tasks', label:'Weekly Tasks'}},
+  {link:{id:'updates', label:'Updates'}},
   /* name: still a dropdown - its three pages have nowhere else to live */
   {name:'Scheduler Hub', items:[
     {id:'guides', label:'Caregiver Quick Guides'},
@@ -2692,7 +2710,7 @@ function navLink(it, sub){
 }
 /* Every screen the router can reach. Today is deliberately absent - the
    dashboard no longer has that page, and state.view falls back to 'avail'. */
-const VIEWS={open:viewOpen,coverage:viewCoverage,clientcal:viewClientSchedule,staff:viewStaffClient,calloff:viewCallOff,
+const VIEWS={open:viewOpen,coverage:viewCoverage,clientcal:viewClientSchedule,updates:viewUpdates,staff:viewStaffClient,calloff:viewCallOff,
     avail:viewAvail,log:viewLog,handoff:viewHandoff,assistant:viewAssistant,tasks:viewTasks,reports:viewReports,forms:viewForms,meds:viewMeds,guides:viewGuides,infographics:viewInfographics,attendance:viewAttendance,carenotes:viewCareNotes};
 function renderNav(){
   let html='';
@@ -5867,6 +5885,71 @@ function viewClientSchedule(){
       '<div class="cal-grid"><div class="cal-dowrow">'+
         ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(function(x){return '<div class="cal-dow">'+x+'</div>';}).join('')+
       '</div>'+cells+'</div></div>';
+}
+
+/* ===================== UPDATES =====================
+   Announcements the desk needs to know, kept apart from Weekly Tasks on
+   purpose: a task is something to DO and carries a due date and a done
+   state; an update is something to KNOW and carries neither. They share no
+   state and no screen.
+
+   Newest first, edited in place. The list is a tracked CLOUD slice, so an
+   update posted by one scheduler is on the other two desks. */
+function updSorted(){
+  return (state.updates||[]).slice().sort((a,b)=> String(b.at).localeCompare(String(a.at)));
+}
+function updAdd(){ state.updEdit='new'; state.updDraft=''; render(); }
+function updEditRow(id){ const u=(state.updates||[]).find(x=>x.id===id); if(!u) return;
+  state.updEdit=id; state.updDraft=u.text||''; render(); }
+function updCancel(){ state.updEdit=null; state.updDraft=''; render(); }
+function updSetDraft(v){ state.updDraft=v; }
+function updSave(){
+  const text=(state.updDraft||'').trim();
+  if(!text){ toast('Type the update first'); return; }
+  if(!state.updates) state.updates=[];
+  if(state.updEdit==='new'){
+    state.updates.unshift({id:'u'+Date.now(), at:new Date().toISOString(), text:text, by:state.onShift});
+    toast('Update posted');
+  }else{
+    const u=(state.updates||[]).find(x=>x.id===state.updEdit);
+    /* The date and the author stay as posted - an edit is a correction to
+       the wording, not a new announcement by whoever happened to fix it. */
+    if(u) u.text=text;
+    toast('Update saved');
+  }
+  state.updEdit=null; state.updDraft='';
+  render();
+}
+function updDate(iso){
+  try{ return new Date(iso).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); }
+  catch(e){ return ''; }
+}
+function updComposer(){
+  return `<div class="upd-edit">
+    <textarea class="upd-ta" placeholder="What do the schedulers need to know?" oninput="updSetDraft(this.value)">${esc(state.updDraft||'')}</textarea>
+    <div class="upd-acts">
+      <button class="btn sm" onclick="updCancel()">Cancel</button>
+      <button class="btn pri sm" onclick="updSave()">${state.updEdit==='new'?'Post Update':'Save'}</button>
+    </div>
+  </div>`;
+}
+function viewUpdates(){
+  const list=updSorted();
+  const rows = list.length ? list.map(u=> state.updEdit===u.id
+    ? `<div class="upd-row">${updComposer()}</div>`
+    : `<div class="upd-row">
+         <div class="upd-meta"><span class="upd-date">${updDate(u.at)}</span>
+           <span class="upd-by">${esc(u.by||'')}</span>
+           <button class="upd-editb" onclick="updEditRow('${u.id}')">Edit</button></div>
+         <div class="upd-text">${esc(u.text||'')}</div>
+       </div>`).join('')
+    : `<div class="upd-empty">No updates posted yet.</div>`;
+  return `<div class="upd-head">
+      <span class="upd-h">Updates</span>
+      ${state.updEdit==='new'?'':`<button class="btn pri sm" onclick="updAdd()">+ Add Update</button>`}
+    </div>
+    ${state.updEdit==='new'?`<div class="upd-row">${updComposer()}</div>`:''}
+    <div class="upd-list">${rows}</div>`;
 }
 
 function viewCoverage(){
@@ -10899,6 +10982,7 @@ const CLOUD = (function(){
     { path:'caregivers',        key:'id', patchOnly:true },
     { path:'clients',           key:'id', patchOnly:true },
     { path:'tasks',             key:'id' },
+    { path:'updates',           key:'id' },
     { path:'taskArchive',       key:'id' },
     { path:'careNotes',         key:'id' },
     { path:'followUps',         key:'id' },
