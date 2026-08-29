@@ -5936,7 +5936,14 @@ function viewClientSchedule(){
    Newest first, edited in place. The list is a tracked CLOUD slice, so an
    update posted by one scheduler is on the other two desks. */
 function updSorted(){
-  return (state.updates||[]).slice().sort((a,b)=> String(b.at).localeCompare(String(a.at)));
+  /* Newest first by the date the update carries, then by when it was
+     actually posted. The second key is what makes same-day updates order
+     at all: every update dated the same day is stored at noon on that
+     date, so comparing `at` alone leaves them tied and their order comes
+     down to however the cloud handed the array back. */
+  return (state.updates||[]).slice().sort((a,b)=>
+    String(b.at).localeCompare(String(a.at)) ||
+    String(b.created||'').localeCompare(String(a.created||'')));
 }
 function updDate(iso){
   try{ return new Date(iso).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); }
@@ -5984,7 +5991,7 @@ function updSave(){
        millisecond collided, and since the id is the CLOUD slice key that
        merges two records rather than keeping both. */
     const id='u'+Date.now().toString(36)+Math.random().toString(36).slice(2,7);
-    state.updates.unshift({id:id, at:new Date(d+'T12:00:00').toISOString(), text:text, by:state.onShift});
+    state.updates.unshift({id:id, at:new Date(d+'T12:00:00').toISOString(), created:new Date().toISOString(), text:text, by:state.onShift});
     toast('Update posted');
   }else{
     const u=(state.updates||[]).find(x=>x.id===state.updEdit);
