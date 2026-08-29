@@ -2193,6 +2193,23 @@
   background-image:url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 5l3 3 3-3' fill='none' stroke='%23667' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E");
   background-repeat:no-repeat;background-position:right 6px center;background-size:10px}
 .fb-type.unset{background-color:#fff;color:var(--ink-soft);border-color:var(--line);font-weight:700}
+/* ---- caregiver rating ---- */
+.rt-strip{display:flex;align-items:center;gap:11px;padding:9px 14px}
+.rt-lab{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;color:var(--ink-faint)}
+.stars{display:inline-flex;gap:2px;line-height:1}
+.star{font-size:16px;line-height:1;color:var(--line-strong)}
+.star.on{color:#E0A53E}
+.stars.sm .star{font-size:12px}
+.rt-none{font-size:12.5px;color:var(--ink-faint);font-weight:650}
+.rt-meta{font-size:12px;color:var(--ink-soft)}
+.rt-pen{margin-left:auto;background:none;border:none;padding:3px 5px;line-height:0;color:var(--ink-faint);cursor:pointer;border-radius:5px}
+.rt-pen:hover{color:var(--brand);background:var(--panel-head)}
+.rt-picker{display:flex;align-items:center;gap:4px}
+.rt-pick{font-family:inherit;font-size:26px;line-height:1;background:none;border:none;padding:0 2px;cursor:pointer;color:var(--line-strong)}
+.rt-pick.on{color:#E0A53E}
+.rt-pick:hover{color:#E0A53E}
+.rt-picknum{margin-left:9px;font-size:12.5px;font-weight:700;color:var(--ink-soft)}
+.cgf-ri-stars{margin-top:2px}
 /* background-COLOR, not the shorthand: .fb-type carries the chevron as a
    background-image and the shorthand would clear it. */
 .fb-type.pos{background-color:#EAF5F0;color:#1E7A5C;border-color:#CDE7DD}
@@ -7032,6 +7049,7 @@ function cgDirRow(c){
     ${av}
     <div class="cgf-ri-main">
       <div class="cgf-ri-name">${gEsc(c.name)}</div>
+      ${cgRating(c)?`<div class="cgf-ri-stars">${starRow(cgRating(c).stars,'sm')}</div>`:''}
       <div class="cgf-ri-meta">${bits.map(gEsc).join(' \u2022 ')}</div>
       ${tags.length?`<div class="cgf-ri-tags">${tags.map(gEsc).join(' \u2022 ')}</div>`:''}
     </div>
@@ -8207,6 +8225,79 @@ function traitGroup(c,kind,label,none){
     + `<button class="btn xs" onclick="openTraitPick('${c.id}','${kind}')">${ic('log',11)} Edit</button></div>`
     + traitTags(traitCurrent(c,kind), none) + `</div>`;
 }
+/* ===== Caregiver Rating =============================================
+   The desk's own 1-5 judgement of a caregiver. Its own strip at the top of
+   the Profile tab, deliberately not inside Work Preferences, Employment
+   Summary or Assignment & Client Rules - it is not a fact about the job,
+   it is an opinion somebody signed for.
+
+   Every change records who made it, when, and why: a rating with no stated
+   reason is the kind of thing that quietly follows somebody around, and the
+   reason is what makes it answerable later. Kept on ops.rating so it rides
+   the caregiver record like the rest of the desk's own fields. */
+function cgRating(c){
+  const r=c && c.ops && c.ops.rating;
+  const n=r && Number(r.stars);
+  return (n>=1 && n<=5) ? {stars:Math.round(n), reason:r.reason||'', by:r.by||null, at:r.at||null} : null;
+}
+function starRow(n, cls){
+  let out='';
+  for(let i=1;i<=5;i++) out += `<span class="star${i<=n?' on':''}">★</span>`;
+  return `<span class="stars ${cls||''}" aria-label="${n} out of 5">${out}</span>`;
+}
+function cgRatingStrip(c){
+  const r=cgRating(c);
+  const meta = r && r.at
+    ? `<span class="rt-meta">${esc(r.by?r.by+' · ':'')}${esc(cgDateTime(r.at))}</span>` : '';
+  return `<div class="ws-card rt-strip">
+    <span class="rt-lab">Caregiver Rating</span>
+    ${r ? starRow(r.stars) : `<span class="rt-none">Not rated</span>`}
+    ${meta}
+    <button class="rt-pen" title="Edit rating" aria-label="Edit rating" onclick="openRating('${c.id}')">${ic('log',13)}</button>
+  </div>`;
+}
+function openRating(id){
+  const c=cgById(id); if(!c) return;
+  const r=cgRating(c);
+  state.rating={id:id, stars:r?r.stars:0, reason:''};
+  renderRatingModal(); mbg.classList.add('show');
+}
+function ratingSet(n){ if(state.rating){ state.rating.stars=n; renderRatingModal(); } }
+function ratingReason(v){ if(state.rating) state.rating.reason=v; }
+function ratingCancel(){ state.rating=null; closeModal(); }
+function renderRatingModal(){
+  const r=state.rating; if(!r) return;
+  const c=cgById(r.id), cur=cgRating(c);
+  const picker=[1,2,3,4,5].map(function(n){
+    return `<button type="button" class="rt-pick${n<=r.stars?' on':''}" title="${n} star${n===1?'':'s'}"
+      aria-label="${n} star${n===1?'':'s'}" onclick="ratingSet(${n})">★</button>`; }).join('');
+  mEl.innerHTML=`<div class="mh"><span class="mt">Caregiver Rating — ${esc(c?c.name:'')}</span>
+      <button class="mc" onclick="ratingCancel()">×</button></div>
+    <div class="mb">
+      <div class="dp-lab">Rating</div>
+      <div class="rt-picker">${picker}<span class="rt-picknum">${r.stars?r.stars+' of 5':'Choose 1–5'}</span></div>
+      <div class="dp-lab" style="margin-top:14px">Reason for this rating</div>
+      <textarea class="ein acr-ta" maxlength="500" placeholder="Why this rating? e.g. Consistently on time and families ask for her by name."
+        oninput="ratingReason(this.value)">${esc(r.reason||'')}</textarea>
+      ${cur&&cur.reason?`<div class="cgp-hint">Current: ${starRow(cur.stars,'sm')} “${esc(cur.reason)}” — ${esc(cur.by||'')}${cur.at?' · '+esc(cgDateTime(cur.at)):''}</div>`:''}
+      <div class="upd-acts"><button class="btn" onclick="ratingCancel()">Cancel</button>
+        <button class="btn pri" onclick="ratingSave()">${ic('check',13)} Save rating</button></div>
+    </div>`;
+}
+function ratingSave(){
+  const r=state.rating; if(!r) return;
+  const c=cgById(r.id); if(!c) return ratingCancel();
+  if(!(r.stars>=1 && r.stars<=5)){ toast('Choose a rating from 1 to 5'); return; }
+  const reason=String(r.reason||'').trim();
+  if(!reason){ toast('Add a short reason for this rating'); return; }
+  const prev=c.ops.rating;
+  c.ops.rating={ stars:r.stars, reason:reason, by:state.onShift, at:new Date().toISOString(),
+    /* what it was before, so a change is readable after the fact */
+    prevStars: prev && prev.stars ? prev.stars : null };
+  c.ops.lastUpdated=new Date(); c.ops.lastUpdatedBy=state.onShift;
+  state.rating=null; closeModal(); render(); toast('Rating saved');
+}
+
 /* ---- The caregiver header, Overview only -----------------------------
    Everything here is AxisCare's except About, which is the desk's own
    sentence about the person and is edited with the profile. */
@@ -9086,6 +9177,7 @@ function viewCaregiverWorkspace(c){
     </div>`;
 
   const profile = `
+    ${cgRatingStrip(c)}
     ${workPrefsCard(c)}
     <div class="ws-card span2"><div class="ws-h ws-h-flex h-tint h-emp"><span>Employment Summary</span>
       <button class="btn sm" onclick="openEmpEdit('${c.id}')">${ic('log',12)} Edit</button></div><div class="emp-grid">${employmentBody}</div></div>
