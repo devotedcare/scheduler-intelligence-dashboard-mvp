@@ -1750,6 +1750,13 @@
   .dp-k{color:var(--ink);font-weight:700}
   .dp-v{color:var(--ink);text-align:right}
   .dp-v.due{color:var(--crit-tx);font-weight:700}
+  .dp-opt{font-size:10.5px;font-weight:650;text-transform:none;letter-spacing:0;color:var(--ink-soft)}
+  .dp-rchips{display:flex;flex-wrap:wrap;gap:6px}
+  .dp-rchip{font-family:inherit;font-size:12.5px;font-weight:650;color:var(--ink);background:#fff;border:1px solid var(--line-strong);border-radius:14px;padding:4px 11px;cursor:pointer;white-space:nowrap}
+  .dp-rchip:hover{border-color:var(--brand)}
+  .dp-rchip.on{background:var(--brand);border-color:var(--brand);color:#fff;font-weight:700}
+  .dp-rchip:disabled{opacity:.45;cursor:default}
+  .dp-rother{width:100%;box-sizing:border-box;margin-top:7px}
   .dpk-bar{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:9px}
   .dpk-label{font-size:13px;font-weight:700;color:var(--ink)}
   .dpk-dow{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:2px;margin-bottom:4px}
@@ -6635,7 +6642,7 @@ function cgCalendar(c){
     const body = blocks.length ? `<div class="cal-blocks">${blocks.map(b=>{ const tt=blkTime(b);
       /* Every block on the grid is a row somebody typed. Nothing is
          inferred, so there is no faint state to distinguish. */
-      return `<div class="cal-blk ${b.type}" title="${esc(b.label+(tt?' · '+tt:''))}"><span class="cb-l">${esc(b.label)}</span>${tt?`<span class="cb-t">${tt}</span>`:''}</div>`;
+      return `<div class="cal-blk ${b.type}" title="${esc(b.label+(tt?' · '+tt:'')+(b.note?' · '+b.note:''))}"><span class="cb-l">${esc(b.label)}</span>${tt?`<span class="cb-t">${tt}</span>`:''}</div>`;
     }).join('')}</div>` : '';
     const note = S.hasNote?`<span class="cal-note" title="${esc(S.note||'Has a note')}">${ic('log',9)}</span>`:'';
     cells+=`<div class="cal-cell ${isToday?'today':''} ${ds===sel?'sel':''} ${blocks.length?'':'offday'}" onclick="openDayPanel('${c.id}','${date.toISOString()}')">
@@ -6796,6 +6803,7 @@ function openDayPanel(cgId, dateISO){
     allDay: false,               /* Custom is the common case; All day is now legal for Open too */
     from: '09:00', to: '17:00',
     note: '',
+    reason: null, reasonOther: '',
     noteOpen: false,
     multi: false, picked: {}, delPicked: {}, pickOff: null,
     saving: false, error: null
@@ -6830,6 +6838,28 @@ function dpTab(t){ modalState.tab = t; modalState.error = null; renderDayPanel()
 function dpNote(v){ modalState.note = String(v||'').slice(0, AV_NOTE_MAX); modalState.noteTouched = true; }
 /* The note is hidden until asked for; once it holds text it stays open, so a
    re-render never swallows something already typed. */
+const DP_REASONS=['Vacation','Doctor\u2019s Appointment','Sick','Family Emergency','Child Care','School','Transportation','Other'];
+/* Picked by index: one of these carries an apostrophe, which would end the
+   inline onclick attribute early. */
+function dpReason(i){
+  const v=DP_REASONS[i];
+  modalState.reason = (modalState.reason===v) ? null : v;   /* tapping it again clears it */
+  if(modalState.reason!=='Other') modalState.reasonOther='';
+  modalState.error=null;
+  renderDayPanel();
+}
+/* No re-render - that would rebuild the input mid-word and drop the caret,
+   the same way the caregiver search used to. dpTime works this way too. */
+function dpReasonOther(v){ modalState.reasonOther = String(v||'').slice(0, AV_NOTE_MAX); }
+/* The reason a caregiver cannot work, for the entry being saved. Optional,
+   and only meaningful on an Unavailable one. */
+function dpReasonText(){
+  if(modalState.status==='Open') return null;
+  const r=modalState.reason;
+  if(!r) return null;
+  if(r==='Other'){ const t=(modalState.reasonOther||'').trim(); return t||null; }
+  return r;
+}
 function dpCadence(v){ modalState.cadence = v; modalState.error = null; renderDayPanel(); }
 function dpSaveCadence(){
   const c = cgById(modalState.dayCg);
@@ -6924,7 +6954,7 @@ function dpDraft(){
   const st = modalState.status;
   if(modalState.allDay){
     if(avTimedOnly(st)) return { err: st + ' needs the hours it covers.' };
-    return { entry: { status:st, allDay:true, startMin:null, endMin:null, note:null } };
+    return { entry: { status:st, allDay:true, startMin:null, endMin:null, note:dpReasonText() } };
   }
   if(avAllDayOnly(st)) return { err: st + ' is a whole-day state.' };
   const a = hhmmToMin(modalState.from), b = hhmmToMin(modalState.to);
@@ -6936,9 +6966,11 @@ function dpDraft(){
      an overnight shift is entered; it stays on this date */
   const end = b > a ? b : b + 1440;
   if(end - a > 1440) return { err: 'A single entry cannot be longer than 24 hours.' };
-  /* The note is not part of the availability any more — it lives on its
-     own record under the Notes tab, so it survives these hours changing. */
-  return { entry: { status:st, allDay:false, startMin:a, endMin:end, note:null } };
+  /* The day NOTE still lives on its own record under the Notes tab, so it
+     survives these hours changing. What rides on the segment is the REASON
+     the caregiver is unavailable, which belongs to this entry: replace the
+     hours and the reason for them goes with them. */
+  return { entry: { status:st, allDay:false, startMin:a, endMin:end, note:dpReasonText() } };
 }
 
 function dpTargets(){
@@ -7315,13 +7347,20 @@ function renderDayPanel(){
       </div>`}
     </div>
 
+    ${modalState.status==='Open'?'':`<div class="dp-sec">
+      <div class="dp-lab">Reason <span class="dp-opt">optional</span></div>
+      <div class="dp-rchips">${DP_REASONS.map((r,i)=>
+        `<button type="button" class="dp-rchip${modalState.reason===r?' on':''}" ${busy?'disabled':''} onclick="dpReason(${i})">${r}</button>`).join('')}</div>
+      ${modalState.reason==='Other'?`<input class="ein dp-rother" type="text" maxlength="${AV_NOTE_MAX}" ${busy?'disabled':''}
+        placeholder="Type the reason" value="${esc(modalState.reasonOther||'')}" oninput="dpReasonOther(this.value)">`:''}
+    </div>`}
 
     ${modalState.error?`<div class="dp-error">${ic('alerts',12)} ${esc(modalState.error)}</div>`:''}
   </div>`;
 
   sEl.innerHTML = head + nav + body + `<div class="sp-foot">
       <button class="btn" ${busy?'disabled':''} onclick="closeSidePanel()">Cancel</button>
-      <button class="btn pri" ${busy?'disabled':''} onclick="dpSave()">${busy?'Saving\u2026':'Save'}</button>
+      <button class="btn pri" ${busy?'disabled':''} onclick="dpSave()">${busy?'Saving\u2026':'Save Availability'}</button>
     </div>`;
 }
 
