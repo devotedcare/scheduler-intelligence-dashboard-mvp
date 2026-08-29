@@ -7076,6 +7076,44 @@ function assignedOn(c, date){
       return { id:s.id, source:'demo', start:st, end:en, clientId:s.clientId, clientName:null }; });
   return live.concat(demo).sort((a,b)=>a.start-b.start);
 }
+/* ---- Has active client / Last client served -------------------------
+   Both are READ OFF THE SCHEDULE, never off a stored flag. ops.devoted was
+   a seed field: real AxisCare caregivers never have one, so the summary
+   said "No" for people whose calendar was full of visits.
+
+   Same two sources the calendar draws from — AxisCare visits through
+   CGVISITS, plus any shift assigned to them in state.shifts — so the
+   summary and the grid cannot disagree. */
+function cgSchedule(c){
+  const out=[];
+  if(typeof CGVISITS!=='undefined' && CGVISITS.all)
+    CGVISITS.all(c.id).forEach(function(v){ out.push({day:v.day, clientId:v.clientId, clientName:v.clientName}); });
+  (state.shifts||[]).forEach(function(s){
+    if(s.assigned!==c.id || !s.start) return;
+    out.push({day:toDateInput(s.start), clientId:s.clientId, clientName:null});
+  });
+  return out.sort(function(a,b){ return a.day<b.day?-1:(a.day>b.day?1:0); });
+}
+/* An unfinished fetch must never read as "no clients" — that is the same
+   mistake in the other direction. The demo fixture has no AxisCare record,
+   so its shifts are the whole schedule and are always ready. */
+function cgScheduleState(c){
+  if(!c) return 'error';
+  if(c.source!=='axiscare' || c.axisId==null) return 'ready';
+  const st=(typeof CGVISITS!=='undefined') ? CGVISITS.status(c.id) : 'idle';
+  return st==='ready' ? 'ready' : (st==='error' ? 'error' : 'loading');
+}
+function cgActiveClient(c){
+  const today=dateKey(NOW);
+  const up=cgSchedule(c).filter(function(x){ return x.day>=today; });
+  return up.length ? up[0] : null;
+}
+function cgLastServed(c){
+  const today=dateKey(NOW);
+  const past=cgSchedule(c).filter(function(x){ return x.day<=today; });
+  return past.length ? past[past.length-1] : null;
+}
+
 /* A visit carries its client name inline, so a block still reads
    correctly for a client who is not on the active client list —
    clById() returns undefined for those, and .name would throw. */
@@ -8872,17 +8910,25 @@ function viewCaregiverWorkspace(c){
      Preferences now, so showing weekly hours twice was the only thing this
      block still did. Availability itself is the calendar above. */
   // ===== Employment Summary (now includes utilization) =====
-  const hasCase=!!ops.devoted;
   const empRow=(l,v,tone)=>`<div class="emp-row"><span class="emp-l">${l}</span><span class="emp-v ${tone||''}">${v}</span></div>`;
   const statusTone={Active:'good',Leave:'soon',Inactive:'crit'}[ops.employmentStatus]||'';
-  const lastClient=ops.devoted?ops.devoted.client:(ops.lastClient||null);
-  const lastClientName=lastClient?(clById(lastClient)?clById(lastClient).name:lastClient):'\u2014';
+  const schedState=cgScheduleState(c);
+  const hasCase=schedState==='ready' ? !!cgActiveClient(c) : null;
+  const served=schedState==='ready' ? cgLastServed(c) : null;
+  /* ops.lastClient is a stored NAME, not a yes/no, so it still answers when
+     the schedule holds nothing before today. */
+  const storedLast=ops.lastClient
+    ? (clById(ops.lastClient)?clById(ops.lastClient).name:ops.lastClient) : null;
+  const lastClientName = schedState!=='ready' ? (schedState==='loading'?'Loading…':'Not loaded')
+    : (served ? shiftClientName(served) : (storedLast || '\u2014'));
   const employmentBody=empRow('Hire date', fmtDate(ops.hireDate))
     + empRow('How long with Devoted', fmtTenure(ops.hireDate))
     + empRow('Employment status', ops.employmentStatus || (c.active===false?'Inactive':'Active'), statusTone)
     + empRow('Caregiving experience', fmtExperience(ops.experience))
     + empRow('Total hours worked', hasVal(ops.totalHoursWorked) ? ops.totalHoursWorked.toLocaleString()+' h' : 'Not tracked')
-    + empRow('Has active client', hasCase?'Yes':'No', hasCase?'good':'soon')
+    + empRow('Has active client',
+        hasCase===null ? (schedState==='loading'?'Loading…':'Not loaded') : (hasCase?'Yes':'No'),
+        hasCase===null ? '' : (hasCase?'good':'soon'))
     + empRow('Last shift worked', fmtDate(ops.lastShiftWorked))
     + empRow('Last client served', lastClientName);
   /* Caregiver Strengths was the old shape of this section; Personality and
@@ -12751,8 +12797,20 @@ var CGVISITS = (function () {
     return r.days[dateKey(date)] || [];
   }
 
+  /* Every visit in the loaded window, flat and date-ordered. forDay answers
+     one square; the profile has to ask about the whole schedule. */
+  function all(cgId) {
+    var r = byCg[cgId];
+    if (!r || r.status !== 'ready') return [];
+    var out = [];
+    Object.keys(r.days).forEach(function (d) {
+      (r.days[d] || []).forEach(function (v) { out.push(v); });
+    });
+    return out.sort(function (a, b) { return a.day < b.day ? -1 : (a.day > b.day ? 1 : 0); });
+  }
+
   return {
-    load: load, forDay: forDay, status: status, info: info, retry: retry,
+    load: load, forDay: forDay, all: all, status: status, info: info, retry: retry,
     _reset: function () { byCg = {}; inFlight = {}; }
   };
 })();
