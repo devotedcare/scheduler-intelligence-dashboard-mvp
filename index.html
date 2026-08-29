@@ -7003,6 +7003,36 @@ function _subtractWin(win, ints){
    date with nothing recorded returns NO blocks at all. An empty day means
    "nobody has told us", which is the truth; it used to say "Needs update",
    which was true of every day of every caregiver and so said nothing. */
+/* Every availability row this app writes is stamped with this. It is what
+   separates a row somebody entered here from the 6,693 migrated in on
+   2026-08-27, which carry their original authors — Mae, Beatrice, Angelica,
+   Tine. Change it in one place or segReason() below stops recognising our
+   own writes. */
+const AV_APP_AUTHOR = 'Carlo';
+
+/* THE NOTE ON AN AVAILABILITY ROW IS THE UNAVAILABLE REASON, AND NOTHING
+   ELSE. It used to carry a copy of the day's note as well — every save
+   pushed modalState.note onto the segment — so rows written before the note
+   moved to its own table still hold sentences that belong in the Notes tab,
+   and deleting the note never touched the copy. This is where those stop
+   reaching the grid. Two tests, neither of which can be true of a real
+   reason:
+
+     · the row is Open. dpReasonText() returns null for Open, so an Open
+       row's note was never a reason — "OPEN — NO LONGER AVAILABLE FOR
+       AFTERNOON OR EVENING SHIFTS" is exactly this case.
+     · the row was not written here. Anything else is a migrated copy.
+
+   Suppressed at the segment, not at the cell, so nothing downstream can pick
+   a stale note back up. AVNOTECLEAN below deletes them for good; this keeps
+   the grid correct whether or not that write is permitted. */
+function segReason(a){
+  if(!a || !a.note) return '';
+  if(a.status === 'Open') return '';
+  if(a.updatedBy !== AV_APP_AUTHOR) return '';
+  return a.note;
+}
+
 function dayBlocks(c, date){
   const blocks=[];
 
@@ -7017,7 +7047,7 @@ function dayBlocks(c, date){
   /* Then the scheduler’s own entries, straight from the table. Segments
      are stored already carved, so they need no merging here. */
   ((typeof AVAIL!=='undefined') ? AVAIL.forDay(c.id,date) : []).forEach(a=>{
-    const b={type:availTone(a.status),label:a.status,note:a.note,availId:a.id};
+    const b={type:availTone(a.status),label:a.status,note:segReason(a),availId:a.id};
     if(a.allDay) b.full=true; else { b.start=a.start; b.end=a.end; }
     blocks.push(b);
   });
@@ -12429,7 +12459,7 @@ var AVAIL = (function () {
           note: s.note || null
         };
       }),
-      p_updated_by: 'Carlo'
+      p_updated_by: AV_APP_AUTHOR
     };
     return fetch(cf.supabaseUrl.replace(/\/+$/, '') + '/rest/v1/rpc/set_availability_days', {
       method: 'POST',
@@ -12580,11 +12610,105 @@ var NOTES = (function () {
            _reset: function () { byCg = {}; inFlight = {}; } };
 })();
 
+/* =========================================================
+   AVNOTECLEAN  —  delete the day-note copies out of the
+                   availability rows, once
+   ---------------------------------------------------------
+   Availability used to carry the day's note on the segment, so replacing a
+   day's hours rewrote the note and clearing the day deleted it. The note
+   moved to public.caregiver_day_notes on 2026-08-28 and dpDraft stopped
+   writing it — but every row written before then KEPT its copy, and deleting
+   the note in the Notes tab has never touched them. That is why a deleted
+   note still reads out of a calendar cell.
+
+   segReason() already stops them being drawn. This removes them.
+
+   Two statements, one request each, and each provably cannot hit a real
+   reason:
+
+     · status = Open. dpReasonText() returns null for Open, so no Open row
+       has ever been given a reason by this app.
+     · updated_by is not this app's stamp. saveDays writes AV_APP_AUTHOR on
+       every save; the migrated rows carry their original authors.
+
+   It runs once per browser and is idempotent — a second run matches nothing,
+   because note is already null. If the anon role may not UPDATE the table
+   directly (writes normally go through the set_availability_days RPC), the
+   request is refused and the equivalent SQL is logged for Carlo; the grid is
+   already correct either way, so nothing is blocked on it.
+
+       AVNOTECLEAN.run()     force a run now
+       AVNOTECLEAN.status()  what the last one did
+   ========================================================= */
+var AVNOTECLEAN = (function () {
+  var KEY = 'dc_sched_avnote_cleanup_v1';
+  var last = null, running = false;
+
+  var SQL = "update public.caregiver_availability set note = null " +
+            "where note is not null and (status = 'Open' or updated_by is distinct from '" + AV_APP_AUTHOR + "');";
+
+  function cfg() { return window.SCHEDULER_CONFIG || {}; }
+  function done() { try { return localStorage.getItem(KEY) === '1'; } catch (e) { return false; } }
+  function markDone() { try { localStorage.setItem(KEY, '1'); } catch (e) {} }
+
+  /* One PATCH. `note=not.is.null` keeps it to the rows that actually carry
+     one, so a repeat run is a no-op rather than a full-table write. */
+  function patch(filter) {
+    var c = cfg();
+    var url = String(c.supabaseUrl).replace(/\/+$/, '') +
+      '/rest/v1/caregiver_availability?note=not.is.null&' + filter;
+    return fetch(url, {
+      method: 'PATCH',
+      headers: { apikey: c.supabaseAnonKey, Authorization: 'Bearer ' + c.supabaseAnonKey,
+                 'Content-Type': 'application/json', Prefer: 'return=representation' },
+      body: JSON.stringify({ note: null })
+    }).then(function (r) {
+      if (!r.ok) return r.text().then(function (t) { throw new Error('HTTP ' + r.status + ' ' + t.slice(0, 160)); });
+      return r.json().catch(function () { return []; });
+    }).then(function (rows) { return (rows || []).length; });
+  }
+
+  function run(force) {
+    var c = cfg();
+    if (!c.supabaseUrl || !c.supabaseAnonKey) {
+      last = { ok: false, reason: 'no Supabase keys on this build' };
+      return Promise.resolve(last);
+    }
+    if (running) return Promise.resolve(last);
+    if (done() && !force) { last = { ok: true, skipped: 'already run in this browser' }; return Promise.resolve(last); }
+    running = true;
+    return patch('status=eq.Open')
+      .then(function (nOpen) {
+        return patch('or=(updated_by.is.null,updated_by.neq.' + encodeURIComponent(AV_APP_AUTHOR) + ')')
+          .then(function (nOld) { return { open: nOpen, migrated: nOld }; });
+      })
+      .then(function (n) {
+        markDone();
+        last = { ok: true, cleared: n.open + n.migrated, open: n.open, migrated: n.migrated };
+        console.info('[avnoteclean] cleared ' + last.cleared + ' copied note' +
+                     (last.cleared === 1 ? '' : 's') + ' from availability rows (' +
+                     n.open + ' Open, ' + n.migrated + ' migrated)');
+        return last;
+      })
+      .catch(function (e) {
+        last = { ok: false, error: e.message, sql: SQL };
+        console.warn('[avnoteclean] could not clear the copied notes: ' + e.message +
+                     '\nThe grid already hides them. To remove them for good, run:\n  ' + SQL);
+        return last;
+      })
+      .then(function (r) { running = false; return r; });
+  }
+
+  return { run: function () { return run(true); }, auto: function () { return run(false); },
+           status: function () { return last; }, sql: SQL };
+})();
+
 /* Green means the caregiver can take a shift. Every other status they can
    record is a reason they cannot, and reads red — the label says which. */
 function availTone(status){ return status === 'Open' ? 'open' : 'unavail'; }
 
 CLOUD.boot();
+try{ AVNOTECLEAN.auto(); }catch(e){}
 </script>
 </body>
 </html>
