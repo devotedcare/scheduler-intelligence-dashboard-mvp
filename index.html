@@ -6606,7 +6606,14 @@ const FREQ_OPTS=['Weekly','Every 2 weeks','Every 3 weeks','Monthly','Every 3 mon
    people, and what they can actually do. Both are the scheduler's own
    assessment; AxisCare records neither. Order here is the order they render
    in, so a saved selection always reads the same way. */
-const PERSONALITY_OPTS=['Calm','Patient','Gentle','Cheerful','Quiet','Talkative','Compassionate','Friendly','Reserved','Energetic'];
+const PERSONALITY_OPTS=['Quiet / Low Conversation','Talkative / Social','Calm / Low Energy','Energetic / Active','Gentle / Soft Approach','Firm / Direct Approach','Independent Worker','Needs Clear Instructions','Routine-Oriented','Flexible / Adapts Easily'];
+/* The first list was adjectives, several of which said the same thing. Where
+   one of them names the same working style it is read as the style, so a
+   caregiver already marked up does not come back blank. Read-time only — the
+   next save writes the new name. */
+const STYLE_FROM_TRAIT={'Quiet':'Quiet / Low Conversation','Reserved':'Quiet / Low Conversation',
+  'Talkative':'Talkative / Social','Calm':'Calm / Low Energy','Energetic':'Energetic / Active',
+  'Gentle':'Gentle / Soft Approach'};
 const CARE_SKILL_OPTS=['Dementia Care',"Alzheimer's Experience",'Hospice Support','Transfers & Mobility Assistance','Toileting Assistance','Bathing Assistance','Incontinence Care','Medication Reminders','Meal Preparation','Companionship'];
 /* The strengths list this replaces used a different word for the same thing. */
 const SKILL_FROM_STRENGTH={'Companion Care':'Companionship'};
@@ -7977,8 +7984,9 @@ function cancelAvailEdit(){ state.cgAvailEdit=null; render(); }
    Only what is ticked is shown. The full list lives in the picker. */
 function traitOpts(kind){ return kind==='personality'?PERSONALITY_OPTS:CARE_SKILL_OPTS; }
 function cgPersonality(c){
-  var sel=(c.ops&&c.ops.personality)||[];
-  return PERSONALITY_OPTS.filter(function(t){ return sel.indexOf(t)>=0; });
+  var sel=(c.ops&&c.ops.personality)||[], seen={};
+  sel.forEach(function(t){ seen[STYLE_FROM_TRAIT[t]||t]=1; });
+  return PERSONALITY_OPTS.filter(function(t){ return seen[t]; });
 }
 /* Skills assessed before this list existed still show, where the old
    vocabulary meant the same thing — five names match outright and Companion
