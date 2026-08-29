@@ -2186,8 +2186,6 @@
 .cgp-when.inline{display:block;margin-bottom:1px}
 .cgp-utx{display:block;font-weight:650}
 .cgp-st{flex:0 0 auto;font-size:11.5px;font-weight:700;border-radius:12px;padding:2px 10px}
-.cgp-st.ok{background:#EAF5F0;color:#1E7A5C}
-.cgp-st.open{background:#EDF3F8;color:#2A6899}
 .cgp-st.plain{background:none;padding:0;color:var(--ink-soft);font-weight:650}
 .cgp-row.up{align-items:flex-start}
 .cgp-dot{width:7px;height:7px;border-radius:50%;background:var(--brand);flex:0 0 auto;margin-top:5px}
@@ -8588,12 +8586,14 @@ function cgConcernsFor(id){
 }
 function cgConcernsPanel(c, all){
   const list=cgConcernsFor(c.id), shown=all?list:list.slice(0,3);
+  /* No status, and nothing to resolve or reopen. This is a record of what
+     clients and families said about the caregiver — part of their history,
+     not a queue of tickets to work through. */
   const body = shown.length
     ? `<div class="cgp-list">${shown.map(f=>`<div class="cgp-row">
-         <span class="cgp-st ${f.status==='Resolved'?'ok':'open'}">${f.status}</span>
+         <span class="cgp-ic">${ic('alerts',13)}</span>
          <span class="cgp-tx">${esc(f.text||'')}</span>
          <span class="cgp-when">${esc(cgDateTime(f.at))}</span>
-         <button class="btn xs" onclick="cgConcernFlip('${f.id}')">${f.status==='Resolved'?'Reopen':'Resolve'}</button>
        </div>`).join('')}</div>`
     : `<div class="ws-none">No client feedback or concerns recorded.</div>`;
   return `<div class="ws-card cgp">
@@ -8602,23 +8602,20 @@ function cgConcernsPanel(c, all){
   </div>`;
 }
 function openCgConcern(id){
-  state.cgFb={id:id, text:'', status:'Open'};
+  state.cgFb={id:id, text:''};
   renderCgConcernModal(); mbg.classList.add('show');
 }
-function cgFbSet(f,v){ if(state.cgFb) state.cgFb[f]=v; if(f==='status') renderCgConcernModal(); }
+function cgFbSet(f,v){ if(state.cgFb) state.cgFb[f]=v; }
 function cgFbCancel(){ state.cgFb=null; closeModal(); }
 function renderCgConcernModal(){
   const f=state.cgFb; if(!f) return;
   const c=cgById(f.id);
-  const seg=(v)=>`<button type="button" class="dp-seg${f.status===v?' on':''}" onclick="cgFbSet('status','${v}')">${v}</button>`;
   mEl.innerHTML=`<div class="mh"><span class="mt">Client Feedback or Concern — ${esc(c?c.name:'')}</span>
       <button class="mc" onclick="cgFbCancel()">×</button></div>
     <div class="mb">
       <div class="dp-lab">What was said</div>
-      <textarea class="ein acr-ta" maxlength="1000" placeholder="e.g. Family says she is patient and communicates well."
+      <textarea class="ein acr-ta" maxlength="1000" placeholder="e.g. Family says the caregiver is patient and communicates well."
         oninput="cgFbSet('text',this.value)">${esc(f.text||'')}</textarea>
-      <div class="dp-lab" style="margin-top:14px">Status</div>
-      <div class="dp-segs">${seg('Open')}${seg('Resolved')}</div>
       <div class="upd-acts"><button class="btn" onclick="cgFbCancel()">Cancel</button>
         <button class="btn pri" onclick="cgFbSave()">${ic('check',13)} Save</button></div>
     </div>`;
@@ -8628,14 +8625,8 @@ function cgFbSave(){
   const text=String(f.text||'').trim();
   if(!text){ toast('Type the feedback first'); return; }
   state.cgConcerns=(state.cgConcerns||[]).concat([{ id:cgUid('fb'), cgId:f.id, text:text,
-    status:f.status||'Open', at:new Date().toISOString(), by:state.onShift }]);
+    at:new Date().toISOString(), by:state.onShift }]);
   state.cgFb=null; closeModal(); render(); toast('Feedback recorded');
-}
-function cgConcernFlip(fid){
-  const f=(state.cgConcerns||[]).find(x=>x.id===fid); if(!f) return;
-  f.status = f.status==='Resolved' ? 'Open' : 'Resolved';
-  f.resolvedBy = f.status==='Resolved' ? state.onShift : null;
-  render();
 }
 
 /* ---- Call Log ------------------------------------------------------
