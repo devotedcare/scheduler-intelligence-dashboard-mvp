@@ -1227,7 +1227,11 @@
   .pf2 .emp-row{gap:18px}
   .pf2 .emp-l{flex:1 1 auto;min-width:0}
   .pf2 .emp-v{flex:0 0 auto;max-width:52%}
-  .pf2 .cgp-hint,.pf2   @media(max-width:1100px){.ws-grid.pf2{grid-template-columns:1fr}
+  /* This @media had a dangling selector list glued to the front of it
+     (".pf2 .cgp-hint,.pf2" with no declaration block), which made the browser
+     read the at-rule as part of that selector and drop the whole breakpoint —
+     so the profile grid never collapsed to one column at 1100px. */
+  @media(max-width:1100px){.ws-grid.pf2{grid-template-columns:1fr}
     .pf2 .span2,.pf2 .ws-card.span2{grid-column:auto}}
   @media(max-width:1000px){.ws-grid{grid-template-columns:1fr}}
   .ws-list{margin:0;padding-left:0;list-style:none;display:flex;flex-direction:column;gap:7px}
@@ -2255,8 +2259,19 @@
 .ws-h.h-style{color:#1F6E70;background:#EAF4F4;border-color:#CFE5E5}
 /* One height for all nine profile cards. The body is clipped rather than
    scrolled, and pfxFit() puts View Details on the ones that overflow. */
-.ws-card.pfx{height:172px;display:flex;flex-direction:column;overflow:hidden}
-.pfx-body{flex:1 1 auto;min-height:0;overflow:hidden}
+/* One height for EVERY card in the profile grid, so the two cards in a row
+   are always identical and every row lines up with the one above it. 260 is
+   the compromise: it fits Languages, the six chip sections and What Families
+   Appreciate outright, and gives the four dense sections — Work Preferences,
+   Employment Summary, the client blocks and Client & Assignment Preferences,
+   which run 320-355px unclipped — a five-row preview behind View Details.
+   Raise or lower this one number to trade preview depth against whitespace. */
+.ws-card.pfx{height:260px;display:flex;flex-direction:column;overflow:hidden}
+.pfx-body{flex:1 1 auto;min-height:0;overflow:hidden;position:relative}
+/* A row cut in half reads as a rendering fault, so a clipped body fades out
+   and says "there is more" instead. Only on the cards that actually clip. */
+.pfx.clipped .pfx-body::after{content:"";position:absolute;left:0;right:0;bottom:0;height:26px;
+  background:linear-gradient(to bottom,rgba(255,255,255,0),#fff);pointer-events:none}
 .pfx-more{flex:0 0 auto;margin-top:8px;padding-top:8px;border-top:1px solid var(--line);text-align:right}
 /* In the popup the same body runs to whatever length it needs. */
 .pfx-full .str-tags{margin-bottom:2px}
@@ -8721,6 +8736,16 @@ function cgFamilies(c){ return cgProf(c).families||''; }
    the modal, so the preview and the full view can never drift apart. */
 const PFX_SECS = (function(){
   const m = {
+    /* Every card in the two-column grid is in here, dense ones included, so
+       a row can never end up with one card taller than the other. */
+    workPrefs:{title:'Work Preferences', tint:'h-prefs',
+      edit:c=>`editAvailability('${c.id}','prefs')`, body:c=>workPrefsBody(c)},
+    employment:{title:'Employment Summary', tint:'h-emp',
+      edit:c=>`openEmpEdit('${c.id}')`, body:c=>employmentBody(c)},
+    rules:{title:'Assignment &amp; Client Rules', tint:'h-rules',
+      edit:c=>`openAcrEdit('${c.id}')`, body:c=>clientBlocksBody(c)},
+    prefs:{title:'Client &amp; Assignment Preferences', tint:'h-prefs2',
+      edit:c=>`openPrefsEdit('${c.id}')`, body:c=>prefsBody(c)},
     languages:{title:'Languages', tint:'h-lang',
       edit:c=>`openLangEdit('${c.id}')`, body:c=>langBody(c)},
     skills:{title:'Skills &amp; Experience', tint:'h-skills',
@@ -8777,7 +8802,10 @@ function pfxFit(){
     if(body&&more){ more.hidden=true; pairs.push([body,more]); }
   });
   pairs.forEach(function(p){ p[2]=p[0].scrollHeight>p[0].clientHeight+1; });
-  pairs.forEach(function(p){ p[1].hidden=!p[2]; });
+  pairs.forEach(function(p){
+    p[1].hidden=!p[2];
+    p[0].parentNode.classList.toggle('clipped', p[2]);
+  });
 }
 
 function famBody(c){
@@ -8876,11 +8904,72 @@ function prefVal(c,k){
   return null;
 }
 function prefYN(v){ return v===null||v===undefined ? 'Not recorded' : (v?'Yes':'No'); }
-function prefsCard(c){
+/* The four dense sections are body builders too, so every card on the
+   Profile goes through the same fixed-height component. */
+function employmentBody(c){
+  const ops=c.ops;
+  const empRow=(l,v,tone)=>`<div class="emp-row"><span class="emp-l">${l}</span><span class="emp-v ${tone||''}">${v}</span></div>`;
+  const statusTone={Active:'good',Leave:'soon',Inactive:'crit'}[ops.employmentStatus]||'';
+  const schedState=cgScheduleState(c);
+  const hasCase=schedState==='ready' ? !!cgActiveClient(c) : null;
+  const served=schedState==='ready' ? cgLastServed(c) : null;
+  /* ops.lastClient is a stored NAME, not a yes/no, so it still answers when
+     the schedule holds nothing before today. */
+  const storedLast=ops.lastClient
+    ? (clById(ops.lastClient)?clById(ops.lastClient).name:ops.lastClient) : null;
+  const lastClientName = schedState!=='ready' ? (schedState==='loading'?'Loading…':'Not loaded')
+    : (served ? shiftClientName(served) : (storedLast || '\u2014'));
+  return '<div class="emp-grid">' + empRow('Hire date', fmtDate(ops.hireDate))
+    + empRow('How long with Devoted', fmtTenure(ops.hireDate))
+    + empRow('Employment status', ops.employmentStatus || (c.active===false?'Inactive':'Active'), statusTone)
+    + empRow('Caregiving experience', fmtExperience(ops.experience))
+    + empRow('Total hours worked', hasVal(ops.totalHoursWorked) ? ops.totalHoursWorked.toLocaleString()+' h' : 'Not tracked')
+    + empRow('Has active client',
+        hasCase===null ? (schedState==='loading'?'Loading…':'Not loaded') : (hasCase?'Yes':'No'),
+        hasCase===null ? '' : (hasCase?'good':'soon'))
+    /* Off the schedule, like the two rows either side of it. ops.lastShiftWorked
+       is null on every real caregiver (it is in ROSTER's FABRICATED list), and
+       fmtDate(null) rendered that as January 1, 1970 — a date that looks like
+       a record rather than an absence. */
+    + empRow('Last shift worked', schedState!=='ready'
+        ? (schedState==='loading'?'Loading\u2026':'Not loaded')
+        /* 'YYYY-MM-DD' through new Date() is UTC midnight, which reads as the
+           day before out here — noon local, the same way the rest of the app
+           parses a stored date. */
+        : (served ? fmtDate(served.day+'T12:00:00')
+                  : (hasVal(ops.lastShiftWorked) ? fmtDate(ops.lastShiftWorked) : 'Not tracked')))
+    + empRow('Last client served', lastClientName) + '</div>';
+}
+function clientBlocksBody(c){
+  const ops=c.ops;
+  /* c.restrictions is still stored, still edited in the section's own popup
+     and still read by the About summary — the Assignment Restrictions panel
+     that listed it here is gone, not the field. */
+  /* One fixed-height row per block: who, the level, and a way in. The
+     reason, notes, type, date and author are all still stored and are all
+     still shown — behind View Details, in openCgBlock. Rendering them here
+     made a card whose height was set by how much somebody had typed, so a
+     caregiver with three blocks and a long note pushed the rest of the
+     Profile off the screen; and a name and a red bar are what the desk
+     actually scans this section for. */
+  return '<div class="ws-grp"><div class="ws-grp-h">Client Blocks \u2014 Do Not Assign</div>' + (ops.clientRestr.length
+    ? `<div class="cb-list">${ops.clientRestr.map((r,i)=>{
+        const hard=(r.level||'hard')==='hard', cl2=clById(r.client), asking=state.cbDel===c.id+'|'+i;
+        /* Asked in place, the same way an update is deleted — a block is the
+           record that stops an assignment, so one stray click should not
+           quietly clear it. */
+        const acts = asking
+          ? `<button class="btn xs danger" onclick="cbRemove('${c.id}',${i})">Remove</button>
+             <button class="btn xs" onclick="cbRemoveAsk(null)">Keep</button>`
+          : `<button class="btn xs cb-more" onclick="openCgBlock('${c.id}',${i})">View Details</button>
+             <button class="btn xs cb-more" onclick="cbRemoveAsk('${c.id}|${i}')">Remove</button>`;
+        return `<div class="cb-item ${hard?'hard':'soft'}"><span class="cb-client">${cl2?esc(cl2.name):esc(r.client)}</span>${acts}</div>`;
+      }).join('')}</div>`
+    : `<div class="ws-none">No client blocks on file \u2014 this caregiver can be assigned to any client.</div>`) + '</div>';
+}
+function prefsBody(c){
   const row=(l,v)=>`<div class="emp-row"><span class="emp-l">${l}</span><span class="emp-v">${v}</span></div>`;
-  return `<div class="ws-card"><div class="ws-h ws-h-flex h-tint h-prefs2"><span>Client &amp; Assignment Preferences</span>
-      <button class="btn sm" onclick="openPrefsEdit('${c.id}')">${ic('log',12)} Edit</button></div>
-    <div class="emp-grid">
+  return `<div class="emp-grid">
       ${row('Client gender preference', prefVal(c,'clientGender') ? esc(prefVal(c,'clientGender')) : 'Not recorded')}
       ${row('Smoking home', prefYN(prefVal(c,'smokingHome')))}
       ${row('Pets in home', prefYN(prefVal(c,'pets')))}
@@ -8888,7 +8977,7 @@ function prefsCard(c){
       ${row('Can assist with client transfers', prefYN(prefVal(c,'transfers')))}
       ${row('Overnight OK', prefYN(prefVal(c,'overnight')))}
       ${row('Live-in OK', prefYN(prefVal(c,'liveIn')))}
-    </div></div>`;
+    </div>`;
 }
 const PREF_YN=[['','Not recorded'],['yes','Yes'],['no','No']];
 function openPrefsEdit(id){
@@ -9654,38 +9743,6 @@ function viewCaregiverWorkspace(c){
      weekly hours, language and travel all read together under Work
      Preferences now, so showing weekly hours twice was the only thing this
      block still did. Availability itself is the calendar above. */
-  // ===== Employment Summary (now includes utilization) =====
-  const empRow=(l,v,tone)=>`<div class="emp-row"><span class="emp-l">${l}</span><span class="emp-v ${tone||''}">${v}</span></div>`;
-  const statusTone={Active:'good',Leave:'soon',Inactive:'crit'}[ops.employmentStatus]||'';
-  const schedState=cgScheduleState(c);
-  const hasCase=schedState==='ready' ? !!cgActiveClient(c) : null;
-  const served=schedState==='ready' ? cgLastServed(c) : null;
-  /* ops.lastClient is a stored NAME, not a yes/no, so it still answers when
-     the schedule holds nothing before today. */
-  const storedLast=ops.lastClient
-    ? (clById(ops.lastClient)?clById(ops.lastClient).name:ops.lastClient) : null;
-  const lastClientName = schedState!=='ready' ? (schedState==='loading'?'Loading…':'Not loaded')
-    : (served ? shiftClientName(served) : (storedLast || '\u2014'));
-  const employmentBody=empRow('Hire date', fmtDate(ops.hireDate))
-    + empRow('How long with Devoted', fmtTenure(ops.hireDate))
-    + empRow('Employment status', ops.employmentStatus || (c.active===false?'Inactive':'Active'), statusTone)
-    + empRow('Caregiving experience', fmtExperience(ops.experience))
-    + empRow('Total hours worked', hasVal(ops.totalHoursWorked) ? ops.totalHoursWorked.toLocaleString()+' h' : 'Not tracked')
-    + empRow('Has active client',
-        hasCase===null ? (schedState==='loading'?'Loading…':'Not loaded') : (hasCase?'Yes':'No'),
-        hasCase===null ? '' : (hasCase?'good':'soon'))
-    /* Off the schedule, like the two rows either side of it. ops.lastShiftWorked
-       is null on every real caregiver (it is in ROSTER's FABRICATED list), and
-       fmtDate(null) rendered that as January 1, 1970 — a date that looks like
-       a record rather than an absence. */
-    + empRow('Last shift worked', schedState!=='ready'
-        ? (schedState==='loading'?'Loading\u2026':'Not loaded')
-        /* 'YYYY-MM-DD' through new Date() is UTC midnight, which reads as the
-           day before out here — noon local, the same way the rest of the app
-           parses a stored date. */
-        : (served ? fmtDate(served.day+'T12:00:00')
-                  : (hasVal(ops.lastShiftWorked) ? fmtDate(ops.lastShiftWorked) : 'Not tracked')))
-    + empRow('Last client served', lastClientName);
   /* Caregiver Strengths was the old shape of this section; Personality and
      Skills & Experience replace it. ops.strengths is still stored and still
      seeds the skills list — see cgCareSkills. */
@@ -9744,31 +9801,6 @@ function viewCaregiverWorkspace(c){
   const alertsBody = alertList.length
     ? `<div class="ws-flags">${alertList.map(a=>`<span class="ws-flag ${a.sev}">${ic('alerts',11)} ${a.t}</span>`).join('')}</div>`
     : `<div class="ws-none">${ic('check',13)} No operational alerts.</div>`;
-  // ===== Client blocks =====
-  /* c.restrictions is still stored, still edited in the section's own popup
-     and still read by the About summary — the Assignment Restrictions panel
-     that listed it here is gone, not the field. */
-  /* One fixed-height row per block: who, the level, and a way in. The
-     reason, notes, type, date and author are all still stored and are all
-     still shown — behind View Details, in openCgBlock. Rendering them here
-     made a card whose height was set by how much somebody had typed, so a
-     caregiver with three blocks and a long note pushed the rest of the
-     Profile off the screen; and a name and a red bar are what the desk
-     actually scans this section for. */
-  const cbBody = ops.clientRestr.length
-    ? `<div class="cb-list">${ops.clientRestr.map((r,i)=>{
-        const hard=(r.level||'hard')==='hard', cl2=clById(r.client), asking=state.cbDel===c.id+'|'+i;
-        /* Asked in place, the same way an update is deleted — a block is the
-           record that stops an assignment, so one stray click should not
-           quietly clear it. */
-        const acts = asking
-          ? `<button class="btn xs danger" onclick="cbRemove('${c.id}',${i})">Remove</button>
-             <button class="btn xs" onclick="cbRemoveAsk(null)">Keep</button>`
-          : `<button class="btn xs cb-more" onclick="openCgBlock('${c.id}',${i})">View Details</button>
-             <button class="btn xs cb-more" onclick="cbRemoveAsk('${c.id}|${i}')">Remove</button>`;
-        return `<div class="cb-item ${hard?'hard':'soft'}"><span class="cb-client">${cl2?esc(cl2.name):esc(r.client)}</span>${acts}</div>`;
-      }).join('')}</div>`
-    : `<div class="ws-none">No client blocks on file \u2014 this caregiver can be assigned to any client.</div>`;
   const fromCov = state.cgReturn==='coverage';
   const tab = state.cgTab==='profile' ? 'profile' : 'overview';
   const tabBtn=(k,label)=>`<button class="cgnav-t${tab===k?' on':''}" onclick="setCgTab('${k}')">${label}</button>`;
@@ -9798,15 +9830,11 @@ function viewCaregiverWorkspace(c){
   const profile = `<div class="ws-grid ws-prof pf2">
     <div class="span2">${cgRatingStrip(c)}</div>
 
-    ${workPrefsCard(c)}
-    <div class="ws-card"><div class="ws-h ws-h-flex h-tint h-emp"><span>Employment Summary</span>
-      <button class="btn sm" onclick="openEmpEdit('${c.id}')">${ic('log',12)} Edit</button></div><div class="emp-grid">${employmentBody}</div></div>
+    ${pfxCard(c,'workPrefs')}
+    ${pfxCard(c,'employment')}
 
-    <div class="ws-card"><div class="ws-h ws-h-flex h-tint h-rules"><span>Assignment &amp; Client Rules</span>
-      <button class="btn sm" onclick="openAcrEdit('${c.id}')">${ic('log',12)} Edit</button></div>
-      <div class="ws-grp"><div class="ws-grp-h">Client Blocks — Do Not Assign</div>${cbBody}</div>
-    </div>
-    ${prefsCard(c)}
+    ${pfxCard(c,'rules')}
+    ${pfxCard(c,'prefs')}
 
     ${pfxCard(c,'languages')}
     ${pfxCard(c,'skills')}
@@ -9917,7 +9945,7 @@ function expPhrase(v){
    caregiver with a car who may not carry clients is a normal case, and one
    run-on line made it easy to misread. */
 function canDriveClients(c){ return hasVal(c.canTransport) ? !!c.canTransport : !!c.driver; }
-function workPrefsCard(c){
+function workPrefsBody(c){
   const ops=c.ops, span=shiftSpan(ops);
   const weekly = (hasVal(ops.minHours)&&hasVal(ops.maxHours)&&ops.minHours!==ops.maxHours)
     ? ops.minHours+'–'+ops.maxHours+' hours'
@@ -9928,8 +9956,7 @@ function workPrefsCard(c){
   if(AVAIL.openDays(c.id).some(o=>['Sat','Sun'].includes(dayKeyFromDate(o.day)))) avTags.push('Weekend Available');
   const tagsHtml = avTags.length?`<div class="av2-tags">${avTags.map(t=>`<span class="av2-tag">${t}</span>`).join('')}</div>`:'';
   const row=(l,v)=>`<div class="emp-row"><span class="emp-l">${l}</span><span class="emp-v">${v}</span></div>`;
-  return `<div class="ws-card"><div class="ws-h ws-h-flex h-tint h-prefs"><span>Work Preferences</span><button class="btn sm" onclick="editAvailability('${c.id}','prefs')">${ic('log',13)} Edit</button></div>
-      <div class="emp-grid">
+  return `<div class="emp-grid">
         ${row('Preferred minimum shift', fmtHours(span.min))}
         ${row('Preferred maximum shift', fmtHours(span.max))}
         <div class="emp-row wp-wide"><span class="emp-l">Preferred weekly hours</span><span class="emp-v">${weekly}</span></div>
@@ -9940,8 +9967,7 @@ function workPrefsCard(c){
         ${row('Preferred service areas', c.prefCities.length?esc(c.prefCities.join(', ')):'Not recorded')}
         ${row('Maximum travel distance', nt(ops.maxMiles, ' miles', 'Not recorded'))}
       </div>
-      ${tagsHtml}
-    </div>`;
+      ${tagsHtml}`;
 }
 function setAvailFilter(k,v){ state.filters[k]=v; render(); }
 function editCaregiver(id){ state.cgEdit=id; render(); window.scrollTo(0,0); }
