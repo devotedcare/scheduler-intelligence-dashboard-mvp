@@ -8609,7 +8609,10 @@ function cgHeaderCard(c){
 const CG_STYLE_OPTS=['Gentle','Calm','Hands-on','Encouraging','Structured','Patient','Independent'];
 const CG_COMMS_OPTS=['Warm and conversational','Quiet and reserved','Direct',
   'Communicates well with family','Needs clear instructions','Takes initiative'];
-const CG_PERS_OPTS=['Cheerful','Friendly','Patient','Calm','Energetic','Reserved','Compassionate','Organized'];
+const CG_PERS_OPTS=['Warm','Friendly','Patient','Calm','Compassionate','Respectful',
+  'Professional','Reliable','Attentive','Organized','Flexible','Positive','Outgoing','Quiet',
+  'Confident','Proactive','Mature','Empathetic','Supportive','Detail-oriented','Good listener',
+  'Good communicator','Independent','Adaptable','Reassuring','Motivated'];
 const CG_STRENGTH_OPTS=['Excellent companion','Very attentive','Strong with dementia behaviors',
   'Good with difficult personalities','Strong transfer skills','Good cook / meal preparation',
   'Strong family communication','Keeps clients engaged','Goes above and beyond'];
@@ -8626,7 +8629,8 @@ const CG_CHIP_FIELDS={
   comms:      {label:'Communication Style',       tint:'h-comms', opts:CG_COMMS_OPTS,
                none:'No communication style recorded yet.'},
   personality:{label:'Personality',               tint:'h-pers',  opts:CG_PERS_OPTS,
-               none:'No personality traits recorded yet.'},
+               none:'No personality traits recorded yet.', note:'Other',
+               notePh:'e.g. Unflappable in a crisis'},
   strengths:  {label:'Strengths',                 tint:'h-str',   opts:CG_STRENGTH_OPTS,
                none:'No strengths recorded yet.', note:'Anything else',
                notePh:'e.g. Unflappable with anxious clients'},
@@ -8645,9 +8649,19 @@ const CG_STYLE_FROM_OLD={'Calm / Low Energy':'Calm','Gentle / Soft Approach':'Ge
 const CG_COMMS_FROM_OLD={'Quiet / Low Conversation':'Quiet and reserved',
   'Talkative / Social':'Warm and conversational','Firm / Direct Approach':'Direct',
   'Needs Clear Instructions':'Needs clear instructions'};
-const CG_PERS_FROM_OLD={'Calm / Low Energy':'Calm','Energetic / Active':'Energetic',
-  'Quiet / Low Conversation':'Reserved'};
+const CG_PERS_FROM_OLD={'Calm / Low Energy':'Calm','Quiet / Low Conversation':'Quiet'};
 const CG_MIGRATE={style:CG_STYLE_FROM_OLD, comms:CG_COMMS_FROM_OLD, personality:CG_PERS_FROM_OLD};
+
+/* Personality was rewritten to a list with no two options meaning the same
+   thing. Two of the retired names have an exact replacement and are read as
+   it, so a caregiver already marked up keeps the trait and the next save
+   writes the current name.
+
+   'Energetic / Active' has none — nothing in the new list means it, and
+   mapping it to Outgoing or Motivated would put a word on somebody's record
+   that nobody chose. It stops being displayed; the stored value is left
+   alone, so it comes back if the option ever returns. */
+const CG_CHIP_RENAME={personality:{'Cheerful':'Positive','Reserved':'Quiet'}};
 
 function cgProf(c){
   if(!c) return {};
@@ -8664,7 +8678,11 @@ function cgProfSet(c, patch){
 function cgChips(c, key){
   if(!c) return [];
   const f=CG_CHIP_FIELDS[key], p=cgProf(c);
-  if(Array.isArray(p[key])) return f.opts.filter(o=>p[key].indexOf(o)>=0);
+  if(Array.isArray(p[key])){
+    const ren=CG_CHIP_RENAME[key], seen={};
+    p[key].forEach(function(t){ seen[(ren&&ren[t])||t]=1; });
+    return f.opts.filter(o=>seen[o]);
+  }
   const map=CG_MIGRATE[key];
   if(!map) return [];
   const old=(c.ops&&c.ops.personality)||[], seen={};
