@@ -2187,8 +2187,6 @@
 @media(max-width:900px){.cgh-about{border-left:none;padding-left:0;border-top:1px solid var(--line);padding-top:14px}}
 .cg-alert .ws-flags{margin:0}
 .cgp{display:flex;flex-direction:column;min-width:0}
-.cgp-h{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
-.cgp-t{display:flex;align-items:center;gap:8px;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;color:var(--ink-faint)}
 .cgp-t svg{color:var(--ink-faint)}
 .cgp-list{display:flex;flex-direction:column}
 /* Fixed height with its own scrollbar, so a long history never stretches
@@ -2242,8 +2240,6 @@
 .cgp-acts{display:flex;gap:2px;flex:0 0 auto}
 .icobtn{background:none;border:none;padding:2px 4px;line-height:0;color:var(--ink-faint);cursor:pointer;border-radius:4px}
 .icobtn:hover{color:var(--brand);background:var(--panel-head)}
-.cgp-all{background:none;border:none;padding:9px 0 0;font-size:12.5px;font-weight:700;color:var(--brand);cursor:pointer;text-align:left}
-.cgp-all:hover{text-decoration:underline}
 .cgp-hint{font-size:12px;color:var(--ink-soft);margin:9px 0 2px;line-height:1.45}
 .cg-allbody .ws-card{border:none;padding:0;margin:0}
 .pf-grid{display:grid;grid-template-columns:1fr 1fr;gap:11px 14px}
@@ -2272,6 +2268,13 @@
    and says "there is more" instead. Only on the cards that actually clip. */
 .pfx.clipped .pfx-body::after{content:"";position:absolute;left:0;right:0;bottom:0;height:26px;
   background:linear-gradient(to bottom,rgba(255,255,255,0),#fff);pointer-events:none}
+/* The Overview panels scrolled inside themselves (.cgp-scroll 232px,
+   .cgp-list 240px). Inside a fixed-height card the clip and View Details do
+   that job, and a scrollbar inside a clipped card is two scrollers arguing —
+   so the list runs its natural length and the card decides what shows.
+   .cgp-scroll.tall, which the popup uses, is untouched. */
+.pfx-body .cgp-scroll{height:auto;overflow:visible}
+.pfx-body .cgp-list{max-height:none;overflow:visible}
 .pfx-more{flex:0 0 auto;margin-top:8px;padding-top:8px;border-top:1px solid var(--line);text-align:right}
 /* In the popup the same body runs to whatever length it needs. */
 .pfx-full .str-tags{margin-bottom:2px}
@@ -9153,11 +9156,31 @@ function cgDateTime(v){
   return d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})
        + ' · ' + d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
 }
-function cgPanelHead(title,icon,btn){
-  return `<div class="cgp-h"><span class="cgp-t">${icon?ic(icon,14):''}<span>${title}</span></span>${btn||''}</div>`;
+/* The soft tinted bar the Profile sections use — same classes, same tokens,
+   so the two tabs cannot drift apart. Only the header area is tinted; the
+   card body stays white. */
+function cgPanelHead(title,icon,tint,btn){
+  return `<div class="ws-h ws-h-flex h-tint ${tint||''}"><span class="ws-h-ic">${icon?ic(icon,14):''}<span>${title}</span></span>${btn||''}</div>`;
 }
-function cgPanelMore(label,onclick,shown,total){
-  return `<button class="cgp-all" onclick="${onclick}">View All${total>shown?' ('+total+')':''}</button>`;
+/* Every Overview panel is a fixed-height card whose body is clipped, with
+   View Details appearing only where it actually overflows — the same
+   component and the same measuring pass as the Profile cards, so the two
+   tabs stay the same height and behave the same way.
+
+   In "all" mode this renders inside the View Details popup, where the whole
+   point is that nothing is capped. */
+function cgPanelShell(all, o){
+  const head=cgPanelHead(o.title,o.icon,o.tint,o.btn||'');
+  if(all) return `<div class="ws-card cgp">${head}${o.body}</div>`;
+  /* The count is the whole list, not "how many more than the preview" — the
+     card clips by height now, not by a slice, so the old comparison against
+     a per-panel cap said "(6)" on Notes and nothing on Updates purely
+     because their caps differed. */
+  const n=o.total?' ('+o.total+')':'';
+  return `<div class="ws-card cgp pfx">${head}
+    <div class="pfx-body">${o.body}</div>
+    <div class="pfx-more" hidden><button class="btn xs" onclick="${o.onAll}">View Details${n}</button></div>
+  </div>`;
 }
 
 /* ---- Notes ---------------------------------------------------------
@@ -9181,7 +9204,7 @@ function cgNotesList(c){
     .map(x=>x.n);
 }
 function cgNotesPanel(c, all){
-  const list=cgNotesList(c), shown=all?list:list.slice(0,4);
+  const list=cgNotesList(c), shown=all?list:list.slice(0,20);
   const body = shown.length
     /* Date first, note underneath — the same shape the feedback entries
        use. The document icon said only "this is a note", which the section
@@ -9191,10 +9214,9 @@ function cgNotesPanel(c, all){
          <span class="cgp-tx">${esc(n.text||'')}</span>
        </div>`).join('')}</div>`
     : `<div class="ws-none">No notes yet.</div>`;
-  return `<div class="ws-card cgp">
-    ${cgPanelHead('Notes','forms',`<button class="btn xs" onclick="openCgNoteAdd('${c.id}')">+ Add Note</button>`)}
-    ${body}${all?'':cgPanelMore('','openCgAll(\''+c.id+'\',\'notes\')',4,list.length)}
-  </div>`;
+  return cgPanelShell(all, {title:'Notes', icon:'forms', tint:'h-prefs', body:body,
+    btn:`<button class="btn xs" onclick="openCgNoteAdd('${c.id}')">+ Add Note</button>`,
+    onAll:"openCgAll('"+c.id+"','notes')", total:list.length});
 }
 function openCgNoteAdd(id){
   const c=cgById(id); if(!c) return;
@@ -9247,7 +9269,7 @@ const FB_CLASS={'Positive Feedback':'pos','Concern':'con','Complaint':'cmp'};
    type until somebody sets one. */
 function fbType(f){ return FB_TYPES.indexOf(f.type)>=0 ? f.type : ''; }
 function cgConcernsPanel(c, all){
-  const list=cgConcernsFor(c.id), shown=all?list:list.slice(0,3);
+  const list=cgConcernsFor(c.id), shown=all?list:list.slice(0,20);
   /* No status, and nothing to resolve or reopen. This is a record of what
      clients and families said about the caregiver — part of their history,
      not a queue of tickets to work through. */
@@ -9262,10 +9284,9 @@ function cgConcernsPanel(c, all){
          <span class="cgp-when">${esc(cgDateTime(f.at))}</span>
        </div>`; }).join('')}</div>`
     : `<div class="ws-none">No client feedback or concerns recorded.</div>`;
-  return `<div class="ws-card cgp">
-    ${cgPanelHead('Client Feedback &amp; Concerns','',`<button class="btn xs" onclick="openCgConcern('${c.id}')">+ Add Complaint / Concern</button>`)}
-    ${body}${all?'':cgPanelMore('','openCgAll(\''+c.id+'\',\'concerns\')',3,list.length)}
-  </div>`;
+  return cgPanelShell(all, {title:'Client Feedback &amp; Concerns', icon:'', tint:'h-rules', body:body,
+    btn:`<button class="btn xs" onclick="openCgConcern('${c.id}')">+ Add Complaint / Concern</button>`,
+    onAll:"openCgAll('"+c.id+"','concerns')", total:list.length});
 }
 function openCgConcern(id){
   /* No default: the scheduler picks, or nothing is filed. */
@@ -9335,10 +9356,8 @@ function cgCallPanel(c, all){
          <span class="cgp-st plain">${esc(l.result)}</span>
        </div>`).join('')}</div>`
     : `<div class="ws-none">No calls logged to this caregiver yet.</div>`;
-  return `<div class="ws-card cgp">
-    ${cgPanelHead('Call Log','phone','')}
-    ${body}${all?'':cgPanelMore('','openCgAll(\''+c.id+'\',\'calls\')',20,list.length)}
-  </div>`;
+  return cgPanelShell(all, {title:'Call Log', icon:'phone', tint:'h-emp', body:body,
+    onAll:"openCgAll('"+c.id+"','calls')", total:list.length});
 }
 
 /* ---- Updates -------------------------------------------------------
@@ -9387,10 +9406,9 @@ function cgUpdatesPanel(c, all){
          <span class="cgp-tx">${esc(u.text)}</span>
        </div>`; }).join('')}</div>`
     : `<div class="ws-none">No updates recorded for this caregiver yet.</div>`;
-  return `<div class="ws-card cgp">
-    ${cgPanelHead('Updates','refresh',`<button class="btn xs" onclick="openCgUpdate('${c.id}')">+ Add Update</button>`)}
-    ${body}${all?'':cgPanelMore('','openCgAll(\''+c.id+'\',\'updates\')',20,list.length)}
-  </div>`;
+  return cgPanelShell(all, {title:'Updates', icon:'refresh', tint:'h-prefs2', body:body,
+    btn:`<button class="btn xs" onclick="openCgUpdate('${c.id}')">+ Add Update</button>`,
+    onAll:"openCgAll('"+c.id+"','updates')", total:list.length});
 }
 /* The form is a popup, like the note and feedback composers — an update is
    typed occasionally, and a box standing open above the list pushes it down
@@ -9811,7 +9829,7 @@ function viewCaregiverWorkspace(c){
      Overview only; the eight editable sections are Profile only. */
   const overview = `
     ${alertList.length?`<div class="ws-card span2 cg-alert">${alertsBody}</div>`:''}
-    <div class="ws-card span2"><div class="ws-h ws-h-flex"><span class="ws-h-ic">${ic('calendar',15)}<span>Availability Calendar</span></span>
+    <div class="ws-card span2"><div class="ws-h ws-h-flex h-tint h-style"><span class="ws-h-ic">${ic('calendar',15)}<span>Availability Calendar</span></span>
       <button class="btn sm" onclick="openCgFullCal('${c.id}')">View Full Calendar</button></div>${cgCalendar(c)}</div>
     <div class="ws-grid ws-prof">
       ${cgNotesPanel(c,false)}
