@@ -2253,6 +2253,14 @@
 .ws-h.h-skills{color:#1E7A5C;background:#EAF5F0;border-color:#D2E7DE}
 .ws-h.h-lang{color:#97572E;background:#FAF2EA;border-color:#EEDECB}
 .ws-h.h-style{color:#1F6E70;background:#EAF4F4;border-color:#CFE5E5}
+/* One height for all nine profile cards. The body is clipped rather than
+   scrolled, and pfxFit() puts View Details on the ones that overflow. */
+.ws-card.pfx{height:172px;display:flex;flex-direction:column;overflow:hidden}
+.pfx-body{flex:1 1 auto;min-height:0;overflow:hidden}
+.pfx-more{flex:0 0 auto;margin-top:8px;padding-top:8px;border-top:1px solid var(--line);text-align:right}
+/* In the popup the same body runs to whatever length it needs. */
+.pfx-full .str-tags{margin-bottom:2px}
+
 .ws-h.h-comms{color:#2A6899;background:#EDF3F8;border-color:#D7E4EF}
 .ws-h.h-str{color:#1E7A5C;background:#EAF5F0;border-color:#D2E7DE}
 .ws-h.h-care{color:#7A4E8C;background:#F4EEF7;border-color:#E3D4EC}
@@ -2963,6 +2971,9 @@ function render(){
     const el=document.getElementById('cgfSearch');
     if(el){ el.focus(); try{ el.setSelectionRange(keep.start,keep.end); }catch(e){} }
   }
+  /* Measured after the paint, because scrollHeight is only meaningful once
+     the markup is in the document. A no-op on every screen but the profile. */
+  try{ pfxFit(); }catch(e){}
 }
 
 /* ============ TODAY ============ */
@@ -8645,15 +8656,12 @@ function cgChips(c, key){
   return f.opts.filter(o=>seen[o]);
 }
 function cgChipNote(c,key){ const p=cgProf(c); return p[key+'Note']||''; }
-function chipCard(c,key){
+function chipBody(c,key){
   const f=CG_CHIP_FIELDS[key], sel=cgChips(c,key), note=cgChipNote(c,key);
-  return `<div class="ws-card"><div class="ws-h ws-h-flex h-tint ${f.tint}"><span>${f.label}</span>
-      <button class="btn sm" onclick="openChipPick('${c.id}','${key}')">${ic('log',12)} Edit</button></div>
-    <div class="str-tags">${sel.length
+  return `<div class="str-tags">${sel.length
       ? sel.map(t=>`<span class="str-tag primary">${esc(t)}</span>`).join('')
       : (note?'':`<span class="ws-none">${f.none}</span>`)}</div>
-    ${note?`<div class="chip-note">${esc(note)}</div>`:''}
-  </div>`;
+    ${note?`<div class="chip-note">${esc(note)}</div>`:''}`;
 }
 function openChipPick(id,key){
   const c=cgById(id); if(!c||!CG_CHIP_FIELDS[key]) return;
@@ -8701,11 +8709,80 @@ function chipSave(){
    one from the POSITIVE feedback already on file and the scheduler edits
    and saves it. Nothing writes here on its own. */
 function cgFamilies(c){ return cgProf(c).families||''; }
-function familiesCard(c){
+/* ---- The nine fixed-height profile cards ----------------------------
+   One height for all of them, set in CSS on .pfx, so the two columns stay
+   level and a caregiver with eight strengths does not make their row twice
+   as tall as the one beside it. The body is clipped, never scrolled: a
+   scrollbar inside a card is its own kind of mess.
+
+   Every section is a row in this registry rather than its own copy of the
+   same markup — a tenth card is a row here, and the card, the modal and the
+   overflow measurement all follow from it. The body builders are shared with
+   the modal, so the preview and the full view can never drift apart. */
+const PFX_SECS = (function(){
+  const m = {
+    languages:{title:'Languages', tint:'h-lang',
+      edit:c=>`openLangEdit('${c.id}')`, body:c=>langBody(c)},
+    skills:{title:'Skills &amp; Experience', tint:'h-skills',
+      edit:c=>`openTraitPick('${c.id}','skills')`,
+      body:c=>traitTags(cgCareSkills(c),'No skills or experience recorded yet.')}
+  };
+  /* The six chip sections differ only by which field they read. */
+  Object.keys(CG_CHIP_FIELDS).forEach(function(k){
+    const f=CG_CHIP_FIELDS[k];
+    m[k]={title:f.label, tint:f.tint, edit:c=>`openChipPick('${c.id}','${k}')`, body:c=>chipBody(c,k)};
+  });
+  m.families={title:'What Families Appreciate', tint:'h-fam', span:true,
+    edit:c=>`openFamilies('${c.id}')`, body:c=>famBody(c)};
+  return m;
+})();
+
+function pfxCard(c, key){
+  const f=PFX_SECS[key]; if(!f) return '';
+  /* View Details starts hidden and pfxFit() unhides it only where the body
+     genuinely overflows — a card whose content fits is not asked to open a
+     popup that shows the same thing again. */
+  return `<div class="ws-card pfx${f.span?' span2':''}" data-pfx="${key}">
+    <div class="ws-h ws-h-flex h-tint ${f.tint}"><span>${f.title}</span>
+      <button class="btn sm" onclick="${f.edit(c)}">${ic('log',12)} Edit</button></div>
+    <div class="pfx-body">${f.body(c)}</div>
+    <div class="pfx-more" hidden><button class="btn xs" onclick="pfxOpen('${c.id}','${key}')">View Details</button></div>
+  </div>`;
+}
+/* The same body, uncapped. */
+function pfxOpen(id,key){
+  const c=cgById(id), f=PFX_SECS[key]; if(!c||!f) return;
+  mEl.innerHTML=`<div class="mh"><span class="mt">${f.title} \u2014 ${esc(c.name)}</span>
+      <button class="mc" onclick="closeModal()">\u00d7</button></div>
+    <div class="mb"><div class="pfx-full">${f.body(c)}</div>
+      <div class="upd-acts"><button class="btn" onclick="closeModal()">Close</button>
+        <button class="btn pri" onclick="closeModal();${f.edit(c)}">${ic('log',13)} Edit</button></div>
+    </div>`;
+  mbg.classList.add('show');
+}
+/* Runs at the end of every render. Reads the DOM and toggles one attribute —
+   it changes no data and calls nothing that renders, so it cannot loop.
+
+   Hide every button BEFORE measuring any card: a button left visible from the
+   last render shrinks the body it sits in, so a card would be measured in
+   less space than it actually has and latch itself open. Write, then read,
+   then write — one layout pass, and the answer does not depend on what the
+   previous render happened to leave behind. */
+function pfxFit(){
+  const cards=document.querySelectorAll('.ws-card.pfx');
+  if(!cards.length) return;
+  const pairs=[];
+  cards.forEach(function(card){
+    const body=card.querySelector('.pfx-body'), more=card.querySelector('.pfx-more');
+    if(body&&more){ more.hidden=true; pairs.push([body,more]); }
+  });
+  pairs.forEach(function(p){ p[2]=p[0].scrollHeight>p[0].clientHeight+1; });
+  pairs.forEach(function(p){ p[1].hidden=!p[2]; });
+}
+
+function famBody(c){
   const t=cgFamilies(c);
-  return `<div class="ws-card span2"><div class="ws-h ws-h-flex h-tint h-fam"><span>What Families Appreciate</span>
-      <button class="btn sm" onclick="openFamilies('${c.id}')">${ic('log',12)} Edit</button></div>
-    <div class="fam-tx">${t?esc(t):'<span class="ws-none">Nothing recorded yet.</span>'}</div></div>`;
+  return `<div class="fam-tx">${t?esc(t):'<span class="ws-none">Nothing recorded yet.</span>'}</div>`;
 }
 function openFamilies(id){
   const c=cgById(id); if(!c) return;
@@ -8868,17 +8945,14 @@ const ENGLISH_LEVELS=['Native/Bilingual','Fluent','Good','Conversational','Basic
 /* "Native" predates the list. Preselect it as its replacement so reopening
    the editor does not read as unanswered. */
 const ENGLISH_ALIAS={'Native':'Native/Bilingual'};
-function languagesCard(c){
+function langBody(c){
   const langs=(c.languages||[]).slice();
-  return `<div class="ws-card"><div class="ws-h ws-h-flex h-tint h-lang"><span>Languages</span>
-      <button class="btn sm" onclick="openLangEdit('${c.id}')">${ic('log',12)} Edit</button></div>
-    <div class="lang-lab">Languages spoken</div>
+  return `<div class="lang-lab">Languages spoken</div>
     <div class="str-tags">${langs.length
       ? langs.map(l=>`<span class="str-tag primary">${esc(l)}</span>`).join('')
       : '<span class="ws-none">No languages recorded.</span>'}</div>
     <div class="emp-row lang-ep"><span class="emp-l">English proficiency</span>
-      <span class="emp-v">${c.englishProficiency?esc(c.englishProficiency):'Not recorded'}</span></div>
-  </div>`;
+      <span class="emp-v">${c.englishProficiency?esc(c.englishProficiency):'Not recorded'}</span></div>`;
 }
 function openLangEdit(id){
   const c=cgById(id); if(!c) return;
@@ -9734,22 +9808,19 @@ function viewCaregiverWorkspace(c){
     </div>
     ${prefsCard(c)}
 
-    ${languagesCard(c)}
-    <div class="ws-card"><div class="ws-h ws-h-flex h-tint h-skills"><span>Skills &amp; Experience</span>
-        <button class="btn sm" onclick="openTraitPick('${c.id}','skills')">${ic('log',12)} Edit</button></div>
-      ${traitTags(cgCareSkills(c),'No skills or experience recorded yet.')}
-    </div>
+    ${pfxCard(c,'languages')}
+    ${pfxCard(c,'skills')}
 
-    ${chipCard(c,'style')}
-    ${chipCard(c,'comms')}
+    ${pfxCard(c,'style')}
+    ${pfxCard(c,'comms')}
 
-    ${chipCard(c,'personality')}
-    ${chipCard(c,'strengths')}
+    ${pfxCard(c,'personality')}
+    ${pfxCard(c,'strengths')}
 
-    ${chipCard(c,'careTypes')}
-    ${chipCard(c,'hobbies')}
+    ${pfxCard(c,'careTypes')}
+    ${pfxCard(c,'hobbies')}
 
-    ${familiesCard(c)}
+    ${pfxCard(c,'families')}
   </div>`;
 
   return `<button class="ws-back" onclick="${fromCov?'closeCgCalendar()':'backToCaregivers()'}">${ic('chevL',14)} ${fromCov?'Back to Find Coverage':'Back to Caregivers'}</button>
