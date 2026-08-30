@@ -7071,11 +7071,18 @@ function cgDirMatch(c){
   return true;
 }
 function cgDirRow(c){
-  /* City and rating, and nothing else. Gender, driver status, languages and
-     the skill tags all belong on the profile — six lines of chips per row
+  /* City, age and rating, and nothing else. Gender, driver status, languages
+     and the skill tags all belong on the profile — six lines of chips per row
      made a 184-row list unreadable, and none of it is what a scheduler scans
-     this list for. */
+     this list for. Age rides on the city line rather than taking a column of
+     its own, so the row height does not change.
+
+     AxisCare's dateOfBirth is blank on some caregivers, so the bullet and the
+     age both drop out together rather than leaving a dangling separator or an
+     "Age —" that says nothing. */
   const rt=cgRating(c);
+  const age=cgAge(c.dob);
+  const meta=[c.base?gEsc(c.base):'', age!=null?'Age '+age:''].filter(Boolean).join(' \u2022 ') || '\u2014';
   /* The row is already a flex line, so the photo is simply its first child
      and everything after it shifts right on its own. loading="lazy" keeps a
      184-row list from fetching every image at once. */
@@ -7088,7 +7095,7 @@ function cgDirRow(c){
     <div class="cgf-ri-main">
       <div class="cgf-ri-name">${gEsc(c.name)}</div>
       ${rt?`<div class="cgf-ri-stars">${starRow(rt.stars,'sm')}</div>`:''}
-      <div class="cgf-ri-meta">${c.base?gEsc(c.base):'\u2014'}</div>
+      <div class="cgf-ri-meta">${meta}</div>
     </div>
     ${cgReviewCell(c)}
     <span class="cgf-ri-chev">${ic('chev',16)}</span>
