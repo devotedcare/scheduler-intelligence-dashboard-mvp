@@ -9156,6 +9156,49 @@ function cgDateTime(v){
   return d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})
        + ' · ' + d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
 }
+/* ---- Editing a single entry -----------------------------------------
+   Notes, Client Feedback & Concerns and Updates all hold one record per
+   entry in their own state slice, so edit and delete are the same two
+   operations three times over. One helper draws the controls and one pair
+   of handlers does the work, so the three sections cannot behave
+   differently from each other.
+
+   Call Log is deliberately absent: it is DERIVED from state.contactLog —
+   the record of the desk actually ringing this caregiver about a shift —
+   so there is no row here to edit or delete, and rewriting one would be
+   rewriting what happened. */
+const CG_ENTRY={
+  note:  {slice:'cgNotes',    open:'openCgNoteEdit',    gone:'Note deleted'},
+  fb:    {slice:'cgConcerns', open:'openCgConcernEdit', gone:'Entry deleted'},
+  update:{slice:'cgUpdates',  open:'openCgUpdateEdit',  gone:'Update deleted'}
+};
+/* Pencil and bin, swapping to an in-place Delete / Keep once the bin is
+   pressed — asked on the row rather than through a browser dialog, which
+   the rest of the app does not use. An entry with no id predates the store
+   and cannot be addressed, so it gets no controls rather than broken ones. */
+function cgEntryActs(kind, id){
+  if(!id) return '';
+  const asking = state.cgEntryDel === kind+':'+id;
+  return `<span class="cgp-acts">${asking
+    ? `<button class="btn xs danger" onclick="cgEntryDel('${kind}','${id}')">Delete</button>
+       <button class="btn xs" onclick="cgEntryDelAsk('${kind}',null)">Keep</button>`
+    : `<button class="icobtn" title="Edit" aria-label="Edit entry" onclick="${CG_ENTRY[kind].open}('${id}')">${ic('log',13)}</button>
+       <button class="icobtn" title="Delete" aria-label="Delete entry" onclick="cgEntryDelAsk('${kind}','${id}')">${ic('trash',13)}</button>`}</span>`;
+}
+function cgEntryDelAsk(kind,id){ state.cgEntryDel = id ? kind+':'+id : null; cgEntryRepaint(); }
+/* Removes exactly the one record, by id, from its own slice. */
+function cgEntryDel(kind,id){
+  const f=CG_ENTRY[kind]; if(!f) return;
+  state[f.slice]=(state[f.slice]||[]).filter(x=>x.id!==id);
+  state.cgEntryDel=null; cgEntryRepaint();
+  try{ CLOUD.save(); }catch(e){}
+  toast(f.gone);
+}
+/* View All shows the same rows through the same panel builder, so anything
+   that changes an entry has to repaint the popup as well as the page behind
+   it — otherwise a delete pressed in the popup leaves the row on screen. */
+function cgEntryRepaint(){ render(); if(state.cgAll) renderCgAllModal(); }
+
 /* The soft tinted bar the Profile sections use — same classes, same tokens,
    so the two tabs cannot drift apart. Only the header area is tinted; the
    card body stays white. */
@@ -9210,7 +9253,7 @@ function cgNotesPanel(c, all){
        use. The document icon said only "this is a note", which the section
        heading already does. */
     ? `<div class="cgp-list">${shown.map(n=>`<div class="cgp-row cgp-stack">
-         <span class="cgp-when">${esc(cgDateTime(n.at))}</span>
+         <span class="cgp-toprow"><span class="cgp-when">${esc(cgDateTime(n.at))}</span>${cgEntryActs('note',n.id)}</span>
          <span class="cgp-tx">${esc(n.text||'')}</span>
        </div>`).join('')}</div>`
     : `<div class="ws-none">No notes yet.</div>`;
@@ -9220,7 +9263,16 @@ function cgNotesPanel(c, all){
 }
 function openCgNoteAdd(id){
   const c=cgById(id); if(!c) return;
-  state.cgNote={id:id, text:''};
+  state.cgNote={id:id, noteId:null, text:''};
+  state.cgEntryDel=null;
+  renderCgNoteModal(); mbg.classList.add('show');
+}
+/* Same composer, opened on an existing note. Addressed by the note's own id
+   so only that record is touched. */
+function openCgNoteEdit(noteId){
+  const n=(state.cgNotes||[]).find(x=>x.id===noteId); if(!n) return;
+  state.cgNote={id:n.cgId, noteId:noteId, text:n.text||''};
+  state.cgEntryDel=null;
   renderCgNoteModal(); mbg.classList.add('show');
 }
 function cgNoteDraft(v){ if(state.cgNote) state.cgNote.text=v; }
@@ -9228,7 +9280,7 @@ function cgNoteCancel(){ state.cgNote=null; closeModal(); }
 function renderCgNoteModal(){
   const n=state.cgNote; if(!n) return;
   const c=cgById(n.id);
-  mEl.innerHTML=`<div class="mh"><span class="mt">Add Note — ${esc(c?c.name:'')}</span>
+  mEl.innerHTML=`<div class="mh"><span class="mt">${n.noteId?'Edit Note':'Add Note'} — ${esc(c?c.name:'')}</span>
       <button class="mc" onclick="cgNoteCancel()">×</button></div>
     <div class="mb">
       <div class="dp-lab">Note</div>
@@ -9247,9 +9299,18 @@ function cgNoteSave(){
   const c=cgById(n.id), text=String(n.text||'').trim();
   if(!c) return cgNoteCancel();
   if(!text){ toast('Type the note first'); return; }
-  state.cgNotes=(state.cgNotes||[]).concat([{ id:cgUid('cn'), cgId:c.id, text:text,
-    at:new Date().toISOString(), by:state.onShift }]);
-  state.cgNote=null; closeModal(); render(); toast('Note saved');
+  if(n.noteId){
+    /* Only the one record. The note keeps the date it was written on — an
+       edit is a correction, not a new note — and records who changed it. */
+    const ex=(state.cgNotes||[]).find(x=>x.id===n.noteId);
+    if(ex){ ex.text=text; ex.editedBy=state.onShift; ex.editedAt=new Date().toISOString(); }
+  } else {
+    state.cgNotes=(state.cgNotes||[]).concat([{ id:cgUid('cn'), cgId:c.id, text:text,
+      at:new Date().toISOString(), by:state.onShift }]);
+  }
+  state.cgNote=null; closeModal(); cgEntryRepaint();
+  try{ CLOUD.save(); }catch(e){}
+  toast(n.noteId?'Note saved':'Note added');
 }
 
 /* ---- Client Feedback & Concerns ------------------------------------ */
@@ -9279,7 +9340,7 @@ function cgConcernsPanel(c, all){
            once, in the form; an entry recorded before the field existed
            simply has none rather than showing an empty picker. */
         return `<div class="cgp-row cgp-stack">
-         ${t?`<span class="fb-type ${FB_CLASS[t]}">${t}</span>`:''}
+         <span class="cgp-toprow">${t?`<span class="fb-type ${FB_CLASS[t]}">${t}</span>`:'<span></span>'}${cgEntryActs('fb',f.id)}</span>
          <span class="cgp-tx">${esc(f.text||'')}</span>
          <span class="cgp-when">${esc(cgDateTime(f.at))}</span>
        </div>`; }).join('')}</div>`
@@ -9290,7 +9351,16 @@ function cgConcernsPanel(c, all){
 }
 function openCgConcern(id){
   /* No default: the scheduler picks, or nothing is filed. */
-  state.cgFb={id:id, text:'', type:''};
+  state.cgFb={id:id, fbId:null, text:'', type:''};
+  state.cgEntryDel=null;
+  renderCgConcernModal(); mbg.classList.add('show');
+}
+/* Same form, opened on one existing entry — including its type, so an entry
+   filed before the type field existed can be given one here. */
+function openCgConcernEdit(fbId){
+  const f=(state.cgConcerns||[]).find(x=>x.id===fbId); if(!f) return;
+  state.cgFb={id:f.cgId, fbId:fbId, text:f.text||'', type:fbType(f)};
+  state.cgEntryDel=null;
   renderCgConcernModal(); mbg.classList.add('show');
 }
 function cgFbSet(f,v){ if(state.cgFb) state.cgFb[f]=v; if(f==='type') renderCgConcernModal(); }
@@ -9298,7 +9368,7 @@ function cgFbCancel(){ state.cgFb=null; closeModal(); }
 function renderCgConcernModal(){
   const f=state.cgFb; if(!f) return;
   const c=cgById(f.id);
-  mEl.innerHTML=`<div class="mh"><span class="mt">Client Feedback or Concern — ${esc(c?c.name:'')}</span>
+  mEl.innerHTML=`<div class="mh"><span class="mt">${f.fbId?'Edit Feedback or Concern':'Client Feedback or Concern'} — ${esc(c?c.name:'')}</span>
       <button class="mc" onclick="cgFbCancel()">×</button></div>
     <div class="mb">
       <div class="dp-lab">Type</div>
@@ -9317,10 +9387,17 @@ function cgFbSave(){
   const text=String(f.text||'').trim();
   if(FB_TYPES.indexOf(f.type)<0){ toast('Choose a type first'); return; }
   if(!text){ toast('Add the notes first'); return; }
-  state.cgConcerns=(state.cgConcerns||[]).concat([{ id:cgUid('fb'), cgId:f.id, text:text,
-    type:f.type,
-    at:new Date().toISOString(), by:state.onShift }]);
-  state.cgFb=null; closeModal(); render(); toast('Feedback recorded');
+  if(f.fbId){
+    const ex=(state.cgConcerns||[]).find(x=>x.id===f.fbId);
+    if(ex){ ex.text=text; ex.type=f.type; ex.editedBy=state.onShift; ex.editedAt=new Date().toISOString(); }
+  } else {
+    state.cgConcerns=(state.cgConcerns||[]).concat([{ id:cgUid('fb'), cgId:f.id, text:text,
+      type:f.type,
+      at:new Date().toISOString(), by:state.onShift }]);
+  }
+  state.cgFb=null; closeModal(); cgEntryRepaint();
+  try{ CLOUD.save(); }catch(e){}
+  toast(f.fbId?'Feedback saved':'Feedback recorded');
 }
 
 /* ---- Call Log ------------------------------------------------------
@@ -9395,14 +9472,8 @@ function cgUpdatesPanel(c, all){
   const list=cgUpdatesFor(c), shown=all?list:list.slice(0,20);
   const body = shown.length
     ? `<div class="cgp-scroll${all?' tall':''}">${shown.map(function(u){
-        const del = u.id && state.cgUpdDel===u.id;
         return `<div class="cgp-row cgp-stack">
-         <span class="cgp-toprow"><span class="cgp-when">${esc(cgDateTime(u.at))}</span>
-           ${u.id?`<span class="cgp-acts">${del
-             ? `<button class="btn xs danger" onclick="cgUpdDelete('${u.id}')">Delete</button>
-                <button class="btn xs" onclick="cgUpdDelAsk(null)">Keep</button>`
-             : `<button class="icobtn" title="Edit" aria-label="Edit update" onclick="openCgUpdate('${c.id}','${u.id}')">${ic('log',13)}</button>
-                <button class="icobtn" title="Delete" aria-label="Delete update" onclick="cgUpdDelAsk('${u.id}')">${ic('trash',13)}</button>`}</span>`:''}</span>
+         <span class="cgp-toprow"><span class="cgp-when">${esc(cgDateTime(u.at))}</span>${cgEntryActs('update',u.id)}</span>
          <span class="cgp-tx">${esc(u.text)}</span>
        </div>`; }).join('')}</div>`
     : `<div class="ws-none">No updates recorded for this caregiver yet.</div>`;
@@ -9416,8 +9487,14 @@ function cgUpdatesPanel(c, all){
 function openCgUpdate(cgId,id){
   const ex = id ? (state.cgUpdates||[]).find(x=>x.id===id) : null;
   state.cgUpd={cgId:cgId, id:id||null, text:ex?ex.text:''};
-  state.cgUpdDel=null;
+  state.cgEntryDel=null;
   renderCgUpdModal(); mbg.classList.add('show');
+}
+/* The shared edit control addresses an entry by its own id, so this looks
+   the caregiver up from the record rather than being handed both. */
+function openCgUpdateEdit(id){
+  const ex=(state.cgUpdates||[]).find(x=>x.id===id); if(!ex) return;
+  openCgUpdate(ex.cgId, id);
 }
 function cgUpdDraft(v){ if(state.cgUpd) state.cgUpd.text=v; }
 function cgUpdCancel(){ state.cgUpd=null; closeModal(); }
@@ -9445,18 +9522,9 @@ function cgUpdSave(){
     state.cgUpdates=(state.cgUpdates||[]).concat([{ id:cgUid('up'), cgId:u.cgId, text:text,
       at:new Date().toISOString(), by:state.onShift }]);
   }
-  state.cgUpd=null; closeModal(); render();
+  state.cgUpd=null; closeModal(); cgEntryRepaint();
   try{ CLOUD.save(); }catch(e){}
   toast(u.id?'Update saved':'Update added');
-}
-/* Asks once in place rather than through a browser dialog, which the rest
-   of the app does not use. */
-function cgUpdDelAsk(id){ state.cgUpdDel=id; render(); }
-function cgUpdDelete(id){
-  state.cgUpdates=(state.cgUpdates||[]).filter(x=>x.id!==id);
-  state.cgUpdDel=null; render();
-  try{ CLOUD.save(); }catch(e){}
-  toast('Update deleted');
 }
 
 /* View All opens the same panel with no cap, rather than a second layout
