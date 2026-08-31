@@ -2363,7 +2363,7 @@ const state = {
   contactLog:{},
   handoff:{opener:[], closer:[]},
   updates:[],
-  cgConcerns:[], cgUpdates:[], cgNotes:[], cgRatings:[], cgProfiles:[],
+  cgConcerns:[], cgUpdates:[], cgNotes:[], cgRatings:[], cgProfiles:[], schedChanges:[],
   updEdit:null,          /* id being edited, or 'new' while composing */
   view:'avail',
   filters:{schedFilter:'open', availSearch:''},
@@ -2913,6 +2913,7 @@ const NAVGROUPS=[
   {link:{id:'carenotes', label:'Care Notes Review'}},
   {link:{id:'open', label:'Open Shifts'}},
   {link:{id:'coverage', label:'Find Coverage'}},
+  {link:{id:'schedupdates', label:'Schedule Updates'}},
   {link:{id:'handoff', label:'Shift Handoff'}},
   {link:{id:'attendance', label:'Attendance'}},
   {link:{id:'tasks', label:'Weekly Tasks'}},
@@ -2954,7 +2955,7 @@ function navLink(it, sub){
 /* Every screen the router can reach. Today is deliberately absent - the
    dashboard no longer has that page, and state.view falls back to 'avail'. */
 const VIEWS={open:viewOpen,coverage:viewCoverage,clientcal:viewClientSchedule,updates:viewUpdates,staff:viewStaffClient,calloff:viewCallOff,
-    avail:viewAvail,log:viewLog,handoff:viewHandoff,assistant:viewAssistant,tasks:viewTasks,reports:viewReports,forms:viewForms,meds:viewMeds,guides:viewGuides,infographics:viewInfographics,attendance:viewAttendance,carenotes:viewCareNotes};
+    avail:viewAvail,log:viewLog,handoff:viewHandoff,assistant:viewAssistant,tasks:viewTasks,reports:viewReports,forms:viewForms,meds:viewMeds,guides:viewGuides,infographics:viewInfographics,attendance:viewAttendance,carenotes:viewCareNotes,schedupdates:viewSchedUpdates};
 function renderNav(){
   let html='';
   NAVGROUPS.forEach(g=>{
@@ -3065,6 +3066,7 @@ function findReplacement(shiftId, reason){
   s.callOff=false; s.replacementNeeded=true; s.replacementReason=reason||s.replacementReason||'No-show / no clock-in';
   const cl=clById(s.clientId);
   if(orig) recordAttendance(orig, /late/i.test(s.replacementReason)?'late':'noshow', {client:cl.name, date:new Date()});
+  logSchedChange('replacement', s, {prevCaregiver:orig?cgById(orig).name:'', reason:s.replacementReason});
   logActivity(`Replacement needed \u2014 ${orig?cgById(orig).name:'caregiver'} ${/late/i.test(s.replacementReason)?'not arriving':'no clock-in'} for ${cl.name}. Searching for coverage.`, s.id);
   toast('Replacement needed \u2014 loading coverage options');
   openFindCoverage(shiftId);
@@ -3360,7 +3362,7 @@ function todayOutcome(shiftId, outcome){
   else if(outcome==='late'){ e.runningLate=e.runningLate||15; e.lastCall='Running late'; if(s.assigned) recordAttendance(s.assigned,'late',{client:clName,date:new Date()}); logActivity(`${cgName} \u2014 running late (${clName})`, shiftId); toast(cgName+' \u2014 running late'); }
   else if(outcome==='onway'){ e.onTheWay=true; e.lastCall='On the way'; logActivity(`${cgName} \u2014 on the way (${clName})`, shiftId); toast('Marked on the way'); }
   else if(outcome==='confirmed'){ e.onTheWay=true; e.confirmed=true; e.resolved=true; resolveProblem({type:'Caregiver arrived', client:clName, caregiver:cgName, detail:'Confirmed arriving', shiftId}); state.todayCallExpand=null; toast('Confirmed arriving \u2014 resolved'); }
-  else if(outcome==='calloff'){ const co=s.assigned; e.resolved=true; s.prevCaregiver=s.assigned; s.assigned=null; s.status='open'; s.callOff=true; s.callOffReason=s.callOffReason||'Called off'; s.callOffBy=state.onShift; s.openedAt=new Date(); if(co) recordAttendance(co,'calloff',{notice:noticeLevel(s.start,new Date()),reason:s.callOffReason,client:clName,date:new Date()}); state.todayCallExpand=null; logActivity(`${cgName} \u2014 call-off marked by ${state.onShift}, ${clName} shift reopened`, shiftId); toast('Call-off logged \u2014 shift opened, finding coverage'); openFindCoverage(shiftId); return; }
+  else if(outcome==='calloff'){ const co=s.assigned; e.resolved=true; s.prevCaregiver=s.assigned; s.assigned=null; s.status='open'; s.callOff=true; s.callOffReason=s.callOffReason||'Called off'; s.callOffBy=state.onShift; s.openedAt=new Date(); if(co) recordAttendance(co,'calloff',{notice:noticeLevel(s.start,new Date()),reason:s.callOffReason,client:clName,date:new Date()}); state.todayCallExpand=null; logSchedChange('calloff', s, {prevCaregiver:cgName, reason:s.callOffReason}); logActivity(`${cgName} \u2014 call-off marked by ${state.onShift}, ${clName} shift reopened`, shiftId); toast('Call-off logged \u2014 shift opened, finding coverage'); openFindCoverage(shiftId); return; }
   else if(outcome==='wrong'){ e.resolved=true; e.dismissed=true; resolveProblem({type:'Dismissed', client:clName, caregiver:cgName, detail:'Wrong alert \u2014 dismissed', shiftId}); state.todayCallExpand=null; toast('Alert dismissed \u2014 wrong alert'); }
   else if(outcome==='resolved'){ e.resolved=true; e.clockIn=true; resolveProblem({type:'No-show resolved', client:clName, caregiver:cgName, detail:'Caregiver clocked in', shiftId}); state.todayCallExpand=null; toast('Resolved'); }
   if(state.todayCallExpand===shiftId) state.todayCallExpand=null;
@@ -10760,6 +10762,44 @@ function renderCallOffModal(){
     <div class="mf"><button class="btn" onclick="closeModal()">Cancel</button>
       <button class="btn pri" ${s?'':'disabled'} onclick="submitCallOff()">${ic('check',15)} Submit call-off</button></div>`;
 }
+/* ---- Schedule Updates: the record behind the page --------------------
+   Every change to a scheduled shift is written here as it happens, so the
+   page is a history rather than a filter over the current board. Open
+   shifts and call-offs are live state — a shift that gets covered stops
+   being a call-off, and yesterday's change is simply gone — which is why
+   this is its own append-only slice rather than something derived.
+
+   Names are snapshotted beside the ids. A saved overlay can outlive a
+   caregiver id (ROSTER.reconcile exists for exactly that), and a history
+   that renders "undefined" a month later is worse than no history. */
+const SCHED_KINDS={
+  calloff:    {label:'Call-off \u2014 reopened', tone:'bad'},
+  cancelled:  {label:'Call-off \u2014 cancelled', tone:'bad'},
+  replacement:{label:'Replacement needed',       tone:'bad'},
+  covered:    {label:'Shift covered',            tone:'ok'},
+  assigned:   {label:'Caregiver assigned',       tone:'ok'}
+};
+function logSchedChange(kind, s, extra){
+  if(!s || !SCHED_KINDS[kind]) return;
+  extra=extra||{};
+  var cl=null, cg=null, prev=null;
+  try{ cl=clById(s.clientId); }catch(e){}
+  try{ if(extra.caregiverId) cg=cgById(extra.caregiverId); }catch(e){}
+  try{ if(s.prevCaregiver) prev=cgById(s.prevCaregiver); }catch(e){}
+  if(!state.schedChanges) state.schedChanges=[];
+  state.schedChanges.push({
+    id:'sc'+Date.now().toString(36)+Math.random().toString(36).slice(2,7),
+    at:new Date().toISOString(), kind:kind,
+    clientId:s.clientId||null, client:cl?cl.name:'',
+    shiftStart:s.start?new Date(s.start).toISOString():null,
+    shiftEnd:s.end?new Date(s.end).toISOString():null,
+    caregiverId:extra.caregiverId||null, caregiver:cg?cg.name:(extra.caregiver||''),
+    prevCaregiver:prev?prev.name:(extra.prevCaregiver||''),
+    reason:extra.reason||'', by:state.onShift||''
+  });
+  try{ CLOUD.save(); }catch(e){}
+}
+
 function callOffPickCg(cgId){ modalState.coCg=cgId; const fs=filledShiftsOf(cgId); modalState.coShift=fs.length?fs[0].id:null; renderCallOffModal(); }
 function callOffPickShift(id){ modalState.coShift=id; renderCallOffModal(); }
 function pickReason(el,r){ document.querySelectorAll('#coReasons .radio-opt').forEach(o=>o.classList.remove('sel')); el.classList.add('sel'); modalState.reason=r; }
@@ -10774,10 +10814,12 @@ function submitCallOff(){
   const stamp=`Call-off entered by ${state.onShift} \u2014 ${cg?cg.name:'caregiver'} / ${cl.name} (${modalState.reason})`;
   if(modalState.replacement){
     s.status='open'; s.openedAt=now;
+    logSchedChange('calloff', s, {prevCaregiver:cg?cg.name:'', reason:modalState.reason});
     logActivity(stamp+'. Shift reopened as an open shift for coverage.', s.id);
     closeModal(); toast('Call-off logged \u2014 shift reopened for coverage'); go('open');
   } else {
     s.status='cancelled';
+    logSchedChange('cancelled', s, {prevCaregiver:cg?cg.name:'', reason:modalState.reason});
     resolveProblem({type:'Call-off \u2014 no replacement needed', client:cl.name, caregiver:cg?cg.name:'\u2014', detail:`${modalState.reason} \u00b7 entered by ${state.onShift}`, shiftId:s.id});
     logActivity(stamp+'. No replacement needed.', s.id);
     closeModal(); toast('Call-off logged \u2014 no replacement needed'); render();
@@ -10855,7 +10897,7 @@ function dispDecline(shiftId,cgId,reason){ pushContact(shiftId,cgId,'declined',{
 function dispCallback(shiftId,cgId,label,mins){ pushContact(shiftId,cgId,'callback',{callback:label, callbackAt:new Date(NOW.getTime()+mins*60000).toISOString()}); toast(cgById(cgId).name+' \u2014 callback in '+label); render(); }
 function cgBlockFor(cgId, clientId){ const cg=cgById(cgId); const list=(cg&&cg.ops&&cg.ops.clientRestr)||[]; return list.find(r=>r.client===clientId)||null; }
 function dispAccept(shiftId,cgId){ const s=state.shifts.find(x=>x.id===shiftId); if(!s) return; const blk=cgBlockFor(cgId, s.clientId); if(blk){ openBlockWarn(shiftId,cgId); return; } doAssign(shiftId,cgId); }
-function doAssign(shiftId,cgId,override){ const s=state.shifts.find(x=>x.id===shiftId); pushContact(shiftId,cgId,'accepted',{note:'Assigned'}); s.status='filled'; s.assigned=cgId; s.callOff=false; s.replacementNeeded=false; s.escalated=false; s.filledToday=true; const cl=clById(s.clientId); logActivity(`${cl.name} shift reassigned to ${cgById(cgId).name}`, shiftId); if(override){ logActivity(`Client-block override \u2014 ${cgById(cgId).name} assigned to ${cl.name} despite ${override.level==='hard'?'HARD':'soft'} block (approved by ${override.by||state.onShift}): ${override.reason}`, shiftId); } resolveProblem({type:'Shift covered', client:cl.name, caregiver:cgById(cgId).name, detail:'Replacement assigned', shiftId}); toast(cgById(cgId).name+' assigned \u2713 \u2014 shift covered'); state.autoOffer=null; state.aoManage=false; closeModal(); render(); }
+function doAssign(shiftId,cgId,override){ const s=state.shifts.find(x=>x.id===shiftId); pushContact(shiftId,cgId,'accepted',{note:'Assigned'}); s.status='filled'; s.assigned=cgId; s.callOff=false; s.replacementNeeded=false; s.escalated=false; s.filledToday=true; const cl=clById(s.clientId); logSchedChange('covered', s, {caregiverId:cgId}); logActivity(`${cl.name} shift reassigned to ${cgById(cgId).name}`, shiftId); if(override){ logActivity(`Client-block override \u2014 ${cgById(cgId).name} assigned to ${cl.name} despite ${override.level==='hard'?'HARD':'soft'} block (approved by ${override.by||state.onShift}): ${override.reason}`, shiftId); } resolveProblem({type:'Shift covered', client:cl.name, caregiver:cgById(cgId).name, detail:'Replacement assigned', shiftId}); toast(cgById(cgId).name+' assigned \u2713 \u2014 shift covered'); state.autoOffer=null; state.aoManage=false; closeModal(); render(); }
 function openBlockWarn(shiftId,cgId){ const s=state.shifts.find(x=>x.id===shiftId), cg=cgById(cgId), cl=clById(s.clientId), blk=cgBlockFor(cgId,s.clientId); const hard=(blk.level||'hard')==='hard'; state._bw={shiftId,cgId,hard};
   mEl.innerHTML=`<div class="mh"><span class="mt">${hard?'Assignment blocked':'Assignment warning'}</span><button class="mc" onclick="closeModal()">×</button></div>
   <div class="mb">
@@ -10886,6 +10928,7 @@ function logContact(result, opt){
 function assignShift(shiftId, cgId){
   const s=state.shifts.find(x=>x.id===shiftId);
   s.status='filled'; s.assigned=cgId; s.callOff=false;
+  logSchedChange('assigned', s, {caregiverId:cgId});
   if(!state.contactLog[shiftId]) state.contactLog[shiftId]=[];
   if(!lastContact(shiftId,cgId) || lastContact(shiftId,cgId).result!=='accepted'){
     state.contactLog[shiftId].push({caregiverId:cgId, by:state.onShift, time:new Date(), result:'accepted', reason:'', note:'Assigned'});
@@ -11258,6 +11301,51 @@ function applyAttFilter(){
   Object.keys(f).forEach(k=>{ if(!f[k]) delete f[k]; });
   state.attFilter=f; closeModal(); render();
 }
+/* ---- Schedule Updates ------------------------------------------------
+   Every recorded schedule change, across every client, newest first. Reads
+   state.schedChanges and nothing else: the current board cannot answer this
+   question, because a shift that has been covered no longer looks like a
+   call-off and yesterday's changes are gone from it entirely. */
+function schedChangesSorted(){
+  return (state.schedChanges||[]).map((x,i)=>Object.assign({_i:i},x)).sort(feedCmp);
+}
+function schedShiftText(x){
+  if(!x.shiftStart) return '\u2014';
+  const d=new Date(x.shiftStart);
+  let out=d.toLocaleDateString('en-US',{month:'short',day:'numeric'})+' \u00b7 '+
+    d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
+  if(x.shiftEnd) out+='\u2013'+new Date(x.shiftEnd).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
+  return out;
+}
+function schedWhoText(x){
+  /* Who it moved between, in the direction it moved. */
+  if(x.kind==='covered'||x.kind==='assigned')
+    return x.prevCaregiver ? esc(x.prevCaregiver)+' \u2192 '+esc(x.caregiver||'\u2014') : esc(x.caregiver||'\u2014');
+  return esc(x.prevCaregiver||x.caregiver||'\u2014');
+}
+function viewSchedUpdates(){
+  const rows=schedChangesSorted();
+  const head='<div class="upd-head"><span class="upd-h">Schedule Updates</span></div>';
+  if(!rows.length) return head+emptyState('No schedule changes recorded yet',
+    'Call-offs, replacements and shifts being covered are recorded here as they happen, across every client.');
+  const body=rows.map(function(x){
+    const k=SCHED_KINDS[x.kind]||{label:x.kind,tone:'neu'};
+    return '<tr>'+
+      '<td class="c-d">'+esc(updDate({at:x.at, created:x.at}))+'</td>'+
+      '<td class="at-cg">'+(gEsc(x.client||'')||'<span class="at-dash">\u2014</span>')+'</td>'+
+      '<td><span class="at-p '+k.tone+'">'+esc(k.label)+'</span></td>'+
+      '<td>'+schedWhoText(x)+'</td>'+
+      '<td>'+esc(schedShiftText(x))+'</td>'+
+      '<td class="at-note">'+(gEsc(x.reason||'')||'<span class="at-dash">\u2014</span>')+'</td>'+
+      '<td class="c-by">'+(gEsc(x.by||'')||'<span class="at-dash">\u2014</span>')+'</td>'+
+    '</tr>';
+  }).join('');
+  return head+'<div class="at-wrap"><table class="at-tbl">'+
+    '<thead><tr><th class="c-d">Changed</th><th class="c-cl">Client</th><th class="c-t">Change</th>'+
+    '<th class="c-cg">Caregiver</th><th class="c-cv">Shift</th><th>Reason</th><th class="c-by">By</th></tr></thead>'+
+    '<tbody>'+body+'</tbody></table></div>';
+}
+
 function viewAttendance(){
   const all=(state.attendance||[]).slice().sort((a,b)=> (b.date||'').localeCompare(a.date||''));
   const rows=all.filter(attMatches);
@@ -13063,6 +13151,7 @@ const CLOUD = (function(){
        saves a record present in the boot baseline — the same path that lost
        the rating. */
     { path:'cgProfiles',        key:'id' },
+    { path:'schedChanges',      key:'id' },
     { path:'taskArchive',       key:'id' },
     { path:'careNotes',         key:'id' },
     { path:'followUps',         key:'id' },
