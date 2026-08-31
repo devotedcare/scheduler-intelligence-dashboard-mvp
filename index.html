@@ -6159,15 +6159,50 @@ function viewClientSchedule(){
 
    Newest first, edited in place. The list is a tracked CLOUD slice, so an
    update posted by one scheduler is on the other two desks. */
+/* ---- Feed ordering, one comparator for every dated list ------------
+   Newest first, always, worked out from real timestamps rather than by
+   comparing the stored strings.
+
+   String(b.at).localeCompare(String(a.at)) held up only while every record
+   carried an ISO string. A record whose `at` is a Date object stringifies to
+   "Wed Sep 02 2026 ..." and one missing the field stringifies to
+   "undefined" — both start with a letter, and a letter sorts above every
+   "2026-..." date, so one odd record floats to the top of the list whatever
+   its real date says. Comparing numbers cannot do that.
+
+   Nothing here needs calling when an entry is added: the renderer sorts on
+   every paint, so a new update, note or feedback entry lands in its right
+   place the moment it is saved. */
+function tsMs(v){
+  if(v instanceof Date) return v.getTime();
+  if(typeof v==='number') return v;
+  const t=Date.parse(v);
+  return isNaN(t)?NaN:t;
+}
+/* The instant an entry belongs at: the date it carries, falling back to when
+   it was saved for a record with no usable date of its own — which is what
+   keeps an entry that shows no time in its right place. */
+function feedWhen(x){
+  const a=tsMs(x&&x.at); if(!isNaN(a)) return a;
+  return feedPosted(x);
+}
+function feedPosted(x){
+  const c=tsMs(x&&(x.created||x.created_at)); return isNaN(c)?0:c;
+}
+/* Same instant falls back to when it was actually posted, then to insertion
+   order, so the result is total and stable rather than depending on however
+   the cloud handed the array back. */
+function feedCmp(a,b){
+  return feedWhen(b)-feedWhen(a) || feedPosted(b)-feedPosted(a) || ((b._i||0)-(a._i||0));
+}
+
 function updSorted(){
   /* Newest first by the date the update carries, then by when it was
      actually posted. The second key is what makes same-day updates order
      at all: every update dated the same day is stored at noon on that
      date, so comparing `at` alone leaves them tied and their order comes
      down to however the cloud handed the array back. */
-  return (state.updates||[]).slice().sort((a,b)=>
-    String(b.at).localeCompare(String(a.at)) ||
-    String(b.created||'').localeCompare(String(a.created||'')));
+  return (state.updates||[]).map((u,i)=>Object.assign({_i:i},u)).sort(feedCmp);
 }
 /* Date from `at` - the day the update is about - and the time from
    `created`, which is when it was actually posted. `at` is stored at noon
@@ -9217,9 +9252,8 @@ function cgPanelShell(all, o){
    insertion order breaks it — otherwise the second one sorts above or below
    the first at random. */
 function cgNotesList(c){
-  return (state.cgNotes||[]).map((n,i)=>({n:n,i:i})).filter(x=>x.n.cgId===c.id)
-    .sort((a,b)=> String(b.n.at).localeCompare(String(a.n.at)) || (b.i-a.i))
-    .map(x=>x.n);
+  return (state.cgNotes||[]).map((n,i)=>Object.assign({_i:i},n))
+    .filter(x=>x.cgId===c.id).sort(feedCmp);
 }
 function cgNotesPanel(c, all){
   const list=cgNotesList(c), shown=all?list:list.slice(0,20);
@@ -9290,8 +9324,8 @@ function cgNoteSave(){
 
 /* ---- Client Feedback & Concerns ------------------------------------ */
 function cgConcernsFor(id){
-  return (state.cgConcerns||[]).filter(x=>x.cgId===id)
-    .slice().sort((a,b)=>String(b.at).localeCompare(String(a.at)));
+  return (state.cgConcerns||[]).map((f,i)=>Object.assign({_i:i},f))
+    .filter(x=>x.cgId===id).sort(feedCmp);
 }
 /* What an entry IS — not how far along it is. Positive feedback belongs in
    the same history as a complaint, so the section needs a kind, and the
@@ -9430,18 +9464,18 @@ function cgUpdatesFor(c){
      update can be edited or deleted. A derived entry (when
      CG_UPDATES_SYSTEM is on) has no id and gets no pencil or trash — it is
      not the desk's to change. */
-  /* seq is the insertion index: two updates posted in the same second tie on
-     `at`, and without it the earlier one sorts on top of the later. */
+  /* _i is the insertion index, feedCmp's last tiebreak: two updates posted in
+     the same second tie on `at`, and without it the earlier one sorts on top
+     of the later. */
   const out=(state.cgUpdates||[]).map((u,i)=>({u:u,i:i})).filter(x=>x.u.cgId===c.id)
-    .map(x=>({id:x.u.id, at:x.u.at, text:x.u.text, by:x.u.by, seq:x.i}));
+    .map(x=>({id:x.u.id, at:x.u.at, text:x.u.text, by:x.u.by, created:x.u.created, _i:x.i}));
   if(CG_UPDATES_SYSTEM){
     (c.ops.verifyHistory||[]).forEach(function(v){
       out.push({at:v.date, text:VERIFY_TEXT[v.result]||'Availability checked', by:v.by});
     });
     if(c.ops.lastUpdated) out.push({at:c.ops.lastUpdated, text:'Profile updated', by:c.ops.lastUpdatedBy});
   }
-  return out.filter(x=>x.at)
-    .sort((a,b)=> (new Date(b.at)-new Date(a.at)) || ((b.seq||0)-(a.seq||0)));
+  return out.filter(x=>x.at).sort(feedCmp);
 }
 function cgUpdatesPanel(c, all){
   const list=cgUpdatesFor(c), shown=all?list:list.slice(0,20);
