@@ -2271,10 +2271,9 @@
    Raise or lower this one number to trade preview depth against whitespace. */
 .ws-card.pfx{height:260px;display:flex;flex-direction:column;overflow:hidden}
 .pfx-body{flex:1 1 auto;min-height:0;overflow:hidden;position:relative}
-/* A row cut in half reads as a rendering fault, so a clipped body fades out
-   and says "there is more" instead. Only on the cards that actually clip. */
-.pfx.clipped .pfx-body::after{content:"";position:absolute;left:0;right:0;bottom:0;height:26px;
-  background:linear-gradient(to bottom,rgba(255,255,255,0),#fff);pointer-events:none}
+/* No fade over the cut. Everything on a card is full opacity; where the body
+   is longer than the card it is simply clipped, and View Details is what says
+   there is more. */
 /* The Overview panels scrolled inside themselves (.cgp-scroll 232px,
    .cgp-list 240px). Inside a fixed-height card the clip and View Details do
    that job, and a scrollbar inside a clipped card is two scrollers arguing —
@@ -8832,10 +8831,7 @@ function pfxFit(){
     if(body&&more){ more.hidden=true; pairs.push([body,more]); }
   });
   pairs.forEach(function(p){ p[2]=p[0].scrollHeight>p[0].clientHeight+1; });
-  pairs.forEach(function(p){
-    p[1].hidden=!p[2];
-    p[0].parentNode.classList.toggle('clipped', p[2]);
-  });
+  pairs.forEach(function(p){ p[1].hidden=!p[2]; });
 }
 
 /* ---- Client & Assignment Preferences ---------------------------------
@@ -10014,12 +10010,16 @@ function workPrefsBody(c){
   if(AVAIL.openDays(c.id).some(o=>['Sat','Sun'].includes(dayKeyFromDate(o.day)))) avTags.push('Weekend Available');
   const tagsHtml = avTags.length?`<div class="av2-tags">${avTags.map(t=>`<span class="av2-tag">${t}</span>`).join('')}</div>`:'';
   const row=(l,v)=>`<div class="emp-row"><span class="emp-l">${l}</span><span class="emp-v">${v}</span></div>`;
+  /* Driving, a vehicle and permission to carry a client are three separate
+     facts and get three rows. A caregiver can hold a licence with no car, or
+     a car they may not put a client in. */
   return `<div class="emp-grid">
         ${row('Preferred minimum shift', fmtHours(span.min))}
         ${row('Preferred maximum shift', fmtHours(span.max))}
         <div class="emp-row wp-wide"><span class="emp-l">Preferred weekly hours</span><span class="emp-v">${weekly}</span></div>
       </div>
       <div class="emp-grid wp-travel">
+        ${row('Driving', c.driver?'Yes':'No')}
         ${row('Has own vehicle', c.ownVehicle?'Yes':'No')}
         ${row('Can drive clients', canDriveClients(c)?'Yes':'No')}
         ${row('Preferred service areas', c.prefCities.length?esc(c.prefCities.join(', ')):'Not recorded')}
