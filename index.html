@@ -2270,6 +2270,13 @@
    which run 320-355px unclipped — a five-row preview behind View Details.
    Raise or lower this one number to trade preview depth against whitespace. */
 .ws-card.pfx{height:260px;display:flex;flex-direction:column;overflow:hidden}
+/* The two dense rows — Work Preferences / Employment Summary and Assignment &
+   Client Rules / Client & Assignment Preferences — are taller, because those
+   four sections are read in full rather than previewed. 376 clears the
+   tallest of them (Work Preferences at 303px of body) with room for a
+   service-areas list that wraps. Still one height per row, and every card in
+   a row identical. */
+.ws-card.pfx.pfx-tall{height:376px}
 .pfx-body{flex:1 1 auto;min-height:0;overflow:hidden;position:relative}
 /* No fade over the cut. Everything on a card is full opacity; where the body
    is longer than the card it is simply clipped, and View Details is what says
@@ -8765,13 +8772,16 @@ const PFX_SECS = (function(){
     /* Every card in the two-column grid is in here, dense ones included, so
        a row can never end up with one card taller than the other. Eight of
        them: four even rows, nothing left over at the bottom. */
-    workPrefs:{title:'Work Preferences', tint:'h-prefs',
+    workPrefs:{title:'Work Preferences', tint:'h-prefs', tall:true, noMore:true,
       edit:c=>`editAvailability('${c.id}','prefs')`, body:c=>workPrefsBody(c)},
-    employment:{title:'Employment Summary', tint:'h-emp',
+    employment:{title:'Employment Summary', tint:'h-emp', tall:true, noMore:true,
       edit:c=>`openEmpEdit('${c.id}')`, body:c=>employmentBody(c)},
-    rules:{title:'Assignment &amp; Client Rules', tint:'h-rules',
+    /* Not one of the three, but it shares a row with Client & Assignment
+       Preferences and a row is one height. It keeps View Details: a caregiver
+       with a long list of blocks can still outrun the card. */
+    rules:{title:'Assignment &amp; Client Rules', tint:'h-rules', tall:true,
       edit:c=>`openAcrEdit('${c.id}')`, body:c=>clientBlocksBody(c)},
-    prefs:{title:'Client &amp; Assignment Preferences', tint:'h-prefs2',
+    prefs:{title:'Client &amp; Assignment Preferences', tint:'h-prefs2', tall:true, noMore:true,
       edit:c=>`openPrefsEdit('${c.id}')`, body:c=>prefsBody(c)},
     languages:{title:'Languages', tint:'h-lang',
       edit:c=>`openLangEdit('${c.id}')`, body:c=>langBody(c)}
@@ -8788,12 +8798,14 @@ function pfxCard(c, key){
   const f=PFX_SECS[key]; if(!f) return '';
   /* View Details starts hidden and pfxFit() unhides it only where the body
      genuinely overflows — a card whose content fits is not asked to open a
-     popup that shows the same thing again. */
-  return `<div class="ws-card pfx${f.span?' span2':''}" data-pfx="${key}">
+     popup that shows the same thing again. A noMore section has none at all:
+     its row is sized to show everything, so the link would only ever be
+     noise. pfxFit skips those cards, since it looks for the pair. */
+  return `<div class="ws-card pfx${f.tall?' pfx-tall':''}${f.span?' span2':''}" data-pfx="${key}">
     <div class="ws-h ws-h-flex h-tint ${f.tint}"><span>${f.title}</span>
       <button class="btn sm" onclick="${f.edit(c)}">${ic('log',12)} Edit</button></div>
     <div class="pfx-body">${f.body(c)}</div>
-    <div class="pfx-more" hidden><button class="btn xs" onclick="pfxOpen('${c.id}','${key}')">View Details</button></div>
+    ${f.noMore?'':`<div class="pfx-more" hidden><button class="btn xs" onclick="pfxOpen('${c.id}','${key}')">View Details</button></div>`}
   </div>`;
 }
 /* The same body, uncapped. */
