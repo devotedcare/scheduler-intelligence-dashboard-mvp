@@ -10027,7 +10027,9 @@ function sampleTag(c){ return isSample(c) ? '<span class="sample-badge" title="S
 var NO_AXIS_SOURCE={
 
   meds:'AxisCare\u2019s API cannot supply medication lists. This is a limitation in AxisCare itself, confirmed on the Client Concierge dashboard, and no redeploy or re-sync would change it.',
-  attendance:'AxisCare records no attendance history for a caregiver. Punctuality and no-shows are derivable from visit clock-in times, which is not built yet.',
+  /* Attendance had an entry here; removed on request. The desk knows this
+     screen is the dashboard's own record, and did not want the note on it.
+     The screen still gets the error and partial-load banners above. */
   log:'The contact log is this dashboard\u2019s own record of who was called. Nothing is imported from AxisCare.'
 };
 
