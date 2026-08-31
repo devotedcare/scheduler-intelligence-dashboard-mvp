@@ -6963,9 +6963,36 @@ function verifyFlow(c){
 function vfSendText(id){ const c=cgById(id); vfEntries(c).unshift({date:new Date(),by:state.onShift,result:'reminder'}); c.ops.lastReminder=new Date(); render(); toast('Verification text sent to '+c.name+' (simulated) \u2014 '+cadenceTimePeriod(c)+' availability requested'); }
 function vfNoResponse(id){ const c=cgById(id); vfEntries(c).unshift({date:new Date(),by:state.onShift,result:'noresponse'}); render(); const u=noRespCount(c); toast('Logged no response from '+c.name+' \u2014 '+u+' attempt'+(u===1?'':'s')+'. Next step updated.'); }
 function vfReached(id){ const c=cgById(id); vfEntries(c).unshift({date:new Date(),by:state.onShift,result:'reached'}); c.ops.archived=false; state.cgConfirmOpen=id; render(); toast('Marked reached \u2014 record their availability to confirm'); }
-function vfInactive(id){ const c=cgById(id); c.active=false; c.ops.inPool=false; vfEntries(c).unshift({date:new Date(),by:state.onShift,result:'inactive'}); render(); toast(c.name+' marked Inactive \u2014 removed from scheduling pool'); }
+/* Marking somebody Inactive is a ROSTER decision, so it writes
+   caregiver_profile.employment_status — the same column the Employment
+   Summary edits and applyProfile() reads at boot. Setting c.active alone is
+   no longer enough: ROSTER.reconcile() re-derives it from that column after
+   every overlay application, so an unsaved flag is undone on the next poll
+   and on every reload, leaving ops.inPool false on a caregiver who is back
+   on the Active Roster. */
+function vfInactive(id){ const c=cgById(id); if(!c) return;
+  const wasStatus=c.ops.employmentStatus, wasActive=c.active, wasPool=c.ops.inPool;
+  ROSTER.setEmploymentStatus(c,'Inactive'); c.ops.inPool=false;
+  vfEntries(c).unshift({date:new Date(),by:state.onShift,result:'inactive'}); render();
+  ROSTER.saveEmploymentStatus(c, state.onShift).then(function(){
+    toast(c.name+' marked Inactive \u2014 removed from scheduling pool');
+  }, function(err){
+    c.ops.employmentStatus=wasStatus; c.active=wasActive; c.ops.inPool=wasPool; render();
+    toast('Could not save \u2014 '+((err&&err.message)||err));
+  });
+}
 function vfRemovePool(id){ const c=cgById(id); c.ops.inPool=false; vfEntries(c).unshift({date:new Date(),by:state.onShift,result:'pool'}); render(); toast(c.name+' removed from the available pool'); }
-function vfArchive(id){ const c=cgById(id); c.ops.archived=true; c.active=false; c.ops.inPool=false; vfEntries(c).unshift({date:new Date(),by:state.onShift,result:'archived'}); render(); toast(c.name+' archived'); }
+function vfArchive(id){ const c=cgById(id); if(!c) return;
+  const wasStatus=c.ops.employmentStatus, wasActive=c.active, wasPool=c.ops.inPool, wasArch=c.ops.archived;
+  c.ops.archived=true; ROSTER.setEmploymentStatus(c,'Inactive'); c.ops.inPool=false;
+  vfEntries(c).unshift({date:new Date(),by:state.onShift,result:'archived'}); render();
+  ROSTER.saveEmploymentStatus(c, state.onShift).then(function(){
+    toast(c.name+' archived');
+  }, function(err){
+    c.ops.archived=wasArch; c.ops.employmentStatus=wasStatus; c.active=wasActive; c.ops.inPool=wasPool; render();
+    toast('Could not save \u2014 '+((err&&err.message)||err));
+  });
+}
 function avPill(c){ const st=availVerifyStatus(c); return `<span class="avst avst-${st.key}"><span class="avst-dot"></span>${st.label}</span>`; }
 function availNextDue(c){ if(!c.ops.availLastConfirmed) return null; return cadenceNext(c.ops.availLastConfirmed, c.ops.availCheckFreq, c.ops.customCadenceDays); }
 function availDaysSince(c){ if(!c.ops.availLastConfirmed) return null; return Math.floor((NOW-new Date(c.ops.availLastConfirmed))/86400000); }
@@ -9143,11 +9170,26 @@ function renderEmpModal(){
 function empSave(){
   const e=state.empEdit; if(!e) return;
   const c=cgById(e.id); if(!c) return empCancel();
-  c.ops.employmentStatus=e.status;
-  c.active = e.status!=='Inactive';
+  const wasStatus=c.ops.employmentStatus, wasActive=c.active;
+  ROSTER.setEmploymentStatus(c, e.status);
   c.ops.experience = e.experience || null;
   c.ops.lastUpdated=new Date(); c.ops.lastUpdatedBy=state.onShift;
-  state.empEdit=null; closeModal(); render(); toast('Employment summary updated');
+  state.empEdit=null; closeModal(); render();
+  /* caregiver_profile is where the roster split reads this at boot, so the
+     edit has to reach the column — the CLOUD overlay cannot carry it (see
+     ROSTER.reconcile). Applied on screen first so the modal closes at once,
+     and put back if the write fails: a screen that claims a save the
+     database refused is how this went wrong the first time. */
+  ROSTER.saveEmploymentStatus(c, state.onShift).then(function(){
+    toast(c.name+' \u2014 employment status saved as '+c.ops.employmentStatus);
+  }, function(err){
+    /* Restore both fields directly. Going back through setEmploymentStatus
+       would skip a falsy wasStatus and leave the NEW status in place while
+       c.active went back — the tab and the profile would then disagree,
+       which is the one thing the single rule exists to prevent. */
+    c.ops.employmentStatus=wasStatus; c.active=wasActive; render();
+    toast('Could not save employment status \u2014 '+((err&&err.message)||err));
+  });
 }
 
 /* =========================================================
@@ -10035,7 +10077,13 @@ function toggleConfirm(id){ state.cgConfirmOpen = id&&state.cgConfirmOpen!==id ?
 function confirmAvail(id, method){
   const c=cgById(id), ops=c.ops;
   ops.availLastConfirmed=new Date(); ops.availConfirmedBy=state.onShift; ops.availConfirmMethod=method; ops.noResponseStreak=0;
-  ops.archived=false; ops.inPool=true; if(c.active===false) c.active=true;
+  ops.archived=false; ops.inPool=true;
+  /* Deliberately does NOT touch c.active. Roster membership is
+     caregiver_profile.employment_status, edited in Employment Summary;
+     confirming availability says the caregiver answered the phone, not that
+     the desk moved them back onto the Active Roster. Setting it here would
+     be undone by the next ROSTER.reconcile() anyway — worse than not doing
+     it, because it would look like it worked. */
   if(!ops.verifyHistory) ops.verifyHistory=[]; ops.verifyHistory.unshift({date:new Date(), by:state.onShift, result:'verified'});
   state.cgConfirmOpen=null; render(); toast('Availability confirmed via '+method+' \u2014 next check '+(availNextDue(c)?fmtDate(availNextDue(c)):'\u2014'));
 }
@@ -12451,15 +12499,9 @@ var ROSTER = (function () {
       /* what AxisCare does say */
       hireDate: c.axisHireDate ? new Date(c.axisHireDate + 'T12:00:00') : null,
       maxMiles: c.axisMaxMiles,
-      /* AxisCare owns employment status, so it is derived here rather than
-         stored. Its five labels collapse onto the three the profile knows
-         how to colour; anything unrecognised falls back to c.active. */
-      employmentStatus: (function (l) {
-        if (l === 'Active') return 'Active';
-        if (l === 'On Vacation Leave' || l === 'Temporarily Unavailable') return 'Leave';
-        if (l === 'Terminated' || l === 'Inactive') return 'Inactive';
-        return c.active === false ? 'Inactive' : 'Active';
-      })(c.statusLabel),
+      /* AxisCare owns employment status until the desk overrides it in
+         caregiver_profile. See axisEmploymentStatus(). */
+      employmentStatus: axisEmploymentStatus(c),
       axisSourced: true
     };
   }
@@ -12563,10 +12605,7 @@ var ROSTER = (function () {
        safe default is that a real employee is schedulable until the desk
        says otherwise. Written as !== 'Active' this would silently park
        every caregiver AxisCare knows about and Supabase does not. */
-    if (p.employment_status === 'Inactive') {
-      c.active = false;
-      ops.employmentStatus = 'Inactive';
-    }
+    setEmploymentStatus(c, p.employment_status);
 
     if (nonEmpty(p.max_miles)) ops.maxMiles = p.max_miles;
     if (nonEmpty(p.pref_cities)) c.prefCities = p.pref_cities.slice();
@@ -12627,8 +12666,49 @@ var ROSTER = (function () {
        the id had already produced strengths, schedTags and a persona
        attributed to real colleagues. */
     c.ops = axisOps(c);
-    c.active = true;
+    setEmploymentStatus(c);
     return c;
+  }
+
+  /* THE ONE RULE for who is on the Active Roster.
+
+     Only 'Active' is schedulable. 'Leave' — AxisCare's On Vacation Leave
+     and Temporarily Unavailable — parks somebody exactly as 'Inactive'
+     does: they are employed, but they are not being scheduled right now,
+     which is the only question c.active answers. The label is kept
+     because it says WHY they are parked, and the profile shows it.
+
+     Every writer goes through here — derive(), applyProfile(), reconcile()
+     and the Employment Summary modal — so the roster tabs, Find Coverage
+     and the profile can never disagree about one caregiver. */
+  function setEmploymentStatus(c, status) {
+    var ops = c.ops || (c.ops = {});
+    if (status) ops.employmentStatus = status;
+    c.active = ops.employmentStatus === 'Active';
+    return c;
+  }
+
+  /* What AxisCare alone would say about somebody. Its five status labels
+     collapse onto the three the profile knows how to colour. Used when the
+     desk has recorded no answer of its own — a caregiver AxisCare knows
+     about who has no caregiver_profile row yet, or a row with a NULL
+     employment_status.
+
+     It exists so reconcile() always has a definite value to assert. Passing
+     undefined there would make setEmploymentStatus keep whatever
+     applyOverlay() had just written, which is the exact stale-overlay
+     resurrection this whole area is meant to stop — moved off c.active and
+     onto ops.employmentStatus, where it is harder to see.
+
+     The final c.active fallback is only reached by the seed caregivers
+     (c1-c16), which have no statusLabel; for an AxisCare record the label
+     is always set, so the answer never depends on the flag being derived. */
+  function axisEmploymentStatus(c) {
+    var l = c.statusLabel;
+    if (l === 'Active') return 'Active';
+    if (l === 'On Vacation Leave' || l === 'Temporarily Unavailable') return 'Leave';
+    if (l === 'Terminated' || l === 'Inactive') return 'Inactive';
+    return c.active === false ? 'Inactive' : 'Active';
   }
 
   /* Demo shifts, care notes and forms point at seed caregivers that are
@@ -12736,9 +12816,78 @@ var ROSTER = (function () {
      call repeatedly — it only touches ids that are actually missing. */
   function reconcile() {
     if (!(state.caregivers || []).length) return 0;
+
+    /* caregiver_profile owns employment status. The copy inside ops rides
+       along in the CLOUD overlay, where it can go stale, so re-assert the
+       database value here — reconcile() runs after EVERY overlay
+       application, at boot and on every pull.
+
+       Claude: this is not belt-and-braces, it closes a real bug. The
+       overlay stores differences from the boot snapshot, so a field edited
+       BACK to its baseline value simply vanishes from the patch — there is
+       no per-field tombstone, and applyOverlay() only ever assigns, never
+       clears. So an older overlay still carrying active:false would be
+       re-applied on the next pull, and the save after that would write it
+       out again as though a scheduler had asked for it. Marking somebody
+       Inactive stuck; putting them back to Active silently did not. */
+    state.caregivers.forEach(function (c) {
+      var p = profiles[c.axisId];
+      setEmploymentStatus(c, (p && p.employment_status) || axisEmploymentStatus(c));
+    });
+
     var valid = {};
     state.caregivers.forEach(function (c) { valid[c.id] = 1; });
     return remapDangling(valid);
+  }
+
+  /* Write one caregiver's roster status to caregiver_profile.
+
+     The Employment Summary modal used to change c.active in memory and
+     leave the CLOUD overlay to carry it, which is what broke — see
+     reconcile() above. The column is the source of truth the roster split
+     reads at boot, so that is what an edit has to write.
+
+     PATCH first; a caregiver AxisCare knows about and this table does not
+     (a new hire) has no row yet, so fall back to an upsert. The in-memory
+     profiles cache is updated on success, which is what lets the very next
+     reconcile() agree with the screen. */
+  function saveEmploymentStatus(c, by) {
+    var cfg = window.SCHEDULER_CONFIG || {};
+    if (!cfg.supabaseUrl || !cfg.supabaseAnonKey) return Promise.reject(new Error('no Supabase keys'));
+    if (!c || c.axisId == null) return Promise.reject(new Error('not an AxisCare caregiver'));
+    var base = String(cfg.supabaseUrl).replace(/\/+$/, '') + '/rest/v1/caregiver_profile';
+    var head = { apikey: cfg.supabaseAnonKey, Authorization: 'Bearer ' + cfg.supabaseAnonKey,
+                 'Content-Type': 'application/json', Prefer: 'return=representation' };
+    var row = { employment_status: c.ops.employmentStatus, updated_by: by || '' };
+
+    var fail = function (r) {
+      return r.text().then(function (t) { throw new Error('HTTP ' + r.status + ' ' + t.slice(0, 140)); });
+    };
+    var keep = function (rows) {
+      profiles[c.axisId] = rows[0];
+      return rows[0];
+    };
+
+    return fetch(base + '?caregiver_id=eq.' + encodeURIComponent(c.axisId),
+                 { method: 'PATCH', headers: head, body: JSON.stringify(row) })
+      .then(function (r) { return r.ok ? r.json() : fail(r); })
+      .then(function (rows) {
+        if (rows && rows.length) return keep(rows);
+        /* no row for this caregiver yet — create one */
+        var up = {}; Object.keys(head).forEach(function (k) { up[k] = head[k]; });
+        up.Prefer = 'resolution=merge-duplicates,return=representation';
+        row.caregiver_id = c.axisId;
+        /* caregiver_id is the primary key, so merge-duplicates resolves on it
+           either way — named explicitly to match the caregiver_day_notes
+           upsert and so a future key change fails loudly instead of
+           inserting a duplicate. */
+        return fetch(base + '?on_conflict=caregiver_id', { method: 'POST', headers: up, body: JSON.stringify([row]) })
+          .then(function (r) { return r.ok ? r.json() : fail(r); })
+          .then(function (rows2) {
+            if (!rows2 || !rows2.length) throw new Error('could not create a caregiver_profile row');
+            return keep(rows2);
+          });
+      });
   }
 
   function hydrate() {
@@ -12851,6 +13000,8 @@ var ROSTER = (function () {
        so this goes false however it ends. */
     loading: function () { return enabled() && !lastResult; },
     reconcile: reconcile,
+    setEmploymentStatus: setEmploymentStatus,
+    saveEmploymentStatus: saveEmploymentStatus,
 
     status: function () { return lastResult; },
     ANA_ID: ANA_ID,
