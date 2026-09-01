@@ -2099,6 +2099,23 @@
   .cnp-none{font-size:12.5px;color:var(--ink-soft)}
   .upd-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
   .upd-h{font-size:20px;font-weight:800;color:var(--ink);letter-spacing:-.2px}
+/* Schedule Updates — two tabs, then a card per caregiver. */
+.su-nav{margin:0 0 14px}
+.su-n{margin-left:7px;font-size:11.5px;font-weight:800;background:var(--crit-bg,#FBE0DC);color:var(--crit-solid);border-radius:10px;padding:1px 7px}
+.su-list{display:flex;flex-direction:column;gap:10px}
+.su-card{background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:13px 15px}
+.su-card-h{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.su-name{background:none;border:none;padding:0;font-size:15.5px;font-weight:750;color:var(--navy-900);cursor:pointer;text-align:left}
+.su-name:hover{text-decoration:underline}
+.su-when{font-size:12.5px;color:var(--ink-soft);font-variant-numeric:tabular-nums}
+.su-by{font-size:12.5px;color:var(--ink-soft);margin-top:2px}
+.su-sub{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--ink-faint);margin:10px 0 5px}
+.su-changes{margin:0;padding-left:17px;display:flex;flex-direction:column;gap:3px}
+.su-changes li{font-size:13.5px;color:var(--ink);line-height:1.45}
+.su-item{margin-top:11px;padding-top:10px;border-top:1px solid var(--line)}
+.su-item:first-of-type{margin-top:9px}
+.su-item-h{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:6px}
+.su-act{font-size:12.5px;font-weight:700;color:var(--brand)}
   .upd-list{background:#fff;border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
   .upd-row{padding:11px 14px;border-bottom:2px solid var(--line)}
   .upd-row:last-child{border-bottom:none}
@@ -2363,7 +2380,7 @@ const state = {
   contactLog:{},
   handoff:{opener:[], closer:[]},
   updates:[],
-  cgConcerns:[], cgUpdates:[], cgNotes:[], cgRatings:[], cgProfiles:[], schedChanges:[],
+  cgConcerns:[], cgUpdates:[], cgNotes:[], cgRatings:[], cgProfiles:[], schedChanges:[], cgChanges:[],
   updEdit:null,          /* id being edited, or 'new' while composing */
   view:'avail',
   filters:{schedFilter:'open', availSearch:''},
@@ -7780,6 +7797,7 @@ function dpSaveCadence(){
   const v = (modalState.cadence !== undefined) ? modalState.cadence : (c.ops.availCheckFreq || '');
   applyCadence(c, v);
   modalState.cadence = undefined;
+  logCgChange(c.id, ['Availability cadence updated']);
   try{ render(); }catch(e){}
   dpSaved('cadence');
   const nd = v ? nextReview(c) : null;
@@ -8140,6 +8158,10 @@ function dpSave(){
   });
 
   const writing = Object.keys(byDate);
+  const hadBefore={};
+  writing.forEach(function(ds){
+    hadBefore[ds] = ((typeof AVAIL!=='undefined' && AVAIL.storedForDay) ? AVAIL.storedForDay(c.id, ds) : []).length>0;
+  });
   if(!writing.length){
     modalState.error = dates.length===1
       ? 'That whole window is already a Devoted visit, so there is nothing left to record.'
@@ -8158,6 +8180,13 @@ function dpSave(){
       modalState.saving = false;
       modalState.picked = {}; modalState.multi = false;
       modalState.note = '';
+      /* Named by weekday, which is how the desk talks about availability —
+         "Monday availability updated". Whether it was added or changed comes
+         from whether the day held anything before the write. */
+      logCgChange(c.id, writing.map(function(ds){
+        return DAY_FULL[new Date(ds+'T12:00:00').getDay()]+' availability '+
+          (hadBefore[ds]?'updated':'added');
+      }));
       try{ render(); }catch(e){}
       dpSaved('avail');
       toast(dates.length > 1 ? dates.length + ' days updated' : 'Day updated');
@@ -8176,6 +8205,7 @@ function dpClear(){
   const c = cgById(modalState.dayCg);
   if(!c) return;
   const anchor = dateKey(new Date(modalState.dayDate));
+  logCgChange(c.id, [DAY_FULL[new Date(anchor+'T12:00:00').getDay()]+' availability cleared']);
   modalState.saving = true; modalState.error = null; renderDayPanel();
   AVAIL.saveDays(c, [anchor], [])
     .then(function(){
@@ -8473,7 +8503,7 @@ function closeSidePanel(){
   if(state.cgCalSel){ state.cgCalSel=null; try{ render(); }catch(e){} }
 }
 function wsSection(title, body, span){ return `<div class="ws-card${span?' span2':''}"><div class="ws-h">${title}</div>${body}</div>`; }
-function editAvailability(id, mode){ state.cgAvailEdit=id; state.availMode=mode||null; state.cgEdit=null; state.cgStrengthEdit=null; render(); window.scrollTo(0,0); }
+function editAvailability(id, mode){ cgSnapStart(id); state.cgAvailEdit=id; state.availMode=mode||null; state.cgEdit=null; state.cgStrengthEdit=null; render(); window.scrollTo(0,0); }
 function availSetMode(m){ state.availMode=m||null; render(); window.scrollTo(0,0); }
 function cancelAvailEdit(){ state.cgAvailEdit=null; render(); }
 /* ===== Matching information — Personality and Skills & Experience =====
@@ -8531,6 +8561,7 @@ function cgRatingStrip(c){
   </div>`;
 }
 function openRating(id){
+  cgSnapStart(id);
   const c=cgById(id); if(!c) return;
   const r=cgRating(c);
   /* Reopening preselects what is saved and shows the reason that came with
@@ -8595,6 +8626,7 @@ function ratingSave(){
   state.cgRatings=list;
   if(c.ops && c.ops.rating) delete c.ops.rating;   /* one home, not two */
   c.ops.lastUpdated=new Date(); c.ops.lastUpdatedBy=state.onShift;
+  cgSnapCommit(r.id);
   state.rating=null; closeModal(); render();
   /* Push now instead of waiting out the debounce: a refresh in the next
      second was losing it. */
@@ -8906,6 +8938,7 @@ function chipBody(c,key){
     ${note?`<div class="chip-note">${esc(note)}</div>`:''}`;
 }
 function openChipPick(id,key){
+  cgSnapStart(id);
   const c=cgById(id); if(!c||!CG_CHIP_FIELDS[key]) return;
   state.chipPick={id:id, key:key, sel:cgChips(c,key).slice(), note:cgChipNote(c,key)};
   renderChipModal(); mbg.classList.add('show');
@@ -8943,6 +8976,7 @@ function chipSave(){
   const patch={}; patch[p.key]=f.opts.filter(t=>p.sel.indexOf(t)>=0);
   if(f.note) patch[p.key+'Note']=String(p.note||'').trim();
   cgProfSet(c, patch);
+  cgSnapCommit(p.id);
   state.chipPick=null; closeModal(); render(); toast(f.label.replace('&amp;','&')+' updated');
 }
 
@@ -9148,6 +9182,7 @@ function prefsBody(c){
 }
 const PREF_YN=[['','Not recorded'],['yes','Yes'],['no','No']];
 function openPrefsEdit(id){
+  cgSnapStart(id);
   const c=cgById(id); if(!c) return;
   const yn=k=>{ const v=prefVal(c,k); return v===null||v===undefined?'':(v?'yes':'no'); };
   state.prefEdit={id:id, clientGender:prefVal(c,'clientGender')||'', pets:yn('pets'),
@@ -9189,6 +9224,7 @@ function prefSave(){
   c.ops.emergency=Object.assign({}, c.ops.emergency, {overnight: b(p.overnight)===true});
   c.ops.shiftPrefs=Object.assign({}, c.ops.shiftPrefs, {liveIn: b(p.liveIn)===true});
   c.ops.lastUpdated=new Date(); c.ops.lastUpdatedBy=state.onShift;
+  cgSnapCommit(state.prefEdit&&state.prefEdit.id);
   state.prefEdit=null; closeModal(); render(); toast('Client & assignment preferences updated');
 }
 
@@ -9211,6 +9247,7 @@ function langBody(c){
       <span class="emp-v">${c.englishProficiency?esc(c.englishProficiency):'Not recorded'}</span></div>`;
 }
 function openLangEdit(id){
+  cgSnapStart(id);
   const c=cgById(id); if(!c) return;
   const ep=c.englishProficiency||'';
   state.langEdit={id:id, langs:(c.languages||[]).slice(), other:'',
@@ -9260,6 +9297,7 @@ function langSave(){
   c.languages=out;
   c.englishProficiency=l.english||null;
   c.ops.lastUpdated=new Date(); c.ops.lastUpdatedBy=state.onShift;
+  cgSnapCommit(l.id);
   state.langEdit=null; closeModal(); render(); toast('Languages updated');
 }
 
@@ -9268,6 +9306,7 @@ function langSave(){
    hours, last shift and last client are read off visit history — editing
    those here would put a typed number over the record. */
 function openEmpEdit(id){
+  cgSnapStart(id);
   const c=cgById(id); if(!c) return;
   state.empEdit={id:id, status:c.ops.employmentStatus||(c.active===false?'Inactive':'Active'),
     experience:expBand(c.ops.experience)};
@@ -9301,6 +9340,7 @@ function empSave(){
   ROSTER.setEmploymentStatus(c, e.status);
   c.ops.experience = e.experience || null;
   c.ops.lastUpdated=new Date(); c.ops.lastUpdatedBy=state.onShift;
+  cgSnapCommit(e.id);
   state.empEdit=null; closeModal(); render();
   /* caregiver_profile is where the roster split reads this at boot, so the
      edit has to reach the column — the CLOUD overlay cannot carry it (see
@@ -9776,6 +9816,7 @@ function openCgBlock(id, i){
    the caregiver works within. */
 const ACR_REASONS=['Caregiver requested not to return','Family requested different caregiver','Personality mismatch','Temporary hold','Do not assign'];
 function openAcrEdit(id){
+  cgSnapStart(id);
   const c=cgById(id); if(!c) return;
   const prev=c.ops.clientRestr||[], blocks={};
   (state.clients||[]).forEach(function(cl){
@@ -9841,6 +9882,7 @@ function acrSave(){
                addedBy:b.addedBy||state.onShift, addedDate:b.addedDate||now }; });
   c.restrictions=String(a.restr||'').split('\n').map(function(x){ return x.trim(); }).filter(Boolean);
   c.ops.lastUpdated=now; c.ops.lastUpdatedBy=state.onShift;
+  cgSnapCommit(a.id);
   state.acr=null; closeModal(); render();
   toast('Assignment & client rules updated');
 }
@@ -9955,6 +9997,7 @@ function saveAvailability(id){
   const lf=gV('av_lift'); if(lf!=='') c.liftLimit=parseInt(lf)||0;
   if(state.clients[0] && document.getElementById('blk_'+state.clients[0].id)){ const prev=ops.clientRestr||[]; ops.clientRestr=state.clients.filter(cl=>gC('blk_'+cl.id)).map(cl=>{ const ex=prev.find(r=>r.client===cl.id); return {client:cl.id, reason:gV('blkr_'+cl.id)||'Do not assign', level:gV('blkl_'+cl.id)||'hard', duration:gV('blkd_'+cl.id)||'permanent', notes:(gV('blkn_'+cl.id)||'').trim(), addedBy: ex?ex.addedBy:state.onShift, addedDate: ex?ex.addedDate:new Date()}; }); }
   ops.lastUpdated=new Date(); ops.lastUpdatedBy=state.onShift;
+  cgSnapCommit(id);
   state.cgAvailEdit=null; toast('Availability updated'); render();
 }
 function yn(on){ return on?`<span class="ws-yn yes">${ic('check',12)} Yes</span>`:`<span class="ws-yn no">No</span>`; }
@@ -10887,6 +10930,157 @@ function renderCallOffModal(){
     <div class="mf"><button class="btn" onclick="closeModal()">Cancel</button>
       <button class="btn pri" ${s?'':'disabled'} onclick="submitCallOff()">${ic('check',15)} Submit call-off</button></div>`;
 }
+/* ---- Caregiver change history --------------------------------------
+   Recent Updates answers "what was changed on this caregiver, and by whom".
+   It is recorded by SNAPSHOT AND DIFF rather than by instrumenting every
+   save handler: cgSnapStart runs when an edit form opens, cgSnapCommit runs
+   when it saves, and the difference between the two is the list of labels.
+   One pair of calls covers every form, and a form that gains a field starts
+   reporting it by adding a row to CG_WATCH.
+
+   Only WHAT changed is kept — never the old and new values. A change history
+   holding a caregiver's previous address, rate or restrictions is a second
+   copy of their record, and this page does not need one to do its job. */
+/* getDay() order, so a stored date names its own weekday. */
+const DAY_FULL=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+const CG_WATCH={
+  'Driving status':          c=>c.driver?'y':'n',
+  'Transportation':          c=>(c.ownVehicle?'v':'-')+(canDriveClients(c)?'d':'-'),
+  'Preferred service areas': c=>(c.prefCities||[]).join(','),
+  'Maximum travel distance': c=>String(c.ops.maxMiles==null?'':c.ops.maxMiles),
+  'Preferred shift length':  c=>{const sp=shiftSpan(c.ops);return String(sp.min)+'-'+String(sp.max);},
+  'Preferred weekly hours':  c=>String(c.ops.minHours==null?'':c.ops.minHours)+'-'+String(c.ops.maxHours==null?'':c.ops.maxHours),
+  'Employment status':       c=>String(c.ops.employmentStatus||''),
+  'Caregiving experience':   c=>String(c.ops.experience||''),
+  'Languages':               c=>(c.languages||[]).join(','),
+  'English proficiency':     c=>String(c.englishProficiency||''),
+  'Personality':             c=>cgChips(c,'personality').join(','),
+  'Skills & experience':     c=>cgChips(c,'skills').join(','),
+  'Hobbies & interests':     c=>cgChips(c,'hobbies').join(','),
+  'Client & assignment preferences': c=>['clientGender','smokingHome','pets','stairs','transfers','overnight','liveIn']
+                                        .map(k=>String(prefVal(c,k))).join('|'),
+  'Client blocks':           c=>(c.ops.clientRestr||[]).map(r=>r.client+':'+(r.level||'hard')).join(','),
+  'Assignment restrictions': c=>(c.restrictions||[]).join(','),
+  'Caregiver rating':        c=>{const r=cgRating(c);return r?String(r.stars):'';},
+  'Availability cadence':    c=>String(c.ops.availCheckFreq||'')+'/'+String(c.ops.customCadenceDays||'')
+};
+function cgSnapshot(c){
+  const out={};
+  Object.keys(CG_WATCH).forEach(function(k){ try{ out[k]=String(CG_WATCH[k](c)); }catch(e){ out[k]=''; } });
+  return out;
+}
+let _cgSnap=null;
+function cgSnapStart(id){
+  const c=cgById(id);
+  _cgSnap = c ? {id:id, v:cgSnapshot(c)} : null;
+}
+/* One record per changed field. They are grouped into a single entry per
+   caregiver per editing session at render time — see cgChangeGroups. */
+function cgSnapCommit(id){
+  const c=cgById(id); if(!c || !_cgSnap || _cgSnap.id!==id){ _cgSnap=null; return; }
+  const before=_cgSnap.v, after=cgSnapshot(c); _cgSnap=null;
+  const labels=Object.keys(CG_WATCH).filter(k=>before[k]!==after[k]);
+  if(labels.length) logCgChange(id, labels.map(l=>l+' updated'));
+}
+function logCgChange(cgId, labels){
+  if(!cgId || !labels || !labels.length) return;
+  let name=''; try{ const c=cgById(cgId); name=c?c.name:''; }catch(e){}
+  if(!state.cgChanges) state.cgChanges=[];
+  const at=new Date().toISOString(), by=state.onShift||'';
+  labels.forEach(function(l,i){
+    state.cgChanges.push({id:'cc'+Date.now().toString(36)+i+Math.random().toString(36).slice(2,6),
+      at:at, cgId:cgId, caregiver:name, label:l, by:by});
+  });
+  try{ CLOUD.save(); }catch(e){}
+}
+/* Everything one person changed on one caregiver in one sitting is one
+   entry, which is what the desk asked for: a scheduler who fixes five
+   fields did one update, not five. Half an hour is the window — long
+   enough to cover moving between the profile and the calendar, short
+   enough that this morning and this afternoon stay apart. */
+const CG_SESSION_MS=30*60*1000;
+function cgChangeGroups(){
+  const all=(state.cgChanges||[]).map((x,i)=>Object.assign({_i:i},x)).sort(feedCmp);
+  const out=[];
+  all.forEach(function(x){
+    const g=out[out.length-1];
+    if(g && g.cgId===x.cgId && g.by===x.by && (g.atMs-feedWhen(x))<CG_SESSION_MS){
+      if(g.labels.indexOf(x.label)<0) g.labels.push(x.label);
+      return;
+    }
+    out.push({cgId:x.cgId, caregiver:x.caregiver, by:x.by, at:x.at, atMs:feedWhen(x), labels:[x.label]});
+  });
+  return out;
+}
+
+/* ---- Needs Update: worked out live, never stored ---------------------
+   Every item here is a question asked of the caregiver's current record, so
+   filling the field in is what removes the row — there is nothing to tick
+   off and nothing to go stale. Documents are deliberately absent: those live
+   in AxisCare and are handled there.
+
+   Each rule states what is missing in the desk's own words. Nothing is
+   inferred from a blank: a field is missing only when it genuinely holds
+   nothing, and `has()` is used so a recorded "No" or 0 counts as answered. */
+const CG_REQUIRED=[
+  /* c.driver is false both for "AxisCare says no licence" and for "AxisCare
+     was never told", and those are not the same answer — a missing DL tag is
+     silence, not a No. It counts as recorded when AxisCare states it either
+     way (a DL tag, or the WDL tag that lands in restrictions) or when the
+     desk has entered one. */
+  {label:'Driving status',        ok:c=>c.driver===true
+      || (c.restrictions||[]).some(r=>/driver.s licen/i.test(r))
+      || hasVal(c.canTransport)},
+  {label:'Transportation',        ok:c=>c.ownVehicle===true || hasVal(c.canTransport)},
+  {label:'Preferred schedule',    ok:c=>{const sp=shiftSpan(c.ops);return hasVal(sp.min)||hasVal(sp.max);}},
+  {label:'Preferred hours',       ok:c=>hasVal(c.ops.minHours)||hasVal(c.ops.maxHours)},
+  {label:'Preferred service areas',ok:c=>(c.prefCities||[]).length>0},
+  {label:'Matching information',  ok:c=>cgChips(c,'personality').length>0||cgChips(c,'skills').length>0},
+  {label:'Languages',             ok:c=>(c.languages||[]).length>0},
+  {label:'Availability cadence',  ok:c=>hasVal(c.ops.availCheckFreq)}
+];
+/* A caregiver appears once, carrying every reason they need attention. */
+function cgNeedsUpdate(){
+  const out=[];
+  (state.caregivers||[]).forEach(function(c){
+    if(c.active===false || (c.ops&&c.ops.archived)) return;
+    const items=[];
+
+    /* 1 — the cadence the desk already set for this caregiver. */
+    let st=null; try{ st=availVerifyStatus(c); }catch(e){}
+    const due = (typeof availDaysUntilDue==='function') ? availDaysUntilDue(c) : null;
+    if(st && (st.key==='needs'||st.key==='overdue'||st.key==='duesoon')){
+      const when = due==null ? 'Availability update due'
+        : due<0  ? 'Availability update '+Math.abs(due)+' day'+(Math.abs(due)===1?'':'s')+' overdue'
+        : due===0 ? 'Availability update due today'
+        : 'Availability update due in '+due+' day'+(due===1?'':'s');
+      const last=c.ops.availLastConfirmed;
+      items.push({head:when, tone:due!=null&&due<0?'bad':'warn',
+        lines:[ 'Last availability update: '+(last?fmtDate(last):'never recorded'),
+                'Cadence: '+(c.ops.availCheckFreq||'not set') ],
+        action:'Contact caregiver'});
+    }
+
+    /* 2 — the calendar. dayAvail-style states are deliberately not collapsed
+       into a boolean elsewhere in this app; openDays answers the same way, so
+       a window that never loaded is not read as an empty agency. */
+    let open=null; try{ open=(typeof AVAIL!=='undefined'&&AVAIL.openDays)?AVAIL.openDays(c.id):null; }catch(e){}
+    if(Array.isArray(open) && !open.length)
+      items.push({head:'Availability missing', tone:'bad',
+        lines:['No availability entered in calendar'], action:'Add availability'});
+
+    /* 3 — blank profile fields. */
+    const missing=CG_REQUIRED.filter(function(r){ try{ return !r.ok(c); }catch(e){ return false; } })
+      .map(r=>r.label);
+    if(missing.length)
+      items.push({head:'Missing profile information', tone:'warn', lines:missing, action:'Complete profile'});
+
+    if(items.length) out.push({c:c, items:items});
+  });
+  /* Most reasons first, then by name, so the worst-off caregivers lead. */
+  return out.sort((a,b)=> b.items.length-a.items.length || a.c.name.localeCompare(b.c.name));
+}
+
 /* ---- Schedule Updates: the record behind the page --------------------
    Every change to a scheduled shift is written here as it happens, so the
    page is a history rather than a filter over the current board. Open
@@ -10922,6 +11116,13 @@ function logSchedChange(kind, s, extra){
     prevCaregiver:prev?prev.name:(extra.prevCaregiver||''),
     reason:extra.reason||'', by:state.onShift||''
   });
+  /* Same change, told from the caregiver's side, so Recent Updates carries
+     it too — a call-off is scheduling information about that caregiver. */
+  var who = extra.caregiverId || s.prevCaregiver || s.assigned;
+  if(who){
+    var when = s.start ? ' \u00b7 '+new Date(s.start).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : '';
+    logCgChange(who, [(SCHED_KINDS[kind].label)+(cl?' \u2014 '+cl.name:'')+when]);
+  }
   try{ CLOUD.save(); }catch(e){}
 }
 
@@ -11431,44 +11632,61 @@ function applyAttFilter(){
    state.schedChanges and nothing else: the current board cannot answer this
    question, because a shift that has been covered no longer looks like a
    call-off and yesterday's changes are gone from it entirely. */
-function schedChangesSorted(){
-  return (state.schedChanges||[]).map((x,i)=>Object.assign({_i:i},x)).sort(feedCmp);
-}
-function schedShiftText(x){
-  if(!x.shiftStart) return '\u2014';
-  const d=new Date(x.shiftStart);
-  let out=d.toLocaleDateString('en-US',{month:'short',day:'numeric'})+' \u00b7 '+
-    d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
-  if(x.shiftEnd) out+='\u2013'+new Date(x.shiftEnd).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
-  return out;
-}
-function schedWhoText(x){
-  /* Who it moved between, in the direction it moved. */
-  if(x.kind==='covered'||x.kind==='assigned')
-    return x.prevCaregiver ? esc(x.prevCaregiver)+' \u2192 '+esc(x.caregiver||'\u2014') : esc(x.caregiver||'\u2014');
-  return esc(x.prevCaregiver||x.caregiver||'\u2014');
-}
+function setSuTab(t){ state.suTab = t==='needs' ? 'needs' : 'recent'; render(); window.scrollTo(0,0); }
 function viewSchedUpdates(){
-  const rows=schedChangesSorted();
-  const head='<div class="upd-head"><span class="upd-h">Schedule Updates</span></div>';
-  if(!rows.length) return head+emptyState('No schedule changes recorded yet',
-    'Call-offs, replacements and shifts being covered are recorded here as they happen, across every client.');
-  const body=rows.map(function(x){
-    const k=SCHED_KINDS[x.kind]||{label:x.kind,tone:'neu'};
-    return '<tr>'+
-      '<td class="c-d">'+esc(updDate({at:x.at, created:x.at}))+'</td>'+
-      '<td class="at-cg">'+(gEsc(x.client||'')||'<span class="at-dash">\u2014</span>')+'</td>'+
-      '<td><span class="at-p '+k.tone+'">'+esc(k.label)+'</span></td>'+
-      '<td>'+schedWhoText(x)+'</td>'+
-      '<td>'+esc(schedShiftText(x))+'</td>'+
-      '<td class="at-note">'+(gEsc(x.reason||'')||'<span class="at-dash">\u2014</span>')+'</td>'+
-      '<td class="c-by">'+(gEsc(x.by||'')||'<span class="at-dash">\u2014</span>')+'</td>'+
-    '</tr>';
-  }).join('');
-  return head+'<div class="at-wrap"><table class="at-tbl">'+
-    '<thead><tr><th class="c-d">Changed</th><th class="c-cl">Client</th><th class="c-t">Change</th>'+
-    '<th class="c-cg">Caregiver</th><th class="c-cv">Shift</th><th>Reason</th><th class="c-by">By</th></tr></thead>'+
-    '<tbody>'+body+'</tbody></table></div>';
+  const tab = state.suTab==='needs' ? 'needs' : 'recent';
+  const needs = cgNeedsUpdate();
+  const tb=(k,label,n)=>'<button class="cgnav-t'+(tab===k?' on':'')+'" onclick="setSuTab(\''+k+'\')">'+
+    label+(n?'<span class="su-n">'+n+'</span>':'')+'</button>';
+  const head='<div class="upd-head"><span class="upd-h">Schedule Updates</span></div>'+
+    '<nav class="cgnav su-nav">'+tb('recent','Recent Updates')+tb('needs','Needs Update',needs.length)+'</nav>';
+  return head + (tab==='needs' ? suNeedsHTML(needs) : suRecentHTML());
+}
+/* TAB 1 — what was changed, by whom, newest first. Everything one person
+   changed on one caregiver in one sitting is one card. */
+function suRecentHTML(){
+  const groups=cgChangeGroups();
+  if(!groups.length) return emptyState('No caregiver updates recorded yet',
+    'Changes made on a caregiver\u2019s profile, calendar or availability are listed here as they happen.');
+  return '<div class="su-list">'+groups.map(function(g){
+    return '<div class="su-card">'+
+      '<div class="su-card-h">'+
+        '<button class="su-name" onclick="openCaregiver(\''+g.cgId+'\')">'+esc(g.caregiver||'Caregiver')+'</button>'+
+        '<span class="su-when">Updated '+esc(suWhen(g.at))+'</span>'+
+      '</div>'+
+      (g.by?'<div class="su-by">Updated by: '+esc(g.by)+'</div>':'')+
+      '<div class="su-sub">Changes:</div>'+
+      '<ul class="su-changes">'+g.labels.map(l=>'<li>'+esc(l)+'</li>').join('')+'</ul>'+
+    '</div>';
+  }).join('')+'</div>';
+}
+function suWhen(iso){
+  const d=new Date(iso);
+  if(isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('en-US',{month:'short',day:'numeric'})+' at '+
+    d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
+}
+/* TAB 2 — who needs attention and exactly what is outstanding. Worked out
+   from the record every time it renders, so completing the field is what
+   clears the row. */
+function suNeedsHTML(needs){
+  if(!needs.length) return emptyState('Nothing needs attention',
+    'Every active caregiver has their profile fields, availability and cadence up to date.');
+  return '<div class="su-list">'+needs.map(function(n){
+    return '<div class="su-card">'+
+      '<div class="su-card-h">'+
+        '<button class="su-name" onclick="openCaregiver(\''+n.c.id+'\')">'+esc(n.c.name)+'</button>'+
+        (n.c.base?'<span class="su-when">'+esc(n.c.base)+'</span>':'')+
+      '</div>'+
+      n.items.map(function(it){
+        return '<div class="su-item">'+
+          '<div class="su-item-h"><span class="at-p '+(it.tone==='bad'?'bad':'neu')+'">'+esc(it.head)+'</span>'+
+            (it.action?'<span class="su-act">Action: '+esc(it.action)+'</span>':'')+'</div>'+
+          '<ul class="su-changes">'+it.lines.map(l=>'<li>'+esc(l)+'</li>').join('')+'</ul>'+
+        '</div>';
+      }).join('')+
+    '</div>';
+  }).join('')+'</div>';
 }
 
 function viewAttendance(){
@@ -13277,6 +13495,7 @@ const CLOUD = (function(){
        the rating. */
     { path:'cgProfiles',        key:'id' },
     { path:'schedChanges',      key:'id' },
+    { path:'cgChanges',         key:'id' },
     { path:'taskArchive',       key:'id' },
     { path:'careNotes',         key:'id' },
     { path:'followUps',         key:'id' },
