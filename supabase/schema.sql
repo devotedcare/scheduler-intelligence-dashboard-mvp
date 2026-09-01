@@ -619,3 +619,117 @@ create policy "anon delete day notes"
   to anon, authenticated using (true);
 
 notify pgrst, 'reload schema';
+
+
+-- ===============================================================
+--  CLIENT MATCHING  -  synced from the Client Concierge project
+-- ===============================================================
+-- Concierge (abotpetigotopedfuvbc) is where the desk records what a
+-- client needs in a caregiver. netlify/functions/matching-sync.js reads
+-- it and fills these two tables; the dashboard reads only from here, so
+-- Concierge's key never reaches a browser. That matters: that key can
+-- read the whole of concierge_records, including 179 care notes.
+
+-- One row per client. Every column is Concierge's; nothing here writes them.
+create table if not exists public.client_match_prefs (
+  client_axis_id   bigint      primary key,          -- AxisCare client id (327), not 'k327'
+  gender_pref      text,                             -- 'F' | 'M' | null. null IS "No Preference".
+  driving_required boolean,
+  language         text,
+  raw_prefs        jsonb       not null default '[]'::jsonb,
+  concierge_rid    text,
+  synced_at        timestamptz not null default now(),
+
+  constraint client_match_prefs_gender_ck check (gender_pref is null or gender_pref in ('F','M'))
+);
+
+-- One row per (client, caregiver name) as Concierge stores it.
+--
+-- TWO OWNERS, deliberately. Concierge owns WHICH NAMES are on a client's
+-- list, so the sync adds and removes rows freely. This app owns WHICH
+-- CAREGIVER a name resolves to, so once match_state is 'confirmed' the
+-- sync never touches caregiver_id again - the same guard the availability
+-- copy uses with 'Auto-copy', and for the same reason.
+--
+-- Concierge stores names, not ids. 49 of 53 resolve automatically; the
+-- rest are a typo (Brahser/Brasher) and nicknames (Marge/Margarita,
+-- Marge/Margie) that a matcher must NOT guess - getting one wrong either
+-- offers a caregiver the family did not ask for, or hides one they did.
+create table if not exists public.client_caregiver_match (
+  id             bigint      generated always as identity primary key,
+  client_axis_id bigint      not null,
+  caregiver_name text        not null,               -- VERBATIM from Concierge
+  caregiver_id   bigint,                             -- resolved AxisCare id, null until matched
+  match_state    text        not null default 'unmatched',
+  sort_order     integer     not null default 0,     -- Concierge's order; first is most preferred
+  concierge_rid  text,
+  updated_by     text,
+  created_at     timestamptz not null default now(),
+  updated_at     timestamptz not null default now(),
+  synced_at      timestamptz not null default now(),
+
+  constraint client_caregiver_match_state_ck
+    check (match_state in ('unmatched','auto','confirmed')),
+  constraint client_caregiver_match_resolved_ck
+    check (match_state = 'unmatched' or caregiver_id is not null),
+  constraint client_caregiver_match_name_ck check (btrim(caregiver_name) <> ''),
+  constraint client_caregiver_match_uq unique (client_axis_id, caregiver_name)
+);
+
+create index if not exists client_caregiver_match_client_idx
+  on public.client_caregiver_match (client_axis_id);
+create index if not exists client_caregiver_match_cg_idx
+  on public.client_caregiver_match (caregiver_id) where caregiver_id is not null;
+
+create or replace function public.touch_client_caregiver_match()
+returns trigger language plpgsql as $$
+begin
+  new.updated_at = now();
+  return new;
+end $$;
+
+drop trigger if exists client_caregiver_match_touch on public.client_caregiver_match;
+create trigger client_caregiver_match_touch
+  before update on public.client_caregiver_match
+  for each row execute function public.touch_client_caregiver_match();
+
+-- Same posture as every other table here, written up in README.md under
+-- Security posture. Prefs are read-only to the app: they are Concierge's
+-- answer. The match table takes updates, because resolving a name is this
+-- app's job and a scheduler does it in the UI.
+alter table public.client_match_prefs     enable row level security;
+alter table public.client_caregiver_match enable row level security;
+
+drop policy if exists "anon read match prefs" on public.client_match_prefs;
+create policy "anon read match prefs" on public.client_match_prefs
+  for select to anon, authenticated using (true);
+
+drop policy if exists "anon read matches"   on public.client_caregiver_match;
+drop policy if exists "anon update matches" on public.client_caregiver_match;
+create policy "anon read matches" on public.client_caregiver_match
+  for select to anon, authenticated using (true);
+create policy "anon update matches" on public.client_caregiver_match
+  for update to anon, authenticated using (true) with check (true);
+
+notify pgrst, 'reload schema';
+
+-- Resume point for netlify/functions/availability-copy.js.
+--
+-- The copy is chunked because filling a fresh month for the whole roster is
+-- ~2,500 rows and a Netlify function is time-limited. A run works to a soft
+-- deadline, saves the caregiver it reached, and the next run continues --
+-- the same shape as care_notes_sync, and for the same reason: the design
+-- does not depend on knowing the platform's limit.
+create table if not exists public.availability_copy_sync (
+  id            text primary key,
+  cursor_cg     bigint,                     -- caregiver the last run stopped at
+  last_run_at   timestamptz,
+  last_status   text,
+  rows_written  bigint not null default 0
+);
+
+insert into public.availability_copy_sync (id, cursor_cg)
+values ('availcopy', null)
+on conflict (id) do nothing;
+
+notify pgrst, 'reload schema';

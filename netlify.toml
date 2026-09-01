@@ -23,6 +23,29 @@
 [functions."carenotes-sync"]
   schedule = "*/15 * * * *"
 
+# Client matching comes from the Client Concierge project. Preferences
+# and matched caregivers change maybe weekly, not by the minute, so this
+# runs far less often than the care-notes sweep. One request to Concierge
+# (21 client records today) plus the AxisCare roster for name resolution.
+[functions."matching-sync"]
+  schedule = "17 * * * *"
+
+# The monthly availability copy, for EVERY caregiver.
+#
+# The dashboard runs the same copy in the browser, but only for a caregiver
+# somebody opens. On 2026-09-01 that left 101 of 140 with an empty September:
+# their September was never written while August was current, so once
+# September arrived it became the source, it was empty, and October could not
+# be built either. This is the backstop that fills November on October 1st
+# whether or not anybody clicks.
+#
+# Hourly. A run with nothing to do exits in ~3s having made ZERO AxisCare
+# requests — it checks for an empty target month before paying for visits.
+# A run with a fresh month to fill works to a soft deadline and saves a
+# cursor, so the roster completes over the next few runs.
+[functions."availability-copy"]
+  schedule = "35 * * * *"
+
 # --------------------------------------------------------------
 # Keep repo plumbing off the public site. Nothing here contains a
 # secret (the AxisCare token only ever exists as a Netlify env var),

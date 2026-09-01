@@ -2294,7 +2294,7 @@
    service-areas list that wraps. Still one height per row, and every card in
    a row identical. */
 .ws-card.pfx.pfx-tall{height:376px}
-.pfx-body{flex:1 1 auto;min-height:0;overflow:hidden;position:relative}
+.pfx-body{flex:1 1 auto;min-height:0;overflow:hidden;position:relative}.clm-card{width:100%;max-width:560px;height:340px}.clm-body{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain}.clm-stack{margin-top:11px}.clm-l{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-faint);margin-bottom:3px}.clm-v{font-size:13px;color:var(--ink);line-height:1.5}.clm-cgs{display:flex;flex-wrap:wrap;gap:6px;margin-top:5px}.clm-cg{font-size:12px;font-weight:650;border-radius:12px;padding:3px 10px;border:1px solid var(--line);background:var(--panel-head);color:var(--ink)}.clm-cg.unres{color:var(--ink-faint);border-style:dashed;font-style:italic}.clm-note{font-size:12.5px;color:var(--ink-faint);line-height:1.45}
 /* No fade over the cut. Everything on a card is full opacity; where the body
    is longer than the card it is simply clipped, and View Details is what says
    there is more. */
@@ -6122,6 +6122,99 @@ function clSchedBack(){
   state.clSched = null;
   if(state.coverageQuery && state.coverageQuery.shiftId) go('coverage'); else go('open');
 }
+/* ---- CAREGIVER MATCHING, on the client schedule -------------------
+   What the desk recorded in Client Concierge about the caregiver this
+   client needs. Read-only here on purpose: Concierge owns every field,
+   so there is no Edit button — editing it in two places is how the two
+   apps would start disagreeing.
+
+   The field order and labels deliberately mirror Concierge's own
+   Caregiver Matching card, so somebody comparing the two screens sees
+   the same thing in the same order.
+
+   Displayed from raw_prefs rather than the typed columns, because that
+   is verbatim what Concierge shows. The typed columns exist for the
+   ranking logic, where "No Preference" and "nobody asked" have to be
+   told apart; on screen they read the same and the raw value is truer. */
+function clmPref(p, label){
+  if(!p || !Array.isArray(p.raw_prefs)) return '';
+  var hit = p.raw_prefs.find(function(x){
+    return String(x.label||'').toLowerCase() === label.toLowerCase(); });
+  return hit ? String(hit.value==null?'':hit.value).trim() : '';
+}
+
+function clMatchCard(cl){
+  if(typeof CLMATCH==='undefined') return '';
+  CLMATCH.load();
+  var st = CLMATCH.status();
+  var head = '<div class="ws-h">Caregiver Matching</div>';
+  var wrap = function(inner){
+    return '<div class="ws-card pfx clm-card">'+head+'<div class="clm-body">'+inner+'</div></div>'; };
+
+  if(cl.axisId==null)
+    return wrap('<div class="clm-note">This client isn\u2019t linked to AxisCare, so there is nothing in Client Concierge to match it to.</div>');
+  if(st==='loading'||st==='idle')
+    return wrap('<div class="clm-note"><span class="cs-spin"></span> Loading from Client Concierge\u2026</div>');
+  if(st==='unconfigured')
+    return wrap('<div class="clm-note">No Supabase keys on this build, so the matching table cannot be read.</div>');
+  if(st==='error')
+    return wrap('<div class="clm-note">Couldn\u2019t load caregiver matching \u2014 '+esc(CLMATCH.error()||'')+'</div>');
+
+  var p = CLMATCH.prefs(cl.axisId), ms = CLMATCH.matches(cl.axisId);
+  if(!p && !ms.length)
+    return wrap('<div class="clm-note">Client Concierge has no caregiver matching recorded for '+esc(cl.name)+' yet.</div>');
+
+  var row = function(l,v){
+    return v ? '<div class="emp-row"><span class="emp-l">'+l+'</span><span class="emp-v">'+esc(v)+'</span></div>' : ''; };
+  var stack = function(l,v){
+    return v ? '<div class="clm-stack"><div class="clm-l">'+l+'</div><div class="clm-v">'+esc(v)+'</div></div>' : ''; };
+
+  var out = '';
+  out += row('Caregiver gender preference', clmPref(p,'Caregiver gender'));
+  out += row('Driving required', clmPref(p,'Driving required') || clmPref(p,'Driving requirement'));
+  out += row('Preferred caregiver language', clmPref(p,'Language'));
+
+  /* The two standardized checkbox lists. Concierge picks these from a
+     fixed set rather than typing them, so they read the same client to
+     client and are the ones worth matching on. */
+  var req = (p && Array.isArray(p.care_req)) ? p.care_req : [];
+  var fit = (p && Array.isArray(p.care_fit)) ? p.care_fit : [];
+  out += stack('Care requirements', req.join(', '));
+  out += stack('Caregiver fit / approach', fit.join(', '));
+
+  /* Concierge shows the legacy free-text field INSTEAD of the labelled
+     ones when it is filled, because new edits write there. Same rule
+     here, or a client with both would read twice. */
+  var legacy = clmPref(p,'Caregiver preferences');
+  if(legacy) out += stack('Caregiver preferences', legacy);
+  else [['Preferred caregivers','Preferred caregivers'],
+        ['Caregiver skills','Required experience / skills'],
+        ['Smoking','Smoking'],
+        ['Pets','Pets'],
+        ['Communication preferences','Personality / communication'],
+        ['Caregiver restrictions','Restrictions']]
+    .forEach(function(x){ out += stack(x[1], clmPref(p,x[0])); });
+
+  /* The matched caregivers. A name Concierge stores that we could not
+     resolve to an AxisCare record is shown anyway, marked, rather than
+     dropped \u2014 a family asked for that person and the desk should see it. */
+  if(ms.length){
+    out += '<div class="clm-stack"><div class="clm-l">Matched caregivers</div><div class="clm-cgs">'
+      + ms.map(function(m){
+          var c = m.caregiver_id!=null ? cgById('a'+m.caregiver_id) : null;
+          var nm = c ? c.name : m.caregiver_name;
+          var un = m.match_state==='unmatched';
+          return '<span class="clm-cg'+(un?' unres':'')+'" title="'
+            + esc(un ? 'Recorded in Concierge as \u201c'+m.caregiver_name+'\u201d, not yet matched to an AxisCare caregiver'
+                     : 'From Client Concierge\u2019s caregiver matching')+'">'
+            + esc(nm) + (un?' \u00b7 unmatched':'') + '</span>'; }).join('')
+      + '</div></div>';
+  }
+
+  if(!out) out = '<div class="clm-note">Client Concierge has a record for '+esc(cl.name)+', but nothing in the matching section is filled in yet.</div>';
+  return wrap(out);
+}
+
 function viewClientSchedule(){
   var q = state.clSched;
   if(!q) { state.view='open'; return viewOpen(); }
@@ -6167,7 +6260,8 @@ function viewClientSchedule(){
       '<button class="cal-nav" onclick="clSchedMonth(1)">'+ic('chev',16)+'</button></div>'+
       '<div class="cal-grid"><div class="cal-dowrow">'+
         ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(function(x){return '<div class="cal-dow">'+x+'</div>';}).join('')+
-      '</div>'+cells+'</div></div>';
+      '</div>'+cells+'</div></div>'+
+    clMatchCard(cl);
 }
 
 /* ===================== UPDATES =====================
@@ -6309,6 +6403,9 @@ function viewUpdates(){
 }
 
 function viewCoverage(){
+  /* Draw from our own tables now; ask the sync for anything newer behind
+     the scenes. Throttled inside CLMATCH — this runs on every render. */
+  if(typeof CLMATCH!=='undefined'){ CLMATCH.load(); CLMATCH.refresh(); }
   if(state.coverageContext==='planner' && state.planner) return renderCoveragePlanner();
   // Came from an Open Shifts row -> coverage command center for that one shift
   if(state.coverageContext==='shift' && state.coverageQuery && state.coverageQuery.shiftId && state.shifts.some(s=>s.id===state.coverageQuery.shiftId)){
@@ -8053,7 +8150,23 @@ function cascadeReset(c){
   Object.keys(cascadeDone).forEach(function(k){ if(k.indexOf(c.id+'|')===0) delete cascadeDone[k]; });
 }
 
+/* THIS MONTH AND NEXT, in that order.
+
+   Both, not just next. "Open a caregiver, see September filled, click
+   October, find it blank" is a bug even though each month was individually
+   doing what it was told — and it is what the desk actually hits.
+
+   In order matters: September is written first, and October then sources
+   from the September that now exists. Sequential, because the second read
+   has to see the first write. */
 function cascadeNextMonth(c){
+  if(typeof AVAIL==='undefined' || !AVAIL.thisMonth) return Promise.resolve(0);
+  return cascadeMonth(c, AVAIL.thisMonth(), dateKey(new Date()))
+    .then(function(a){ return cascadeMonth(c, AVAIL.nextMonth(), null)
+      .then(function(b){ return a + b; }); });
+}
+
+function cascadeMonth(c, tgt, notBefore){
   if(!c || c.source!=='axiscare' || c.axisId==null) return Promise.resolve(0);
   if(typeof AVAIL==='undefined' || !AVAIL.copyPlan) return Promise.resolve(0);
   if(AVAIL.status(c.id)!=='ready') return Promise.resolve(0);
@@ -8062,10 +8175,15 @@ function cascadeNextMonth(c){
      somebody already on a visit. Skipping is safe — the next open retries. */
   if(typeof CGVISITS==='undefined' || CGVISITS.status(c.id)!=='ready') return Promise.resolve(0);
 
-  const src=AVAIL.thisMonth(), tgt=AVAIL.nextMonth(), key=c.id+'|'+tgt;
+  const key=c.id+'|'+tgt;
   if(cascadeBusy[key] || cascadeDone[key]) return Promise.resolve(0);
 
-  const plan=AVAIL.copyPlan(c.id, src, tgt);
+  /* the most recent month with rows, within the look-back — not simply the
+     month before, which may itself never have been filled */
+  const src=AVAIL.sourceMonthFor(c.id, tgt);
+  if(!src){ cascadeDone[key]=1; return Promise.resolve(0); }
+
+  const plan=AVAIL.copyPlan(c.id, src, tgt, notBefore);
   if(!plan.length){ cascadeDone[key]=1; return Promise.resolve(0); }
 
   /* Carve per DATE against that date's own visits, exactly as dpSave does. */
@@ -8074,7 +8192,11 @@ function cascadeNextMonth(c){
     const carved=carveSegs(c, p.day, p.segs);
     /* Swallowed whole by a visit: skip rather than write an empty list,
        which saveDays reads as "clear this date". */
-    if(carved.length) byDate[p.day]=carved;
+    if(!carved.length) return;
+    /* Already exactly this. copyPlan could not tell, because it compares the
+       uncarved source against a stored row the carve has already cut. */
+    if(AVAIL.dayMatches(c.id, p.day, carved)) return;
+    byDate[p.day]=carved;
   });
   const writing=Object.keys(byDate);
   /* Marked done even when nothing is written, or a day the carve empties
@@ -8088,7 +8210,7 @@ function cascadeNextMonth(c){
   return Promise.all(Object.keys(groups).map(function(k){ return AVAIL.saveDays(c, groups[k], JSON.parse(k), true); }))
     .then(function(){
       delete cascadeBusy[key]; cascadeDone[key]=1;
-      console.info('[copy] '+c.name+': '+writing.length+' day'+(writing.length===1?'':'s')+' copied into '+ymLabel(tgt));
+      console.info('[copy] '+c.name+': '+writing.length+' day'+(writing.length===1?'':'s')+' copied from '+ymLabel(src)+' into '+ymLabel(tgt));
       try{ render(); }catch(e){}
       return writing.length;
     })
@@ -14357,6 +14479,107 @@ var CGVISITS = (function () {
    A blank day means NOBODY HAS TOLD US. It is not "unavailable" — the
    calendar draws nothing, which is the honest reading.
    ========================================================= */
+/* =========================================================
+   CLIENT MATCHING  —  read from our own tables
+   ---------------------------------------------------------
+   What the desk recorded in Client Concierge about the caregiver a
+   client needs, and who they are matched to.
+
+   Claude: do NOT change this to read Concierge directly. It is synced
+   into client_match_prefs and client_caregiver_match by
+   netlify/functions/matching-sync.js, for two reasons written up there:
+   Concierge’s anon key would otherwise have to reach the browser, where
+   it can read that project’s 179 care notes; and Concierge stores the
+   matched caregivers as NAMES, which have to be resolved to AxisCare ids
+   once and corrected by hand, not guessed on every page load.
+
+   One fetch of both tables, cached for the session — 21 clients and 53
+   names today. Loaded when a client screen first asks rather than at
+   boot, because most sessions never open one.
+
+   Deliberately NOT in `state`: it is not the scheduler’s typed work, and
+   anything in a tracked CLOUD slice gets diffed into the overlay and
+   written to Supabase as though somebody had entered it.
+   ========================================================= */
+var CLMATCH = (function () {
+  var st = 'idle', prefs = {}, byClient = {}, err = null;
+
+  function cfg() { return window.SCHEDULER_CONFIG || {}; }
+
+  function load() {
+    if (st === 'loading' || st === 'ready') return;
+    var c = cfg();
+    if (!c.supabaseUrl || !c.supabaseAnonKey) { st = 'unconfigured'; return; }
+    st = 'loading';
+    var base = String(c.supabaseUrl).replace(/\/+$/, '');
+    var H = { apikey: c.supabaseAnonKey, Authorization: 'Bearer ' + c.supabaseAnonKey };
+    var grab = function (path, what) {
+      return fetch(base + path, { headers: H }).then(function (r) {
+        if (!r.ok) throw new Error(what + ' HTTP ' + r.status);
+        return r.json();
+      });
+    };
+    Promise.all([
+      grab('/rest/v1/client_match_prefs?select=*', 'preferences'),
+      grab('/rest/v1/client_caregiver_match?select=*&order=client_axis_id.asc,sort_order.asc', 'matches')
+    ]).then(function (parts) {
+      prefs = {}; byClient = {};
+      (parts[0] || []).forEach(function (p) { prefs[p.client_axis_id] = p; });
+      (parts[1] || []).forEach(function (m) {
+        (byClient[m.client_axis_id] || (byClient[m.client_axis_id] = [])).push(m); });
+      st = 'ready';
+      console.info('[match] ' + Object.keys(prefs).length + ' client preferences, ' +
+        ((parts[1] || []).length) + ' matched caregiver names');
+    }).catch(function (e) {
+      st = 'error'; err = (e && e.message) || String(e);
+      console.warn('[match] failed', e);
+    }).then(function () { try { render(); } catch (e) {} });
+  }
+
+  /* STALE FIRST, THEN FRESH. Find Coverage draws immediately from our own
+     tables — which may be up to an hour old — and kicks the sync off behind
+     it. When the sync answers, the tables are re-read and the screen
+     re-renders on its own, so nobody has to know to refresh.
+
+     Throttled hard, because the sync resolves names against the AxisCare
+     roster and viewCoverage() re-runs on every render, including the CLOUD
+     poll every 20 seconds. Without this a scheduler sitting on Find
+     Coverage would fire it three times a minute.
+
+     Failure is silent by design: the screen already has an answer, and a
+     banner about a background refresh nobody asked for is noise. */
+  var REFRESH_MS = 10 * 60 * 1000;
+  var lastTry = 0, syncing = false;
+
+  function refresh(force) {
+    var now = Date.now();
+    if (syncing) return;
+    if (!force && now - lastTry < REFRESH_MS) return;
+    lastTry = now; syncing = true;
+    fetch('/.netlify/functions/matching-sync')
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (res) {
+        syncing = false;
+        if (!res || !res.ok) return;
+        console.info('[match] synced — ' + res.clients + ' clients, ' + res.names +
+          ' names, ' + res.unmatched + ' unmatched');
+        st = 'idle'; prefs = {}; byClient = {};
+        load();                       /* load() re-renders when it lands */
+      })
+      .catch(function () { syncing = false; });   /* no function locally; fine */
+  }
+
+  return {
+    load: load,
+    refresh: refresh,
+    status: function () { return st; },
+    error: function () { return err; },
+    prefs: function (axisId) { return prefs[axisId] || null; },
+    matches: function (axisId) { return byClient[axisId] || []; },
+    retry: function () { st = 'idle'; err = null; load(); }
+  };
+})();
+
 var AVAIL = (function () {
   'use strict';
   var byCg = {};        /* cgId -> { status, days, count, error, from, to } */
@@ -14500,22 +14723,55 @@ var AVAIL = (function () {
   /* The seven weekday values a month hands forward, or null if it has none.
      Cached per source month on the record, which saveDays replaces whole, so
      an edit recomputes rather than serving a stale answer. */
+  /* A DATE THAT HELD AN AXISCARE VISIT IS A BAD SOURCE, because what is
+     stored on it is not what the desk said — it is what was LEFT after that
+     date's visits were carved out of it. The carve is a fact about ONE date;
+     copying it forward promotes it to the weekday's shape.
+
+     Angelica Flores, 2026-09: open all day on three Fridays, and on the
+     fourth a single Fayde Macune visit 14:30—22:30 carved her to 00:00—14:30
+     + 22:30—24:00. That fourth Friday was the last one, so every October
+     Friday inherited an 8-hour hole on dates AxisCare has no visit for — and
+     a client wanting Friday 2:30—10:30pm missed her by an exact match.
+
+     So each weekday prefers its most recent VISIT-FREE date, and only falls
+     back to a carved one when every occurrence had a visit. That fallback is
+     the recurring-visit case, where the carve IS the usual shape and next
+     month almost certainly carries the same visit; the write-time carve in
+     cascadeNextMonth fixes it up per target date either way.
+
+     The test is deliberately coarse — any visit at all, not just a carving
+     one. Over-caution costs nothing here: it only walks back one more week. */
+  function copyVisitFree(cgId, ds) {
+    if (typeof CGVISITS === 'undefined' || !CGVISITS.forDay) return true;
+    return CGVISITS.forDay(cgId, ds).length === 0;
+  }
+
   function copySource(cgId, srcYm) {
     var r = byCg[cgId];
     if (!r || r.status !== 'ready') return null;
+    /* Not cached until the visits are in, or the first caller decides the
+       weekday off an empty visit list and every later one is served that. */
+    var vReady = typeof CGVISITS !== 'undefined' && CGVISITS.status &&
+                 CGVISITS.status(cgId) === 'ready';
     var ck = '_cs' + srcYm;
-    if (r[ck] !== undefined) return r[ck];
-    var days = r.days, byDow = {}, any = false;
+    if (vReady && r[ck] !== undefined) return r[ck];
+    var days = r.days, clean = {}, fallback = {}, any = false;
     Object.keys(days).filter(function (ds) { return ds.slice(0, 7) === srcYm; }).sort()
       .forEach(function (ds) {
         var segs = days[ds];
         if (!segs || !segs.length) return;
         if (segs.some(function (b) { return COPY_SKIP.indexOf(b.status) >= 0; })) return;
-        byDow[new Date(ds + 'T12:00:00').getDay()] = { from: ds, segs: segs };
+        var w = new Date(ds + 'T12:00:00').getDay(), hit = { from: ds, segs: segs };
+        fallback[w] = hit;                                  /* ascending, so last wins */
+        if (copyVisitFree(cgId, ds)) clean[w] = hit;
         any = true;
       });
-    r[ck] = any ? byDow : null;
-    return r[ck];
+    var byDow = {};
+    Object.keys(fallback).forEach(function (w) { byDow[w] = clean[w] || fallback[w]; });
+    var res = any ? byDow : null;
+    if (vReady) r[ck] = res;
+    return res;
   }
 
   /* Is every row on this date one the copy wrote? A single human row on the
@@ -14549,12 +14805,51 @@ var AVAIL = (function () {
      about that weekday, or the day already holds exactly what would be
      written — so opening the same calendar twice costs nothing the second
      time, and a save that changed nothing relevant writes nothing. */
-  function copyPlan(cgId, srcYm, tgtYm) {
+  /* HOW FAR BACK THE COPY MAY REACH FOR A SOURCE.
+
+     One month. The copy exists to carry a CURRENT schedule forward, not to
+     resurrect whatever was last seen — that was patternWeek, projecting off
+     data up to 134 days old, and it is why this replaced it.
+
+     A caregiver whose most recent month is older than this is left alone
+     deliberately: nobody has confirmed their availability in over a month,
+     and inventing one would put them in front of Find Coverage as though
+     somebody had. Blank is the honest answer, and CLAUDE.md already says
+     blank means not available. */
+  var COPY_LOOKBACK_MONTHS = 1;
+
+  /* The month a target should copy FROM: the most recent one before it that
+     actually holds rows, within the look-back. Returns null when there is
+     nothing recent enough.
+
+     Claude: this is what fixes a caregiver falling through the crack. The
+     copy used to read thisMonth() and nothing else, so a caregiver whose
+     calendar nobody opened during August never got September — and once
+     September arrived, September was the source, September was empty, and
+     they were stuck for good. 101 of 140 caregivers were in that state. */
+  function sourceMonthFor(cgId, tgtYm) {
+    var r = byCg[cgId];
+    if (!r || r.status !== 'ready') return null;
+    for (var back = 1; back <= COPY_LOOKBACK_MONTHS; back++) {
+      var ym = ymAdd(tgtYm, -back);
+      var any = Object.keys(r.days).some(function (ds) {
+        return ds.slice(0, 7) === ym && (r.days[ds] || []).length; });
+      if (any) return ym;
+    }
+    return null;
+  }
+
+  /* `notBefore` keeps the copy off days already in the past. Filling the
+     CURRENT month matters — a caregiver with an empty September is invisible
+     to Find Coverage today - but rewriting the days it has already lived
+     through helps nobody. */
+  function copyPlan(cgId, srcYm, tgtYm, notBefore) {
     var out = [], src = copySource(cgId, srcYm);
     if (!src) return out;
     var p = tgtYm.split('-'), dim = new Date(+p[0], +p[1], 0).getDate();
     for (var d = 1; d <= dim; d++) {
       var ds = tgtYm + '-' + String(d).padStart(2, '0');
+      if (notBefore && ds < notBefore) continue;
       var hit = src[new Date(ds + 'T12:00:00').getDay()];
       if (!hit) continue;
       var existing = storedForDay(cgId, ds);
@@ -14564,6 +14859,19 @@ var AVAIL = (function () {
       out.push({ day: ds, segs: want, from: hit.from });
     }
     return out;
+  }
+
+  /* Does this date already hold exactly these segments?
+
+     Compared AFTER the carve, because that is the shape actually written.
+     copyPlan can only compare the UNCARVED source, so a day an AxisCare visit
+     carved never looked equal to what it would write and was re-proposed on
+     every single run — 103 of 103 repeat proposals were days with a visit,
+     none without. Harmless writes, but endless ones. */
+  function dayMatches(cgId, ds, segs) {
+    var existing = storedForDay(cgId, ds);
+    if (existing.length !== (segs || []).length) return false;
+    return sameShape(existing.map(copyShape), segs.map(copyShape));
   }
 
   /* forDay and storedForDay are now the SAME answer: what the table holds.
@@ -14908,8 +15216,8 @@ var AVAIL = (function () {
 
   return {
     load: load, forDay: forDay, storedForDay: storedForDay,
-    thisMonth: thisMonth, nextMonth: nextMonth,
-    copySource: copySource, copyPlan: copyPlan, copyOwns: copyOwns,
+    thisMonth: thisMonth, nextMonth: nextMonth, sourceMonthFor: sourceMonthFor,
+    copySource: copySource, copyPlan: copyPlan, copyOwns: copyOwns, dayMatches: dayMatches,
     status: status, info: info, retry: retry,
     saveDays: saveDays,
     primeIndex: primeIndex, dayAvail: dayAvail, coversOn: coversOn, openDays: openDays,
