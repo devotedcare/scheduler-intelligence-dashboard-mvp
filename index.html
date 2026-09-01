@@ -1518,12 +1518,6 @@
 
   /* AI assistant */
   .ai-wrap{max-width:880px}
-  .ai-hero{text-align:center;padding:34px 20px 10px}
-  .ai-hero-i{width:58px;height:58px;border-radius:50%;background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;margin:0 auto 14px}
-  .ai-hero-t{font-size:21px;font-weight:800;color:var(--navy-900)}
-  .ai-hero-s{font-size:13.5px;color:var(--ink-soft);max-width:520px;margin:7px auto 0;line-height:1.55}
-  .ai-ex-h{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-faint);margin:22px 0 11px}
-  .ai-ex-h.sm{margin-top:18px}
   .ai-chips{display:flex;flex-wrap:wrap;gap:8px}
   .ai-chip{text-align:left;padding:9px 14px;border:1px solid var(--line-strong);background:#fff;border-radius:20px;font-size:12.5px;color:var(--ink);cursor:pointer;font-family:inherit;transition:all .12s}
   .ai-chip:hover{border-color:var(--brand);background:var(--panel-head);color:var(--navy-900)}
@@ -1547,7 +1541,22 @@
   .ai-sub{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--ink-faint);margin:14px 0 8px}
   .ai-sub:first-child{margin-top:0}
   .ai-none{font-size:13px;color:var(--ink-soft);line-height:1.5}
-  .ai-inbar{position:sticky;bottom:0;display:flex;gap:9px;padding:14px 0 4px;background:linear-gradient(to top,var(--bg) 70%,transparent);margin-top:18px}
+  /* Ask AI is a white page: the app canvas is tinted, so this screen paints
+   its own background rather than sitting on it. */
+.v-assistant{background:#fff}
+.main-white{background:#fff}
+body.ai-white{background:#fff}
+body.ai-white .app{background:#fff}
+.main-white .topbar{background:#fff}
+.ai-inbar{display:flex;gap:9px;padding:0;background:#fff;margin:0}
+/* Suggested questions: closed by default, opened from its own row under the
+   input. No card, no border, nothing above the box. */
+.ai-sug{margin-top:12px}
+.ai-sug-t{display:inline-flex;align-items:center;gap:7px;background:none;border:none;padding:2px 0;
+  font-family:inherit;font-size:12.5px;font-weight:700;color:var(--ink-soft);cursor:pointer}
+.ai-sug-t:hover{color:var(--brand)}
+.ai-sug-c{font-size:10px;color:var(--ink-faint)}
+.ai-sug .ai-chips{margin-top:10px}
   .ai-input{flex:1;padding:12px 15px;border:1px solid var(--line-strong);border-radius:24px;font-size:14px;font-family:inherit;outline:none}
   .ai-input:focus{border-color:var(--brand)}
   .ai-inbar .btn{border-radius:24px}
@@ -2381,6 +2390,7 @@ const state = {
   handoff:{opener:[], closer:[]},
   updates:[],
   cgConcerns:[], cgUpdates:[], cgNotes:[], cgRatings:[], cgProfiles:[], schedChanges:[], cgChanges:[],
+  aiSugOpen:false,   /* Ask AI: suggested questions start collapsed */
   updEdit:null,          /* id being edited, or 'new' while composing */
   view:'avail',
   filters:{schedFilter:'open', availSearch:''},
@@ -3005,6 +3015,14 @@ function render(){
   if(!VIEWS[state.view]) state.view='avail';   /* removed or unknown view -> the default page */
   const v=document.getElementById('view');
   v.className='view v-'+state.view;   /* lets one screen tune its own top padding */
+  /* Ask AI is a white page, and the tint lives on <body>, so the whole main
+     column is switched rather than just the view box — otherwise the strip
+     beside and below the content stays grey. */
+  /* On <body> as well as the column: .main only paints its own box, so the
+     strip below short content kept showing the app tint through it. */
+  const mainEl=document.querySelector('.main');
+  if(mainEl) mainEl.classList.toggle('main-white', state.view==='assistant');
+  document.body.classList.toggle('ai-white', state.view==='assistant');
   /* A render replaces the whole view, so anything typed in the caregiver
      search would lose the cursor - including on the 8-second cloud poll,
      which fires while someone is still typing a name. Put it back. */
@@ -10985,21 +11003,28 @@ function askAI(preset){
   setTimeout(()=>{ window.scrollTo(0,document.body.scrollHeight); const i2=document.getElementById('aiq'); if(i2) i2.focus(); },30);
 }
 function clearAI(){ state.aiLog=[]; render(); }
+/* The suggestions start closed and are opened by the scheduler. */
+function toggleAiSug(){ state.aiSugOpen=!state.aiSugOpen; render(); }
 function viewAssistant(){
   const thread=state.aiLog.map(e=>`<div class="ai-turn">
       <div class="ai-ask">${ic('spark',13)}<span>${esc(e.q)}</span></div>
       <div class="ai-ans"><div class="ai-ans-t">${e.title}</div>${e.html}</div></div>`).join('');
   const chips=AI_EXAMPLES.map((q,i)=>`<button class="ai-chip" onclick="askAIex(${i})">${q}</button>`).join('');
-  const empty=`<div class="ai-hero"><div class="ai-hero-i">${ic('spark',26)}</div>
-      <div class="ai-hero-t">Ask anything about scheduling</div>
-      <div class="ai-hero-s">Availability, open shifts, call-offs, reliability, skills, clients, handoff \u2014 answered from live data, no clicking through screens.</div></div>
-    <div class="ai-ex-h">Try asking</div><div class="ai-chips">${chips}</div>`;
+  const open=!!state.aiSugOpen;
+  /* The input first, the suggestions under it, and nothing above either —
+     no hero, no icon, no strapline. A scheduler who knows what to ask sees
+     only the box; the examples are there when they want them. */
   return `<div class="ai-wrap">
-    ${state.aiLog.length?`<div class="ai-thread">${thread}</div><div class="ai-ex-h sm">More questions</div><div class="ai-chips">${chips}</div>`:empty}
+    ${state.aiLog.length?`<div class="ai-thread">${thread}</div>`:''}
     <div class="ai-inbar">
       <input id="aiq" class="ai-input" placeholder="Ask about availability, coverage, call-offs, clients\u2026" onkeydown="if(event.key==='Enter')askAI()" autocomplete="off">
       <button class="btn pri" onclick="askAI()">${ic('spark',14)} Ask</button>
       ${state.aiLog.length?`<button class="btn" onclick="clearAI()">Clear</button>`:''}
+    </div>
+    <div class="ai-sug">
+      <button class="ai-sug-t" aria-expanded="${open}" onclick="toggleAiSug()">
+        <span class="ai-sug-c">${open?'\u25be':'\u25b8'}</span>Suggested questions</button>
+      ${open?`<div class="ai-chips">${chips}</div>`:''}
     </div>
   </div>`;
 }
