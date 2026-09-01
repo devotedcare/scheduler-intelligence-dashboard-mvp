@@ -10446,6 +10446,18 @@ function demoNotice(){
 
   /* 1. could not reach AxisCare — say so, and say why the screen is bare */
   if(st && st.ok===false){
+    /* Two different failures, two different messages. With a cached roster on
+       screen the honest line is that it is last-known and how old it is —
+       saying "nothing is shown" while 184 names are visible would be wrong. */
+    if(st.stale){
+      const mins=Math.round((st.cacheAge||0)/60000);
+      const age = mins<1 ? 'just now' : mins<60 ? mins+' minute'+(mins===1?'':'s')+' ago'
+                : Math.round(mins/60)+' hour'+(Math.round(mins/60)===1?'':'s')+' ago';
+      return '<div class="demo-banner"><span class="db-ic">\u26A0</span><span>'+
+        '<b>Showing the last saved caregiver list.</b> AxisCare didn\u2019t answer \u2014 '+
+        esc(st.reason||'')+'. This list was loaded '+age+', so anything changed since is not in it.'+
+        '</span><button onclick="retryAxis()">Retry</button></div>';
+    }
     return '<div class="demo-banner err"><span class="db-ic">\u26A0</span><span>'+
       '<b>Couldn\u2019t reach AxisCare.</b> '+esc(st.reason||'')+'. '+
       'Nothing is shown rather than showing stale or invented data.'+
@@ -13363,7 +13375,7 @@ var ROSTER = (function () {
     return n;
   }
 
-  var lastResult = null, lastShiftScan = null, lastProblems = [];
+  var lastResult = null, lastShiftScan = null, lastProblems = [], cacheAge = null;
 
   /* ---- demo data ------------------------------------------------
      The seed records stay in the source so the dashboard can be
@@ -13481,6 +13493,68 @@ var ROSTER = (function () {
       });
   }
 
+  var ROSTER_TIMEOUT_MS = 12000;
+  /* Rejects if the promise has not settled in time. The underlying request is
+     not cancelled — a late answer still resolves and is still used — this only
+     stops the SCREEN waiting on it. */
+  function withTimeout(p, ms, msg) {
+    return new Promise(function (resolve, reject) {
+      var done = false;
+      var t = setTimeout(function () { if (!done) { done = true; reject(new Error(msg)); } }, ms);
+      p.then(function (v) { if (!done) { done = true; clearTimeout(t); resolve(v); } },
+             function (e) { if (!done) { done = true; clearTimeout(t); reject(e); } });
+    });
+  }
+
+  /* ---- The roster cache -------------------------------------------
+     The raw AxisCare records from the last successful fetch, kept in
+     localStorage so the NEXT visit paints the list before the network is
+     even asked. The fresh fetch still runs and replaces it; the cache only
+     decides what is on screen while that happens.
+
+     Raw records, not mapped ones: mapping is free (sub-millisecond for the
+     whole roster, measured) and re-running it means a stored copy can never
+     drift from what toAppCaregiver currently produces.
+
+     It is read back only for display. CLOUD's baseline is still taken in
+     finishBoot, after the live fetch has settled, so a cached record never
+     reaches Supabase as though somebody typed it. */
+  var RCACHE_KEY = 'dc.roster.v1';
+  var RCACHE_MAX_AGE = 24 * 3600 * 1000;   /* a day: older than that, ask first */
+  function cacheRoster(list) {
+    try { localStorage.setItem(RCACHE_KEY, JSON.stringify({ at: Date.now(), list: list })); }
+    catch (e) { /* quota or private mode — the app works without it */ }
+  }
+  function cachedRoster() {
+    try {
+      var raw = localStorage.getItem(RCACHE_KEY); if (!raw) return null;
+      var o = JSON.parse(raw);
+      if (!o || !Array.isArray(o.list) || !o.list.length) return null;
+      if (Date.now() - (o.at || 0) > RCACHE_MAX_AGE) return null;
+      return o;
+    } catch (e) { return null; }
+  }
+  /* Painted before the fetch is even issued. Returns the cache age in ms so
+     the caller can say how old what is on screen is. */
+  function paintCachedRoster() {
+    var o = cachedRoster(); if (!o) return null;
+    /* AxisRoster.map first: the cache holds RAW AxisCare records, and
+       applyRoster starts from mapped ones — the same two steps the live
+       fetch runs, in the same order. */
+    try { applyRoster(o.list.map(AxisRoster.map)); return Date.now() - o.at; }
+    catch (e) { console.warn('[roster] cached roster unreadable', e); return null; }
+  }
+
+  /* One mapping path, used by the early paint, the tail of hydrate and the
+     cached-roster restore — so all three produce identical records. */
+  function applyRoster(list) {
+    var real = list.map(toAppCaregiver).map(derive).map(applyProfile);
+    state.caregivers = real;
+    try { if (typeof cgpRosterChanged === 'function') cgpRosterChanged(); } catch (e) {}
+    try { if (typeof attClientsChanged === 'function') attClientsChanged(); } catch (e) {}
+    return real;
+  }
+
   function hydrate() {
     if (!enabled()) {
       lastResult = { ok: false, reason: 'disabled in config' };
@@ -13496,12 +13570,47 @@ var ROSTER = (function () {
 
     var t0 = Date.now();
 
+    /* Whatever was on screen last time, on screen again immediately. The
+       fetch below replaces it; until then the desk reads real names rather
+       than a spinner. */
+    cacheAge = paintCachedRoster();
+    if (cacheAge != null) { try { render(); } catch (e) {} }
+
     /* Caregivers, clients and open shifts in parallel. All three must
        land BEFORE CLOUD.boot() snapshots its baseline, or the overlay
        records the whole dataset as though a human typed it. */
     var problemsEarly = [];
+
+    /* THE CAREGIVER LIST DOES NOT WAIT ON THE OTHER FOUR CALLS.
+
+       All five have always run in parallel, but the list only painted once
+       Promise.all settled — so it was gated on the SLOWEST of them, not on
+       its own. The roster is 2 requests (~1.7s); fetchOpenShifts scans a
+       28-day window, ~700 visits over 8 requests (~4s). Caregivers were
+       therefore sitting ready for seconds behind a call the list does not
+       read. This lands them the moment they arrive.
+
+       Safe against the boot-order rule in CLAUDE.md: the rule is that the
+       roster must be in state BEFORE CLOUD.boot() snapshots its baseline,
+       or the overlay records all 184 as though a human typed them. Painting
+       EARLIER than the snapshot is exactly what it asks for — finishBoot
+       still runs after every call settles, and still renders before
+       snapshotting. */
+    /* A slow AxisCare must not read as an empty agency or an endless
+       spinner. After ROSTER_TIMEOUT_MS the fetch is treated as failed for
+       display purposes; whatever the cache painted stays on screen, and the
+       banner says so. A late response is still honoured if it arrives. */
+    var rosterP = withTimeout(AxisCare.roster({ raw: true }), ROSTER_TIMEOUT_MS,
+        'AxisCare did not respond within ' + Math.round(ROSTER_TIMEOUT_MS/1000) + 's')
+      .then(function (raw) {
+      cacheRoster(raw);
+      var list = raw.map(AxisRoster.map);
+      try { applyRoster(list); render(); } catch (e) { console.warn('[roster] early paint failed', e); }
+      return list;
+    });
+
     return Promise.all([
-      AxisCare.roster().catch(function (e) { return { __err: e }; }),
+      rosterP.catch(function (e) { return { __err: e }; }),
       AxisLive.fetchClients(function (p, q) { return AxisCare.get(p, q); }).catch(function (e) { return { __err: e }; }),
       AxisLive.fetchOpenShifts(function (p, q) { return AxisCare.get(p, q); }, {}).catch(function (e) { return { __err: e }; }),
       fetchCareNotes().catch(function (e) { return { __err: e }; }),
@@ -13539,18 +13648,13 @@ var ROSTER = (function () {
       /* a short read is more likely a broken call than a shrunken agency */
       if (!list || list.length < 10) throw new Error('implausibly small roster (' + (list ? list.length : 0) + ') — keeping demo data');
 
-      var real = list.map(toAppCaregiver).map(derive).map(applyProfile);
-      state.caregivers = real;
+      var real = applyRoster(list);
       /* Both rosters live in this one array, split by c.active — see
          applyProfile(). state.cgInactive used to be a second array for the
          parked roster; nothing ever pushed into it, so the Inactive tab was
          permanently empty. A second array would need a union at all ~98
          cgById() call sites to keep parked ids resolving, so the split is a
          flag on the record instead. */
-      /* Anything showing a caregiver list needs to know it just changed. */
-      try { if (typeof cgpRosterChanged === 'function') cgpRosterChanged(); } catch (e) {}
-      try { if (typeof attClientsChanged === 'function') attClientsChanged(); } catch (e) {}
-
       var valid = {};
       state.caregivers.forEach(function (c) { valid[c.id] = 1; });
       var remapped = remapDangling(valid);
@@ -13562,7 +13666,7 @@ var ROSTER = (function () {
         openShifts: (state.shifts || []).length,
         shiftScan: lastShiftScan,
         problems: lastProblems,
-        remapped: remapped, ms: Date.now() - t0,
+        remapped: remapped, ms: Date.now() - t0, stale: false, cacheAge: cacheAge,
         untagged: real.filter(function (c) { return !c.tagged; }).length
       };
       console.info('[axiscare] ' + real.length + ' caregivers, ' + (state.clients || []).length +
@@ -13573,8 +13677,14 @@ var ROSTER = (function () {
       return true;
 
     }).catch(function (err) {
-      lastResult = { ok: false, reason: (err && err.message) || String(err) };
-      console.warn('[roster] keeping the demo caregivers — ' + lastResult.reason);
+      /* A failed fetch no longer means a blank screen: if the cache painted
+         a roster, it stays. `stale` is what the banner reads to say the list
+         is last-known rather than current. */
+      var painted = cacheAge != null && (state.caregivers || []).length > 0;
+      lastResult = { ok: false, reason: (err && err.message) || String(err),
+                     stale: painted, cacheAge: cacheAge };
+      console.warn('[roster] ' + (painted ? 'showing the last saved roster — ' : 'no roster — ') + lastResult.reason);
+      try { render(); } catch (e) {}
       return false;
     });
   }
