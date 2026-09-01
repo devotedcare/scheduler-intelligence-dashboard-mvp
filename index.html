@@ -1541,12 +1541,20 @@
   .ai-sub{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--ink-faint);margin:14px 0 8px}
   .ai-sub:first-child{margin-top:0}
   .ai-none{font-size:13px;color:var(--ink-soft);line-height:1.5}
-  /* Ask AI is a white page: the app canvas is tinted, so this screen paints
+  /* Ask Devi is a white page: the app canvas is tinted, so this screen paints
    its own background rather than sitting on it. */
 .v-assistant{background:#fff}
 .main-white{background:#fff}
 body.ai-white{background:#fff}
 body.ai-white .app{background:#fff}
+/* Full-height column: the thread takes the slack and scrolls on its own, and
+   the composer is the last row, so an empty page shows the box at the bottom
+   with the space above it kept clear for the conversation. */
+body.ai-white .main{display:flex;flex-direction:column;min-height:100vh}
+.v-assistant{flex:1 1 auto;display:flex;flex-direction:column;min-height:0}
+.ai-wrap{flex:1 1 auto;display:flex;flex-direction:column;min-height:0}
+.ai-thread{flex:1 1 auto;overflow-y:auto;min-height:0}
+.ai-foot{flex:0 0 auto;margin-top:auto;padding-top:14px}
 .main-white .topbar{background:#fff}
 .ai-inbar{display:flex;gap:9px;padding:0;background:#fff;margin:0}
 /* Suggested questions: closed by default, opened from its own row under the
@@ -2390,7 +2398,7 @@ const state = {
   handoff:{opener:[], closer:[]},
   updates:[],
   cgConcerns:[], cgUpdates:[], cgNotes:[], cgRatings:[], cgProfiles:[], schedChanges:[], cgChanges:[],
-  aiSugOpen:false,   /* Ask AI: suggested questions start collapsed */
+  aiSugOpen:false,   /* Ask Devi: suggested questions start collapsed */
   updEdit:null,          /* id being edited, or 'new' while composing */
   view:'avail',
   filters:{schedFilter:'open', availSearch:''},
@@ -2935,7 +2943,7 @@ const ic = (k,sz=17) => `<svg class="ico" width="${sz}" height="${sz}" viewBox="
 
 /* ============ NAV ============ */
 const NAVGROUPS=[
-  {link:{id:'assistant', label:'Ask AI'}},
+  {link:{id:'assistant', label:'Ask Devi'}},
   {link:{id:'avail', label:'Caregivers'}},
   {link:{id:'carenotes', label:'Care Notes Review'}},
   {link:{id:'open', label:'Open Shifts'}},
@@ -3015,7 +3023,7 @@ function render(){
   if(!VIEWS[state.view]) state.view='avail';   /* removed or unknown view -> the default page */
   const v=document.getElementById('view');
   v.className='view v-'+state.view;   /* lets one screen tune its own top padding */
-  /* Ask AI is a white page, and the tint lives on <body>, so the whole main
+  /* Ask Devi is a white page, and the tint lives on <body>, so the whole main
      column is switched rather than just the view box — otherwise the strip
      beside and below the content stays grey. */
   /* On <body> as well as the column: .main only paints its own box, so the
@@ -8827,7 +8835,7 @@ function aboutList(arr){
    tenure and current assignment, assignment restrictions and client blocks,
    and how many scheduling notes are on file.
 
-   It is COMPUTED, not fetched. This app has no Claude backend — Ask AI is
+   It is COMPUTED, not fetched. This app has no Claude backend — Ask Devi is
    local pattern matching — and even with one, the About block renders on
    every profile view, every save and every poll, which is precisely the
    render-path call that has to be paid for again on each one. Nothing here
@@ -11014,8 +11022,12 @@ function viewAssistant(){
   /* The input first, the suggestions under it, and nothing above either —
      no hero, no icon, no strapline. A scheduler who knows what to ask sees
      only the box; the examples are there when they want them. */
+  /* The conversation occupies the top and middle and the composer is pinned
+     to the bottom of the page, so the answers read downward into the box
+     that produced them rather than the box sitting above its own output. */
   return `<div class="ai-wrap">
-    ${state.aiLog.length?`<div class="ai-thread">${thread}</div>`:''}
+    <div class="ai-thread">${thread}</div>
+    <div class="ai-foot">
     <div class="ai-inbar">
       <input id="aiq" class="ai-input" placeholder="Ask about availability, coverage, call-offs, clients\u2026" onkeydown="if(event.key==='Enter')askAI()" autocomplete="off">
       <button class="btn pri" onclick="askAI()">${ic('spark',14)} Ask</button>
@@ -11025,6 +11037,7 @@ function viewAssistant(){
       <button class="ai-sug-t" aria-expanded="${open}" onclick="toggleAiSug()">
         <span class="ai-sug-c">${open?'\u25be':'\u25b8'}</span>Suggested questions</button>
       ${open?`<div class="ai-chips">${chips}</div>`:''}
+    </div>
     </div>
   </div>`;
 }
