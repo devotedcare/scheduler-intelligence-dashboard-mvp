@@ -1185,6 +1185,77 @@ in `README.md` under *How the data model works*.
    local one at boot and each Supabase pull. A saved overlay predates the roster
    swap and can reference caregivers who no longer exist.
 
+3b. **The roster paints once, and not before `profiles` lands.**
+
+    `applyProfile()` returns on its first line when `profiles[c.axisId]` is
+    missing, and `profiles` is only assigned inside the `Promise.all` handler
+    in `hydrate()`. So **any** paint before that point carries no
+    `employment_status` — and `c.active` then falls back to the AxisCare
+    label, which is `Active` for everybody, because the fetch asks
+    `statuses=Active`.
+
+    Measured on live data: **171 active instead of 100**. The desk has parked
+    **82** caregivers, and `c.active` is what Find Coverage, Client Matching,
+    the shift ranker and the availability-review tasks filter on. Every one of
+    the 82 is offered for shifts during such a window.
+
+    This is why nothing paints until all five boot calls settle, even though
+    the roster is ready in ~2s and the shift scan it waits on takes ~5s. It is
+    slow on purpose, and it is the wrong trade — but the fix is to carry the
+    profiles, not to paint sooner.
+
+    **The measured way to make it fast**, when somebody takes it on:
+
+    | call | lands |
+    |---|---|
+    | `fetchProfiles` | **1.0s** |
+    | `AxisCare.roster` | 2.1s |
+    | `fetchClients` | 3.3s |
+    | `fetchOpenShifts` | 5.1s |
+
+    Profiles arrive **first**. Gating the paint on `Promise.all([roster,
+    profiles])` rather than on all five gives a correct roster at ~2.1s for
+    free. `applyRoster()` is kept as a named function for exactly that seam.
+
+3c. **Whatever fetches the roster, validate before assigning `state`.**
+
+    `if (!list || list.length < 10) throw` guards against a truncated AxisCare
+    read. It only works while it runs *before* `state.caregivers` is written.
+
+### What was tried, and why it was reverted
+
+Commit `cd5b873` (2026-09-01) added an early paint plus a **localStorage roster
+cache** (`dc.roster.v1`, raw records, 24h) painted before the network was asked.
+Reverted the same day. Both halves are worth knowing about:
+
+- **The early paint** hit 3b — the Active roster read 171/0 for the ~3s before
+  the boot settled, on a **cold load with an empty cache** as well as a warm one.
+- **The cache** moved `cacheRoster()` and `applyRoster()` ahead of the
+  plausibility guard (3c), so a truncated read was both painted and stored for a
+  day. It also showed data with **no banner at all** — `demoNotice()` is guarded
+  on `ROSTER.status()`, which is `null` until the boot finishes.
+- **The one that could not correct itself:** a caregiver terminated in AxisCare
+  stayed in the cache. Assign a shift to them inside the window and, when the
+  live roster lands without them, `reconcile()` → `remapDangling()` rewrites
+  `s.assigned` via `pickFrom(schedulingPool(), seed)` — silently reassigning the
+  shift to Ana or one of six caregivers, into a tracked CLOUD slice shared by all
+  three schedulers, in place and irreversibly.
+- `retryAxis()` repainted the cache over live data *after* `CLOUD.boot()` had
+  snapshotted, and `render()` schedules a save at 900ms while the refetch takes
+  ~2.1s — so a save could diff cached-against-live into caregiver patches.
+- The stored payload was **187KB of raw records** — date of birth on 180 people,
+  home street address on 179, pay rate on 146, plus personal email and mobile —
+  at rest on the device, surviving `CLOUD.reset()`, with no logout to clear it.
+
+`withTimeout()` was kept: a hanging AxisCare now shows the banner instead of an
+endless spinner. Note it **discards** a late answer rather than using it — an
+earlier comment claimed otherwise. It must stay that way: anything reaching
+`state.caregivers` after the baseline snapshot is bug 2 above by another door.
+
+Leftover `dc.roster.v1` entries in schedulers’ browsers are inert — nothing
+reads the key any more. Clearing one needs DevTools → Application → Local
+Storage, or “Clear site data”; a hard reload does **not** remove it.
+
 4. **`config.js` is generated at deploy time** from Netlify environment
    variables. Editing it has no effect — the build overwrites it. The committed
    copy is intentionally empty.
