@@ -9536,6 +9536,12 @@ function clientBlocksBody(c){
    extra_languages, and are editable here. */
 const LANG_OPTS=['English','Spanish','Tagalog','Ilocano','Vietnamese','Korean','Mandarin','Armenian','Russian','American Sign Language'];
 const ENGLISH_LEVELS=['Native/Bilingual','Fluent','Good','Conversational','Basic'];
+/* The four the Work Preferences row offers, lowest first. ENGLISH_LEVELS
+   keeps 'Good' because records already hold it and the Languages editor
+   still lists it — dropping it from there would silently rewrite somebody's
+   answer the next time that form was saved. Anything stored outside these
+   four is kept as a selected option in the dropdown for the same reason. */
+const WP_ENGLISH=['Basic','Conversational','Fluent','Native/Bilingual'];
 /* "Native" predates the list. Preselect it as its replacement so reopening
    the editor does not read as unanswered. */
 const ENGLISH_ALIAS={'Native':'Native/Bilingual'};
@@ -10557,7 +10563,7 @@ function workPrefsBody(c){
         ${row('Hospice care OK', yn('hospice'))}
         ${row('Incontinence care OK', yn('incontinence'))}
         ${row('Overnight OK', yn('overnight'))}
-        ${row('Live-in OK', yn('liveIn'))}
+        ${row('English proficiency', c.englishProficiency ? esc(ENGLISH_ALIAS[c.englishProficiency]||c.englishProficiency) : 'Not recorded')}
         ${row('Errands/appointments OK', yn('errands'))}
       </div>
       ${tagsHtml}`;
@@ -10570,7 +10576,7 @@ function workPrefsBody(c){
    No, and Find Coverage should never read one as the other. */
 const WP_YN=[['','Not recorded'],['yes','Yes'],['no','No']];
 const WP_TRI=['smokingHome','pets','transfers','hoyer','bedbound','dementia',
-  'hospice','incontinence','overnight','liveIn','errands'];
+  'hospice','incontinence','overnight','errands'];
 function openWorkPrefsEdit(id){
   cgSnapStart(id);
   const c=cgById(id); if(!c) return;
@@ -10583,7 +10589,8 @@ function openWorkPrefsEdit(id){
     driver: c.driver?'yes':'no', ownVehicle: c.ownVehicle?'yes':'no',
     canTransport: canDriveClients(c)?'yes':'no',
     cities:(c.prefCities||[]).join(', '), maxMiles: hasVal(ops.maxMiles)?String(ops.maxMiles):'',
-    clientGender: prefVal(c,'clientGender')||'' };
+    clientGender: prefVal(c,'clientGender')||'',
+    english: c.englishProficiency ? (ENGLISH_ALIAS[c.englishProficiency]||c.englishProficiency) : '' };
   WP_TRI.forEach(function(k){ e[k]=yn(k); });
   state.wpEdit=e;
   renderWpModal(); mbg.classList.add('show');
@@ -10634,7 +10641,11 @@ function renderWpModal(){
       ${sel('hospice','Hospice care OK',WP_YN)}
       ${sel('incontinence','Incontinence care OK',WP_YN)}
       ${sel('overnight','Overnight OK',WP_YN)}
-      ${sel('liveIn','Live-in OK',WP_YN)}
+      ${sel('english','English proficiency',[['','Not recorded']].concat(
+        WP_ENGLISH.map(x=>[x,x]),
+        /* a stored value outside the four stays pickable rather than being
+           quietly dropped on the next save */
+        (e.english && WP_ENGLISH.indexOf(e.english)<0) ? [[e.english, e.english]] : []))}
       ${sel('errands','Errands/appointments OK',WP_YN)}
     </div>
     <div class="upd-acts"><button class="btn" onclick="wpCancel()">Cancel</button>
@@ -10677,7 +10688,11 @@ function wpSave(){
      Verification checkboxes and this section would disagree. */
   if(p.smokingHome!==null) c.smokerHomeOk=p.smokingHome;
   ops.emergency=Object.assign({}, ops.emergency, {overnight: p.overnight===true});
-  ops.shiftPrefs=Object.assign({}, ops.shiftPrefs, {liveIn: p.liveIn===true});
+  /* Live-in is no longer a row here, so this editor must not write it —
+     the Preferences & Verification checkbox still owns shiftPrefs.liveIn,
+     and prefHourMatch() reads it for Overnight matching. */
+  /* Written to the same field the Languages card edits, so the two agree. */
+  c.englishProficiency = e.english || null;
   /* The five care rows are the Skills & Experience chips seen from another
      angle, so a Yes here adds the chip and a No removes it. Storing them
      twice is what lets two cards on one screen contradict each other. */
@@ -11538,7 +11553,7 @@ const CG_REQUIRED=[
   {label:'Hospice care OK',         ok:c=>prefAnswered(c,'hospice')},
   {label:'Incontinence care OK',    ok:c=>prefAnswered(c,'incontinence')},
   {label:'Overnight OK',            ok:c=>prefAnswered(c,'overnight')},
-  {label:'Live-in OK',              ok:c=>prefAnswered(c,'liveIn')},
+  {label:'English proficiency',      ok:c=>hasVal(c.englishProficiency)},
   {label:'Errands/appointments OK', ok:c=>prefAnswered(c,'errands')},
   {label:'Caregiving experience',   ok:c=>hasVal(c.ops.experience)},
   {label:'Skills & experience',     ok:c=>cgChips(c,'skills').length>0},
