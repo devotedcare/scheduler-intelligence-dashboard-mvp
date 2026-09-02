@@ -30,19 +30,31 @@
 [functions."matching-sync"]
   schedule = "17 * * * *"
 
-# The monthly availability copy, for EVERY caregiver.
+# Availability: the RE-CARVE, and the monthly copy. Two passes, one job.
 #
-# The dashboard runs the same copy in the browser, but only for a caregiver
-# somebody opens. On 2026-09-01 that left 101 of 140 with an empty September:
-# their September was never written while August was current, so once
-# September arrived it became the source, it was empty, and October could not
-# be built either. This is the backstop that fills November on October 1st
-# whether or not anybody clicks.
+# PASS A — the re-carve. The carve in the browser is a snapshot: it runs when
+# a scheduler saves, against the visits AxisCare had at that instant. Match a
+# client to a caregiver afterwards and the stored Open still covers hours they
+# are now booked for. That is what left Alrenz Ellivera reading as free all
+# day on 2026-09-12 while assigned to Jose Ortiz 8a–8p. This pass re-derives
+# every future day that holds rows against the visits AxisCare has NOW, so the
+# table corrects itself within the hour instead of never.
 #
-# Hourly. A run with nothing to do exits in ~3s having made ZERO AxisCare
-# requests — it checks for an empty target month before paying for visits.
-# A run with a fresh month to fill works to a soft deadline and saves a
-# cursor, so the roster completes over the next few runs.
+# PASS B — the monthly copy, for EVERY caregiver. The dashboard runs the same
+# copy in the browser, but only for a caregiver somebody opens. On 2026-09-01
+# that left 101 of 140 with an empty September: their September was never
+# written while August was current, so once September arrived it became the
+# source, it was empty, and October could not be built either. This is the
+# backstop that fills November on October 1st whether or not anybody clicks.
+#
+# Hourly, and it now ALWAYS pays for the visit window — roughly 20 AxisCare
+# requests and ~15s — because pass A has to run whether or not a month is
+# empty. (It used to exit in ~3s with zero requests when there was nothing to
+# copy; the days pass A fixes are the FULL ones, so that shortcut could not
+# survive.) Both passes share a soft deadline and pass B saves a cursor, so a
+# long run completes over the next few.
+#
+# Pass A is idempotent: once it has caught up, a run changes nothing.
 [functions."availability-copy"]
   schedule = "35 * * * *"
 

@@ -513,11 +513,43 @@ A visit of **24 hours or more is not carvable** (`carvableVisits` treats it as a
 `mapCgVisit` artefact) so the block is left standing and flagged, exactly as it
 was before.
 
+#### `carvableVisits()` reads THREE dates, not one
+
+A visit and an availability block can each cross midnight, and both are stored
+on the date they **start**. So carving date `D` composes three sources into
+`D`'s own minute frame — minutes from *its* midnight, which means a window may
+legitimately sit outside `0..1440`:
+
+| source | shift | why |
+|---|---|---|
+| `D` | `0` | a normal visit, and the front half of an overnight |
+| `D − 1` | `−1440` | **last night's visit running into this morning** |
+| `D + 1` | `+1440` | tomorrow's visit, so an overnight *block* is cut by what it runs into |
+
+The middle row is the one that was missing until 2026-09-02. Because
+`CGVISITS.forDay()` keys strictly on the start date, a visit running Sep 7
+8pm → Sep 8 6am was **invisible on Sep 8**: a whole-day Open saved there stored
+midnight–6am as free while the caregiver was still on the visit. It affected 21
+caregiver-days, and neither Find Coverage screen catches it. `AVAIL.carryWindows()`
+had always understood that a block reaches into the next date; visits now do too.
+
+The third row matters for Elizabeth Galang's shape — an `Open 8p–8a` block is
+stored `1200..1920`, and without it no morning visit could ever cut it.
+
+`netlify/functions/availability-copy.js` has the same logic in `visitWins()`, and
+its visit pull is deliberately **one day wider at each end** — without that the
+`D − 1` source is empty for the first date of the window, which is *today*, the
+date the desk is actually looking at.
+
 Consequences, all deliberate:
 
-- The carve is a **snapshot**. Move or cancel the visit in AxisCare and the
-  hole stays; enter availability before the visit exists and no carve happens.
-  Read-time carving would not drift, but costs an AxisCare call per search.
+- The carve at save time is a **snapshot**, and an hourly **re-carve** is what
+  keeps it honest. See *The re-carve* below. Enter availability before the visit
+  exists and the save carves nothing; the sweep fixes it within the hour.
+  Read-time carving would not drift at all, but costs an AxisCare call per
+  search, which is why it is still not done that way.
+- The re-carve only ever **subtracts** — see *A cancelled visit leaves its hole*
+  below. Re-saving the day in the panel is the fix.
 - `dpSave()` **refuses to save** unless `CGVISITS.status(c.id) === 'ready'`.
   `forDay()` answers `[]` for a *failed* fetch exactly as it does for a day
   with no visits, and storing uncarved availability is worse than storing
@@ -532,6 +564,163 @@ Consequences, all deliberate:
 - `dpSave` reads `existing` **per target date** and writes one `saveDays` call
   per distinct carved result. Reading it once from the anchor copied that
   day's holes onto dates with no such visit.
+
+### The re-carve — the carve corrects itself hourly
+
+**Claude: the save-time carve is no longer the only guard. Do not remove this
+pass, and do not widen what it is allowed to touch.**
+
+Added 2026-09-02, after the desk reported Alrenz Ellivera reading as **whole-day
+Open on 2026-09-12** while assigned to a new client, Jose Ortiz, 8a–8p.
+Nothing was broken in `carveSegs()`: the availability was saved on 09-01, the
+visit was assigned on 09-02, and no code ever looked again. Sept 6 and Sept 13
+were wrong the same way, and 41 rows across 9 caregivers were wrong roster-wide.
+
+`planRecarve()` in `netlify/functions/availability-copy.js` re-derives **every
+future day that already holds rows** against the visits AxisCare has *now*, and
+rewrites the day if the answer differs. It runs as **pass A** of the hourly
+`availability-copy` job (`:35`, `netlify.toml`), before the monthly copy.
+
+Four rules, all load-bearing:
+
+- it **never changes a status**. Only `Open` is cut. A visit on Vacation or
+  Unavailable stays the disagreement it is, for a person to resolve.
+- it **never widens**, so it cannot invent availability.
+- it **never touches the past** — days before today are history.
+- it writes the day back under **its existing author** (`dayAuthor()`), not as
+  `Auto-copy`. The panel's history line should still say who decided the
+  caregiver was available. Days are written whole, so a day carries one author
+  in all but 1 of 11,704 cases.
+
+It has **no human-author guard**, unlike `planMonth()`. That is deliberate and
+is the whole point: the Alrenz row was authored by a person, and the copy's
+guard would have skipped it.
+
+It is **idempotent** — the second run changes nothing — which is what makes it
+safe unattended. It has no cursor: a reconciliation sweep must restart from the
+first caregiver, or it would skip exactly the ones whose visits just moved.
+
+The first sweep ran 2026-09-02: **63 caregiver-days across 11 caregivers**.
+
+### …and the same correction the moment a calendar is opened
+
+`recarveOnOpen()` in `index.html` is the browser twin, run from `cgCalendar()`
+once `AVAIL.load()` and `CGVISITS.load()` have both settled. It earns its place
+twice over: it is **instant** rather than up to an hour later, and `CGVISITS`
+holds **thirteen months** of that caregiver's visits where the server sweep
+pulls 92 days — so days beyond December are corrected here and nowhere else.
+
+It costs no AxisCare call: the visits were already fetched to draw the calendar.
+
+`CGVISITS.load()` **returns a promise** for this reason. It used to return
+nothing, so the only way to react to visits landing was to wait for a later
+render — which is why `cascadeNextMonth()` was chained on `AVAIL.load()` alone
+and usually found `CGVISITS.status()` still `'loading'` on the first open.
+
+> **Claude: this WRITES as a side effect of opening a page**, which is the shape
+> of half of *Don't break these*. `recarveDone` is what stops it running on
+> every render — do not remove it and do not make it depend on anything that
+> changes between renders. `cascadeReset()` clears it after a human save.
+
+`AVAIL.saveDays()` and `patchIndex()` take an optional `author` for this: the
+re-carve is narrowing somebody else's row, not making a statement of its own,
+so the day keeps the name already on it. One call writes one name, so callers
+passing it must group their dates by author.
+
+### KNOWN, OPEN: a cancelled visit leaves its hole
+
+**Reported by the desk 2026-09-02. Not fixed — do not treat it as a bug to
+quietly "solve" without checking, and do not paper over it.**
+
+The carve only ever **subtracts**. Cancel or move a visit in AxisCare and the
+availability it cut stays cut: `Open 6a–9p` carved to `Open 6a–8a` around an
+8a–8p visit does not grow back to 6a–9p when that visit is removed. The
+caregiver reads as less available than they are, and nobody is told.
+
+Why it cannot simply be reversed: **the uncarved intent is never stored.** The
+table holds what survived the carve, not what the scheduler originally typed,
+so there is nothing to restore from. `AVAIL` cannot tell `Open 6a–8a` that was
+cut from 6a–9p apart from `Open 6a–8a` somebody typed.
+
+The shapes a fix could take, none of them free:
+
+| approach | cost |
+|---|---|
+| store the **uncarved** block alongside the carved rows | a schema change and a second source of truth to keep in step |
+| carve at **read** time instead | never drifts, but an AxisCare call per coverage search — the reason it is not done that way today |
+| re-derive from the **monthly copy's** source shape | only works for days the copy owns, and only while the source month survives |
+| a **cancellation feed** — re-widen when a visit turns `removed` | `/api/visits` does return `removed`, so this is probably the cheapest real fix: on seeing a visit go `removed`, restore the day from the copy source or flag it for a human |
+
+Until then the honest workaround is the one that already exists: **re-save the
+day in the panel** and it carves correctly against the visits as they now
+stand. Worth surfacing on the calendar rather than leaving silent.
+
+### The shortest block worth storing is three hours
+
+`AV_MIN_MIN = 180`, **strictly under**, defined in *both* `index.html` and
+`availability-copy.js` — **keep the two in step** or the copy proposes a shape
+the browser would never write and re-proposes it every run.
+
+Coverage is all-or-nothing (`coverageDetail()` returns `full` or `none`, never
+`partial`), so a block shorter than the shortest real shift can never put
+anybody on a visit. A 6a–9p Open cut around an 8a–8p visit leaves 6a–8a and
+8p–9p; both are noise.
+
+**`Open` and nothing else.** `Unavailable`, `School`, `Childcare` and
+`Appointment` are real statements at any length — somebody genuinely can be
+unavailable for an hour, and a two-hour appointment is a normal entry. Deleting
+those would throw away the reason a caregiver cannot work. `Vacation` is
+whole-day and never reaches the test. Only `Open` is ever carved, so this also
+makes the rule exactly "what the carve produces".
+
+**Applied to the whole result, not only the pieces this carve just cut.** A
+sliver is a sliver however it got there, and scoping it to fresh cuts made them
+permanent: a remnant written on Monday no longer overlaps the visit that
+produced it, so Tuesday's carve passes it straight through and nothing ever
+cleans it up. That was briefly the behaviour on 2026-09-02 and it left 17
+uncleanable rows behind.
+
+A block somebody **types** too short is refused in `dpDraft()` with a message
+rather than silently dropped — they would otherwise leave the panel believing
+it saved.
+
+Exactly 3:00 is **kept**: 65 of Bianca Rivera's rows are exactly 3–6pm, and
+rounding them away would empty a real calendar.
+
+**The drop may leave the day with nothing, and that is the right answer.** A
+caregiver whose only free hours are unusable has no availability worth
+recording, and the visit on the grid explains the day.
+
+### An empty day is owned by nobody — `copyClashes()`
+
+**Claude: this is the guard that makes an empty day safe. Do not remove it.**
+
+`AVAIL.copyOwns()` is `segs.length > 0 && every(Auto-copy)`, so a day with **no
+rows** passes nobody's ownership test. `copyPlan`'s "leave a person's day
+alone" guard never fires on it, and the monthly copy writes last month's
+weekday pattern straight over a day somebody had deliberately cleared.
+
+That is not hypothetical. On 2026-09-02 the first sweep correctly emptied
+Alrenz Ellivera's 2026-09-06 and 09-13, and the copy pass **in the same run**
+turned `Open 6a–9p` typed by Carlo into `Unavailable all day` stamped
+`Auto-copy` — on two dates AxisCare has him with Jose Ortiz 8a–8p. Both were
+repaired by hand.
+
+`copyClashes()` fixes it at the **write**, not at the ownership, so it does not
+care how the day came to be empty: *the copy may never write a statement that
+contradicts a real visit.* Only `Open` is carved, so a `Vacation` /
+`Unavailable` / `School` shape borrowed from last month lands on a date with a
+visit completely untouched — the copy asserting the caregiver is off on a day
+they are booked to work.
+
+A **person** may record that: it is a genuine disagreement between two systems,
+and `calDayStatus()` flags it for somebody to resolve. A job that copies last
+month forward may not manufacture one.
+
+It is also the fix for a much larger mess of the same kind: Wilma Escolano's
+single August vacation week had become `Unavailable` on **all 61 days** of
+September and October, taking an actively-working caregiver out of coverage
+entirely.
 
 ### An overnight answers for the morning it runs into
 
@@ -562,6 +751,38 @@ entered any for the live roster yet, so nothing recorded must NOT exclude” —
 was true when it was written and is not true now: 50 caregivers had an `Open`
 row for 2026-09-03 alone. **An empty calendar is a no, exactly as
 “Unavailable” is** — the same rule as Active.
+
+#### Both screens also check AxisCare for an existing visit
+
+Wired 2026-09-02. `covClash()` asks **AxisCare** — through `COVHIST` — whether
+the caregiver is already on a visit at that hour, and falls back to
+`assignedDuring()` for shifts assigned inside this dashboard. The shift-locked
+list has always used it; the **date search** used `assignedOnDate()`, which only
+ever knew about in-app shifts, so a stale stored `Open` could offer somebody who
+was booked. That is the screen that would have offered Alrenz Ellivera for
+2026-09-12.
+
+The hourly re-carve keeps the table right; this makes the **answer** right in
+the minutes before it runs. `dateSearch()` returns `clashChecked` and
+`unchecked`, and the screen says which — the same contract `covMatchNote()`
+keeps for the gender preference, and for the same reason: *checked and clear*
+and *could not check* are different answers.
+
+Bounded at `COV_CLASH_MAX_DATES` (10), because each date costs a `COVHIST`
+window and a range search can name thirty.
+
+> **`COVHIST` caches the derived answer per DATE but the network pull per
+> WINDOW** (`fetchWindow`), and that distinction is load-bearing. Keyed per
+> date, ten concurrent loads opened ten thirteen-request pulls — measured at
+> ~45 requests in three seconds, which AxisCare answered with **429 on every
+> one**, account-wide, so the care-notes sweep and the roster hydrate wore it
+> too. Ten consecutive dates share two windows.
+
+> `absorb()` also used to read an overnight as a **one-hour** visit
+> (`e = s+1` whenever the end wall-hour was smaller than the start), so
+> `covClash()` cleared caregivers for the small hours they were working. It now
+> runs past 24, and files last night's tail on the date it actually occupies —
+> the same three-source rule `carvableVisits()` uses.
 
 The excluded simply disappear; there is no greyed-out section. The one place
 they are described is `covEmptyReason()`, which runs **only when the list
