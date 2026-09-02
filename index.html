@@ -9093,8 +9093,8 @@ const CG_PERS_OPTS=['Warm','Friendly','Respectful','Patient','Calm','Confident',
 /* SKILLS & EXPERIENCE answers ONE question: does this caregiver know how to
    do this? Whether they are willing to take a case of that kind is a
    different question and lives in Work Preferences — "Dementia /
-   Alzheimer's care" here, "Dementia care OK" there. Nothing with OK,
-   willing, prefers or comfortable-with wording belongs in this list. */
+   Alzheimer's care" here, "Dementia care" there. Nothing about whether a
+   caregiver is WILLING to take that kind of case belongs in this list. */
 const CG_SKILL_GROUPS=[
   {label:'Care Experience',     opts:['Dementia / Alzheimer’s care','Parkinson’s care',
     'Stroke care','Diabetes care','Post-hospital recovery']},
@@ -10582,13 +10582,13 @@ function workPrefsBody(c){
         ${row('Smoking home', yn('smokingHome'))}
         ${row('Pets in home', yn('pets'))}
         ${row('Can assist with transfers', yn('transfers'))}
-        ${row('Bedbound client OK', yn('bedbound'))}
-        ${row('Dementia care OK', yn('dementia'))}
-        ${row('Hospice care OK', yn('hospice'))}
-        ${row('Incontinence care OK', yn('incontinence'))}
-        ${row('Overnight OK', yn('overnight'))}
+        ${row('Bedbound client', yn('bedbound'))}
+        ${row('Dementia care', yn('dementia'))}
+        ${row('Hospice care', yn('hospice'))}
+        ${row('Incontinence care', yn('incontinence'))}
+        ${row('Overnight', yn('overnight'))}
         ${row('English proficiency', c.englishProficiency ? esc(ENGLISH_ALIAS[c.englishProficiency]||c.englishProficiency) : 'Not recorded')}
-        ${row('Errands/appointments OK', yn('errands'))}
+        ${row('Errands/appointments', yn('errands'))}
       </div>
       ${tagsHtml}`;
 }
@@ -10604,7 +10604,7 @@ const WP_YN=[['','Not recorded'],['yes','Yes'],['no','No']];
    and capability is Skills & Experience's question — it is recorded there,
    under Mobility & Safety, and only there. The pairs that remain are two
    genuinely different questions about the same kind of case: "Bedbound care"
-   is can they, "Bedbound client OK" is will they.
+   is can they, "Bedbound client" is will they.
 
    Any ops.prefs.hoyer a caregiver already has is left on the record
    untouched; nothing reads it. */
@@ -10668,17 +10668,17 @@ function renderWpModal(){
       ${sel('smokingHome','Smoking home',WP_YN)}
       ${sel('pets','Pets in home',WP_YN)}
       ${sel('transfers','Can assist with transfers',WP_YN)}
-      ${sel('bedbound','Bedbound client OK',WP_YN)}
-      ${sel('dementia','Dementia care OK',WP_YN)}
-      ${sel('hospice','Hospice care OK',WP_YN)}
-      ${sel('incontinence','Incontinence care OK',WP_YN)}
-      ${sel('overnight','Overnight OK',WP_YN)}
+      ${sel('bedbound','Bedbound client',WP_YN)}
+      ${sel('dementia','Dementia care',WP_YN)}
+      ${sel('hospice','Hospice care',WP_YN)}
+      ${sel('incontinence','Incontinence care',WP_YN)}
+      ${sel('overnight','Overnight',WP_YN)}
       ${sel('english','English proficiency',[['','Not recorded']].concat(
         WP_ENGLISH.map(x=>[x,x]),
         /* a stored value outside the four stays pickable rather than being
            quietly dropped on the next save */
         (e.english && WP_ENGLISH.indexOf(e.english)<0) ? [[e.english, e.english]] : []))}
-      ${sel('errands','Errands/appointments OK',WP_YN)}
+      ${sel('errands','Errands/appointments',WP_YN)}
     </div>
     <div class="upd-acts"><button class="btn" onclick="wpCancel()">Cancel</button>
       <button class="btn pri" onclick="wpSave()">${ic('check',13)} Save</button></div></div>`;
@@ -10726,7 +10726,7 @@ function wpSave(){
   /* Written to the same field the Languages card edits, so the two agree. */
   c.englishProficiency = e.english || null;
   /* Nothing here writes Skills & Experience. Willingness and capability are
-     separate records now: answering "Dementia care OK" must not tick
+     separate records now: answering "Dementia care" must not tick
      "Dementia / Alzheimer's care" on somebody who has never done it. */
 
   ops.lastUpdated=new Date(); ops.lastUpdatedBy=state.onShift;
@@ -11572,13 +11572,13 @@ const CG_REQUIRED=[
   {label:'Smoking home preference', ok:c=>prefAnswered(c,'smokingHome')},
   {label:'Pets in home preference', ok:c=>prefAnswered(c,'pets')},
   {label:'Can assist with transfers',ok:c=>prefAnswered(c,'transfers')},
-  {label:'Bedbound client OK',      ok:c=>prefAnswered(c,'bedbound')},
-  {label:'Dementia care OK',        ok:c=>prefAnswered(c,'dementia')},
-  {label:'Hospice care OK',         ok:c=>prefAnswered(c,'hospice')},
-  {label:'Incontinence care OK',    ok:c=>prefAnswered(c,'incontinence')},
-  {label:'Overnight OK',            ok:c=>prefAnswered(c,'overnight')},
+  {label:'Bedbound client',           ok:c=>prefAnswered(c,'bedbound')},
+  {label:'Dementia care',             ok:c=>prefAnswered(c,'dementia')},
+  {label:'Hospice care',              ok:c=>prefAnswered(c,'hospice')},
+  {label:'Incontinence care',         ok:c=>prefAnswered(c,'incontinence')},
+  {label:'Overnight',                 ok:c=>prefAnswered(c,'overnight')},
   {label:'English proficiency',      ok:c=>hasVal(c.englishProficiency)},
-  {label:'Errands/appointments OK', ok:c=>prefAnswered(c,'errands')},
+  {label:'Errands/appointments',      ok:c=>prefAnswered(c,'errands')},
   {label:'Caregiving experience',   ok:c=>hasVal(c.ops.experience)},
   {label:'Skills & experience',     ok:c=>cgChips(c,'skills').length>0},
   /* "if applicable" — having no blocks is the normal case and is never a
