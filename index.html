@@ -2310,7 +2310,7 @@ body.ai-white .main{display:flex;flex-direction:column;min-height:100vh}
    tallest of them (Work Preferences at 303px of body) with room for a
    service-areas list that wraps. Still one height per row, and every card in
    a row identical. */
-.ws-card.pfx.pfx-tall{height:376px}.ws-card.pfx.pfx-full{height:auto}.pf2 .ws-card.pfx-full .emp-grid{grid-template-columns:1fr 1fr;gap:0 32px}.pf-f.wp-span{grid-column:1/-1}.pf-f.wp-span .av-chks{display:flex;flex-direction:row;flex-wrap:wrap;gap:6px 18px}
+.ws-card.pfx.pfx-tall{height:376px}.ws-card.pfx.pfx-full{height:auto}.pf2 .ws-card.pfx-full .emp-grid{grid-template-columns:1fr 1fr;gap:0 32px}.pf-f.wp-span{grid-column:1/-1}.pf-f.wp-span .av-chks{display:flex;flex-direction:row;flex-wrap:wrap;gap:6px 18px}.str-grp{margin-bottom:7px}.str-grp:last-child{margin-bottom:0}.str-grp-h{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-faint);margin:0 0 4px}.tp-grp-h{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-faint);margin:11px 0 5px}.tp-grp-h:first-child{margin-top:0}
 .pfx-body{flex:1 1 auto;min-height:0;overflow:hidden;position:relative}.clm-card{width:100%;max-width:560px;height:340px}.clm-body{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain}.clm-stack{margin-top:11px}.clm-l{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-faint);margin-bottom:3px}.clm-v{font-size:13px;color:var(--ink);line-height:1.5}.clm-cgs{display:flex;flex-wrap:wrap;gap:6px;margin-top:5px}.clm-cg{font-size:12px;font-weight:650;border-radius:12px;padding:3px 10px;border:1px solid var(--line);background:var(--panel-head);color:var(--ink)}.clm-cg.unres{color:var(--ink-faint);border-style:dashed;font-style:italic}.clm-note{font-size:12.5px;color:var(--ink-faint);line-height:1.45}
 /* No fade over the cut. Everything on a card is full opacity; where the body
    is longer than the card it is simply clipped, and View Details is what says
@@ -9090,11 +9090,25 @@ function cgHeaderCard(c){
 const CG_PERS_OPTS=['Warm','Friendly','Respectful','Patient','Calm','Confident','Reliable',
   'Compassionate','Empathetic','Positive','Mature','Adaptable','Organized','Detail-oriented',
   'Outgoing','Quiet / Reserved'];
-const CG_SKILL_OPTS=['Dementia / Alzheimer\u2019s care','Parkinson\u2019s care','Stroke care',
-  'Hospice care','Bedbound care','Fall-risk care','Incontinence care','Transfer assistance',
-  'Hoyer lift','Gait belt','Repositioning','Personal care / ADLs','Meal preparation',
-  'Medication reminders','Companionship','Post-hospital recovery','Mobility assistance',
-  'Care notes / documentation'];
+/* SKILLS & EXPERIENCE answers ONE question: does this caregiver know how to
+   do this? Whether they are willing to take a case of that kind is a
+   different question and lives in Work Preferences — "Dementia /
+   Alzheimer's care" here, "Dementia care OK" there. Nothing with OK,
+   willing, prefers or comfortable-with wording belongs in this list. */
+const CG_SKILL_GROUPS=[
+  {label:'Care Experience',     opts:['Dementia / Alzheimer’s care','Parkinson’s care',
+    'Stroke care','Diabetes care','Post-hospital recovery']},
+  {label:'Mobility & Safety',   opts:['Transfer assistance','Gait belt','Hoyer lift','Bedbound care',
+    'Repositioning','Fall prevention','Wheelchair assistance']},
+  {label:'Personal Care',       opts:['Bathing assistance','Dressing assistance','Grooming / hygiene',
+    'Toileting assistance','Incontinence care','Feeding assistance']},
+  {label:'Daily Living Support',opts:['Meal preparation','Medication reminders','Companionship',
+    'Light housekeeping','Transportation / errands']}
+];
+/* Flat, in group order — chipToggle indexes into this, cgChips filters by
+   it, and the resume reads it. One source, so a group cannot drift out of
+   the list it is drawn from. */
+const CG_SKILL_OPTS=CG_SKILL_GROUPS.reduce(function(a,g){ return a.concat(g.opts); },[]);
 const CG_HOBBY_OPTS=['Cooking','Gardening','Walking','Music','Reading','Pets','Crafts','Church / faith activities'];
 const CG_EXP_BANDS=['Less than 1 year','1–2 years','3–5 years','6–10 years','10+ years'];
 
@@ -9114,6 +9128,7 @@ const CG_CHIP_FIELDS={
                notePh:'e.g. Unflappable in a crisis',
                seed:function(c,p){ return (p.style||[]).concat(p.comms||[], (c.ops&&c.ops.personality)||[]); }},
   skills:     {label:'Skills &amp; Experience',   tint:'h-skills', opts:CG_SKILL_OPTS,
+               groups:CG_SKILL_GROUPS,
                none:'No skills or experience recorded yet.', note:'Anything else',
                notePh:'e.g. Trach care',
                /* Skills, the retired care types and the retired strengths all
@@ -9146,38 +9161,40 @@ const CG_CHIP_RENAME={
   },
   skills:{
     /* AxisCare skill tags, through cgCareSkills */
-    'Dementia Care':'Dementia / Alzheimer\u2019s care',
-    "Alzheimer's Experience":'Dementia / Alzheimer\u2019s care', 'Hospice Support':'Hospice care',
-    'Transfers & Mobility Assistance':'Transfer assistance', 'Toileting Assistance':'Incontinence care',
-    'Bathing Assistance':'Personal care / ADLs', 'Incontinence Care':'Incontinence care',
+    'Dementia Care':'Dementia / Alzheimer’s care',
+    "Alzheimer's Experience":'Dementia / Alzheimer’s care',
+    'Transfers & Mobility Assistance':'Transfer assistance',
+    'Toileting Assistance':'Toileting assistance',
+    'Bathing Assistance':'Bathing assistance', 'Incontinence Care':'Incontinence care',
     'Medication Reminders':'Medication reminders', 'Meal Preparation':'Meal preparation',
     'Companionship':'Companionship',
-    /* c.skills, which is what AxisCare's own class tags map to. This is the
-       first time they reach the section — cgCareSkills reads ops.strengths,
-       which only the demo records ever had, so a live caregiver's ALZ / ELC /
-       HLE tags had nowhere to show. CNA is a certification, not one of these
-       skills, so it stays unmapped. */
-    'Dementia':'Dementia / Alzheimer\u2019s care', 'Hospice':'Hospice care',
+    /* c.skills, which is what AxisCare's own class tags map to. CNA is a
+       certification, not one of these skills, so it stays unmapped. */
+    'Dementia':'Dementia / Alzheimer’s care',
     'Hoyer Lift':'Hoyer lift', 'Transfers':'Transfer assistance',
     'Medication':'Medication reminders', 'Companion':'Companionship',
-    'Mobility':'Mobility assistance', 'Bathing':'Personal care / ADLs',
-    'Cooking':'Meal preparation',
+    'Bathing':'Bathing assistance', 'Cooking':'Meal preparation',
     /* Types of Care Experience */
-    'Dementia / Alzheimer\u2019s':'Dementia / Alzheimer\u2019s care', 'Parkinson\u2019s':'Parkinson\u2019s care',
-    'Stroke':'Stroke care', 'Hospice':'Hospice care', 'Bedbound clients':'Bedbound care',
-    'Fall-risk clients':'Fall-risk care', 'Incontinence':'Incontinence care',
-    'Mobility limitations':'Mobility assistance', 'Post-hospital recovery':'Post-hospital recovery',
+    'Dementia / Alzheimer’s':'Dementia / Alzheimer’s care', 'Parkinson’s':'Parkinson’s care',
+    'Stroke':'Stroke care', 'Bedbound clients':'Bedbound care',
+    'Fall-risk clients':'Fall prevention', 'Fall-risk care':'Fall prevention',
+    'Incontinence':'Incontinence care',
+    'Post-hospital recovery':'Post-hospital recovery',
     /* Strengths */
-    'Excellent companion':'Companionship', 'Strong with dementia behaviors':'Dementia / Alzheimer\u2019s care',
+    'Excellent companion':'Companionship', 'Strong with dementia behaviors':'Dementia / Alzheimer’s care',
     'Strong transfer skills':'Transfer assistance', 'Good cook / meal preparation':'Meal preparation',
-    'Good with hospice clients':'Hospice care', 'Good with bedbound clients':'Bedbound care',
-    'Strong personal care skills':'Personal care / ADLs',
+    'Good with bedbound clients':'Bedbound care',
     'Good with toileting / incontinence care':'Incontinence care',
-    'Good with bathing / shower assistance':'Personal care / ADLs',
-    'Strong repositioning skills':'Repositioning', 'Good with mobility assistance':'Mobility assistance',
-    'Good with fall-risk clients':'Fall-risk care',
-    'Good documentation / care notes':'Care notes / documentation',
+    'Good with bathing / shower assistance':'Bathing assistance',
+    'Strong repositioning skills':'Repositioning',
+    'Good with fall-risk clients':'Fall prevention',
     'Good with medication reminders':'Medication reminders'
+    /* Deliberately unmapped, so nothing is invented onto a record: the
+       retired 'Hospice care', 'Personal care / ADLs', 'Mobility assistance'
+       and 'Care notes / documentation' have no single equivalent in the new
+       list. Their stored values are untouched; they simply stop being drawn,
+       and the next save writes the surviving vocabulary. Hospice is a
+       WILLINGNESS question now and is asked in Work Preferences. */
   }
 };
 
@@ -9216,10 +9233,19 @@ function cgChips(c, key){
 function cgChipNote(c,key){ const p=cgProf(c); return p[key+'Note']||''; }
 function chipBody(c,key){
   const f=CG_CHIP_FIELDS[key], sel=cgChips(c,key), note=cgChipNote(c,key);
-  return `<div class="str-tags">${sel.length
-      ? sel.map(t=>`<span class="str-tag primary">${esc(t)}</span>`).join('')
-      : (note?'':`<span class="ws-none">${f.none}</span>`)}</div>
-    ${note?`<div class="chip-note">${esc(note)}</div>`:''}`;
+  /* Skills are grouped; a group with nothing ticked is not drawn, so a
+     caregiver with three skills still reads as three chips rather than four
+     headings and a lot of white space. */
+  const body = (f.groups && sel.length)
+    ? f.groups.map(function(g){
+        const on=g.opts.filter(t=>sel.indexOf(t)>=0);
+        return on.length ? `<div class="str-grp"><div class="str-grp-h">${g.label}</div>
+          <div class="str-tags">${on.map(t=>`<span class="str-tag primary">${esc(t)}</span>`).join('')}</div></div>` : '';
+      }).join('')
+    : `<div class="str-tags">${sel.length
+        ? sel.map(t=>`<span class="str-tag primary">${esc(t)}</span>`).join('')
+        : (note?'':`<span class="ws-none">${f.none}</span>`)}</div>`;
+  return body + (note?`<div class="chip-note">${esc(note)}</div>`:'');
 }
 function openChipPick(id,key){
   cgSnapStart(id);
@@ -9244,9 +9270,16 @@ function renderChipModal(){
   mEl.innerHTML=`<div class="mh"><span class="mt">${f.label} — ${esc(c?c.name:'')}</span>
       <button class="mc" onclick="chipCancel()">×</button></div>
     <div class="mb">
-      <div class="tp-list">${f.opts.map(function(t,i){ const on=p.sel.indexOf(t)>=0;
-        return `<label class="tp-opt${on?' on':''}"><input type="checkbox" ${on?'checked':''} onchange="chipToggle(${i},this.checked)"><span>${t}</span></label>`;
-      }).join('')}</div>
+      ${f.groups
+        ? f.groups.map(function(g){
+            return `<div class="tp-grp-h">${g.label}</div><div class="tp-list">${g.opts.map(function(t){
+              const i=f.opts.indexOf(t), on=p.sel.indexOf(t)>=0;
+              return `<label class="tp-opt${on?' on':''}"><input type="checkbox" ${on?'checked':''} onchange="chipToggle(${i},this.checked)"><span>${t}</span></label>`;
+            }).join('')}</div>`;
+          }).join('')
+        : `<div class="tp-list">${f.opts.map(function(t,i){ const on=p.sel.indexOf(t)>=0;
+            return `<label class="tp-opt${on?' on':''}"><input type="checkbox" ${on?'checked':''} onchange="chipToggle(${i},this.checked)"><span>${t}</span></label>`;
+          }).join('')}</div>`}
       ${f.note?`<div class="pf-f" style="margin-top:12px"><label class="el">${f.note}</label>
         <input class="ein" maxlength="120" placeholder="${esc(f.notePh||'')}" value="${esc(p.note||'')}" oninput="chipNote(this.value)"></div>`:''}
       <div class="upd-acts"><button class="btn" onclick="chipCancel()">Cancel</button>
@@ -9378,12 +9411,6 @@ function cgTag(c,code){ return (c.axisTags||[]).some(function(t){ return t.code=
    beside it could only ever disagree. Any ops.prefDays a caregiver already
    has is left on the record untouched; nothing reads it. */
 const PREF_TIMES=['Morning','Afternoon','Evening','Overnight'];
-/* Each of these rows is the same fact as a chip in Skills & Experience, so
-   the chip seeds the row rather than the two being stored twice and left to
-   disagree. */
-const SKILL_FOR_PREF={ hoyer:'Hoyer lift', bedbound:'Bedbound care',
-  dementia:'Dementia / Alzheimer\u2019s care', hospice:'Hospice care',
-  incontinence:'Incontinence care' };
 function prefVal(c,k){
   const p=(c.ops.prefs)||{};
   if(p[k]!==undefined && p[k]!==null) return p[k];
@@ -9404,13 +9431,11 @@ function prefVal(c,k){
      number as a refusal would invent one — and a wrong No would quietly
      drop somebody out of assignments. */
   if(k==='transfers')   return cgTag(c,'HLE') ? true : null;
-  /* The five care rows read the Skills & Experience list when nobody has
-     answered them here, so a caregiver already recorded as doing hospice
-     work does not read as unanswered. Same rule as transfers above and as
-     pets: a recorded skill is a YES, and its absence is NOT a no — a skills
-     list is what somebody ticked, never a statement about everything they
-     did not tick. Answering the row here overrules the seed. */
-  if(SKILL_FOR_PREF[k]) return cgChips(c,'skills').indexOf(SKILL_FOR_PREF[k])>=0 ? true : null;
+  /* These rows are NOT seeded from Skills & Experience any more. The two
+     sections now answer different questions — "knows how to use a Hoyer
+     lift" is not "will take a bedbound case" — so reading one as the other
+     was exactly the conflation the split exists to end. Unanswered means
+     unanswered, and Needs Update says so. */
   /* Both of these are also plain booleans elsewhere — a checkbox on the
      Preferences & Verification form writes them — so a ticked box is a yes
      and an empty one is somebody who was never asked. Reading false out of
@@ -10693,16 +10718,9 @@ function wpSave(){
      and prefHourMatch() reads it for Overnight matching. */
   /* Written to the same field the Languages card edits, so the two agree. */
   c.englishProficiency = e.english || null;
-  /* The five care rows are the Skills & Experience chips seen from another
-     angle, so a Yes here adds the chip and a No removes it. Storing them
-     twice is what lets two cards on one screen contradict each other. */
-  const skills=cgChips(c,'skills').slice();
-  Object.keys(SKILL_FOR_PREF).forEach(function(k){
-    const name=SKILL_FOR_PREF[k], i=skills.indexOf(name);
-    if(p[k]===true && i<0) skills.push(name);
-    if(p[k]===false && i>=0) skills.splice(i,1);
-  });
-  cgProfSet(c, {skills: CG_CHIP_FIELDS.skills.opts.filter(o=>skills.indexOf(o)>=0)});
+  /* Nothing here writes Skills & Experience. Willingness and capability are
+     separate records now: answering "Dementia care OK" must not tick
+     "Dementia / Alzheimer's care" on somebody who has never done it. */
 
   ops.lastUpdated=new Date(); ops.lastUpdatedBy=state.onShift;
   cgSnapCommit(e.id);
