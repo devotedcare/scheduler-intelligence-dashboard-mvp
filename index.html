@@ -10582,7 +10582,6 @@ function workPrefsBody(c){
         ${row('Smoking home', yn('smokingHome'))}
         ${row('Pets in home', yn('pets'))}
         ${row('Can assist with transfers', yn('transfers'))}
-        ${row('Hoyer lift experience', yn('hoyer'))}
         ${row('Bedbound client OK', yn('bedbound'))}
         ${row('Dementia care OK', yn('dementia'))}
         ${row('Hospice care OK', yn('hospice'))}
@@ -10600,7 +10599,16 @@ function workPrefsBody(c){
    answer: a blank is somebody nobody has asked, which is not the same as a
    No, and Find Coverage should never read one as the other. */
 const WP_YN=[['','Not recorded'],['yes','Yes'],['no','No']];
-const WP_TRI=['smokingHome','pets','transfers','hoyer','bedbound','dementia',
+/* WILLINGNESS ONLY. "Hoyer lift experience" used to sit here and does not
+   any more: whether somebody knows how to work a Hoyer lift is a capability,
+   and capability is Skills & Experience's question — it is recorded there,
+   under Mobility & Safety, and only there. The pairs that remain are two
+   genuinely different questions about the same kind of case: "Bedbound care"
+   is can they, "Bedbound client OK" is will they.
+
+   Any ops.prefs.hoyer a caregiver already has is left on the record
+   untouched; nothing reads it. */
+const WP_TRI=['smokingHome','pets','transfers','bedbound','dementia',
   'hospice','incontinence','overnight','errands'];
 function openWorkPrefsEdit(id){
   cgSnapStart(id);
@@ -10660,7 +10668,6 @@ function renderWpModal(){
       ${sel('smokingHome','Smoking home',WP_YN)}
       ${sel('pets','Pets in home',WP_YN)}
       ${sel('transfers','Can assist with transfers',WP_YN)}
-      ${sel('hoyer','Hoyer lift experience',WP_YN)}
       ${sel('bedbound','Bedbound client OK',WP_YN)}
       ${sel('dementia','Dementia care OK',WP_YN)}
       ${sel('hospice','Hospice care OK',WP_YN)}
@@ -11565,7 +11572,6 @@ const CG_REQUIRED=[
   {label:'Smoking home preference', ok:c=>prefAnswered(c,'smokingHome')},
   {label:'Pets in home preference', ok:c=>prefAnswered(c,'pets')},
   {label:'Can assist with transfers',ok:c=>prefAnswered(c,'transfers')},
-  {label:'Hoyer lift experience',   ok:c=>prefAnswered(c,'hoyer')},
   {label:'Bedbound client OK',      ok:c=>prefAnswered(c,'bedbound')},
   {label:'Dementia care OK',        ok:c=>prefAnswered(c,'dementia')},
   {label:'Hospice care OK',         ok:c=>prefAnswered(c,'hospice')},
