@@ -5087,7 +5087,12 @@ function openFindCoverage(shiftId){ seedQueryFromShift(shiftId);
      shift outside what boot warmed showed nobody. Pull its date first;
      the render that lands with it will pick the matches up. */
   try{ const _d=state.coverageQuery&&state.coverageQuery.date;
-       if(_d){ AVAIL.fetchDates([_d], true).then(function(){ try{ render(); }catch(e){} },
+       /* The day BEFORE too: an overnight Open is stored on the date it
+          starts, running past 24, so without it a caregiver who works
+          8p–8a reads as having nothing entered for the morning shift.
+          coverageDetail() looks for that carry; it can only find it if the
+          previous date has been pulled. */
+       if(_d){ AVAIL.fetchDates([_d, addDaysStr(_d,-1)], true).then(function(){ try{ render(); }catch(e){} },
                                                   function(){ try{ render(); }catch(e){} });
                /* Prior caregivers, clashes and weekly hours all come from one
                   AxisCare visit window. It lands after the first paint and the
@@ -5954,24 +5959,50 @@ var COVHIST = (function(){
 
 /* The client's practical matching preferences, in ONE place.
 
-   Two of these have no source in this dashboard yet. The caregiver GENDER
-   PREFERENCE and whether DRIVING IS REQUIRED are recorded in Client
-   Concierge (its Caregiver Matching section), which is a different Supabase
-   project — reading it needs that project's URL and anon key as Netlify
-   environment variables, which is Carlo's side. Until that is wired they
-   read from what a scheduler entered here, and are null when nobody has.
-   Null means "not recorded", and the list says so rather than inventing a
-   preference. Wiring Concierge later is a change to this function alone. */
+   THE CAREGIVER GENDER PREFERENCE COMES FROM CLIENT CONCIERGE, through
+   CLMATCH — `client_match_prefs.gender_pref`, 'F' | 'M' | null, synced by
+   netlify/functions/matching-sync.js. AxisCare has no such field: mapClient()
+   hard-codes `restrictions: []` for every real client, so the old
+   reqGender(cl.restrictions) read could never fire on live data and the
+   preference was silently going unused. 16 of the 21 clients ask for a
+   female caregiver.
+
+   `genderKnown` is the point of the shape. A missing preference and an
+   unread one are different answers: null from a LOADED table means "either
+   gender is fine" (Carlo's rule), while CLMATCH still loading or failed
+   means nobody has said yet — and quietly treating that as "no preference"
+   would put male caregivers in front of a client who asked for a woman with
+   nothing on screen to say why. Callers must render it, not assume it.
+
+   The restrictions[] read stays underneath for the seed clients, which have
+   no axisId and so nothing in Concierge to look up.
+
+   Driving is NOT wired. `client_match_prefs.driving_required` exists and 10
+   clients set it, but it stays a ranking signal until the desk asks for it. */
 function covClientPrefs(cl){
-  if(!cl) return {genderPref:null, genderHard:false, drivingRequired:null, preferred:[], doNotSend:[]};
+  if(!cl) return {genderPref:null, genderHard:false, genderKnown:true, drivingRequired:null, preferred:[], doNotSend:[]};
   var restr=cl.restrictions||[];
   var hard=reqGender(restr);
   var soft=restr.indexOf('Female caregiver preferred')>=0 ? 'F'
          : restr.indexOf('Male caregiver preferred')>=0 ? 'M' : null;
   var driving = hasVal(cl.drivingRequired) ? !!cl.drivingRequired : null;
+
+  /* A seed client has no Concierge record to wait for, so it is always
+     answered; a real one is answered only once the table is in. */
+  var known = (cl.axisId==null) ||
+              (typeof CLMATCH!=='undefined' && CLMATCH.status()==='ready');
+  var cm=null;
+  if(known && cl.axisId!=null && typeof CLMATCH!=='undefined'){
+    var p=CLMATCH.prefs(cl.axisId);
+    if(p && (p.gender_pref==='F' || p.gender_pref==='M')) cm=p.gender_pref;
+  }
+
   return {
-    genderPref: hard || soft,
-    genderHard: !!hard,
+    genderPref: cm || hard || soft,
+    /* Concierge's answer FILTERS. So does a typed 'caregiver only'
+       restriction. 'preferred' on a seed client stays a soft nudge. */
+    genderHard: !!(cm || hard),
+    genderKnown: known,
     drivingRequired: driving,
     preferred: (cl.preferred||[]).slice(),
     doNotSend: state.caregivers.filter(function(cg){
@@ -6027,27 +6058,58 @@ function coverageMatches(q){
   var out=[];
 
   state.caregivers.forEach(function(cg){
-    var drop=null;
+    /* dropKind is read by the empty state and nowhere else. 'other' covers
+       the reasons a scheduler can see for themselves — inactive, called
+       off, do-not-send, already booked. */
+    var drop=null, dropKind='other';
     if(cg.active===false) drop='Inactive';
     if(!drop && sh && sh.callOff && sh.prevCaregiver===cg.id) drop='Called off this shift';
     if(!drop && prefs.doNotSend.indexOf(cg.id)>=0) drop='Do not send — flagged for this client';
-    if(!drop && prefs.genderHard && cg.gender && cg.gender!==prefs.genderPref)
-      drop='Client requires a '+(prefs.genderPref==='F'?'female':'male')+' caregiver';
+    /* A caregiver whose gender AxisCare does not record is not known to be
+       the gender the client asked for, so they are held back too — sending
+       a man to a client who asked for a woman is the failure that matters,
+       and it is one record to correct in AxisCare rather than a rule to
+       loosen. Nobody is in that state today — the one caregiver who was,
+       id 613, was corrected in AxisCare on 2026-09-01 — so this is a guard
+       for a future hire, not something currently filtering anyone out. */
+    if(!drop && prefs.genderHard && cg.gender!==prefs.genderPref){
+      drop=(cg.gender ? 'Client asks for a ' : 'Gender not recorded · client asks for a ')
+           +(prefs.genderPref==='F'?'female':'male')+' caregiver';
+      dropKind='gender';
+    }
     if(!drop) drop=covClash(cg, ds, start, end);
-    if(drop){ out.push({cg:cg, excluded:drop}); return; }
+    if(drop){ out.push({cg:cg, excluded:drop, dropKind:dropKind}); return; }
 
-    /* Availability is what a scheduler typed for this exact date. Nobody has
-       entered any for the live roster yet, so "nothing recorded" must NOT
-       exclude - that would empty the list for every real shift. It ranks
-       below a confirmed match and says which. */
-    var av=AVAIL.dayAvail(cg.id, ds), availState, availLabel;
-    if(av.state==='ok' || av.state==='partial' || (av.wins||[]).length){
-      var fits=(av.wins||[]).some(function(w){ return w[0]<=start && w[1]>=end; });
-      availState=fits?'yes':'partial';
-      availLabel=fits?'Available for this shift':'Available part of the shift';
-    } else if(av.state==='blocked'){ availState='no'; availLabel=av.label||'Unavailable that day'; }
-    else if(av.state==='none'){ availState='unknown'; availLabel='Availability not recorded'; }
-    else { availState='unknown'; availLabel=av.label||'Availability not loaded'; }
+    /* AVAILABILITY DECIDES WHO IS ON THIS LIST, not merely where they sit
+       on it. Only an Open block a scheduler typed, covering the WHOLE
+       shift, puts somebody in the calling queue — the same rule the date
+       search has always applied, and the same rule as Active: an empty
+       calendar is a no, exactly as 'Unavailable' is.
+
+       Until 2026-09-01 this only scored (+4 for nothing recorded), because
+       when it was written nobody had typed any availability and excluding
+       would have emptied every list. That is no longer true — 50 caregivers
+       had an Open row for 2026-09-03 alone — and the cost was real: the
+       Brenda Janowski 8a–8p shift offered Meryll Austria second, on 11
+       previous visits with that client and a blank calendar.
+
+       Read through coverageDetail(), NOT dayAvail() directly: it is the one
+       place the whole-shift rule lives, and it alone folds in an overnight
+       block carried from the night before. q.end is passed raw so it can do
+       that — the local `end` above is normalised for the clash test only. */
+    var cd=coverageDetail(cg, ds, q.start, q.end);
+    if(cd.cov!=='full'){
+      /* Which KIND of no it is, taken from the state rather than from
+         coverageDetail's wording, so a label edit there cannot silently
+         re-bucket the empty-state counts. Only the empty state reads it. */
+      var st=AVAIL.dayAvail(cg.id, ds).state;
+      out.push({cg:cg, excluded:cd.label||'Not available',
+        dropKind: cd.cov==='unknown' ? 'unknown'
+                : st==='blocked'     ? 'blocked'
+                : st==='none'        ? 'none' : 'hours'});
+      return;
+    }
+    var availState='yes', availLabel='Available for this shift';
 
     var worked=covWorked(cg, cl, ds);
     var preferred=prefs.preferred.indexOf(cg.id)>=0;
@@ -6059,10 +6121,12 @@ function coverageMatches(q){
     var score=0, why=[];
     if(worked){ score+=40; why.push({t:'Previous caregiver', k:'plus'}); }
     if(preferred){ score+=35; why.push({t:'Preferred caregiver', k:'plus'}); }
-    if(availState==='yes') score+=25;
-    else if(availState==='partial') score+=8;
-    else if(availState==='unknown') score+=4;
-    else score-=30;
+    /* Availability is a GATE now, not a tiebreak: everybody still here
+       covers the whole shift, so this is the same constant on every row and
+       changes no order. The 'partial' and 'unknown' branches that used to
+       sit here could no longer fire — they described people the list no
+       longer contains. */
+    score+=25;
     if(dist!=null) score+=Math.max(0, 20-dist*0.8);
     if(genderOk===true){ score+=12; why.push({t:'Matches client preference', k:'plus'}); }
     else if(genderOk===false) score-=25;
@@ -6096,7 +6160,13 @@ function coverageMatches(q){
   eligible.forEach(function(r){
     if(r.cg.driver && !r.why.some(function(w){ return w.t==='Driver'; })) r.why.push({t:'Driver', k:'plus'});
   });
-  return {eligible:eligible, excluded:out.filter(function(r){ return r.excluded; }), prefs:prefs};
+  /* Counted for the empty state alone. Nobody excluded is ever listed, but
+     a blank screen has to be able to say whether the desk has asked and
+     been told no, has not asked yet, or could not read the answer. */
+  var dropped=out.filter(function(r){ return r.excluded; });
+  var tally={total:dropped.length, none:0, blocked:0, hours:0, unknown:0, gender:0, other:0};
+  dropped.forEach(function(r){ tally[r.dropKind||'other']++; });
+  return {eligible:eligible, excluded:dropped, tally:tally, prefs:prefs};
 }
 
 /* ===================== CLIENT SCHEDULE =====================
@@ -6580,12 +6650,48 @@ function renderCovStatusBar(D){
     </div>
   </div>`;
 }
+/* The list shows available caregivers and nothing else — no greyed-out
+   rows, no "unavailable" section. That is only honest while the list has
+   something in it. When it is empty the desk needs to know WHICH empty this
+   is, because the next action is completely different each time: chase the
+   caregivers nobody has asked, widen the shift, or fix a loading problem.
+   Said here, once, and nowhere else. */
+function covEmptyReason(q, tally, calledN){
+  const t=tally||{};
+  /* NOT AN ANSWER YET. openFindCoverage() pulls the date on the way in, so
+     the first paint lands before it: every caregiver reads 'unloaded', all
+     of them are held back, and without this the screen would accuse the
+     roster of being unavailable for the second the fetch takes. */
+  if(t.unknown && t.unknown===t.total){
+    /* isLoaded(), not indexStatus(): the roster-wide prime can be 'ready'
+       while THIS date — outside the primed window — is still in flight, and
+       that is the ordinary case for a shift a month out. */
+    const idx=(typeof AVAIL!=='undefined') ? AVAIL.indexStatus() : 'error';
+    const held=(typeof AVAIL!=='undefined') && AVAIL.isLoaded(q.date);
+    if(!held && idx!=='error' && idx!=='unconfigured')
+      return `<div class="q-empty"><span class="cs-spin"></span> Checking who is available…</div>`;
+    return `<div class="q-empty">Availability couldn’t be read for this date, so nobody can be offered yet. <span class="q-why">This is a loading problem, not an empty schedule — reload the page, and if it keeps happening it is one for Carlo.</span></div>`;
+  }
+  const bits=[];
+  if(t.gender)  bits.push(`<b>${t.gender}</b> not the gender this client asks for`);
+  if(t.blocked) bits.push(`<b>${t.blocked}</b> recorded unavailable`);
+  if(t.hours)   bits.push(`<b>${t.hours}</b> open at other hours`);
+  if(t.none)    bits.push(`<b>${t.none}</b> with nothing entered for this date`);
+  if(t.unknown) bits.push(`<b>${t.unknown}</b> whose availability didn’t load`);
+  const why = bits.length ? ` <span class="q-why">Of the caregivers checked: ${bits.join(', ')}.` +
+    (t.none ? ` A caregiver only appears here once someone logs an <b>Open</b> block covering the whole shift on their calendar.` : '') +
+    `</span>` : '';
+  const head = calledN
+    ? `Nobody else is available for this shift.`
+    : `Nobody is available for this shift.`;
+  return `<div class="q-empty">${head}${why}</div>`;
+}
 function renderCoverageCommand(q){
   const s=state.shifts.find(x=>x.id===q.shiftId);
   if(s&&s.assigned){
     return `<div class="covered-card">${ic('check',26)}<div><div class="cv-t">Shift covered by ${cgById(s.assigned).name}</div><div class="cv-s">Assigned \u2713 \u00b7 logged in coverage history \u00b7 recorded in AxisCare</div></div></div>` + renderAttemptHistory(q, covPools(q).contacted);
   }
-  const {eligible}=coverageMatches(q);
+  const {eligible, tally}=coverageMatches(q);
   /* Straight from the log. covPools() ran an entire second search to reach
      the same list and needed query fields this screen no longer builds. */
   const seen={}; const contacted=[];
@@ -6598,7 +6704,7 @@ function renderCoverageCommand(q){
   const queue=eligible.filter(r=>called.indexOf(r.cg.id)<0);
   const note=covMatchNote(q);
   if(!queue.length){
-    return note + `<div class="cvm-list"><div class="q-empty">No caregiver is available for this shift right now.</div></div>`
+    return note + `<div class="cvm-list">${covEmptyReason(q, tally, called.length)}</div>`
       + renderAttemptHistory(q, contacted);
   }
   const rows=queue.map((r,i)=>covMatchRow(r,q,i+1)).join('');
@@ -6612,8 +6718,22 @@ function covMatchNote(q){
   else if(h.state==='error') bits.push('AxisCare didn\u2019t answer, so previous caregivers and double-bookings couldn\u2019t be checked \u2014 ' + esc(h.err||''));
   const cl=q.clientId?clById(q.clientId):null;
   const p=covClientPrefs(cl);
-  if(p.genderPref===null && p.drivingRequired===null)
-    bits.push('No caregiver gender preference or driving requirement is recorded for this client, so neither was used in the ranking.');
+  /* The gender rule is stated on every shift, because it is now the
+     difference between a list of 9 and a list of 4 and the scheduler should
+     never have to guess which one they are looking at. */
+  if(!p.genderKnown){
+    /* 'Not yet' and 'not at all' need different words: one resolves on its
+       own in a moment, the other is Carlo's and never will. */
+    var _cm=(typeof CLMATCH!=='undefined') ? CLMATCH.status() : 'error';
+    bits.push((_cm==='error'||_cm==='unconfigured')
+      ? 'The caregiver gender preference couldn’t be read from Client Concierge, so it has NOT been applied — this list may hold caregivers this client would not accept.'
+      : 'Client Concierge hasn’t answered yet, so the caregiver gender preference has NOT been applied — this list may hold caregivers this client would not accept.');
+  }
+  else if(p.genderPref)
+    bits.push((p.genderPref==='F'?'Female':'Male')+' caregivers only — that is the preference Client Concierge records for this client.');
+  else
+    bits.push('No caregiver gender preference is recorded for this client, so either gender is offered.'
+      + (p.drivingRequired===null ? ' No driving requirement is recorded either.' : ''));
   if(!bits.length) return '';
   return `<div class="cvm-note">${bits.join(' ')}</div>`;
 }
@@ -6700,13 +6820,20 @@ function selectedDates(sq){ let ds=[];
 function assignedOnDate(cgId, ds, start, end){ for(const s of state.shifts){ if(s.status==='filled' && s.assigned===cgId && toDateInput(s.start)===ds){ const ss=decHr(s.start), se=decHr(s.end); if(ss<end && se>start) return clById(s.clientId).name; } } return null; }
 function dateSearch(sq){
   const dates=selectedDates(sq), start=sq.specStart, end=sq.specEnd;
-  const cl=sq.clientId?clById(sq.clientId):null, rg=cl?reqGender(cl.restrictions):null, rows=[];
+  /* Through covClientPrefs, not reqGender(cl.restrictions): that read the
+     demo-only field, which is [] on every AxisCare client, so this screen
+     was never applying a gender preference either. Reached with a client
+     from the Coverage Planner; the plain date search has none and filters
+     on nothing, as before. */
+  const cl=sq.clientId?clById(sq.clientId):null;
+  const cp=covClientPrefs(cl);
+  const rg=cp.genderHard?cp.genderPref:null, rows=[];
   state.caregivers.forEach(cg=>{
     if(cg.active===false) return;
     if(!caregiverPassesFilters(cg, sq.filters, {clientId:sq.clientId})) return;
     if((sq.skills||[]).some(sk=>!cg.skills.includes(sk))) return;
     if(sq.clientId && cg.blockedClients.includes(sq.clientId)) return;
-    if(rg && cg.gender!==rg) return;
+    if(rg && cg.gender!==rg) return;                    /* unrecorded gender is not a match */
     /* never-confirmed is not a reason to hide somebody; lapsed is */
     if(!(sq.filters||[]).includes('Include Unverified Caregivers') && availVerifyStatus(cg).key==='overdue') return;
     let covered=0; const perDate=dates.map(ds=>{ const cd=coverageDetail(cg,ds,start,end); const conflict=assignedOnDate(cg.id,ds,start,end);
@@ -10446,18 +10573,9 @@ function demoNotice(){
 
   /* 1. could not reach AxisCare — say so, and say why the screen is bare */
   if(st && st.ok===false){
-    /* Two different failures, two different messages. With a cached roster on
-       screen the honest line is that it is last-known and how old it is —
-       saying "nothing is shown" while 184 names are visible would be wrong. */
-    if(st.stale){
-      const mins=Math.round((st.cacheAge||0)/60000);
-      const age = mins<1 ? 'just now' : mins<60 ? mins+' minute'+(mins===1?'':'s')+' ago'
-                : Math.round(mins/60)+' hour'+(Math.round(mins/60)===1?'':'s')+' ago';
-      return '<div class="demo-banner"><span class="db-ic">\u26A0</span><span>'+
-        '<b>Showing the last saved caregiver list.</b> AxisCare didn\u2019t answer \u2014 '+
-        esc(st.reason||'')+'. This list was loaded '+age+', so anything changed since is not in it.'+
-        '</span><button onclick="retryAxis()">Retry</button></div>';
-    }
+    /* There used to be a second, softer message here for when a cached roster
+       was still on screen. The cache is gone (see ROSTER), so a failed fetch
+       once again means the screen really is bare and this is the whole truth. */
     return '<div class="demo-banner err"><span class="db-ic">\u26A0</span><span>'+
       '<b>Couldn\u2019t reach AxisCare.</b> '+esc(st.reason||'')+'. '+
       'Nothing is shown rather than showing stale or invented data.'+
@@ -13445,7 +13563,7 @@ var ROSTER = (function () {
     return n;
   }
 
-  var lastResult = null, lastShiftScan = null, lastProblems = [], cacheAge = null;
+  var lastResult = null, lastShiftScan = null, lastProblems = [];
 
   /* ---- demo data ------------------------------------------------
      The seed records stay in the source so the dashboard can be
@@ -13564,9 +13682,15 @@ var ROSTER = (function () {
   }
 
   var ROSTER_TIMEOUT_MS = 12000;
-  /* Rejects if the promise has not settled in time. The underlying request is
-     not cancelled — a late answer still resolves and is still used — this only
-     stops the SCREEN waiting on it. */
+  /* Rejects if the promise has not settled in time, so a hanging AxisCare
+     shows the “couldn’t reach” banner instead of an endless spinner.
+
+     The underlying request is NOT cancelled, but its answer is DISCARDED: the
+     timeout sets `done`, so the late handler below is a no-op and the promise
+     stays rejected. An earlier comment here claimed a late answer was “still
+     used” — it never was, and it must not be. Anything that reaches
+     state.caregivers after CLOUD.boot() has snapshotted its baseline is the
+     323KB overlay bug in CLAUDE.md, arriving by a different door. */
   function withTimeout(p, ms, msg) {
     return new Promise(function (resolve, reject) {
       var done = false;
@@ -13576,47 +13700,27 @@ var ROSTER = (function () {
     });
   }
 
-  /* ---- The roster cache -------------------------------------------
-     The raw AxisCare records from the last successful fetch, kept in
-     localStorage so the NEXT visit paints the list before the network is
-     even asked. The fresh fetch still runs and replaces it; the cache only
-     decides what is on screen while that happens.
+  /* THERE IS NO ROSTER CACHE, AND NO EARLY PAINT. Removed 2026-09-01.
 
-     Raw records, not mapped ones: mapping is free (sub-millisecond for the
-     whole roster, measured) and re-running it means a stored copy can never
-     drift from what toAppCaregiver currently produces.
+     A localStorage copy (dc.roster.v1, 24h) painted the last known roster
+     before the network was asked, and the live roster painted the moment it
+     landed rather than waiting for the other four boot calls. It was a good
+     idea that shipped two bugs, and both are worth knowing before trying it
+     again — the write-up is in CLAUDE.md under “The roster paints once”.
 
-     It is read back only for display. CLOUD's baseline is still taken in
-     finishBoot, after the live fetch has settled, so a cached record never
-     reaches Supabase as though somebody typed it. */
-  var RCACHE_KEY = 'dc.roster.v1';
-  var RCACHE_MAX_AGE = 24 * 3600 * 1000;   /* a day: older than that, ask first */
-  function cacheRoster(list) {
-    try { localStorage.setItem(RCACHE_KEY, JSON.stringify({ at: Date.now(), list: list })); }
-    catch (e) { /* quota or private mode — the app works without it */ }
-  }
-  function cachedRoster() {
-    try {
-      var raw = localStorage.getItem(RCACHE_KEY); if (!raw) return null;
-      var o = JSON.parse(raw);
-      if (!o || !Array.isArray(o.list) || !o.list.length) return null;
-      if (Date.now() - (o.at || 0) > RCACHE_MAX_AGE) return null;
-      return o;
-    } catch (e) { return null; }
-  }
-  /* Painted before the fetch is even issued. Returns the cache age in ms so
-     the caller can say how old what is on screen is. */
-  function paintCachedRoster() {
-    var o = cachedRoster(); if (!o) return null;
-    /* AxisRoster.map first: the cache holds RAW AxisCare records, and
-       applyRoster starts from mapped ones — the same two steps the live
-       fetch runs, in the same order. */
-    try { applyRoster(o.list.map(AxisRoster.map)); return Date.now() - o.at; }
-    catch (e) { console.warn('[roster] cached roster unreadable', e); return null; }
-  }
+     The short version: applyProfile() no-ops until `profiles` is assigned in
+     the Promise.all handler, so ANY paint before that point shows all 182
+     caregivers as Active when the desk has parked 82 of them — and c.active
+     is what Find Coverage, Client Matching and the shift ranker filter on.
+     The cache added a second problem on top: a caregiver terminated in
+     AxisCare survived in it, and a shift assigned to them inside the window
+     was silently rewritten to another caregiver by remapDangling().
 
-  /* One mapping path, used by the early paint, the tail of hydrate and the
-     cached-roster restore — so all three produce identical records. */
+     Claude: do not reintroduce either without reading that section. */
+
+  /* The one mapping path. Called once, from the tail of hydrate() — kept as
+     a named function because it is the exact seam a correct early paint
+     would hook into, and because the order of the three maps matters. */
   function applyRoster(list) {
     var real = list.map(toAppCaregiver).map(derive).map(applyProfile);
     state.caregivers = real;
@@ -13640,47 +13744,27 @@ var ROSTER = (function () {
 
     var t0 = Date.now();
 
-    /* Whatever was on screen last time, on screen again immediately. The
-       fetch below replaces it; until then the desk reads real names rather
-       than a spinner. */
-    cacheAge = paintCachedRoster();
-    if (cacheAge != null) { try { render(); } catch (e) {} }
-
     /* Caregivers, clients and open shifts in parallel. All three must
        land BEFORE CLOUD.boot() snapshots its baseline, or the overlay
        records the whole dataset as though a human typed it. */
     var problemsEarly = [];
 
-    /* THE CAREGIVER LIST DOES NOT WAIT ON THE OTHER FOUR CALLS.
+    /* NOTHING PAINTS UNTIL ALL FIVE HAVE SETTLED. That is slower than it
+       needs to be — the roster is ready in ~2s and waits on an ~5s shift
+       scan it does not read — and it is deliberate for now.
 
-       All five have always run in parallel, but the list only painted once
-       Promise.all settled — so it was gated on the SLOWEST of them, not on
-       its own. The roster is 2 requests (~1.7s); fetchOpenShifts scans a
-       28-day window, ~700 visits over 8 requests (~4s). Caregivers were
-       therefore sitting ready for seconds behind a call the list does not
-       read. This lands them the moment they arrive.
+       The reason is `profiles`, assigned in the handler below. Until then
+       applyProfile() returns on its first line, so a roster painted early
+       carries no employment_status and every one of the 82 caregivers the
+       desk has parked reads as Active. Waiting is what makes the FIRST
+       thing on screen the RIGHT thing.
 
-       Safe against the boot-order rule in CLAUDE.md: the rule is that the
-       roster must be in state BEFORE CLOUD.boot() snapshots its baseline,
-       or the overlay records all 184 as though a human typed them. Painting
-       EARLIER than the snapshot is exactly what it asks for — finishBoot
-       still runs after every call settles, and still renders before
-       snapshotting. */
-    /* A slow AxisCare must not read as an empty agency or an endless
-       spinner. After ROSTER_TIMEOUT_MS the fetch is treated as failed for
-       display purposes; whatever the cache painted stays on screen, and the
-       banner says so. A late response is still honoured if it arrives. */
-    var rosterP = withTimeout(AxisCare.roster({ raw: true }), ROSTER_TIMEOUT_MS,
-        'AxisCare did not respond within ' + Math.round(ROSTER_TIMEOUT_MS/1000) + 's')
-      .then(function (raw) {
-      cacheRoster(raw);
-      var list = raw.map(AxisRoster.map);
-      try { applyRoster(list); render(); } catch (e) { console.warn('[roster] early paint failed', e); }
-      return list;
-    });
-
+       Making this fast is a real and wanted improvement; it just has to
+       carry the profiles with it. See CLAUDE.md, “The roster paints once”. */
     return Promise.all([
-      rosterP.catch(function (e) { return { __err: e }; }),
+      withTimeout(AxisCare.roster(), ROSTER_TIMEOUT_MS,
+        'AxisCare did not respond within ' + Math.round(ROSTER_TIMEOUT_MS/1000) + 's')
+        .catch(function (e) { return { __err: e }; }),
       AxisLive.fetchClients(function (p, q) { return AxisCare.get(p, q); }).catch(function (e) { return { __err: e }; }),
       AxisLive.fetchOpenShifts(function (p, q) { return AxisCare.get(p, q); }, {}).catch(function (e) { return { __err: e }; }),
       fetchCareNotes().catch(function (e) { return { __err: e }; }),
@@ -13736,7 +13820,7 @@ var ROSTER = (function () {
         openShifts: (state.shifts || []).length,
         shiftScan: lastShiftScan,
         problems: lastProblems,
-        remapped: remapped, ms: Date.now() - t0, stale: false, cacheAge: cacheAge,
+        remapped: remapped, ms: Date.now() - t0,
         untagged: real.filter(function (c) { return !c.tagged; }).length
       };
       console.info('[axiscare] ' + real.length + ' caregivers, ' + (state.clients || []).length +
@@ -13747,14 +13831,8 @@ var ROSTER = (function () {
       return true;
 
     }).catch(function (err) {
-      /* A failed fetch no longer means a blank screen: if the cache painted
-         a roster, it stays. `stale` is what the banner reads to say the list
-         is last-known rather than current. */
-      var painted = cacheAge != null && (state.caregivers || []).length > 0;
-      lastResult = { ok: false, reason: (err && err.message) || String(err),
-                     stale: painted, cacheAge: cacheAge };
-      console.warn('[roster] ' + (painted ? 'showing the last saved roster — ' : 'no roster — ') + lastResult.reason);
-      try { render(); } catch (e) {}
+      lastResult = { ok: false, reason: (err && err.message) || String(err) };
+      console.warn('[roster] no roster — ' + lastResult.reason);
       return false;
     });
   }

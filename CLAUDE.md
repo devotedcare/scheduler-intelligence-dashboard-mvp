@@ -548,6 +548,73 @@ shift, and listing them costs a call that ends in no. `coverageDetail()` returns
 `full` or it returns `none`; there is no `partial`. If nobody can take the whole
 shift, the screen says so.
 
+**Both Find Coverage screens gate on this, not just the date search.**
+The shift-locked list — the one you reach from an Open Shifts row, built by
+`coverageMatches()` — used to *score* availability rather than filter on it:
+nothing recorded was worth +4 and stayed in the calling queue. So on the
+Brenda Janowski 8a–8p shift of 2026-09-03, Meryll Austria came second on 11
+previous visits with that client and a completely blank calendar.
+
+Fixed 2026-09-01. Availability now decides **who is on the list**, on both
+screens, through the one `coverageDetail()` call. Claude: do not soften this
+back into a ranking signal. The comment that justified it — “nobody has
+entered any for the live roster yet, so nothing recorded must NOT exclude” —
+was true when it was written and is not true now: 50 caregivers had an `Open`
+row for 2026-09-03 alone. **An empty calendar is a no, exactly as
+“Unavailable” is** — the same rule as Active.
+
+The excluded simply disappear; there is no greyed-out section. The one place
+they are described is `covEmptyReason()`, which runs **only when the list
+comes back empty**, because that is the only time the difference matters:
+“37 recorded unavailable” means the desk has asked and been told no, and
+“74 with nothing entered” means it has not asked. It also separates *still
+loading* from *failed to load* on `AVAIL.isLoaded(date)` — the first paint
+lands before `openFindCoverage()`’s fetch does, and without that check the
+screen accuses the whole roster of being unavailable for a second.
+
+`openFindCoverage()` pulls the **day before** the shift as well, for the same
+reason `runCoverageSearch` does: an overnight Open is stored on the date it
+starts, so without it somebody working 8p–8a reads as having nothing entered.
+
+### The client’s caregiver gender preference filters too
+
+Wired 2026-09-01. It comes from **Client Concierge**, through `CLMATCH` —
+`client_match_prefs.gender_pref`, `'F' | 'M' | null`, synced by
+`netlify/functions/matching-sync.js`. **AxisCare has no such field**, so the
+old `reqGender(cl.restrictions)` read could never fire on live data:
+`mapClient()` hard-codes `restrictions: []` for every real client, and the
+preference was going quietly unused on both screens. 16 of the 21 clients ask
+for a female caregiver; none ask for a male one.
+
+`covClientPrefs()` is the single place it is read, and both Find Coverage
+screens now ask it — the shift list through `coverageMatches()`, the date
+search through `dateSearch()`.
+
+| Concierge says | The list holds |
+|---|---|
+| `F` or `M` | that gender only |
+| `null`, or no row for the client | **either gender** — nothing recorded means nobody minds |
+| the table has not loaded | **everyone**, and the note above the list says the preference was not applied |
+
+That last row is what `genderKnown` exists for. **Claude: do not collapse it
+into `genderPref === null`.** A missing preference and an unread one are
+different answers, and silently treating “could not read it” as “nobody
+minds” would put male caregivers in front of a client who asked for a woman
+with nothing on screen to explain it. `covMatchNote()` states the rule in
+force on every shift, in three versions — applied, not recorded, not loaded
+(and “not yet” reads differently from “not at all”).
+
+**A caregiver whose gender AxisCare does not record is held back** when a
+preference exists, because they are not *known* to be the gender asked for.
+It applied to exactly one caregiver, Angelina Dela Cruz (id 613); her gender
+was recorded in AxisCare on 2026-09-01 and **every active caregiver now has
+one**, so the rule currently excludes nobody. It stays as a guard for a future
+hire, and the fix is always to record the gender rather than loosen the rule.
+
+Driving is deliberately **not** wired, though `driving_required` sits in the
+same synced row and 10 clients set it. It stays a ranking signal until the
+desk asks for it.
+
 ### Two caches, one purpose each
 
 | | |
@@ -1117,6 +1184,77 @@ in `README.md` under *How the data model works*.
 3. **`ROSTER.reconcile()` must run after *every* overlay application** — the
    local one at boot and each Supabase pull. A saved overlay predates the roster
    swap and can reference caregivers who no longer exist.
+
+3b. **The roster paints once, and not before `profiles` lands.**
+
+    `applyProfile()` returns on its first line when `profiles[c.axisId]` is
+    missing, and `profiles` is only assigned inside the `Promise.all` handler
+    in `hydrate()`. So **any** paint before that point carries no
+    `employment_status` — and `c.active` then falls back to the AxisCare
+    label, which is `Active` for everybody, because the fetch asks
+    `statuses=Active`.
+
+    Measured on live data: **171 active instead of 100**. The desk has parked
+    **82** caregivers, and `c.active` is what Find Coverage, Client Matching,
+    the shift ranker and the availability-review tasks filter on. Every one of
+    the 82 is offered for shifts during such a window.
+
+    This is why nothing paints until all five boot calls settle, even though
+    the roster is ready in ~2s and the shift scan it waits on takes ~5s. It is
+    slow on purpose, and it is the wrong trade — but the fix is to carry the
+    profiles, not to paint sooner.
+
+    **The measured way to make it fast**, when somebody takes it on:
+
+    | call | lands |
+    |---|---|
+    | `fetchProfiles` | **1.0s** |
+    | `AxisCare.roster` | 2.1s |
+    | `fetchClients` | 3.3s |
+    | `fetchOpenShifts` | 5.1s |
+
+    Profiles arrive **first**. Gating the paint on `Promise.all([roster,
+    profiles])` rather than on all five gives a correct roster at ~2.1s for
+    free. `applyRoster()` is kept as a named function for exactly that seam.
+
+3c. **Whatever fetches the roster, validate before assigning `state`.**
+
+    `if (!list || list.length < 10) throw` guards against a truncated AxisCare
+    read. It only works while it runs *before* `state.caregivers` is written.
+
+### What was tried, and why it was reverted
+
+Commit `cd5b873` (2026-09-01) added an early paint plus a **localStorage roster
+cache** (`dc.roster.v1`, raw records, 24h) painted before the network was asked.
+Reverted the same day. Both halves are worth knowing about:
+
+- **The early paint** hit 3b — the Active roster read 171/0 for the ~3s before
+  the boot settled, on a **cold load with an empty cache** as well as a warm one.
+- **The cache** moved `cacheRoster()` and `applyRoster()` ahead of the
+  plausibility guard (3c), so a truncated read was both painted and stored for a
+  day. It also showed data with **no banner at all** — `demoNotice()` is guarded
+  on `ROSTER.status()`, which is `null` until the boot finishes.
+- **The one that could not correct itself:** a caregiver terminated in AxisCare
+  stayed in the cache. Assign a shift to them inside the window and, when the
+  live roster lands without them, `reconcile()` → `remapDangling()` rewrites
+  `s.assigned` via `pickFrom(schedulingPool(), seed)` — silently reassigning the
+  shift to Ana or one of six caregivers, into a tracked CLOUD slice shared by all
+  three schedulers, in place and irreversibly.
+- `retryAxis()` repainted the cache over live data *after* `CLOUD.boot()` had
+  snapshotted, and `render()` schedules a save at 900ms while the refetch takes
+  ~2.1s — so a save could diff cached-against-live into caregiver patches.
+- The stored payload was **187KB of raw records** — date of birth on 180 people,
+  home street address on 179, pay rate on 146, plus personal email and mobile —
+  at rest on the device, surviving `CLOUD.reset()`, with no logout to clear it.
+
+`withTimeout()` was kept: a hanging AxisCare now shows the banner instead of an
+endless spinner. Note it **discards** a late answer rather than using it — an
+earlier comment claimed otherwise. It must stay that way: anything reaching
+`state.caregivers` after the baseline snapshot is bug 2 above by another door.
+
+Leftover `dc.roster.v1` entries in schedulers’ browsers are inert — nothing
+reads the key any more. Clearing one needs DevTools → Application → Local
+Storage, or “Clear site data”; a hard reload does **not** remove it.
 
 4. **`config.js` is generated at deploy time** from Netlify environment
    variables. Editing it has no effect — the build overwrites it. The committed
