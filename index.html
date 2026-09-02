@@ -9323,9 +9323,7 @@ const PFX_SECS = (function(){
        Preferences and a row is one height. It keeps View Details: a caregiver
        with a long list of blocks can still outrun the card. */
     rules:{title:'Client Blocks \u2014 Do Not Assign', tint:'h-rules', tall:true,
-      edit:c=>`openAcrEdit('${c.id}')`, body:c=>clientBlocksBody(c)},
-    languages:{title:'Languages', tint:'h-lang',
-      edit:c=>`openLangEdit('${c.id}')`, body:c=>langBody(c)}
+      edit:c=>`openAcrEdit('${c.id}')`, body:c=>clientBlocksBody(c)}
   };
   /* The three chip sections differ only by which field they read. */
   Object.keys(CG_CHIP_FIELDS).forEach(function(k){
@@ -9560,80 +9558,14 @@ function clientBlocksBody(c){
    (SS Speaks Spanish, FES Fluent English) and from the profile table's
    extra_languages, and are editable here. */
 const LANG_OPTS=['English','Spanish','Tagalog','Ilocano','Vietnamese','Korean','Mandarin','Armenian','Russian','American Sign Language'];
-const ENGLISH_LEVELS=['Native/Bilingual','Fluent','Good','Conversational','Basic'];
-/* The four the Work Preferences row offers, lowest first. ENGLISH_LEVELS
-   keeps 'Good' because records already hold it and the Languages editor
-   still lists it — dropping it from there would silently rewrite somebody's
-   answer the next time that form was saved. Anything stored outside these
-   four is kept as a selected option in the dropdown for the same reason. */
+/* The four Work Preferences offers, lowest first. Records may still hold
+   'Good' or 'Native' from the retired Languages editor, so a stored value
+   outside these four is kept as a selected option in the dropdown rather
+   than being silently rewritten on the next save. */
 const WP_ENGLISH=['Basic','Conversational','Fluent','Native/Bilingual'];
 /* "Native" predates the list. Preselect it as its replacement so reopening
    the editor does not read as unanswered. */
 const ENGLISH_ALIAS={'Native':'Native/Bilingual'};
-function langBody(c){
-  const langs=(c.languages||[]).slice();
-  return `<div class="lang-lab">Languages spoken</div>
-    <div class="str-tags">${langs.length
-      ? langs.map(l=>`<span class="str-tag primary">${esc(l)}</span>`).join('')
-      : '<span class="ws-none">No languages recorded.</span>'}</div>
-    <div class="emp-row lang-ep"><span class="emp-l">English proficiency</span>
-      <span class="emp-v">${c.englishProficiency?esc(c.englishProficiency):'Not recorded'}</span></div>`;
-}
-function openLangEdit(id){
-  cgSnapStart(id);
-  const c=cgById(id); if(!c) return;
-  const ep=c.englishProficiency||'';
-  state.langEdit={id:id, langs:(c.languages||[]).slice(), other:'',
-    english:ENGLISH_ALIAS[ep]||ep};
-  renderLangModal(); mbg.classList.add('show');
-}
-function langToggle(i,on){
-  const l=state.langEdit; if(!l) return;
-  const t=LANG_OPTS[i]; if(t===undefined) return;
-  const at=l.langs.indexOf(t);
-  if(on && at<0) l.langs.push(t); else if(!on && at>=0) l.langs.splice(at,1);
-  renderLangModal();
-}
-function langSet(f,v){ if(state.langEdit) state.langEdit[f]=v; }
-function langCancel(){ state.langEdit=null; closeModal(); }
-function renderLangModal(){
-  const l=state.langEdit; if(!l) return;
-  const c=cgById(l.id);
-  mEl.innerHTML=`<div class="mh"><span class="mt">Languages — ${esc(c?c.name:'')}</span>
-      <button class="mc" onclick="langCancel()">×</button></div>
-    <div class="mb">
-      <div class="tp-list">${LANG_OPTS.map(function(t,i){ const on=l.langs.indexOf(t)>=0;
-        return `<label class="tp-opt${on?' on':''}"><input type="checkbox" ${on?'checked':''} onchange="langToggle(${i},this.checked)"><span>${t}</span></label>`;
-      }).join('')}</div>
-      <div class="pf-f"><label class="el">Another language (comma separated)</label>
-        <input class="ein" placeholder="e.g. Cebuano" value="${esc(l.other||'')}" oninput="langSet('other',this.value)"></div>
-      <div class="pf-f"><label class="el">English proficiency</label>
-        <select class="ein" onchange="langSet('english',this.value)">
-          ${ENGLISH_LEVELS.indexOf(l.english)>=0 ? '' :
-            /* Disabled, so nothing is recorded by simply opening this and
-               saving — but not an option anybody can pick. */
-            '<option value="" disabled selected>Select proficiency…</option>'}
-          ${ENGLISH_LEVELS.map(function(x){
-            return `<option ${l.english===x?'selected':''}>${x}</option>`; }).join('')}</select></div>
-      <div class="upd-acts"><button class="btn" onclick="langCancel()">Cancel</button>
-        <button class="btn pri" onclick="langSave()">${ic('check',13)} Save</button></div>
-    </div>`;
-}
-function langSave(){
-  const l=state.langEdit; if(!l) return;
-  const c=cgById(l.id); if(!c) return langCancel();
-  const extra=String(l.other||'').split(',').map(x=>x.trim()).filter(Boolean);
-  const seen={}, out=[];
-  LANG_OPTS.concat(extra).forEach(function(t){
-    if((l.langs.indexOf(t)>=0 || extra.indexOf(t)>=0) && !seen[t]){ seen[t]=1; out.push(t); }
-  });
-  c.languages=out;
-  c.englishProficiency=l.english||null;
-  c.ops.lastUpdated=new Date(); c.ops.lastUpdatedBy=state.onShift;
-  cgSnapCommit(l.id);
-  state.langEdit=null; closeModal(); render(); cgSaved('Languages updated');
-}
-
 /* ---- Employment Summary edit ----------------------------------------
    Only the two fields the desk owns. Hire date comes from AxisCare, and
    hours, last shift and last client are read off visit history — editing
@@ -10439,10 +10371,9 @@ function viewCaregiverWorkspace(c){
     ${pfxCard(c,'employment')}
     ${pfxCard(c,'rules')}
 
-    ${pfxCard(c,'languages')}
     ${pfxCard(c,'skills')}
-
     ${pfxCard(c,'personality')}
+
     ${pfxCard(c,'hobbies')}
   </div>`;
 
