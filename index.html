@@ -9185,6 +9185,15 @@ function cgProf(c){
   if(!c) return {};
   return (state.cgProfiles||[]).find(x=>x.id===c.id) || {};
 }
+/* Every Save on the caregiver profile ends here. render() alone only
+   SCHEDULES a write 900ms later, so a Save followed by a refresh could
+   close the tab before the write was ever raised. CLOUD.save() cancels the
+   debounce and sends it now — the sync pill then shows Saving/Synced while
+   the desk is still looking at the section they edited. */
+function cgSaved(msg){
+  try{ CLOUD.save(); }catch(e){}
+  if(msg) toast(msg);
+}
 function cgProfSet(c, patch){
   const list=(state.cgProfiles||[]).filter(x=>x.id!==c.id);
   list.push(Object.assign({id:c.id}, cgProf(c), patch));
@@ -9252,7 +9261,7 @@ function chipSave(){
   if(f.note) patch[p.key+'Note']=String(p.note||'').trim();
   cgProfSet(c, patch);
   cgSnapCommit(p.id);
-  state.chipPick=null; closeModal(); render(); toast(f.label.replace('&amp;','&')+' updated');
+  state.chipPick=null; closeModal(); render(); cgSaved(f.label.replace('&amp;','&')+' updated');
 }
 
 /* ---- The fixed-height profile cards ---------------------------------
@@ -9500,7 +9509,7 @@ function prefSave(){
   c.ops.shiftPrefs=Object.assign({}, c.ops.shiftPrefs, {liveIn: b(p.liveIn)===true});
   c.ops.lastUpdated=new Date(); c.ops.lastUpdatedBy=state.onShift;
   cgSnapCommit(state.prefEdit&&state.prefEdit.id);
-  state.prefEdit=null; closeModal(); render(); toast('Client & assignment preferences updated');
+  state.prefEdit=null; closeModal(); render(); cgSaved('Client & assignment preferences updated');
 }
 
 /* ---- Languages -------------------------------------------------------
@@ -9573,7 +9582,7 @@ function langSave(){
   c.englishProficiency=l.english||null;
   c.ops.lastUpdated=new Date(); c.ops.lastUpdatedBy=state.onShift;
   cgSnapCommit(l.id);
-  state.langEdit=null; closeModal(); render(); toast('Languages updated');
+  state.langEdit=null; closeModal(); render(); cgSaved('Languages updated');
 }
 
 /* ---- Employment Summary edit ----------------------------------------
@@ -9616,7 +9625,7 @@ function empSave(){
   c.ops.experience = e.experience || null;
   c.ops.lastUpdated=new Date(); c.ops.lastUpdatedBy=state.onShift;
   cgSnapCommit(e.id);
-  state.empEdit=null; closeModal(); render();
+  state.empEdit=null; closeModal(); render(); cgSaved('');
   /* caregiver_profile is where the roster split reads this at boot, so the
      edit has to reach the column — the CLOUD overlay cannot carry it (see
      ROSTER.reconcile). Applied on screen first so the modal closes at once,
@@ -10159,7 +10168,7 @@ function acrSave(){
   c.ops.lastUpdated=now; c.ops.lastUpdatedBy=state.onShift;
   cgSnapCommit(a.id);
   state.acr=null; closeModal(); render();
-  toast('Assignment & client rules updated');
+  cgSaved('Assignment & client rules updated');
 }
 
 function editStrengths(id){ state.cgStrengthEdit=id; state.cgEdit=null; state.cgAvailEdit=null; render(); window.scrollTo(0,0); }
@@ -10190,7 +10199,7 @@ function saveStrengths(id){
   const src=(document.getElementById('strk_source')||{}).value||STRENGTH_SOURCES[0];
   ops.strengths={primary, secondary, source:src, updatedBy:state.onShift, updatedDate:new Date()};
   ops.lastUpdated=new Date(); ops.lastUpdatedBy=state.onShift;
-  state.cgStrengthEdit=null; toast('Caregiver strengths updated'); render();
+  state.cgStrengthEdit=null; render(); cgSaved('Caregiver strengths updated');
 }
 function cgAvailForm(c){
   const m=state.availMode;
@@ -10273,7 +10282,7 @@ function saveAvailability(id){
   if(state.clients[0] && document.getElementById('blk_'+state.clients[0].id)){ const prev=ops.clientRestr||[]; ops.clientRestr=state.clients.filter(cl=>gC('blk_'+cl.id)).map(cl=>{ const ex=prev.find(r=>r.client===cl.id); return {client:cl.id, reason:gV('blkr_'+cl.id)||'Do not assign', level:gV('blkl_'+cl.id)||'hard', duration:gV('blkd_'+cl.id)||'permanent', notes:(gV('blkn_'+cl.id)||'').trim(), addedBy: ex?ex.addedBy:state.onShift, addedDate: ex?ex.addedDate:new Date()}; }); }
   ops.lastUpdated=new Date(); ops.lastUpdatedBy=state.onShift;
   cgSnapCommit(id);
-  state.cgAvailEdit=null; toast('Availability updated'); render();
+  state.cgAvailEdit=null; render(); cgSaved('Availability updated');
 }
 function yn(on){ return on?`<span class="ws-yn yes">${ic('check',12)} Yes</span>`:`<span class="ws-yn no">No</span>`; }
 function fmtUpdated(d){ if(!hasVal(d)) return 'Not tracked'; d=(d instanceof Date)?d:new Date(d); if(isNaN(d.getTime())) return 'Not tracked'; return d.toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})+' '+d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}); }
@@ -13944,6 +13953,12 @@ const CLOUD = (function(){
 
   var sb = null, BASE = null, serverRev = 0, lastBody = null;
   var muted = false, saveTimer = null, pollTimer = null, booted = false;
+  /* One write in flight at a time, and a record of whether this session is
+     holding work the server has not confirmed. Both exist because of the
+     same bug — see doSave() and pull(). */
+  var pushing = false, pendingSave = false, pushTries = 0, unsent = false;
+  var retryTimer = null, failed = false;
+  var PUSH_TRIES = 5, RETRY_MS = 15000;
   var statusState = 'local', statusMsg = '';
 
   /* ---------- small utilities ---------- */
@@ -14126,6 +14141,13 @@ const CLOUD = (function(){
     saveTimer=setTimeout(doSave, DEBOUNCE);
   }
   function doSave(){
+    /* ONE WRITE AT A TIME. Two overlapping pushes both compute rev from the
+       same serverRev, so the second fails the optimistic-concurrency check
+       and lands in the conflict path — which used to destroy the edit (see
+       pull). Measured on an ordinary run of profile saves, five of nine
+       writes collided this way. Anything raised while a push is running is
+       remembered and sent the moment it finishes. */
+    if(pushing){ pendingSave=true; return; }
     var o=buildOverlay();
     o.updatedAt=new Date().toISOString();
     o.updatedBy=state.onShift||'';
@@ -14133,29 +14155,81 @@ const CLOUD = (function(){
     if(body===lastBody) return;              /* nothing actually changed */
     saveLocal(o);
     if(!sb){ lastBody=body; return; }
-    push(o, body, true);
+    /* Already failing: keep writing to this device, but leave the network to
+       the retry timer. Without this the conflict path re-entered itself
+       through pull()'s render() and put thirty writes a minute on a database
+       that was refusing all of them. */
+    if(failed && retryTimer){ unsent=true; return; }
+    /* From here until a write is confirmed, this browser holds something the
+       database does not. pull() reads this to know not to overwrite it. */
+    unsent=true;
+    pushTries=0;
+    push(o, body);
+  }
+  /* Run after every push, however it ended. */
+  function pushDone(){
+    pushing=false;
+    if(pendingSave){
+      pendingSave=false;
+      clearTimeout(saveTimer);
+      saveTimer=setTimeout(doSave, 60);
+    }
+  }
+  /* A write that never lands must not look like one that did. The change is
+     still in state and still in localStorage, and buildOverlay() is a whole
+     diff rather than an increment, so the next successful push carries it —
+     but the desk has to be told, and something has to try again on its own. */
+  function saveFailed(msg){
+    setStatus('error', msg);
+    clearTimeout(retryTimer);
+    retryTimer=setTimeout(function(){ retryTimer=null; if(!muted && booted) doSave(); }, RETRY_MS);
+    /* Said once per outage, not once per attempt. */
+    if(!failed){
+      failed=true;
+      try{ if(typeof toast==='function')
+        toast('Not saved to the shared board \u2014 '+msg+'. Your change is still on this device and will be sent again.');
+      }catch(e){}
+    }
   }
 
-  function push(o, body, allowRetry){
+  function push(o, body){
+    pushing=true; pushTries++;
     setStatus('saving');
     sb.from(TABLE)
       .update({ overlay:o, rev:serverRev+1, updated_at:o.updatedAt, updated_by:o.updatedBy })
       .eq('id',WORKSPACE).eq('rev',serverRev).select('rev')
       .then(function(res){
-        if(res.error){ setStatus('error',res.error.message); return; }
+        if(res.error){ saveFailed(res.error.message); pushDone(); return; }
         if(!res.data || !res.data.length){
-          /* someone else saved first — take theirs, re-layer ours, retry once */
-          if(!allowRetry){ setStatus('error','write conflict'); return; }
+          /* Somebody else saved first: take theirs, re-layer ours, try again.
+             `unsent` is what makes the re-layer real — pull() only ASSIGNS,
+             so without it the server's older copy of the very field being
+             edited was written straight over the new one, and the retry then
+             pushed the reverted value back. That is the whole bug: the edit
+             disappeared seconds after Save, with no reload involved.
+
+             Retrying once and then giving up was the other half. A dropped
+             write left the board holding a value the database had never
+             seen, under a toast that said it was saved. */
+          if(pushTries>=PUSH_TRIES){ saveFailed('the board was being saved by someone else'); pushDone(); return; }
           pull(true).then(function(){
             var o2=buildOverlay();
             o2.updatedAt=new Date().toISOString();
             o2.updatedBy=state.onShift||'';
-            push(o2, bodyOf(o2), false);
-          });
+            saveLocal(o2);
+            push(o2, bodyOf(o2));
+          }, function(){ saveFailed('could not re-read the board'); pushDone(); });
           return;
         }
-        serverRev=res.data[0].rev; lastBody=body; setStatus('synced');
-      }, function(err){ setStatus('error', (err&&err.message)||'network'); });
+        serverRev=res.data[0].rev; lastBody=body; unsent=false;
+        clearTimeout(retryTimer); retryTimer=null;
+        if(failed){
+          failed=false;
+          try{ if(typeof toast==='function') toast('Saved to the shared board.'); }catch(e){}
+        }
+        setStatus('synced');
+        pushDone();
+      }, function(err){ saveFailed((err&&err.message)||'network'); pushDone(); });
   }
 
   function pull(force){
@@ -14174,8 +14248,24 @@ const CLOUD = (function(){
         }
         if(res.data.rev===serverRev && !force){ setStatus('synced'); return; }
         serverRev=res.data.rev;
+        /* WHAT THIS BROWSER HOLDS AND THE DATABASE DOES NOT, captured before
+           the server copy lands on top of it.
+
+           applyOverlay only ever ASSIGNS. A caregiver patch carries `ops` as
+           one whole field, so applying an older overlay writes the older
+           `ops` over the newer one — every preference, restriction and note
+           in it reverts together. When the server is behind us that is a
+           silent data loss, and it fired on the conflict path inside push(),
+           which is reached by an ordinary burst of Save clicks.
+
+           `unsent` is only true between a write being raised and the
+           database confirming it, so a normal poll still lets another
+           scheduler's work through untouched, and boot still takes the
+           server's copy as it always did. */
+        var mine = (unsent && booted) ? buildOverlay() : null;
         muted=true;
         try{ applyOverlay(res.data.overlay); }catch(e){ console.warn('[cloud] apply failed',e); }
+        if(mine){ try{ applyOverlay(mine); }catch(e){ console.warn('[cloud] re-layer failed',e); } }
         try{ if(typeof ROSTER!=='undefined') ROSTER.reconcile(); }catch(e){ console.warn('[roster] reconcile failed',e); }
         muted=false;
         lastBody=null;                        /* remote may differ from ours */
