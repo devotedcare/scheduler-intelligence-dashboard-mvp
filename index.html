@@ -9289,7 +9289,7 @@ const PFX_SECS = (function(){
     /* Not one of the three, but it shares a row with Client & Assignment
        Preferences and a row is one height. It keeps View Details: a caregiver
        with a long list of blocks can still outrun the card. */
-    rules:{title:'Assignment &amp; Client Rules', tint:'h-rules', tall:true,
+    rules:{title:'Client Blocks \u2014 Do Not Assign', tint:'h-rules', tall:true,
       edit:c=>`openAcrEdit('${c.id}')`, body:c=>clientBlocksBody(c)},
     languages:{title:'Languages', tint:'h-lang',
       edit:c=>`openLangEdit('${c.id}')`, body:c=>langBody(c)}
@@ -9508,7 +9508,9 @@ function clientBlocksBody(c){
      caregiver with three blocks and a long note pushed the rest of the
      Profile off the screen; and a name and a red bar are what the desk
      actually scans this section for. */
-  return '<div class="ws-grp"><div class="ws-grp-h">Client Blocks \u2014 Do Not Assign</div>' + (ops.clientRestr.length
+  /* No heading inside the card: the section title IS "Client Blocks — Do
+     Not Assign" now, and repeating it would print it twice. */
+  return '<div class="ws-grp">' + (ops.clientRestr.length
     ? `<div class="cb-list">${ops.clientRestr.map((r,i)=>{
         const hard=(r.level||'hard')==='hard', cl2=clById(r.client), asking=state.cbDel===c.id+'|'+i;
         /* Asked in place, the same way an update is deleted — a block is the
