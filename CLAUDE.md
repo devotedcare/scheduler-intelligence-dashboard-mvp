@@ -1333,6 +1333,83 @@ returns the token itself.
 
 ---
 
+## Ask Devi — the local router first, Claude for the rest
+
+Ask Devi has two answerers and they are not interchangeable.
+
+**`aiAnswer()` answers first.** It is a regex router over about twenty report
+builders (`aiAvailable`, `aiCallOffs`, `aiOpenShifts`…). Its answers are
+*computed from the real tables*, instant, and free. It is not a fallback — it
+is the primary, and it should stay in front.
+
+**`deviAsk()` takes what the router could not match.** `aiAnswer()` returns
+`fallthrough:true` where it used to say *"Not sure I caught that"*, and that is
+the signal. It is also, with no extra machinery, how **follow-ups** arrive:
+"why?", "what about Saturday?", "who else?" match no pattern, so they land in
+Devi with the whole conversation behind them.
+
+### What Devi can and cannot do
+
+**It has no tools. It can only produce text.** Nothing it says reaches the
+availability table, the roster, a shift or AxisCare — the browser renders the
+words and stops. That is the entire safety argument for showing it real data,
+and it is why `supabase/functions/devi-agent/index.ts` forwards no `tools`
+array. **Claude: adding a tool invalidates that argument and has to be
+re-made from scratch.**
+
+`state.aiLog` is **not** a tracked CLOUD slice, so the conversation stays in the
+browser that asked it and is never written to Supabase or shared.
+
+### The key lives in a Supabase Edge Function
+
+The first one in this repo — everything else is a Netlify function. It is there
+because the `ANTHROPIC_API_KEY` secret is there.
+
+| secret | note |
+|---|---|
+| `ANTHROPIC_API_KEY` | the local `.env` calls the same value `CLAUDE_API_KEY` |
+| `CONCIERGE_MODEL` | `claude-opus-5`. `DEVI_MODEL` overrides it |
+| `ALLOWED_ORIGIN` | see below — `null` is not what it looks like |
+| `DEVI_EFFORT` / `DEVI_MAX_TOKENS` / `DEVI_SHARED_SECRET` | optional |
+
+**A commit does not deploy it.** `index.html` auto-deploys to Netlify;
+`supabase/functions/` needs `supabase functions deploy devi-agent
+--no-verify-jwt`. `deviAsk()` therefore falls back to the router's own answer
+whenever the call fails, so an undeployed or broken function degrades to the
+old wording rather than showing "Failed to fetch".
+
+### Three traps, all already hit once
+
+- **`max_tokens` includes thinking.** Opus 5 thinks by default and spends the
+  budget on it first. Measured on this key: `max_tokens: 64` returned HTTP 200,
+  `stop_reason: "max_tokens"` and an **empty** text block. `MIN_TOKENS = 1024`
+  in the function is the floor that prevents it. A blank reply is this, not a
+  broken chat.
+- **`esc()` is an ATTRIBUTE escaper** — it replaces `"` and nothing else, which
+  is useless in a text position. Devi's reply goes into `innerHTML` and is
+  built from a snapshot containing AxisCare names, so `escText()` was added and
+  is what `deviInline()` must use. Never `esc()`.
+- **`ALLOWED_ORIGIN: null` is not "local only".** `null` is the origin of *any*
+  sandboxed iframe, so any site on the internet can call the function from a
+  visitor's browser. For local work use `http://localhost:8888` (`netlify dev`)
+  — a local server sends a real origin, never `null`.
+
+### What leaves the browser
+
+`deviContext()` sends, on every Devi question: today's date, client **names and
+cities**, up to 40 open shifts with times, and every active caregiver as
+name · base · skills. No care notes, no contact details, no clinical fields.
+
+**It is still PHI.** The sibling Client Concierge function's header records that
+adaptive thinking is not on Anthropic's BAA-covered feature list and concludes
+*"point this at invented data only"* — that note was written about the same API
+and has not been cleared for this one. It is Carlo's call with Anthropic, not a
+code question.
+
+`c.base`, not `c.city`: a caregiver record has no `city`. Getting that wrong
+produced a dash on every line and Devi correctly reporting that nobody has a
+city recorded.
+
 ## Known and accepted — don't re-flag these
 
 **Claude: these are deliberate decisions, already reviewed. Mentioning them once

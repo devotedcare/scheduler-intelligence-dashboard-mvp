@@ -1553,7 +1553,7 @@ body.ai-white .app{background:#fff}
 body.ai-white .main{display:flex;flex-direction:column;min-height:100vh}
 .v-assistant{flex:1 1 auto;display:flex;flex-direction:column;min-height:0}
 .ai-wrap{flex:1 1 auto;display:flex;flex-direction:column;min-height:0}
-.ai-thread{flex:1 1 auto;overflow-y:auto;min-height:0}
+.ai-thread{flex:1 1 auto;overflow-y:auto;min-height:0}.ai-p{margin:0 0 9px;line-height:1.55;font-size:13.5px;color:var(--ink)}.ai-p:last-child{margin-bottom:0}.ai-ul{margin:0 0 9px;padding-left:20px;display:flex;flex-direction:column;gap:4px}.ai-ul li{line-height:1.5;font-size:13.5px;color:var(--ink)}.ai-ul:last-child{margin-bottom:0}.ai-wait{display:flex;align-items:center;gap:9px}
 .ai-foot{flex:0 0 auto;margin-top:auto;padding-top:14px}
 .main-white .topbar{background:#fff}
 .ai-inbar{display:flex;gap:9px;padding:0;background:#fff;margin:0}
@@ -11518,7 +11518,10 @@ function aiAnswer(raw){
   if(wantsAvail) return aiAvailable(day, win, city);
   const named=state.caregivers.find(c=>{ const f=c.name.toLowerCase().split(' ')[0]; return f.length>3 && q.includes(f); });
   if(named) return aiCaregiver(named);
-  return {title:'Not sure I caught that', html:`<div class="ai-none">Try one of the example questions below, or ask about availability, call-offs, reliability, skills, open shifts, clients, handoff, or coverage risks.</div>`};
+  /* `fallthrough` is what askAI() hands to Devi. The title and html stay as
+     they were so the screen degrades to exactly the old behaviour when there
+     is no Supabase URL — no keys, no Devi, same reply as before. */
+  return {fallthrough:true, title:'Not sure I caught that', html:`<div class="ai-none">Try one of the example questions below, or ask about availability, call-offs, reliability, skills, open shifts, clients, handoff, or coverage risks.</div>`};
 }
 function aiAvailable(day, win, city){
   if(!day){ day=new Date(NOW); day.setDate(day.getDate()+1); }
@@ -11669,6 +11672,276 @@ function aiCaregiver(c){
   const rows=[aiRow('Reliability', nt(c.reliability,'%')),aiRow('Hours this week', nt(c.weekHrs,'h')),aiRow('Skills', c.skills.join(', ')),aiRow('Preferred areas', c.prefCities.join(', ')),aiRow('Call-offs / no-shows', s.callOffs+' / '+s.noShows),aiRow('Verification', availDue(c)?'Due for update':'Up to date')];
   return {title:c.name, html:aiRows(rows)+`<div class="ai-sub"><a class="ai-cg" onclick="openCaregiver('${c.id}')">Open full workspace \u2192</a></div>`};
 }
+/* ============================================================
+   DEVI  —  Ask Devi's Claude backend
+   ------------------------------------------------------------
+   The local router in aiAnswer() below stays exactly as it was and still
+   answers first: it is instant, free, and its answers are computed from the
+   real tables rather than described by a model. DEVI is what happens when
+   the router falls through — the "Not sure I caught that" case — and it is
+   also, by exactly the same route, what answers a FOLLOW-UP: "why?",
+   "what about Saturday?", "who else?" match none of the router's patterns,
+   so they arrive here with the whole conversation behind them.
+
+   The key lives in a Supabase Edge Function (supabase/functions/devi-agent),
+   never in this file. See that function's header for the model and thinking
+   rules — they are deliberately server-side so the model can be changed from
+   the Supabase dashboard without touching index.html.
+
+   DEVI CANNOT WRITE ANYTHING. There are no tools, so the model can only
+   produce text. Nothing it returns reaches the availability table, the
+   roster, a shift or AxisCare. That is what makes it safe to show it real
+   scheduling data, and it is the property to preserve: the moment this grows
+   a tool, that argument has to be made again from scratch.
+
+   The thread lives in state.aiLog, which is NOT a tracked CLOUD slice — chat
+   history stays in the browser that asked and is never written to Supabase
+   or shared with the other schedulers.
+   ============================================================ */
+
+/* Empty when there are no Supabase keys, which is also how the app behaves
+   everywhere else — the feature simply says it is unavailable rather than
+   erroring. */
+function deviUrl(){
+  const u = (window.SCHEDULER_CONFIG||{}).supabaseUrl;
+  return u ? String(u).replace(/\/+$/,'') + '/functions/v1/devi-agent' : '';
+}
+function deviEnabled(){ return !!deviUrl(); }
+
+/* How many turns of the conversation to send. Each turn is a question and an
+   answer; twelve is a long scheduling conversation and still a small prompt.
+   Older turns fall off the front rather than growing the bill forever. */
+const DEVI_TURNS = 12;
+/* Generous on purpose: on Opus 5 adaptive thinking spends from this budget,
+   and a ceiling that is too low returns a successful EMPTY answer. The
+   function clamps this to its own floor and ceiling anyway. */
+const DEVI_MAX_TOKENS = 4096;
+
+/* ---- what Devi is allowed to know --------------------------------------
+   A compact, plain-text snapshot of the scheduling picture, rebuilt on every
+   ask so it never goes stale. Deliberately NOT everything: no care notes, no
+   client medical detail, no contact details. Names, cities, skills, shifts
+   and counts — the things a scheduler asks about out loud. */
+function deviContext(){
+  const L=[];
+  const active = state.caregivers.filter(c=>c.active!==false);
+  L.push('TODAY: ' + dateKey(new Date()) + ' (' + new Date().toDateString() + ')');
+  L.push('ROSTER: ' + active.length + ' active caregivers of ' + state.caregivers.length + ' on file.');
+  L.push('CLIENTS: ' + state.clients.length + ' — ' +
+    state.clients.map(c=>c.name + (c.city?' ('+c.city+')':'')).join('; '));
+
+  const open = (typeof openShifts==='function') ? openShifts() : [];
+  L.push('');
+  L.push('OPEN SHIFTS (' + open.length + '):');
+  if(!open.length) L.push('  none');
+  open.slice(0,40).forEach(s=>{
+    const cl = clById(s.clientId);
+    L.push('  ' + dayKey(s.start) + ' ' + toDateInput(s.start) + '  ' +
+      fmtClock(decHr(s.start)) + '-' + fmtClock(decHr(s.end)) + '  ' +
+      (cl?cl.name:'?') + (cl&&cl.city?' · '+cl.city:''));
+  });
+  if(open.length>40) L.push('  …and ' + (open.length-40) + ' more');
+
+  L.push('');
+  /* c.base, NOT c.city. A caregiver record has no `city` — AxisRoster's
+     mapCaregiver() calls it `base` (with prefCities beside it); only a CLIENT
+     has `.city`. Reading the wrong one yielded a dash on all ~180 lines and
+     Devi then said, correctly per its own instructions, that nobody has a city
+     recorded. CLAUDE.md calls this out as the most damaging mistake available
+     in this codebase precisely because it looks like it worked. */
+  L.push('ACTIVE CAREGIVERS (name · city · skills):');
+  active.forEach(c=>{
+    L.push('  ' + c.name + ' · ' + (c.base||'—') +
+      ' · ' + ((c.skills&&c.skills.length)?c.skills.join(', '):'no skills recorded'));
+  });
+  return L.join('\n');
+}
+
+/* The rules Devi answers under. Kept short: a long prompt on a model that
+   already knows how to be helpful mostly buys tokens. What it MUST carry is
+   the two things Devi cannot work out for itself — that it cannot act, and
+   that availability in this app has a very specific meaning. */
+function deviSystem(){
+  return [
+    'You are Devi, the scheduling assistant inside the Devoted Care Scheduler Intelligence dashboard.',
+    'You are talking to a scheduler at the Devoted Care desk. Be direct and brief. Plain sentences, no preamble, no sign-off. Short lists are fine; markdown headings are not.',
+    '',
+    'WHAT YOU CAN DO: answer questions about the scheduling picture below, and follow-up questions about answers already in this conversation. You can reason, compare, summarise and suggest.',
+    'WHAT YOU CANNOT DO: anything at all. You have no tools. You cannot assign a shift, record availability, message anyone, or change a record. If the scheduler asks you to DO something, say plainly that you can only advise and tell them where in the dashboard to do it.',
+    '',
+    'AVAILABILITY MEANS SOMETHING SPECIFIC HERE. A caregiver is available only on dates where a scheduler logged an Open block; a blank calendar means NOT available, never "probably free". The AxisCare class tags are not availability. The snapshot below does not include the availability table, so if you are asked who is free on a date, say you cannot see the availability table from here and point them at Find Coverage, which reads it directly. Never guess at it.',
+    '',
+    'NEVER INVENT ANYTHING. Only use what is in the snapshot below or earlier in this conversation. If something is not there, say so plainly — "that is not in what I can see" — rather than producing a plausible answer. A wrong caregiver name or a made-up shift is worse than no answer.',
+    '',
+    'THE SCHEDULING SNAPSHOT, as of this moment:',
+    deviContext()
+  ].join('\n');
+}
+
+/* The conversation so far, as Claude's messages array. Canned router answers
+   are included as assistant turns in PLAIN TEXT so a follow-up like "why?"
+   has something to refer back to — that is the whole point of keeping them
+   in the thread rather than only sending the questions. */
+function deviHistory(){
+  const out=[];
+  state.aiLog.slice(-DEVI_TURNS).forEach(e=>{
+    if(e.pending) return;                    /* the turn being asked right now */
+    out.push({role:'user', content:e.q});
+    const a = (e.text || htmlToText(e.html) || e.title || '').trim();
+    if(a) out.push({role:'assistant', content:(e.title? e.title+'\n' : '')+a});
+  });
+  return out;
+}
+
+/* The router's answers are HTML. Claude needs them as text. */
+function htmlToText(h){
+  if(!h) return '';
+  return String(h)
+    .replace(/<br\s*\/?>/gi,'\n')
+    .replace(/<\/(div|p|li|tr)>/gi,'\n')
+    .replace(/<[^>]+>/g,' ')
+    .replace(/&nbsp;/g,' ').replace(/&amp;/g,'&').replace(/&lt;/g,'<')
+    .replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'")
+    .replace(/[ \t]+/g,' ')
+    .replace(/\n\s*\n+/g,'\n')
+    .trim();
+}
+
+/* MODEL OUTPUT IS TEXT, NEVER HTML.
+
+   Claude's reply is escaped first and only then given the handful of tags
+   below. This is not politeness about formatting — the snapshot sent up
+   includes client and caregiver names that came from AxisCare, so a name
+   containing markup would otherwise be a script injection with a very short
+   path: AxisCare record -> prompt -> reply -> innerHTML. esc() first closes
+   it. Do not "improve" this by letting the model emit HTML. */
+function deviRender(text){
+  const lines = String(text||'').replace(/\r/g,'').split('\n');
+  const out=[]; let list=null;
+  const flush=()=>{ if(list){ out.push('<ul class="ai-ul">'+list.join('')+'</ul>'); list=null; } };
+  lines.forEach(raw=>{
+    const t = raw.trim();
+    if(!t){ flush(); return; }
+    const li = /^[-*\u2022]\s+(.*)$/.exec(t);
+    if(li){ (list||(list=[])).push('<li>'+deviInline(li[1])+'</li>'); return; }
+    flush();
+    out.push('<div class="ai-p">'+deviInline(t)+'</div>');
+  });
+  flush();
+  return out.join('') || '<div class="ai-p">(no answer)</div>';
+}
+/* NOT esc(). esc() is an ATTRIBUTE escaper — it replaces `"` and nothing
+   else, which is right for a title="…" and useless in a text position: it
+   leaves `<` and `>` completely alone. Devi's reply goes into innerHTML, and
+   the snapshot it was written from carries client and caregiver names
+   straight out of AxisCare, so a name containing markup would run. Escape
+   the four characters that matter, THEN add the one tag we allow. */
+function escText(s){
+  return String(s==null?'':s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function deviInline(s){
+  return escText(s).replace(/\*\*([^*]+)\*\*/g,'<b>$1</b>');
+}
+
+/* ---- the ask ------------------------------------------------------------ */
+/* Turns are patched by ID, never by index. The obvious version captures the
+   push() index and writes state.aiLog[at] when the fetch lands — which is
+   wrong the moment a scheduler asks a second question before the first
+   answers (the reply patches the wrong bubble) or presses Clear (aiLog is
+   emptied, so the write resurrects a turn nobody can see). Both are one
+   impatient click away, and neither throws — they just show the wrong thing. */
+var deviSeq = 0;
+function deviSettle(id, entry){
+  const i = state.aiLog.findIndex(e=>e.devi===id);
+  if(i<0) return;                       /* cleared, or the thread moved on */
+  state.aiLog[i] = Object.assign({devi:id}, entry);
+  render();
+}
+
+/* Nothing else in this app leaves a spinner running forever, and neither
+   should this: withTimeout() exists for the AxisCare calls for exactly this
+   reason. A hung function otherwise spins "Devi is thinking…" until reload. */
+const DEVI_TIMEOUT_MS = 90000;
+
+/* `local` is the answer aiAnswer() already produced. Devi is tried first, and
+   this is what the scheduler sees if the call fails.
+
+   That matters more than it looks. supabase/functions/ does NOT deploy when
+   index.html does — a commit auto-deploys the page to Netlify, while the edge
+   function needs `supabase functions deploy` run by hand. So between those two
+   moments, and on any later outage or expired key, every fall-through question
+   would otherwise show "Failed to fetch" where it used to show a helpful list
+   of things to ask. Degrading to the old wording is the honest failure. */
+function deviAsk(q, local){
+  const id = ++deviSeq;
+  state.aiLog.push({q, title:'Devi', html:'', pending:true, devi:id});
+  render();
+
+  const body = {
+    system: deviSystem(),
+    messages: deviHistory().concat([{role:'user', content:q}]),
+    max_tokens: DEVI_MAX_TOKENS
+  };
+
+  const ctl = (typeof AbortController!=='undefined') ? new AbortController() : null;
+  const timer = setTimeout(function(){ if(ctl) ctl.abort(); }, DEVI_TIMEOUT_MS);
+
+  fetch(deviUrl(), {
+    method:'POST',
+    headers:{'content-type':'application/json'},
+    body: JSON.stringify(body),
+    signal: ctl ? ctl.signal : undefined
+  }).then(function(r){
+    return r.text().then(function(t){
+      let j=null; try{ j=JSON.parse(t); }catch(e){}
+      if(!r.ok){
+        const why = (j && j.error) ? j.error : ('HTTP '+r.status);
+        throw new Error(why);
+      }
+      return j;
+    });
+  }).then(function(j){
+    const text = (j && Array.isArray(j.content) ? j.content : [])
+      .filter(b=>b && b.type==='text').map(b=>b.text).join('').trim();
+    if(!text){
+      /* Opus 5 spends max_tokens on thinking first, so an empty text block
+         with stop_reason max_tokens means the budget ran out before a word
+         was written — say that rather than showing a blank bubble. */
+      const why = (j && j.stop_reason==='max_tokens')
+        ? 'The answer ran out of room before it was written. Try a shorter question.'
+        : 'Devi returned an empty answer.';
+      deviSettle(id, {q, title:'Devi', html:'<div class="ai-none">'+escText(why)+'</div>', text:''});
+    } else {
+      deviSettle(id, {q, title:'Devi', html:deviRender(text), text:text});
+    }
+  }).catch(function(e){
+    const aborted = ctl && ctl.signal.aborted;
+    const why = aborted ? 'Devi took too long to answer. Try again, or ask something shorter.'
+                        : ((e&&e.message)||String(e));
+    /* Show what the app could work out on its own, with the reason underneath,
+       rather than replacing a useful screen with a browser error string. */
+    if(local){
+      deviSettle(id, {q, title:local.title,
+        html:(local.html||'') +
+             '<div class="ai-sub">Devi could not add anything to this — ' + escText(why) + '</div>',
+        text:''});
+    } else {
+      deviSettle(id, {q, title:'Devi could not answer',
+        html:'<div class="ai-none">'+escText(why)+'</div>', text:''});
+    }
+  }).then(function(){
+    clearTimeout(timer);
+    /* Same courtesy the router's answers get: put the cursor back in the box
+       and bring the newest turn into view. */
+    setTimeout(function(){
+      window.scrollTo(0,document.body.scrollHeight);
+      const i2=document.getElementById('aiq'); if(i2) i2.focus();
+    },30);
+  });
+}
+
 function askAIex(i){ askAI(AI_EXAMPLES[i]); }
 function askAI(preset){
   const inp=document.getElementById('aiq');
@@ -11677,17 +11950,46 @@ function askAI(preset){
   /* An availability answer must not come from a cache somebody has since
      edited. Fetch first, answer second, and say so while it happens. */
   if(/avail|overnight|free\b|open\b|who can|cover/i.test(q)){
-    const at=state.aiLog.push({q, title:'Checking availability',
-      html:aiEmpty('Reading the latest availability\u2026')})-1;
+    /* Patched by id, not by index: an impatient second question, or Clear,
+       otherwise lands this answer on the wrong bubble. Same reason as
+       deviAsk(); see deviSettle(). */
+    const id=++deviSeq;
+    state.aiLog.push({q, title:'Checking availability',
+      html:aiEmpty('Reading the latest availability\u2026'), devi:id});
     render();
     availRefresh(true).then(function(){
       const a2=aiAnswer(q);
-      state.aiLog[at]={q, title:a2.title, html:a2.html};
-      render();
+      /* This branch fires on the WORD "available", not on a question the
+         router can actually answer \u2014 "is anyone free who speaks Tagalog?"
+         gets here and then falls through. Without this it would print "Not
+         sure I caught that" and never reach Devi, purely because the
+         question happened to contain "free". */
+      if(a2.fallthrough && deviEnabled()){
+        const i=state.aiLog.findIndex(e=>e.devi===id);
+        if(i<0) return;                 /* Clear was pressed while we fetched */
+        state.aiLog.splice(i,1);
+        deviAsk(q, a2);
+        return;
+      }
+      deviSettle(id, {q, title:a2.title, html:a2.html});
     });
     return;
   }
   const ans=aiAnswer(q);
+  /* THE ROUTER ANSWERS FIRST, AND DEVI TAKES WHAT IS LEFT.
+
+     aiAnswer() returns `fallthrough` when none of its patterns matched — the
+     old "Not sure I caught that" reply. That is exactly the set of questions
+     worth spending a model call on, and it is also, without any extra
+     machinery, how FOLLOW-UPS arrive: "why?", "what about Saturday?", "who
+     else?" match no pattern, so they land here with the whole conversation
+     behind them.
+
+     Keeping the router in front is deliberate. Its answers are computed from
+     the real tables rather than described by a model, they are instant, and
+     they are free. Sending everything to Devi would make the twenty questions
+     the desk asks most often slower, costlier and less exact. */
+  if(ans.fallthrough && deviEnabled()){ deviAsk(q, ans); return; }
   state.aiLog.push({q, title:ans.title, html:ans.html});
   render();
   setTimeout(()=>{ window.scrollTo(0,document.body.scrollHeight); const i2=document.getElementById('aiq'); if(i2) i2.focus(); },30);
@@ -11696,9 +11998,15 @@ function clearAI(){ state.aiLog=[]; render(); }
 /* The suggestions start closed and are opened by the scheduler. */
 function toggleAiSug(){ state.aiSugOpen=!state.aiSugOpen; render(); }
 function viewAssistant(){
+  /* A pending turn is a real turn with no answer yet — Devi takes a couple of
+     seconds and a blank gap reads as a broken screen. e.title is set by the
+     code that pushed the turn and is never user input; e.html is either the
+     router's own markup or deviRender()'s, which escapes before it formats. */
   const thread=state.aiLog.map(e=>`<div class="ai-turn">
-      <div class="ai-ask">${ic('spark',13)}<span>${esc(e.q)}</span></div>
-      <div class="ai-ans"><div class="ai-ans-t">${e.title}</div>${e.html}</div></div>`).join('');
+      <div class="ai-ask">${ic('spark',13)}<span>${escText(e.q)}</span></div>
+      <div class="ai-ans"><div class="ai-ans-t">${e.title}</div>${
+        e.pending ? `<div class="ai-none ai-wait"><span class="cs-spin"></span>Devi is thinking…</div>` : e.html
+      }</div></div>`).join('');
   const chips=AI_EXAMPLES.map((q,i)=>`<button class="ai-chip" onclick="askAIex(${i})">${q}</button>`).join('');
   const open=!!state.aiSugOpen;
   /* The input first, the suggestions under it, and nothing above either —
