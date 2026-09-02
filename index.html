@@ -7801,7 +7801,7 @@ function cgCalMeta(c){
   if(st==='loading')
     return `<div class="demo-banner cal-meta load"><span class="cs-spin"></span><span>Loading ${esc(c.name)}\u2019s scheduled visits from AxisCare\u2026</span></div>`;
   if(st==='error')
-    return `<div class="demo-banner cal-meta err"><span class="db-ic">\u26A0</span><span><b>Couldn\u2019t load scheduled visits from AxisCare.</b> ${esc((sch&&sch.error)||'unknown error')} \u2014 the calendar below shows availability only.</span><button onclick="CGVISITS.retry('${c.id}')">Retry</button></div>`;
+    return `<div class="demo-banner cal-meta err"><span class="db-ic">\u26A0</span><span><b>Couldn\u2019t load scheduled visits from AxisCare.</b> ${esc((sch&&sch.error)||'unknown error')} \u2014 the calendar below shows availability only.</span><button onclick="CGVISITS.retry('${c.id}');CGWORK.retry('${c.id}')">Retry</button></div>`;
   /* The success banner is dropped - a loaded calendar shows it loaded.
      Loading and error still report, since a blank calendar needs explaining. */
   if(st==='ready') return '';
@@ -9391,9 +9391,49 @@ function prefVal(c,k){
 function prefYN(v){ return v===null||v===undefined ? 'Not recorded' : (v?'Yes':'No'); }
 /* The four dense sections are body builders too, so every card on the
    Profile goes through the same fixed-height component. */
+/* Where the worked-hours figure stands for this caregiver. 'nolink' is a
+   record somebody added by hand that was never matched to AxisCare — there
+   is no id to ask about, which is a different answer from a failed call. */
+function cgWorkState(c){
+  if(!c) return 'error';
+  if(c.source!=='axiscare' || c.axisId==null) return 'nolink';
+  return (typeof CGWORK!=='undefined') ? CGWORK.status(c.id) : 'idle';
+}
+/* Four different things the row can honestly say, and they are not the
+   same: still loading; AxisCare could not be asked; AxisCare answered and
+   holds visits it cannot measure; AxisCare answered and there are none. */
+function cgHoursCell(c){
+  const st=cgWorkState(c);
+  if(st==='idle'||st==='loading') return {v:'Loading\u2026', t:''};
+  if(st!=='ready') return {v:'Not available',
+    t: st==='nolink' ? 'This caregiver is not linked to an AxisCare record, so their visits cannot be looked up.'
+                     : 'AxisCare could not be reached \u2014 '+(((typeof CGWORK!=='undefined'&&CGWORK.info(c.id))||{}).error||'unknown error')};
+  const r=(CGWORK.info(c.id))||{};
+  const win=r.from+' to '+r.to+(r.capped?', capped at 3 years':'');
+  /* Whole hours on screen — the exact figure is on the tooltip, so the
+     rounding never hides what was actually measured. */
+  if(r.shifts) return {v: Math.round(r.hours).toLocaleString()+' h',
+    t: r.hours.toFixed(2)+' h across '+r.shifts+' worked visit'+(r.shifts===1?'':'s')+', '+win+
+       '. Counted from clock-in/clock-out, or the actual start and end AxisCare recorded.'};
+  if(r.pastVisits) return {v:'Not available',
+    t:'AxisCare has '+r.pastVisits+' past visit'+(r.pastVisits===1?'':'s')+' for this caregiver ('+win+
+      ') but none record a clock-in and clock-out or an actual start and end, so the hours cannot be measured.'};
+  return {v:'None recorded', t:'AxisCare has no visits for this caregiver, '+win+'.'};
+}
 function employmentBody(c){
   const ops=c.ops;
-  const empRow=(l,v,tone)=>`<div class="emp-row"><span class="emp-l">${l}</span><span class="emp-v ${tone||''}">${v}</span></div>`;
+  /* Opening the profile is what asks AxisCare, the same way the calendar
+     does. load() returns immediately once it has an answer, so this costs
+     one fetch per caregiver per session and nothing on a re-render. */
+  if(typeof CGWORK!=='undefined') CGWORK.load(c);
+  const work=(cgWorkState(c)==='ready') ? (CGWORK.info(c.id)||{}) : null;
+  /* The most recent visit there is EVIDENCE was worked, which is not the
+     same as the most recent one on the calendar — a slot nobody turned up
+     for is still on the calendar. Falls back to the scheduled reading
+     below when nothing has been measured, so neither row goes blank. */
+  const worked=(work&&work.last)?work.last:null;
+  const hrs=cgHoursCell(c);
+  const empRow=(l,v,tone,title)=>`<div class="emp-row"><span class="emp-l">${l}</span><span class="emp-v ${tone||''}"${title?` title="${esc(title)}"`:''}>${v}</span></div>`;
   const statusTone={Active:'good',Leave:'soon',Inactive:'crit'}[ops.employmentStatus]||'';
   const schedState=cgScheduleState(c);
   const hasCase=schedState==='ready' ? !!cgActiveClient(c) : null;
@@ -9408,7 +9448,7 @@ function employmentBody(c){
     + empRow('How long with Devoted', fmtTenure(ops.hireDate))
     + empRow('Employment status', ops.employmentStatus || (c.active===false?'Inactive':'Active'), statusTone)
     + empRow('Caregiving experience', fmtExperience(ops.experience))
-    + empRow('Total hours worked', hasVal(ops.totalHoursWorked) ? ops.totalHoursWorked.toLocaleString()+' h' : 'Not tracked')
+    + empRow('Total hours worked', hrs.v, '', hrs.t)
     + empRow('Has active client',
         hasCase===null ? (schedState==='loading'?'Loading…':'Not loaded') : (hasCase?'Yes':'No'),
         hasCase===null ? '' : (hasCase?'good':'soon'))
@@ -9416,14 +9456,19 @@ function employmentBody(c){
        is null on every real caregiver (it is in ROSTER's FABRICATED list), and
        fmtDate(null) rendered that as January 1, 1970 — a date that looks like
        a record rather than an absence. */
-    + empRow('Last shift worked', schedState!=='ready'
+    + empRow('Last shift worked', worked ? fmtDate(worked.day+'T12:00:00')
+        : (schedState!=='ready'
         ? (schedState==='loading'?'Loading\u2026':'Not loaded')
         /* 'YYYY-MM-DD' through new Date() is UTC midnight, which reads as the
            day before out here — noon local, the same way the rest of the app
            parses a stored date. */
         : (served ? fmtDate(served.day+'T12:00:00')
-                  : (hasVal(ops.lastShiftWorked) ? fmtDate(ops.lastShiftWorked) : 'Not tracked')))
-    + empRow('Last client served', lastClientName) + '</div>';
+                  : (hasVal(ops.lastShiftWorked) ? fmtDate(ops.lastShiftWorked) : 'Not tracked'))),
+        '', worked ? 'The most recent visit AxisCare recorded as worked.' : '')
+    + empRow('Last client served',
+        (worked && worked.clientName) ? esc(worked.clientName) : lastClientName,
+        '', (worked && worked.clientName) ? 'The client on the most recent visit AxisCare recorded as worked.' : '')
+    + '</div>';
 }
 function clientBlocksBody(c){
   const ops=c.ops;
@@ -13735,6 +13780,11 @@ var ROSTER = (function () {
     state.caregivers = real;
     try { if (typeof cgpRosterChanged === 'function') cgpRosterChanged(); } catch (e) {}
     try { if (typeof attClientsChanged === 'function') attClientsChanged(); } catch (e) {}
+    /* Worked hours are derived from AxisCare, so a fresh sync has to
+       re-derive them rather than keep a figure measured against the roster
+       that has just been replaced. Cleared, not refetched — the next
+       profile that renders asks again. */
+    try { if (typeof CGWORK !== 'undefined') CGWORK._reset(); } catch (e) {}
     return real;
   }
 
@@ -14845,6 +14895,185 @@ var CGVISITS = (function () {
     load: load, forDay: forDay, all: all, status: status, info: info, retry: retry,
     _reset: function () { byCg = {}; inFlight = {}; }
   };
+})();
+
+/* =========================================================
+   CGWORK  —  hours ACTUALLY worked, from AxisCare visit history
+   ---------------------------------------------------------
+   AxisCare has no "hours worked" field (CLAUDE.md says so, and it is
+   still true). What it does have is every visit, each carrying both what
+   was SCHEDULED and what HAPPENED — clock-in, clock-out, actual start and
+   end. Summing those is the only way to answer the question, and it is
+   the same derivation CLAUDE.md points at.
+
+   NOT the same fetch as CGVISITS, deliberately. That window is one month
+   back to twelve months on, because it feeds the calendar and its month
+   arrows reach exactly that far. Hours worked needs the opposite shape —
+   history, and none of the future — so widening CGVISITS would have made
+   every profile pay for months of visits the calendar cannot show and
+   still not reach back far enough.
+
+   Kept out of `state` for the same reason CGVISITS is: it is not the
+   scheduler's typed work, and a tracked CLOUD slice would write hundreds
+   of visits to Supabase as though somebody had entered them.
+   ========================================================= */
+var CGWORK = (function () {
+  'use strict';
+  var byCg = {}, inFlight = {};
+  /* How far back we are willing to ask. From the hire date where there is
+     one, so the total is the caregiver's whole record — capped, because a
+     ten-year veteran would otherwise be thousands of visits on a profile
+     open. Whatever window is used is reported on screen, so the number is
+     never a total of an unstated period. */
+  var MAX_YEARS = 3, DEFAULT_YEARS = 1;
+
+  function ymd(d) {
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') +
+           '-' + String(d.getDate()).padStart(2, '0');
+  }
+  function windowFor(c, now) {
+    var to = ymd(now);
+    var cap = new Date(now.getFullYear() - MAX_YEARS, now.getMonth(), now.getDate());
+    var from = new Date(now.getFullYear() - DEFAULT_YEARS, now.getMonth(), now.getDate());
+    var hire = c && c.ops && c.ops.hireDate ? new Date(c.ops.hireDate) : null;
+    if (hire && !isNaN(hire.getTime()) && hire < from) from = hire < cap ? cap : hire;
+    return { from: ymd(from), to: to, capped: !!(hire && !isNaN(hire.getTime()) && hire < cap) };
+  }
+
+  /* The wall clock as AxisCare stamped it. Reading these through the
+     viewer's clock would shift a visit across midnight and change which
+     day it counts on — the same trap the calendar and the care-note sync
+     both hit. */
+  var WALL = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/;
+  function wall(v) {
+    var m = WALL.exec(String(v || ''));
+    return m ? { day: m[1] + '-' + m[2] + '-' + m[3], hour: +m[4] + (+m[5]) / 60 } : null;
+  }
+  /* Hours between two wall-clock stamps, carrying across midnight. */
+  function span(a, b) {
+    if (!a || !b) return null;
+    var h = b.hour - a.hour;
+    if (b.day !== a.day) h += 24 * Math.round((Date.parse(b.day) - Date.parse(a.day)) / 86400000);
+    /* A negative or absurd span is a bad pair of stamps, not a long shift.
+       24h is the longest real one here (live-in is scheduled as such). */
+    return (h > 0 && h <= 24) ? h : null;
+  }
+
+  /* WHAT COUNTS AS WORKED. Evidence that the visit happened, in order:
+       1. a clock-in AND a clock-out       — EVV, the strongest evidence
+       2. an actual startDate AND endDate  — what AxisCare recorded happened
+     Nothing else counts. A removed visit is cancelled; a visit with only a
+     schedule is a slot, not work; a clock-in with no clock-out is a shift
+     nobody closed and its length is unknown. Guessing from the scheduled
+     times would turn every future booking into hours worked. */
+  function workedHours(v) {
+    var ci = wall(v.clockIn && v.clockIn.time), co = wall(v.clockOut && v.clockOut.time);
+    var h = span(ci, co);
+    if (h != null) return { hours: h, basis: 'clock', at: ci };
+    var as = wall(v.startDate), ae = wall(v.endDate);
+    h = span(as, ae);
+    if (h != null) return { hours: h, basis: 'actual', at: as };
+    return null;
+  }
+
+  function load(c) {
+    if (!c || c.source !== 'axiscare' || c.axisId == null) return;
+    if (byCg[c.id] || inFlight[c.id]) return;
+    if (typeof AxisCare === 'undefined') return;
+
+    var now = new Date(), w = windowFor(c, now), today = ymd(now);
+    inFlight[c.id] = 1;
+    byCg[c.id] = { status: 'loading' };
+
+    var out = [], scanned = 0, past = 0, pages = 0;
+    function page(token) {
+      var q = { startDate: w.from, endDate: w.to, caregiverIds: c.axisId };
+      if (token) q.nextPageToken = token;
+      return AxisCare.get('/api/visits', q).then(function (res) {
+        var r = (res && res.data && res.data.results) || {};
+        var list = r.visits || [];
+        scanned += list.length;
+        list.forEach(function (v) {
+          if (v.removed) return;                                   /* cancelled / deleted */
+          /* THE ID, never the name. caregiverIds is the only visit filter
+             AxisCare actually honours — the singular caregiverId and three
+             other spellings return 200 and are silently ignored — so the
+             id is checked again here and a stray record is dropped. */
+          if (!v.caregiver || String(v.caregiver.id) !== String(c.axisId)) return;
+          var sd = wall(v.scheduledStartDate || v.startDate);
+          if (sd && sd.day > today) return;                        /* not yet worked */
+          if (sd) past++;
+          var w2 = workedHours(v);
+          if (!w2) return;                                         /* no evidence it happened */
+          var cl = v.client || {};
+          var nm = ((cl.firstName || '') + ' ' + (cl.lastName || '')).replace(/\s+/g, ' ').trim();
+          out.push({ day: (w2.at && w2.at.day) || (sd && sd.day), hours: w2.hours, basis: w2.basis,
+                     clientId: cl.id != null ? 'k' + cl.id : null, clientName: nm || null,
+                     axisVisitId: v.id });
+        });
+        var next = r.nextPage;
+        if (next && ++pages < 40) {
+          var t = /[?&]nextPageToken=([^&]+)/.exec(next);
+          if (t) return page(decodeURIComponent(t[1]));
+        }
+        return true;
+      });
+    }
+
+    page(null).then(function () {
+      out.sort(function (a, b) { return a.day < b.day ? -1 : (a.day > b.day ? 1 : 0); });
+      var total = 0;
+      out.forEach(function (v) { total += v.hours; });
+      byCg[c.id] = {
+        status: 'ready', hours: total, shifts: out.length, visits: out,
+        pastVisits: past, scanned: scanned, requests: pages + 1,
+        from: w.from, to: w.to, capped: w.capped,
+        last: out.length ? out[out.length - 1] : null
+      };
+      console.info('[cgwork] ' + c.name + ': ' + total.toFixed(1) + 'h over ' + out.length +
+        ' worked visit(s) of ' + past + ' past, ' + w.from + ' → ' + w.to);
+    }).catch(function (e) {
+      /* 404 is AxisCare's "no visits found", not a failure. */
+      if (e && e.status === 404) {
+        byCg[c.id] = { status: 'ready', hours: 0, shifts: 0, visits: [], pastVisits: 0,
+                       scanned: 0, requests: 1, from: w.from, to: w.to, capped: w.capped, last: null };
+      } else {
+        byCg[c.id] = { status: 'error', error: (e && e.message) || String(e), from: w.from, to: w.to };
+        console.warn('[cgwork] ' + c.name + ' failed', e);
+      }
+    }).then(function () {
+      delete inFlight[c.id];
+      try { render(); } catch (e) {}
+    });
+  }
+
+  function info(cgId) { return byCg[cgId] || null; }
+  function status(cgId) {
+    var r = byCg[cgId];
+    return r ? r.status : (inFlight[cgId] ? 'loading' : 'idle');
+  }
+  function retry(cgId) {
+    delete byCg[cgId]; delete inFlight[cgId];
+    var c = (typeof cgById === 'function') ? cgById(cgId) : null;
+    if (c) load(c);
+    try { render(); } catch (e) {}
+  }
+
+  /* Every visit behind the total, so the number can be checked against
+     AxisCare rather than trusted:  CGWORK.audit('a731')  */
+  function audit(cgId) {
+    var r = byCg[cgId];
+    if (!r || r.status !== 'ready') return (r && r.status) || 'not loaded';
+    console.info('[cgwork] ' + r.from + ' → ' + r.to + '  ' + r.shifts +
+      ' worked of ' + r.pastVisits + ' past visit(s), ' + r.scanned + ' scanned');
+    if (console.table) console.table(r.visits.map(function (v) {
+      return { date: v.day, hours: +v.hours.toFixed(2), from: v.basis, client: v.clientName, visit: v.axisVisitId };
+    }));
+    return { total: +r.hours.toFixed(2), shifts: r.shifts, from: r.from, to: r.to };
+  }
+
+  return { load: load, info: info, status: status, retry: retry, audit: audit,
+           _reset: function () { byCg = {}; inFlight = {}; } };
 })();
 
 /* =========================================================
