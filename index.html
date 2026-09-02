@@ -1231,7 +1231,7 @@
      (".pf2 .cgp-hint,.pf2" with no declaration block), which made the browser
      read the at-rule as part of that selector and drop the whole breakpoint —
      so the profile grid never collapsed to one column at 1100px. */
-  @media(max-width:1100px){.ws-grid.pf2{grid-template-columns:1fr}
+  @media(max-width:1100px){.ws-grid.pf2{grid-template-columns:1fr}    .pf2 .ws-card.pfx-full .emp-grid{grid-template-columns:1fr}
     .pf2 .span2,.pf2 .ws-card.span2{grid-column:auto}}
   @media(max-width:1000px){.ws-grid{grid-template-columns:1fr}}
   .ws-list{margin:0;padding-left:0;list-style:none;display:flex;flex-direction:column;gap:7px}
@@ -2310,7 +2310,7 @@ body.ai-white .main{display:flex;flex-direction:column;min-height:100vh}
    tallest of them (Work Preferences at 303px of body) with room for a
    service-areas list that wraps. Still one height per row, and every card in
    a row identical. */
-.ws-card.pfx.pfx-tall{height:376px}
+.ws-card.pfx.pfx-tall{height:376px}.ws-card.pfx.pfx-full{height:auto}.pf2 .ws-card.pfx-full .emp-grid{grid-template-columns:1fr 1fr;gap:0 32px}.pf-f.wp-span{grid-column:1/-1}.pf-f.wp-span .av-chks{display:flex;flex-direction:row;flex-wrap:wrap;gap:6px 18px}
 .pfx-body{flex:1 1 auto;min-height:0;overflow:hidden;position:relative}.clm-card{width:100%;max-width:560px;height:340px}.clm-body{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain}.clm-stack{margin-top:11px}.clm-l{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-faint);margin-bottom:3px}.clm-v{font-size:13px;color:var(--ink);line-height:1.5}.clm-cgs{display:flex;flex-wrap:wrap;gap:6px;margin-top:5px}.clm-cg{font-size:12px;font-weight:650;border-radius:12px;padding:3px 10px;border:1px solid var(--line);background:var(--panel-head);color:var(--ink)}.clm-cg.unres{color:var(--ink-faint);border-style:dashed;font-style:italic}.clm-note{font-size:12.5px;color:var(--ink-faint);line-height:1.45}
 /* No fade over the cut. Everything on a card is full opacity; where the body
    is longer than the card it is simply clipped, and View Details is what says
@@ -9279,8 +9279,11 @@ const PFX_SECS = (function(){
     /* Every card in the two-column grid is in here, dense ones included, so
        a row can never end up with one card taller than the other. Eight of
        them: four even rows, nothing left over at the bottom. */
-    workPrefs:{title:'Work Preferences', tint:'h-prefs', tall:true, noMore:true,
-      edit:c=>`editAvailability('${c.id}','prefs')`, body:c=>workPrefsBody(c)},
+    /* Every work preference is in this one card now, so it takes the full
+       width of the grid and sizes to its content — the fixed heights exist
+       to keep two cards in a row level, and this one has no partner. */
+    workPrefs:{title:'Work Preferences', tint:'h-prefs', full:true, noMore:true,
+      edit:c=>`openWorkPrefsEdit('${c.id}')`, body:c=>workPrefsBody(c)},
     employment:{title:'Employment Summary', tint:'h-emp', tall:true, noMore:true,
       edit:c=>`openEmpEdit('${c.id}')`, body:c=>employmentBody(c)},
     /* Not one of the three, but it shares a row with Client & Assignment
@@ -9288,8 +9291,6 @@ const PFX_SECS = (function(){
        with a long list of blocks can still outrun the card. */
     rules:{title:'Assignment &amp; Client Rules', tint:'h-rules', tall:true,
       edit:c=>`openAcrEdit('${c.id}')`, body:c=>clientBlocksBody(c)},
-    prefs:{title:'Client &amp; Assignment Preferences', tint:'h-prefs2', tall:true, noMore:true,
-      edit:c=>`openPrefsEdit('${c.id}')`, body:c=>prefsBody(c)},
     languages:{title:'Languages', tint:'h-lang',
       edit:c=>`openLangEdit('${c.id}')`, body:c=>langBody(c)}
   };
@@ -9308,7 +9309,7 @@ function pfxCard(c, key){
      popup that shows the same thing again. A noMore section has none at all:
      its row is sized to show everything, so the link would only ever be
      noise. pfxFit skips those cards, since it looks for the pair. */
-  return `<div class="ws-card pfx${f.tall?' pfx-tall':''}${f.span?' span2':''}" data-pfx="${key}">
+  return `<div class="ws-card pfx${f.tall?' pfx-tall':''}${f.full?' pfx-full span2':''}${f.span?' span2':''}" data-pfx="${key}">
     <div class="ws-h ws-h-flex h-tint ${f.tint}"><span>${f.title}</span>
       <button class="btn sm" onclick="${f.edit(c)}">${ic('log',12)} Edit</button></div>
     <div class="pfx-body">${f.body(c)}</div>
@@ -9364,6 +9365,20 @@ function pfxFit(){
    DERIVED from the same Hoyer tag (100 with it, 50 without), so printing it
    as a number read like a figure somebody had measured. */
 function cgTag(c,code){ return (c.axisTags||[]).some(function(t){ return t.code===code; }); }
+/* Work Preferences — the vocabularies the merged section edits.
+   Preferred days and shift times are the desk's own record and start
+   unanswered. They are deliberately NOT seeded from the WKDY / WKND /
+   MRNNG / AFTRNN / NOVRN / AD class tags: CLAUDE.md is explicit that those
+   are not availability and that reading their silence as a schedule caused
+   a whole family of bugs — 93 of 184 active caregivers carry none of them. */
+const PREF_DAYS=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+const PREF_TIMES=['Morning','Afternoon','Evening','Overnight'];
+/* Each of these rows is the same fact as a chip in Skills & Experience, so
+   the chip seeds the row rather than the two being stored twice and left to
+   disagree. */
+const SKILL_FOR_PREF={ hoyer:'Hoyer lift', bedbound:'Bedbound care',
+  dementia:'Dementia / Alzheimer\u2019s care', hospice:'Hospice care',
+  incontinence:'Incontinence care' };
 function prefVal(c,k){
   const p=(c.ops.prefs)||{};
   if(p[k]!==undefined && p[k]!==null) return p[k];
@@ -9384,8 +9399,19 @@ function prefVal(c,k){
      number as a refusal would invent one — and a wrong No would quietly
      drop somebody out of assignments. */
   if(k==='transfers')   return cgTag(c,'HLE') ? true : null;
-  if(k==='overnight')   return !!(c.ops.emergency && c.ops.emergency.overnight);
-  if(k==='liveIn')      return !!(c.ops.shiftPrefs && c.ops.shiftPrefs.liveIn);
+  /* The five care rows read the Skills & Experience list when nobody has
+     answered them here, so a caregiver already recorded as doing hospice
+     work does not read as unanswered. Same rule as transfers above and as
+     pets: a recorded skill is a YES, and its absence is NOT a no — a skills
+     list is what somebody ticked, never a statement about everything they
+     did not tick. Answering the row here overrules the seed. */
+  if(SKILL_FOR_PREF[k]) return cgChips(c,'skills').indexOf(SKILL_FOR_PREF[k])>=0 ? true : null;
+  /* Both of these are also plain booleans elsewhere — a checkbox on the
+     Preferences & Verification form writes them — so a ticked box is a yes
+     and an empty one is somebody who was never asked. Reading false out of
+     an untouched checkbox would put a No on the record nobody gave. */
+  if(k==='overnight')   return (c.ops.emergency && c.ops.emergency.overnight) ? true : null;
+  if(k==='liveIn')      return (c.ops.shiftPrefs && c.ops.shiftPrefs.liveIn) ? true : null;
   return null;
 }
 function prefYN(v){ return v===null||v===undefined ? 'Not recorded' : (v?'Yes':'No'); }
@@ -9497,66 +9523,6 @@ function clientBlocksBody(c){
       }).join('')}</div>`
     : `<div class="ws-none">No client blocks on file \u2014 this caregiver can be assigned to any client.</div>`) + '</div>';
 }
-function prefsBody(c){
-  const row=(l,v)=>`<div class="emp-row"><span class="emp-l">${l}</span><span class="emp-v">${v}</span></div>`;
-  return `<div class="emp-grid">
-      ${row('Client gender preference', prefVal(c,'clientGender') ? esc(prefVal(c,'clientGender')) : 'Not recorded')}
-      ${row('Smoking home', prefYN(prefVal(c,'smokingHome')))}
-      ${row('Pets in home', prefYN(prefVal(c,'pets')))}
-      ${row('Comfortable with stairs', prefYN(prefVal(c,'stairs')))}
-      ${row('Can assist with client transfers', prefYN(prefVal(c,'transfers')))}
-      ${row('Overnight OK', prefYN(prefVal(c,'overnight')))}
-      ${row('Live-in OK', prefYN(prefVal(c,'liveIn')))}
-    </div>`;
-}
-const PREF_YN=[['','Not recorded'],['yes','Yes'],['no','No']];
-function openPrefsEdit(id){
-  cgSnapStart(id);
-  const c=cgById(id); if(!c) return;
-  const yn=k=>{ const v=prefVal(c,k); return v===null||v===undefined?'':(v?'yes':'no'); };
-  state.prefEdit={id:id, clientGender:prefVal(c,'clientGender')||'', pets:yn('pets'),
-    smokingHome:yn('smokingHome'), transfers:yn('transfers'), stairs:yn('stairs'),
-    overnight:yn('overnight'), liveIn:yn('liveIn')};
-  renderPrefsModal(); mbg.classList.add('show');
-}
-function prefSet(f,v){ if(state.prefEdit) state.prefEdit[f]=v; }
-function prefCancel(){ state.prefEdit=null; closeModal(); }
-function renderPrefsModal(){
-  const p=state.prefEdit; if(!p) return;
-  const c=cgById(p.id);
-  const sel=(f,label,opts)=>`<div class="pf-f"><label class="el">${label}</label>
-    <select class="ein" onchange="prefSet('${f}',this.value)">${opts.map(function(o){
-      return `<option value="${o[0]}" ${p[f]===o[0]?'selected':''}>${o[1]}</option>`; }).join('')}</select></div>`;
-  mEl.innerHTML=`<div class="mh"><span class="mt">Client &amp; Assignment Preferences — ${esc(c?c.name:'')}</span>
-      <button class="mc" onclick="prefCancel()">×</button></div>
-    <div class="mb"><div class="pf-grid">
-      ${sel('clientGender','Client gender preference',[['','Not recorded'],['Either','Either'],['Female clients','Female clients'],['Male clients','Male clients']])}
-      ${sel('smokingHome','Smoking home',PREF_YN)}
-      ${sel('pets','Pets in home',PREF_YN)}
-      ${sel('stairs','Comfortable with stairs',PREF_YN)}
-      ${sel('transfers','Can assist with client transfers',PREF_YN)}
-      ${sel('overnight','Overnight OK',PREF_YN)}
-      ${sel('liveIn','Live-in OK',PREF_YN)}
-    </div>
-    <div class="upd-acts"><button class="btn" onclick="prefCancel()">Cancel</button>
-      <button class="btn pri" onclick="prefSave()">${ic('check',13)} Save</button></div></div>`;
-}
-/* Written back to the field each value already lives in, so Find Coverage
-   and the shift ranker see the answer without a second lookup. */
-function prefSave(){
-  const p=state.prefEdit; if(!p) return;
-  const c=cgById(p.id); if(!c) return prefCancel();
-  const b=v=> v===''?null:(v==='yes');
-  c.ops.prefs=Object.assign({}, c.ops.prefs, {clientGender:p.clientGender||null,
-    pets:b(p.pets), smokingHome:b(p.smokingHome), transfers:b(p.transfers), stairs:b(p.stairs)});
-  if(b(p.smokingHome)!==null) c.smokerHomeOk=b(p.smokingHome);
-  c.ops.emergency=Object.assign({}, c.ops.emergency, {overnight: b(p.overnight)===true});
-  c.ops.shiftPrefs=Object.assign({}, c.ops.shiftPrefs, {liveIn: b(p.liveIn)===true});
-  c.ops.lastUpdated=new Date(); c.ops.lastUpdatedBy=state.onShift;
-  cgSnapCommit(state.prefEdit&&state.prefEdit.id);
-  state.prefEdit=null; closeModal(); render(); cgSaved('Client & assignment preferences updated');
-}
-
 /* ---- Languages -------------------------------------------------------
    AxisCare has no caregiver language field; these come from its class tags
    (SS Speaks Spanish, FES Fluent English) and from the profile table's
@@ -10429,10 +10395,9 @@ function viewCaregiverWorkspace(c){
     <div class="span2">${cgRatingStrip(c)}</div>
 
     ${pfxCard(c,'workPrefs')}
-    ${pfxCard(c,'employment')}
 
+    ${pfxCard(c,'employment')}
     ${pfxCard(c,'rules')}
-    ${pfxCard(c,'prefs')}
 
     ${pfxCard(c,'languages')}
     ${pfxCard(c,'skills')}
@@ -10546,22 +10511,159 @@ function workPrefsBody(c){
   if(AVAIL.openDays(c.id).some(o=>['Sat','Sun'].includes(dayKeyFromDate(o.day)))) avTags.push('Weekend Available');
   const tagsHtml = avTags.length?`<div class="av2-tags">${avTags.map(t=>`<span class="av2-tag">${t}</span>`).join('')}</div>`:'';
   const row=(l,v)=>`<div class="emp-row"><span class="emp-l">${l}</span><span class="emp-v">${v}</span></div>`;
-  /* Driving, a vehicle and permission to carry a client are three separate
+  const yn=k=>prefYN(prefVal(c,k));
+  const list=a=>(Array.isArray(a)&&a.length)?esc(a.join(', ')):'Not recorded';
+  /* ONE section, one grid, one row per field. Client & Assignment
+     Preferences used to hold the second half of this list in a card of its
+     own, which meant a scheduler answering "can they do hospice, and how far
+     will they travel?" read two cards to find out.
+
+     Driving, a vehicle and permission to carry a client are three separate
      facts and get three rows. A caregiver can hold a licence with no car, or
      a car they may not put a client in. */
   return `<div class="emp-grid">
         ${row('Preferred minimum shift', fmtHours(span.min))}
         ${row('Preferred maximum shift', fmtHours(span.max))}
-        <div class="emp-row wp-wide"><span class="emp-l">Preferred weekly hours</span><span class="emp-v">${weekly}</span></div>
-      </div>
-      <div class="emp-grid wp-travel">
+        ${row('Preferred weekly hours', weekly)}
+        ${row('Preferred days', list(ops.prefDays))}
+        ${row('Preferred shift times', list(ops.prefTimes))}
         ${row('Driving', c.driver?'Yes':'No')}
         ${row('Has own vehicle', c.ownVehicle?'Yes':'No')}
         ${row('Can drive clients', canDriveClients(c)?'Yes':'No')}
         ${row('Preferred service areas', c.prefCities.length?esc(c.prefCities.join(', ')):'Not recorded')}
         ${row('Maximum travel distance', nt(ops.maxMiles, ' miles', 'Not recorded'))}
+        ${row('Client gender preference', prefVal(c,'clientGender') ? esc(prefVal(c,'clientGender')) : 'Not recorded')}
+        ${row('Smoking home', yn('smokingHome'))}
+        ${row('Pets in home', yn('pets'))}
+        ${row('Can assist with transfers', yn('transfers'))}
+        ${row('Hoyer lift experience', yn('hoyer'))}
+        ${row('Bedbound client OK', yn('bedbound'))}
+        ${row('Dementia care OK', yn('dementia'))}
+        ${row('Hospice care OK', yn('hospice'))}
+        ${row('Incontinence care OK', yn('incontinence'))}
+        ${row('Overnight OK', yn('overnight'))}
+        ${row('Live-in OK', yn('liveIn'))}
+        ${row('Errands/appointments OK', yn('errands'))}
       </div>
       ${tagsHtml}`;
+}
+
+/* ---- Work Preferences edit — ONE editor for the whole section ---------
+   Everything the section shows is answered here, so there is one Edit
+   button and one Save. The tri-state rows keep "Not recorded" as a real
+   answer: a blank is somebody nobody has asked, which is not the same as a
+   No, and Find Coverage should never read one as the other. */
+const WP_YN=[['','Not recorded'],['yes','Yes'],['no','No']];
+const WP_TRI=['smokingHome','pets','transfers','hoyer','bedbound','dementia',
+  'hospice','incontinence','overnight','liveIn','errands'];
+function openWorkPrefsEdit(id){
+  cgSnapStart(id);
+  const c=cgById(id); if(!c) return;
+  const ops=c.ops, span=shiftSpan(ops);
+  const yn=k=>{ const v=prefVal(c,k); return v===null||v===undefined?'':(v?'yes':'no'); };
+  const e={ id:id,
+    minShift: hasVal(span.min)?String(span.min):'', maxShift: hasVal(span.max)?String(span.max):'',
+    minHours: hasVal(ops.minHours)?String(ops.minHours):'', maxHours: hasVal(ops.maxHours)?String(ops.maxHours):'',
+    days:(ops.prefDays||[]).slice(), times:(ops.prefTimes||[]).slice(),
+    driver: c.driver?'yes':'no', ownVehicle: c.ownVehicle?'yes':'no',
+    canTransport: canDriveClients(c)?'yes':'no',
+    cities:(c.prefCities||[]).join(', '), maxMiles: hasVal(ops.maxMiles)?String(ops.maxMiles):'',
+    clientGender: prefVal(c,'clientGender')||'' };
+  WP_TRI.forEach(function(k){ e[k]=yn(k); });
+  state.wpEdit=e;
+  renderWpModal(); mbg.classList.add('show');
+}
+function wpSet(f,v){ if(state.wpEdit) state.wpEdit[f]=v; }
+function wpToggle(f,v,on){
+  const e=state.wpEdit; if(!e) return;
+  const a=e[f]||(e[f]=[]), i=a.indexOf(v);
+  if(on && i<0) a.push(v); else if(!on && i>=0) a.splice(i,1);
+}
+function wpCancel(){ state.wpEdit=null; closeModal(); }
+function renderWpModal(){
+  const e=state.wpEdit; if(!e) return;
+  const c=cgById(e.id);
+  const sel=(f,label,opts)=>`<div class="pf-f"><label class="el">${label}</label>
+    <select class="ein" onchange="wpSet('${f}',this.value)">${opts.map(function(o){
+      return `<option value="${o[0]}" ${e[f]===o[0]?'selected':''}>${o[1]}</option>`; }).join('')}</select></div>`;
+  const num=(f,label,ph)=>`<div class="pf-f"><label class="el">${label}</label>
+    <input class="ein" type="number" min="0" max="99" value="${esc(e[f])}" placeholder="${ph||''}" oninput="wpSet('${f}',this.value)"></div>`;
+  const txt=(f,label,ph)=>`<div class="pf-f"><label class="el">${label}</label>
+    <input class="ein" value="${esc(e[f])}" placeholder="${ph||''}" oninput="wpSet('${f}',this.value)"></div>`;
+  const chks=(f,label,opts)=>`<div class="pf-f wp-span"><label class="el">${label}</label>
+    <div class="av-chks">${opts.map(function(o){
+      return `<label class="av-chk"><input type="checkbox" ${(e[f]||[]).indexOf(o)>=0?'checked':''} onchange="wpToggle('${f}','${o}',this.checked)"> ${o}</label>`;
+    }).join('')}</div></div>`;
+  mEl.innerHTML=`<div class="mh"><span class="mt">Work Preferences — ${esc(c?c.name:'')}</span>
+      <button class="mc" onclick="wpCancel()">×</button></div>
+    <div class="mb"><div class="pf-grid">
+      ${num('minShift','Preferred minimum shift (hours)')}
+      ${num('maxShift','Preferred maximum shift (hours)')}
+      ${num('minHours','Minimum weekly hours')}
+      ${num('maxHours','Maximum weekly hours')}
+      ${chks('days','Preferred days',PREF_DAYS)}
+      ${chks('times','Preferred shift times',PREF_TIMES)}
+      ${sel('driver','Driving',[['yes','Yes'],['no','No']])}
+      ${sel('ownVehicle','Has own vehicle',[['yes','Yes'],['no','No']])}
+      ${sel('canTransport','Can drive clients',[['yes','Yes'],['no','No']])}
+      ${num('maxMiles','Maximum travel distance (miles)')}
+      ${txt('cities','Preferred service areas','Comma-separated, e.g. Oxnard, Camarillo')}
+      ${sel('clientGender','Client gender preference',[['','Not recorded'],['Either','Either'],['Female clients','Female clients'],['Male clients','Male clients']])}
+      ${sel('smokingHome','Smoking home',WP_YN)}
+      ${sel('pets','Pets in home',WP_YN)}
+      ${sel('transfers','Can assist with transfers',WP_YN)}
+      ${sel('hoyer','Hoyer lift experience',WP_YN)}
+      ${sel('bedbound','Bedbound client OK',WP_YN)}
+      ${sel('dementia','Dementia care OK',WP_YN)}
+      ${sel('hospice','Hospice care OK',WP_YN)}
+      ${sel('incontinence','Incontinence care OK',WP_YN)}
+      ${sel('overnight','Overnight OK',WP_YN)}
+      ${sel('liveIn','Live-in OK',WP_YN)}
+      ${sel('errands','Errands/appointments OK',WP_YN)}
+    </div>
+    <div class="upd-acts"><button class="btn" onclick="wpCancel()">Cancel</button>
+      <button class="btn pri" onclick="wpSave()">${ic('check',13)} Save</button></div></div>`;
+}
+function wpSave(){
+  const e=state.wpEdit; if(!e) return;
+  const c=cgById(e.id); if(!c) return wpCancel();
+  const ops=c.ops;
+  const b=v=> v===''?null:(v==='yes');
+  const n=v=>{ const x=parseInt(v,10); return isNaN(x)?null:x; };
+
+  ops.minShift=n(e.minShift); ops.maxShift=n(e.maxShift);
+  ops.minHours=n(e.minHours); ops.maxHours=n(e.maxHours);
+  ops.prefDays=PREF_DAYS.filter(d=>(e.days||[]).indexOf(d)>=0);
+  ops.prefTimes=PREF_TIMES.filter(t=>(e.times||[]).indexOf(t)>=0);
+
+  c.driver=e.driver==='yes'; c.ownVehicle=e.ownVehicle==='yes'; c.canTransport=e.canTransport==='yes';
+  c.prefCities=String(e.cities||'').split(',').map(x=>x.trim()).filter(Boolean);
+  ops.maxMiles=n(e.maxMiles);
+
+  const p={clientGender:e.clientGender||null};
+  WP_TRI.forEach(function(k){ p[k]=b(e[k]); });
+  ops.prefs=Object.assign({}, ops.prefs, p);
+  /* Mirrors kept in step. smokerHomeOk, emergency.overnight and
+     shiftPrefs.liveIn are read by other screens as plain booleans, so the
+     answer here has to reach them too — otherwise the Preferences &
+     Verification checkboxes and this section would disagree. */
+  if(p.smokingHome!==null) c.smokerHomeOk=p.smokingHome;
+  ops.emergency=Object.assign({}, ops.emergency, {overnight: p.overnight===true});
+  ops.shiftPrefs=Object.assign({}, ops.shiftPrefs, {liveIn: p.liveIn===true});
+  /* The five care rows are the Skills & Experience chips seen from another
+     angle, so a Yes here adds the chip and a No removes it. Storing them
+     twice is what lets two cards on one screen contradict each other. */
+  const skills=cgChips(c,'skills').slice();
+  Object.keys(SKILL_FOR_PREF).forEach(function(k){
+    const name=SKILL_FOR_PREF[k], i=skills.indexOf(name);
+    if(p[k]===true && i<0) skills.push(name);
+    if(p[k]===false && i>=0) skills.splice(i,1);
+  });
+  cgProfSet(c, {skills: CG_CHIP_FIELDS.skills.opts.filter(o=>skills.indexOf(o)>=0)});
+
+  ops.lastUpdated=new Date(); ops.lastUpdatedBy=state.onShift;
+  cgSnapCommit(e.id);
+  state.wpEdit=null; closeModal(); render(); cgSaved('Work preferences updated');
 }
 function setAvailFilter(k,v){ state.filters[k]=v; render(); }
 function editCaregiver(id){ state.cgEdit=id; render(); window.scrollTo(0,0); }
