@@ -9366,12 +9366,17 @@ function pfxFit(){
    as a number read like a figure somebody had measured. */
 function cgTag(c,code){ return (c.axisTags||[]).some(function(t){ return t.code===code; }); }
 /* Work Preferences — the vocabularies the merged section edits.
-   Preferred days and shift times are the desk's own record and start
-   unanswered. They are deliberately NOT seeded from the WKDY / WKND /
-   MRNNG / AFTRNN / NOVRN / AD class tags: CLAUDE.md is explicit that those
-   are not availability and that reading their silence as a schedule caused
-   a whole family of bugs — 93 of 184 active caregivers carry none of them. */
-const PREF_DAYS=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+
+   Preferred shift times are the desk's own record and start unanswered.
+   Deliberately NOT seeded from the MRNNG / AFTRNN / NOVRN / AD class tags:
+   CLAUDE.md is explicit that those are not availability and that reading
+   their silence as a schedule caused a whole family of bugs — 93 of 184
+   active caregivers carry none of them.
+
+   There is no preferred-DAYS list here. Which days somebody works is the
+   availability calendar's answer, entered per date, and a second list
+   beside it could only ever disagree. Any ops.prefDays a caregiver already
+   has is left on the record untouched; nothing reads it. */
 const PREF_TIMES=['Morning','Afternoon','Evening','Overnight'];
 /* Each of these rows is the same fact as a chip in Skills & Experience, so
    the chip seeds the row rather than the two being stored twice and left to
@@ -10287,7 +10292,9 @@ function saveAvailability(id){
   if(!isNaN(mn)) ops.minHours=mn; if(!isNaN(mx)) ops.maxHours=mx;
   const gC=x=>{const e=document.getElementById(x);return e?e.checked:false;};
   if(document.getElementById('em_overnight')) ops.emergency=Object.assign({}, ops.emergency, {day:gC('em_day'),evening:gC('em_evening'),urgent:gC('em_urgent'),sameDay:gC('em_sameday'),sitter:gC('em_sitter'),overnight:gC('em_overnight')});
-  if(document.getElementById('tv_vehicle')!==null){ c.ownVehicle=gC('tv_vehicle'); c.driver=gC('tv_driver'); }
+  if(document.getElementById('tv_vehicle')!==null){ c.ownVehicle=gC('tv_vehicle'); c.driver=gC('tv_driver');
+    /* Ticking or clearing these here is an answer too — see wpSave. */
+    ops.prefs=Object.assign({}, ops.prefs, {ownVehicle:c.ownVehicle, driver:c.driver}); }
   const mi=parseInt(gV('maxmiles')); if(!isNaN(mi)) ops.maxMiles=mi;
   if(document.getElementById('prefcities')) c.prefCities=gV('prefcities').split(',').map(s=>s.trim()).filter(Boolean);
   if(document.getElementById('av_restr')!==null) c.restrictions=gV('av_restr').split('\n').map(s=>s.trim()).filter(Boolean);
@@ -10522,12 +10529,18 @@ function workPrefsBody(c){
 
      Driving, a vehicle and permission to carry a client are three separate
      facts and get three rows. A caregiver can hold a licence with no car, or
-     a car they may not put a client in. */
+     a car they may not put a client in.
+
+     Languages spoken, not preferred days. Which days somebody actually works
+     is the availability calendar's answer and it is entered per date; a
+     second, free-standing list here could only ever disagree with it.
+     c.languages is the same field the Languages card reads, so the two are
+     one record seen twice rather than two records. */
   return `<div class="emp-grid">
         ${row('Preferred minimum shift', fmtHours(span.min))}
         ${row('Preferred maximum shift', fmtHours(span.max))}
         ${row('Preferred weekly hours', weekly)}
-        ${row('Preferred days', list(ops.prefDays))}
+        ${row('Languages spoken', list(c.languages))}
         ${row('Preferred shift times', list(ops.prefTimes))}
         ${row('Driving', c.driver?'Yes':'No')}
         ${row('Has own vehicle', c.ownVehicle?'Yes':'No')}
@@ -10566,7 +10579,7 @@ function openWorkPrefsEdit(id){
   const e={ id:id,
     minShift: hasVal(span.min)?String(span.min):'', maxShift: hasVal(span.max)?String(span.max):'',
     minHours: hasVal(ops.minHours)?String(ops.minHours):'', maxHours: hasVal(ops.maxHours)?String(ops.maxHours):'',
-    days:(ops.prefDays||[]).slice(), times:(ops.prefTimes||[]).slice(),
+    langs:(c.languages||[]).slice(), langOther:'', times:(ops.prefTimes||[]).slice(),
     driver: c.driver?'yes':'no', ownVehicle: c.ownVehicle?'yes':'no',
     canTransport: canDriveClients(c)?'yes':'no',
     cities:(c.prefCities||[]).join(', '), maxMiles: hasVal(ops.maxMiles)?String(ops.maxMiles):'',
@@ -10603,7 +10616,8 @@ function renderWpModal(){
       ${num('maxShift','Preferred maximum shift (hours)')}
       ${num('minHours','Minimum weekly hours')}
       ${num('maxHours','Maximum weekly hours')}
-      ${chks('days','Preferred days',PREF_DAYS)}
+      ${chks('langs','Languages spoken',LANG_OPTS)}
+      ${txt('langOther','Another language','Comma-separated, e.g. Cebuano')}
       ${chks('times','Preferred shift times',PREF_TIMES)}
       ${sel('driver','Driving',[['yes','Yes'],['no','No']])}
       ${sel('ownVehicle','Has own vehicle',[['yes','Yes'],['no','No']])}
@@ -10635,14 +10649,26 @@ function wpSave(){
 
   ops.minShift=n(e.minShift); ops.maxShift=n(e.maxShift);
   ops.minHours=n(e.minHours); ops.maxHours=n(e.maxHours);
-  ops.prefDays=PREF_DAYS.filter(d=>(e.days||[]).indexOf(d)>=0);
+  /* Written back to c.languages, the field the Languages card and the
+     resume already read — one record, not a second copy of it. Anything
+     typed in the free-text line is kept as typed. */
+  const extraLang=String(e.langOther||'').split(',').map(x=>x.trim()).filter(Boolean);
+  const seenLang={}, langs=[];
+  LANG_OPTS.filter(t=>(e.langs||[]).indexOf(t)>=0).concat(extraLang, (e.langs||[]))
+    .forEach(function(t){ if(t && !seenLang[t]){ seenLang[t]=1; langs.push(t); } });
+  c.languages=langs;
   ops.prefTimes=PREF_TIMES.filter(t=>(e.times||[]).indexOf(t)>=0);
 
   c.driver=e.driver==='yes'; c.ownVehicle=e.ownVehicle==='yes'; c.canTransport=e.canTransport==='yes';
+  /* Stamped as ANSWERS as well as written as values. c.driver and the other
+     two are booleans AxisCare's tags also produce, so `false` alone cannot
+     tell "no" from "never asked" — and Needs Update would keep asking for a
+     field the desk had already filled in as No. */
+  const answered={driver:c.driver, ownVehicle:c.ownVehicle, canTransport:c.canTransport};
   c.prefCities=String(e.cities||'').split(',').map(x=>x.trim()).filter(Boolean);
   ops.maxMiles=n(e.maxMiles);
 
-  const p={clientGender:e.clientGender||null};
+  const p=Object.assign({clientGender:e.clientGender||null}, answered);
   WP_TRI.forEach(function(k){ p[k]=b(e[k]); });
   ops.prefs=Object.assign({}, ops.prefs, p);
   /* Mirrors kept in step. smokerHomeOk, emergency.overnight and
@@ -11470,26 +11496,66 @@ function cgChangeGroups(){
    Each rule states what is missing in the desk's own words. Nothing is
    inferred from a blank: a field is missing only when it genuinely holds
    nothing, and `has()` is used so a recorded "No" or 0 counts as answered. */
+/* WHAT COUNTS AS ANSWERED.
+
+   One rule runs through all of these: only null / undefined / blank /
+   an empty list is missing. A recorded **No** is an answer and must never
+   appear here — a scheduler who has been told "no pets" has done the work,
+   and asking them again is how this list stops being trusted. 0 is an
+   answer too (0 miles is a real limit), which is why every numeric check
+   goes through hasVal() rather than a truthiness test.
+
+   Every row reads the field the Work Preferences section now writes.
+   Nothing here reads a deprecated field: `ops.avail2`, `ops.availOverrides`,
+   `c.avail`, `c.win` and `c.today` are all still on the record and all still
+   answer nothing, and the old "Transportation" and "Matching information"
+   rows that lumped several of these together are gone. */
+function prefAnswered(c,k){ const v=prefVal(c,k); return v!==null && v!==undefined && v!==''; }
 const CG_REQUIRED=[
-  /* c.driver is false both for "AxisCare says no licence" and for "AxisCare
-     was never told", and those are not the same answer — a missing DL tag is
-     silence, not a No. It counts as recorded when AxisCare states it either
-     way (a DL tag, or the WDL tag that lands in restrictions) or when the
-     desk has entered one. */
-  {label:'Driving status',        ok:c=>c.driver===true
-      || (c.restrictions||[]).some(r=>/driver.s licen/i.test(r))
-      || hasVal(c.canTransport)},
-  {label:'Transportation',        ok:c=>c.ownVehicle===true || hasVal(c.canTransport)},
-  {label:'Preferred schedule',    ok:c=>{const sp=shiftSpan(c.ops);return hasVal(sp.min)||hasVal(sp.max);}},
-  {label:'Preferred hours',       ok:c=>hasVal(c.ops.minHours)||hasVal(c.ops.maxHours)},
-  {label:'Preferred service areas',ok:c=>(c.prefCities||[]).length>0},
-  {label:'Matching information',  ok:c=>cgChips(c,'personality').length>0||cgChips(c,'skills').length>0},
-  {label:'Languages',             ok:c=>(c.languages||[]).length>0},
-  {label:'Availability cadence',  ok:c=>hasVal(c.ops.availCheckFreq)}
+  {label:'Preferred minimum shift', ok:c=>hasVal(shiftSpan(c.ops).min)},
+  {label:'Preferred maximum shift', ok:c=>hasVal(shiftSpan(c.ops).max)},
+  {label:'Preferred weekly hours',  ok:c=>hasVal(c.ops.minHours)||hasVal(c.ops.maxHours)},
+  {label:'Languages spoken',        ok:c=>(c.languages||[]).length>0},
+  {label:'Preferred shift times',   ok:c=>(c.ops.prefTimes||[]).length>0},
+  /* c.driver, c.ownVehicle and c.canTransport are plain booleans derived
+     from AxisCare's DL / WDL / OC tags, so `false` is BOTH "no" and "nobody
+     was ever asked" and cannot be read as an answer on its own. The desk's
+     own answer is stamped in ops.prefs by the Work Preferences editor, and
+     that is what makes a No count. A tag is a Yes; silence is silence. */
+  {label:'Driving',                 ok:c=>hasVal((c.ops.prefs||{}).driver) || c.driver===true
+      || (c.restrictions||[]).some(r=>/driver.s licen/i.test(r))},
+  {label:'Has own vehicle',         ok:c=>hasVal((c.ops.prefs||{}).ownVehicle) || c.ownVehicle===true},
+  {label:'Can drive clients',       ok:c=>hasVal((c.ops.prefs||{}).canTransport) || hasVal(c.canTransport)},
+  {label:'Preferred service areas', ok:c=>(c.prefCities||[]).length>0},
+  {label:'Maximum travel distance', ok:c=>hasVal(c.ops.maxMiles)},
+  {label:'Client gender preference',ok:c=>prefAnswered(c,'clientGender')},
+  {label:'Smoking home preference', ok:c=>prefAnswered(c,'smokingHome')},
+  {label:'Pets in home preference', ok:c=>prefAnswered(c,'pets')},
+  {label:'Can assist with transfers',ok:c=>prefAnswered(c,'transfers')},
+  {label:'Hoyer lift experience',   ok:c=>prefAnswered(c,'hoyer')},
+  {label:'Bedbound client OK',      ok:c=>prefAnswered(c,'bedbound')},
+  {label:'Dementia care OK',        ok:c=>prefAnswered(c,'dementia')},
+  {label:'Hospice care OK',         ok:c=>prefAnswered(c,'hospice')},
+  {label:'Incontinence care OK',    ok:c=>prefAnswered(c,'incontinence')},
+  {label:'Overnight OK',            ok:c=>prefAnswered(c,'overnight')},
+  {label:'Live-in OK',              ok:c=>prefAnswered(c,'liveIn')},
+  {label:'Errands/appointments OK', ok:c=>prefAnswered(c,'errands')},
+  {label:'Caregiving experience',   ok:c=>hasVal(c.ops.experience)},
+  {label:'Skills & experience',     ok:c=>cgChips(c,'skills').length>0},
+  /* "if applicable" — having no blocks is the normal case and is never a
+     gap. What IS a gap is a block already on file with no reason or no
+     enforcement level recorded, because that is the row that stops an
+     assignment and nobody can tell why. */
+  {label:'Client Blocks — Do Not Assign',
+   ok:c=>(c.ops.clientRestr||[]).every(r=>hasVal(r.reason)&&hasVal(r.level))}
 ];
 /* A caregiver appears once, carrying every reason they need attention. */
 function cgNeedsUpdate(){
   const out=[];
+  /* Asked on demand, not at boot — this tab is the only thing that needs it.
+     Guarded internally, so calling it on every render costs one fetch. */
+  let cov=null;
+  try{ if(typeof AVAIL!=='undefined'&&AVAIL.primeCoverage){ AVAIL.primeCoverage(); } }catch(e){}
   (state.caregivers||[]).forEach(function(c){
     if(c.active===false || (c.ops&&c.ops.archived)) return;
     const items=[];
@@ -11509,13 +11575,20 @@ function cgNeedsUpdate(){
         action:'Contact caregiver'});
     }
 
-    /* 2 — the calendar. dayAvail-style states are deliberately not collapsed
-       into a boolean elsewhere in this app; openDays answers the same way, so
-       a window that never loaded is not read as an empty agency. */
-    let open=null; try{ open=(typeof AVAIL!=='undefined'&&AVAIL.openDays)?AVAIL.openDays(c.id):null; }catch(e){}
-    if(Array.isArray(open) && !open.length)
+    /* 2 — THE CALENDAR, read over the whole span availability can exist for.
+
+       This used to call AVAIL.openDays(), which answers from the roster-wide
+       index — a week back to the end of next month — and returns an empty
+       array for "none entered", "still loading" and "the fetch failed"
+       alike. Both halves were wrong here: a caregiver whose availability is
+       entered further out had none in that window, and a failed index
+       flagged the entire roster. AVAIL.coverage() asks over searchWindow()
+       and returns a STATE, so only a definite 'none' is a finding. */
+    let cvg=null; try{ cvg=(typeof AVAIL!=='undefined'&&AVAIL.coverage)?AVAIL.coverage(c.id):null; }catch(e){}
+    if(cvg && cvg.state==='none')
       items.push({head:'Availability missing', tone:'bad',
-        lines:['No availability entered in calendar'], action:'Add availability'});
+        lines:['No Open days entered on the calendar between '+cvg.from+' and '+cvg.to],
+        action:'Add availability'});
 
     /* 3 — blank profile fields. */
     const missing=CG_REQUIRED.filter(function(r){ try{ return !r.ok(c); }catch(e){ return false; } })
@@ -12176,9 +12249,24 @@ function suWhen(iso){
    from the record every time it renders, so completing the field is what
    clears the row. */
 function suNeedsHTML(needs){
-  if(!needs.length) return emptyState('Nothing needs attention',
+  /* Say when a check could not run. Silently dropping the availability
+     check would make a short list look like good news. */
+  let note='';
+  try{
+    const cs=(typeof AVAIL!=='undefined'&&AVAIL.coverageInfo)?AVAIL.coverageInfo():null;
+    if(cs && cs.state!=='ready'){
+      note='<div class="demo-banner cal-meta'+(cs.state==='loading'||cs.state==='idle'?' load':' err')+'">'+
+        (cs.state==='loading'||cs.state==='idle'
+          ? '<span class="cs-spin"></span><span>Checking each caregiver\u2019s availability calendar\u2026</span>'
+          : '<span class="db-ic">\u26A0</span><span><b>Availability could not be checked.</b> '+
+            esc(cs.err||'Supabase is not reachable')+' \u2014 the profile checks below are still accurate, '+
+            'but nobody is being flagged for missing availability.</span>')+
+        '</div>';
+    }
+  }catch(e){}
+  if(!needs.length) return note+emptyState('Nothing needs attention',
     'Every active caregiver has their profile fields, availability and cadence up to date.');
-  return '<div class="su-list">'+needs.map(function(n){
+  return note+'<div class="su-list">'+needs.map(function(n){
     return '<div class="su-card">'+
       '<div class="su-card-h">'+
         '<button class="su-name" onclick="openCaregiver(\''+n.c.id+'\')">'+esc(n.c.name)+'</button>'+
@@ -13889,6 +13977,7 @@ var ROSTER = (function () {
        that has just been replaced. Cleared, not refetched — the next
        profile that renders asks again. */
     try { if (typeof CGWORK !== 'undefined') CGWORK._reset(); } catch (e) {}
+    try { if (typeof AVAIL !== 'undefined' && AVAIL.forgetCoverage) AVAIL.forgetCoverage(); } catch (e) {}
     return real;
   }
 
@@ -15724,6 +15813,71 @@ var AVAIL = (function () {
       });
   }
 
+  /* HAS THIS CAREGIVER GOT ANY AVAILABILITY ON RECORD, ANYWHERE?
+
+     openDays() answers from `idx`, which primeIndex fills from a week back
+     to the end of NEXT MONTH. That is the right window for Find Coverage
+     and the wrong one for this question: a caregiver whose entered
+     availability all sits further out has none in that window, and Needs
+     Update was reading the empty array as "nothing entered" and flagging
+     somebody whose calendar the desk could see was full.
+
+     So this asks its own question over searchWindow() — the whole span
+     availability can exist for, the same reach as the profile calendar's
+     month arrows — and pulls two columns rather than whole rows, because
+     all it needs is a count per caregiver.
+
+     Lazily, on demand: only Needs Update asks, so nobody who never opens
+     that tab pays for it. */
+  var covByCg = null, covState = 'idle', covErr = null, covFrom = null, covTo = null;
+  function coveragePage(from, to, offset) {
+    var c = cfg();
+    var url = c.supabaseUrl.replace(/\/+$/, '') + '/rest/v1/caregiver_availability' +
+      '?on_date=gte.' + from + '&on_date=lte.' + to +
+      '&status=eq.Open&select=caregiver_id,on_date' +
+      '&order=caregiver_id.asc,on_date.asc&limit=' + PAGE + '&offset=' + offset;
+    return fetch(url, { headers: { apikey: c.supabaseAnonKey, Authorization: 'Bearer ' + c.supabaseAnonKey } })
+      .then(function (r) {
+        if (!r.ok) return r.text().then(function (t) { throw new Error('HTTP ' + r.status + ' ' + t.slice(0, 140)); });
+        return r.json();
+      });
+  }
+  function primeCoverage() {
+    if (covState === 'loading' || covState === 'ready') return Promise.resolve();
+    if (!configured()) { covState = 'unconfigured'; covErr = 'No Supabase keys on this build.'; return Promise.resolve(); }
+    var w = searchWindow(); covFrom = w.from; covTo = w.to;
+    covState = 'loading'; covErr = null;
+    var acc = {}, t0 = Date.now(), rows = 0;
+    function page(offset) {
+      return coveragePage(w.from, w.to, offset).then(function (list) {
+        list = list || [];
+        rows += list.length;
+        list.forEach(function (r) {
+          var k = 'a' + r.caregiver_id, d = String(r.on_date).slice(0, 10);
+          (acc[k] || (acc[k] = {}))[d] = 1;
+        });
+        if (list.length === PAGE) return page(offset + PAGE);
+      });
+    }
+    return page(0).then(function () {
+      covByCg = acc; covState = 'ready';
+      console.info('[avail] coverage: ' + Object.keys(acc).length + ' caregiver(s) with Open days, ' +
+        rows + ' row(s), ' + w.from + ' → ' + w.to + ', ' + (Date.now() - t0) + 'ms');
+    }).catch(function (e) {
+      covState = 'error'; covErr = (e && e.message) || String(e);
+      console.warn('[avail] coverage failed', e);
+    }).then(function () { try { render(); } catch (e) {} });
+  }
+  /* A STATE, never a bare count — the three not-loaded answers must never be
+     read as "none entered". That conflation is what produced the wrong
+     flags in the first place. */
+  function coverage(cgId) {
+    if (covState !== 'ready') return { state: covState === 'idle' ? 'loading' : covState, days: 0, err: covErr };
+    var d = covByCg && covByCg[cgId];
+    var n = d ? Object.keys(d).length : 0;
+    return { state: n ? 'has' : 'none', days: n, from: covFrom, to: covTo };
+  }
+
   /* Fire and forget at boot. Resolves either way so a caller can chain,
      but nothing waits on it — the app paints first and fills in. */
   function primeIndex() {
@@ -15893,6 +16047,8 @@ var AVAIL = (function () {
      An empty `segs` clears the days, which is what Clear does. */
   /* `auto` marks a write made by the monthly copy. It picks the author stamp
      the guard reads, and it is what stops the copy re-triggering itself. */
+  /* Availability was just written, so the coverage answer is stale. */
+  function forgetCov(){ covByCg = null; covState = 'idle'; }
   function saveDays(c, dates, segs, auto) {
     if (!configured()) return Promise.reject(new Error('No Supabase keys on this build.'));
     if (!c || c.axisId == null) return Promise.reject(new Error('That caregiver has no AxisCare id.'));
@@ -15927,6 +16083,7 @@ var AVAIL = (function () {
     }).then(function (res) {
       delete byCg[c.id]; delete inFlight[c.id];   /* re-read rather than guess */
       patchIndex(c, dates, segs, auto);           /* keep the roster index in step */
+      forgetCov();                                /* Needs Update must re-ask */
       /* Wait for the re-read: whatever runs next needs the server's own
          updated_by, which is what the copy guard reads. */
       return load(c).then(function () { return res; });
@@ -15943,7 +16100,13 @@ var AVAIL = (function () {
     windowsOn: windowsOn, carryWindows: carryWindows,
     fetchDates: fetchDates, searchWindow: searchWindow, isLoaded: isLoaded,
     indexStatus: indexStatus, indexInfo: indexInfo,
-    _reset: function () { byCg = {}; inFlight = {}; idx = {}; loaded = {}; pending = {}; idxState = 'idle'; idxCount = 0; }
+    primeCoverage: primeCoverage, coverage: coverage,
+    coverageInfo: function () { return { state: covState, err: covErr, from: covFrom, to: covTo,
+      caregivers: covByCg ? Object.keys(covByCg).length : 0 }; },
+    /* A save changes the answer, so the next ask re-reads it. */
+    forgetCoverage: function () { covByCg = null; covState = 'idle'; },
+    _reset: function () { byCg = {}; inFlight = {}; idx = {}; loaded = {}; pending = {}; idxState = 'idle'; idxCount = 0;
+      covByCg = null; covState = 'idle'; }
   };
 })();
 
