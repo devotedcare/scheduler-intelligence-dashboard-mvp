@@ -100,30 +100,26 @@ layout or wording change, or anything already answered in this file.
 |---|---|
 | **Caregivers** | Live — 184 active, fetched every load |
 | **Clients** | Live — 20 active |
-| **Open shifts** | Live — derived from unassigned future visits |
+| **Open shifts** | **Mirrored** — derived by `openshifts-sync` into `public.open_shifts`, read from there. Falls back to the live scan when the mirror is cold |
 | **Caregiver calendar** | Live — each caregiver’s own scheduled client visits |
 | **Care notes** | Live — swept into Supabase on a schedule, read from there |
 | Medication lists | Cannot be fetched. AxisCare API limitation |
 | Attendance history | No AxisCare source. Derivable from visit clock-ins, not built |
 | Tasks, handoff notes, contact log | The dashboard's own records, entered by schedulers |
 
-**There is no sample data on screen by default.** The seed records still exist in
-`index.html`, but `purgeDemo()` clears them at boot. If a screen is empty it is
-because AxisCare genuinely has nothing, or because the fetch failed — and the
-banner says which.
+**There is no sample data, and no way to bring it back.** `state` ships
+`caregivers: []`, `clients: []` and `shifts: []`, and `hydrate()` fills them from
+AxisCare. If a screen is empty it is because AxisCare genuinely has nothing, or
+because the fetch failed — and the banner says which.
 
-### Bringing sample data back
-
-For a demo or a screenshot, in the browser console:
-
-```js
-DEMO.on()      // restore the sample caregivers, clients, shifts and notes
-DEMO.off()     // clear it again
-DEMO.isOn()
-```
-
-Both reload the page. While it is on, every screen carries a banner saying so.
-The setting is per-browser and never leaves the device.
+> **Corrected 2026-09-03.** This section used to describe a `purgeDemo()` that
+> cleared seed records at boot, and a console recipe — `DEMO.on()` / `DEMO.off()`
+> / `DEMO.isOn()` — for restoring them. **None of it exists.** `purgeDemo` appears
+> nowhere in the repo, and there is no `DEMO` object: every occurrence of the
+> token in `index.html` is inside a comment, so `DEMO.on()` throws
+> `ReferenceError`. The seed records went with the toggle. Anyone following the
+> old instructions got an error and, worse, may have believed what was on screen
+> was sample data. It is live.
 
 ### The banner tells you where the data came from
 
@@ -131,21 +127,31 @@ The setting is per-browser and never leaves the device.
 
 1. **Couldn't reach AxisCare** (red) — names the reason, offers Retry, and says
    plainly that nothing is shown rather than something invented
-2. **Sample data is switched on** — with how to turn it off
 3. **Some AxisCare data didn't load** — a partial failure, naming what failed
-4. **This screen has no AxisCare source** — care notes, medications, attendance,
-   contact log. Each explains *why*, because "empty" and "not available" are
-   different messages
-5. **Live confirmation** on Caregivers and Open Shifts
+4. **This screen has no AxisCare source** — `NO_AXIS_SOURCE` holds exactly two
+   entries: **medications** and the **contact log**. Each explains *why*, because
+   "empty" and "not available" are different messages
+4b. **Care notes** — a note about the sync mirror, on that screen only
+
+> The numbering skips 2 because the source does. There is no sample-data banner
+> (there is no sample data), and the green **live confirmation** on Open Shifts
+> was removed on request — `demoNotice()` says so in place of the branch.
+> Attendance had a `NO_AXIS_SOURCE` entry and it was removed on request too, so
+> the list above named four screens where the code has two.
 
 Do not remove these. If a request sounds like "clean up the banners", the honest
 fix is to wire the missing data, not to hide the label.
 
 ### Figures that read "Not tracked"
 
-Reliability, hours worked, call-off counts, decline counts and
-availability-verification history have **no AxisCare source**. On a real
-caregiver they are `null` and render as "Not tracked".
+Reliability, call-off counts, decline counts and availability-verification
+history have **no AxisCare source**. On a real caregiver they are `null` and
+render as "Not tracked".
+
+> **Hours worked is no longer one of them.** `CGWORK` derives real hours from
+> AxisCare visits and renders a figure. The `weekHrs` field on the caregiver
+> record is still `null` and still reads "Not tracked" — the two are different
+> things, and it is `CGWORK` that has the answer.
 
 The same applies to clients: `reqSkills`, `risk`, `hasBackup`, `complaints30`
 and `missedThisWeek` do not exist in AxisCare. Client class tags on this account
@@ -191,7 +197,9 @@ netlify/functions/carenotes-sync.js     scheduled every 15 min (netlify.toml)
 The dashboard reads public.care_notes. Zero AxisCare calls.
 ```
 
-**Each run stops at a 7-second soft deadline** and saves a cursor
+**Each run stops at a 5-second soft deadline** (`SOFT_DEADLINE_MS = 5000`,
+carenotes-sync.js:55 — this line said 7 seconds and contradicted the tuning
+table 25 lines below it) and saves a cursor
 (`care_notes_sync`), so the next run resumes. Netlify's function timeout varies
 by plan; this design does not depend on knowing it. A sweep needing 34s simply
 takes several runs.
@@ -273,8 +281,165 @@ Both other conditions matter. Drop `removed` and cancelled visits appear as
 coverage gaps. Drop the future check and every historical unassigned slot floods
 the list.
 
-`AxisLive.fetchOpenShifts()` scans a 28-day window: ~700 visits, 8 requests,
-about 4 seconds. Widening the window costs proportionally.
+`AxisLive.fetchOpenShifts()` scans from **today to the end of NEXT month**, so
+a scheduler filling next month’s gaps sees all of them rather than a rolling
+window that cuts the month in half. `opts.days` still overrides it.
+
+Measured 2026-09-03, which is what that window actually costs:
+
+| | |
+|---|---|
+| window | 2026-09-03 → 2026-10-31 (58 days) |
+| requests | **14** |
+| visits scanned | **1,321** |
+| open shifts found | **12** |
+| elapsed | **9.1s** |
+
+Fourteen requests and over thirteen hundred visits, on every page load, to
+produce twelve rows. That is the single most expensive thing the boot does
+and the reason the caregiver list no longer waits for it (see 3b in
+*Don’t break these*), and it is the strongest argument for mirroring open
+shifts into Supabase rather than deriving them in the browser.
+
+> An earlier version of this section said "a 28-day window: ~700 visits, 8
+> requests, about 4 seconds". Every one of those numbers was stale — the
+> window was widened to end-of-next-month and the doc was not updated.
+
+### Open shifts are MIRRORED, not scanned in the browser
+
+Added 2026-09-03. The rule is unchanged — it just runs in
+`netlify/functions/openshifts-sync` now, once for the whole desk, instead of
+in every session on every page load.
+
+```
+openshifts-sync (*/10, and on read)  ->  public.open_shifts
+the dashboard reads that table       ->  2 requests, ~0.7s
+```
+
+Measured against the live account, both paths run back to back:
+
+| | live scan | mirror |
+|---|---|---|
+| requests | 14 | **2** |
+| visits scanned | 1,321 | — |
+| elapsed | 9,085ms | **666ms** |
+
+**13.6× faster, and the records are byte-identical** — verified by running both
+paths in the same process and comparing every field of every shift. That
+identity is load-bearing, not cosmetic: `shifts` is a tracked CLOUD slice, so a
+mirrored record that differed from the scanned one in any field would be diffed
+into the overlay and written to Supabase as though a scheduler had typed it.
+`mirrorRowToShift()` reproduces `mapOpenShift()` exactly, including building
+`end` from `new Date(undefined)` when AxisCare gave no end — an Invalid Date,
+copied rather than improved, because a `null` there would be a different value
+in the diff.
+
+#### It falls back to the live scan, and that is the point
+
+If the sync has never completed a scan, or the heartbeat is cold, or Supabase
+is unreachable, `fetchOpenShiftsMirrored()` returns the live scan instead. Both
+paths were tested by ageing the heartbeat:
+
+```
+heartbeat aged 2h   -> "live scan - mirror is 120m old"        9 shifts, identical
+last_ok_at null     -> "live scan - the sync has not ..."      9 shifts, identical
+```
+
+So the first deploy is a non-event — schema, function and `index.html` can land
+in any order — and a dead sync degrades to exactly the app we had yesterday
+rather than to a blank coverage board. Slow and right beats fast and wrong.
+
+**Ageing out reads `last_ok_at`, never `last_run_at`.** Only a run that scanned
+the WHOLE window is evidence that a shift missing from the results is no longer
+open. A partial run updates `last_run_at` and must not make the mirror look
+fresh.
+
+#### The deletion rule
+
+A shift leaves the table for two reasons and they are **not** equally safe:
+
+- **evidence** — we looked at that visit and it now has a caregiver, is removed,
+  or is in the past. Safe on any run.
+- **absence** — we did not see it at all. Safe **only** after a complete scan.
+
+A run that dies half way, hits the page cap, or takes a 429 on page 9 has not
+observed the back half of the window, and deleting on that would empty the
+coverage board with no error anywhere. So the sweep runs only when the scan
+completed. That is the whole reason `last_ok_at` exists separately.
+
+#### Stale-while-revalidate
+
+The dashboard reads the mirror and then POSTs to the sync **without awaiting**
+it. AxisCare load therefore follows real usage: a quiet weekend costs nothing, a
+busy desk keeps the mirror sharp. A fixed 5-minute cron would burn roughly 4,000
+AxisCare requests a day whether or not anyone was working.
+
+That only works because the function holds a **lock** and a **debounce**. Three
+schedulers opening at 9am would otherwise fire three concurrent scans of 14
+requests each, and CLAUDE.md already records the Client Concierge dashboard
+collecting `429`s learning exactly that. Verified: a second run 41 seconds later
+returned `skipped: "synced recently"` in 317ms.
+
+The `*/10` cron in `netlify.toml` is a **floor**, not the mechanism — it exists so
+the first person in each morning is not the one who eats the staleness.
+
+#### `shift_date` is sliced textually, never cast
+
+AxisCare stamps its own offset. `2026-09-18T20:00:00-07:00` is the **18th** where
+the visit happens and the **19th** in UTC. Measured on the live mirror: **2 of 9**
+rows would have landed on the wrong day under a naive cast, and both matched the
+date AxisCare itself puts in the visit id (`d=2026-09-18`). The care-notes sync
+and the caregiver calendar each had to fix this same bug; the mirror avoids
+inheriting it by taking the leading `YYYY-MM-DD` from the string.
+
+#### What the mirror does NOT know
+
+An assignment made inside this dashboard never reaches AxisCare — the proxy
+forwards GET only — so a shift filled here stays in the table until somebody
+types it into AxisCare. That blind spot is not new (the live scan had it too),
+but it means these rows are **open in AxisCare**, not **needs coverage**.
+
+### The list is loaded once; the ASSIGNMENT is re-checked
+
+`fetchOpenShifts()` has exactly one call site — inside `hydrate()`’s
+`Promise.all` — and `hydrate()` runs only from `boot()` and `retryAxis()`.
+Nothing else refreshes it, no timer, no poll. **So the open-shift list is as old
+as the tab.** Four hours open, four-hour-old coverage gaps.
+
+Observed on 2026-09-03: the Brenda Janowski 8a–8p visit
+(`v=56967:s=0:d=2026-09-03`) read `caregiver: null` in the morning and
+`caregiver: 1104` by the afternoon — filled in AxisCare while every open session
+went on offering it and ranking caregivers for it.
+
+Re-scanning the window costs what the boot costs: 8 requests, ~640 visits, ~5s.
+Re-checking **one** visit costs **1 request, ~890 bytes, ~1s**:
+
+```
+GET /api/visits?visitIds=v=56967:s=0:d=2026-09-03
+```
+
+And the only moment the answer has to be right is the moment somebody assigns.
+So `verifyShiftStillOpen()` runs there instead, and both assign paths funnel
+through `guardAssign()`: `assignShift` → `assignShiftNow`, and `doAssign` →
+`doAssignNow` (which also covers `dispAccept` and `confirmBlockOverride`).
+Every existing call site keeps its old name and gets the check for free.
+
+Three rules in it, all deliberate:
+
+- **A shift with no `axisVisitId` is not checked.** It is an in-app record; there
+  is nothing upstream to disagree with.
+- **AxisCare unreachable does NOT block the assignment.** The proxy is read-only,
+  so this record is the desk’s own work, and refusing to let them work because a
+  third-party API is down is worse than proceeding. It says it could not check —
+  the same distinction `genderKnown` draws in Find Coverage. A 404
+  (“No visits found”) is ambiguous and lands here too.
+- **A refusal rewrites nothing.** `openStaleShiftWarn()` explains and offers a
+  reload. Silently setting `s.assigned` to whoever AxisCare now shows would be an
+  edit to a tracked CLOUD slice, made on one scheduler’s behalf, that they never
+  asked for and the other two would inherit.
+
+**Claude: do not optimise this into a check against `state.shifts`.** The whole
+point is that `state.shifts` is the stale thing. It has to be a live call.
 
 ### What AxisCare does not tell you about an open shift
 
@@ -1483,7 +1648,7 @@ in `README.md` under *How the data model works*.
    local one at boot and each Supabase pull. A saved overlay predates the roster
    swap and can reference caregivers who no longer exist.
 
-3b. **The roster paints once, and not before `profiles` lands.**
+3b. **The roster paints on roster + profiles, and never before `profiles`.**
 
     `applyProfile()` returns on its first line when `profiles[c.axisId]` is
     missing, and `profiles` is only assigned inside the `Promise.all` handler
@@ -1497,23 +1662,42 @@ in `README.md` under *How the data model works*.
     the shift ranker and the availability-review tasks filter on. Every one of
     the 82 is offered for shifts during such a window.
 
-    This is why nothing paints until all five boot calls settle, even though
-    the roster is ready in ~2s and the shift scan it waits on takes ~5s. It is
-    slow on purpose, and it is the wrong trade — but the fix is to carry the
-    profiles, not to paint sooner.
-
-    **The measured way to make it fast**, when somebody takes it on:
+    **So the paint waits on the PAIR — roster AND profiles — and on nothing
+    else.** Done 2026-09-03. It used to wait on all five boot calls, which
+    made the caregiver list as slow as a shift scan it does not read:
 
     | call | lands |
     |---|---|
-    | `fetchProfiles` | **1.0s** |
-    | `AxisCare.roster` | 2.1s |
+    | `fetchProfiles` | 2.0s |
+    | `AxisCare.roster` | **2.1s** — the pair is complete here |
     | `fetchClients` | 3.3s |
-    | `fetchOpenShifts` | 5.1s |
+    | `fetchOpenShifts` | 9.5s — today through the end of next month |
 
-    Profiles arrive **first**. Gating the paint on `Promise.all([roster,
-    profiles])` rather than on all five gives a correct roster at ~2.1s for
-    free. `applyRoster()` is kept as a named function for exactly that seam.
+    Measured on that run: **9.5s → 2.1s, a 7.4 second saving**. Profiles land
+    first anyway, so carrying them costs nothing and the roster is correct
+    from the first frame.
+
+    Three things make it safe, and all three must stay:
+
+    - **`profiles` is assigned before `applyRoster()`**, in the early handler
+      as well as the settled one. Reverse them and you get 171/0 again.
+    - **The plausibility guard is repeated** in the early handler. It has to
+      run before anything reaches `state.caregivers`, and the tail runs far
+      too late to protect this paint.
+    - **It cannot trigger a save.** `hookRender()` and `booted = true` are both
+      set in `finishBoot()`, and `scheduleSave()` returns early while `booted`
+      is false. The early `render()` therefore paints and nothing else.
+
+    It also satisfies the boot-order rule rather than bending it: the roster
+    is in `state` *earlier* than before, and `CLOUD.boot()` still snapshots
+    after every call has settled.
+
+    **A faster paint means the empty states have to be honest.** `boot()`
+    renders before `hydrate()` resolves, so `viewOpen()` used to state "All
+    shifts are covered" for the whole boot and then fill with the gaps it had
+    just denied. It and the contact-log view now check `rosterLoading()` first
+    and say they are still loading. Any view that asserts an AxisCare fact
+    from an empty slice needs the same treatment.
 
 3c. **Whatever fetches the roster, validate before assigning `state`.**
 

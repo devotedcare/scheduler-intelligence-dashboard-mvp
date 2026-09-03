@@ -55,6 +55,25 @@
 # long run completes over the next few.
 #
 # Pass A is idempotent: once it has caught up, a run changes nothing.
+# Open shifts are MIRRORED, not derived in the browser. Measured
+# 2026-09-03, the browser scan was 14 SEQUENTIAL AxisCare requests over a
+# 58-day visit window, 1,321 visits, 9.1s — to produce 12 rows — and it
+# was the slowest of the five boot calls, so the whole dashboard waited
+# for it.
+#
+# The cron is a FLOOR, not the main mechanism. The dashboard triggers a
+# refresh when it reads (stale-while-revalidate), so AxisCare load follows
+# real usage rather than the clock — a quiet weekend costs nothing. This
+# entry exists so the first person in each morning is not the one who eats
+# the staleness, and so the mirror keeps breathing if nobody opens the app.
+#
+# Ten minutes, not five: the read-trigger does the sharpening, and the
+# function debounces anything closer than MIN_GAP_MS anyway. Correctness
+# does not rest on the cadence — an assignment is re-checked against
+# AxisCare before it is written (verifyShiftStillOpen in index.html).
+[functions."openshifts-sync"]
+  schedule = "*/10 * * * *"
+
 [functions."availability-copy"]
   schedule = "35 * * * *"
 

@@ -5028,6 +5028,12 @@ function openClientCardHTML(g){
 }
 function viewOpen(){
   const groups=openGroups();
+  /* "All shifts are covered" is a CLAIM, and it must not be made while the
+     schedule is still arriving. boot() paints before hydrate() resolves, so
+     without this the screen states everything is covered for the whole boot
+     and then quietly fills with the gaps it just denied. */
+  if(!groups.length && rosterLoading())
+    return emptyState('Loading open shifts\u2026','Reading the schedule from AxisCare.');
   if(!groups.length) return emptyState('All shifts are covered','A caregiver call-off or open visit will appear here.');
   return `<div class="osg-list">`+groups.map(openClientCardHTML).join('')+`</div>`;
 }
@@ -11359,6 +11365,9 @@ function emailProfile(id){ emailResume(id); }
 function openContactLog(shiftId){ state.activeShift=shiftId; go('log'); }
 function viewLog(){
   const shifts=openShifts().slice().sort((a,b)=>a.start-b.start);
+  /* Same reason as viewOpen: not yet loaded is not the same as none. */
+  if(!shifts.length && rosterLoading())
+    return emptyState('Loading open shifts\u2026','Reading the schedule from AxisCare.');
   if(!shifts.length) return emptyState('No open shifts to track','The contact log keeps every call attempt per shift so two schedulers never call the same caregiver twice.');
   if(!state.activeShift || !shifts.find(s=>s.id===state.activeShift)) state.activeShift=shifts[0].id;
   const s=state.shifts.find(x=>x.id===state.activeShift);
@@ -12445,8 +12454,113 @@ function dispExpandRow(shiftId,cgId,type){ state.dispExpand=(state.dispExpand&&s
 function dispDecline(shiftId,cgId,reason){ pushContact(shiftId,cgId,'declined',{reason}); toast(cgById(cgId).name+' \u2014 Declined ('+reason+')'); render(); }
 function dispCallback(shiftId,cgId,label,mins){ pushContact(shiftId,cgId,'callback',{callback:label, callbackAt:new Date(NOW.getTime()+mins*60000).toISOString()}); toast(cgById(cgId).name+' \u2014 callback in '+label); render(); }
 function cgBlockFor(cgId, clientId){ const cg=cgById(cgId); const list=(cg&&cg.ops&&cg.ops.clientRestr)||[]; return list.find(r=>r.client===clientId)||null; }
+/* ===== ASSIGN-TIME FRESHNESS CHECK =====================================
+
+   state.shifts is fetched ONCE, at boot, and never refreshed:
+   fetchOpenShifts has a single call site inside hydrate(), and hydrate()
+   runs only from boot() and retryAxis(). So the open-shift list is exactly
+   as old as the tab. Four hours open, four-hour-old coverage gaps.
+
+   That is not theoretical. On 2026-09-03 the Brenda Janowski 8a-8p visit
+   (v=56967:s=0:d=2026-09-03) read caregiver:null in the morning and
+   caregiver:1104 by the afternoon - filled in AxisCare while every open
+   session carried on offering it and ranking caregivers for it.
+
+   Re-scanning the window costs what the boot costs: 8 requests, ~640
+   visits, ~5s. Re-checking ONE visit costs 1 request, ~890 bytes, ~1s -
+   and the only moment it has to be right is the moment somebody assigns.
+   So the cost moves off every page load and onto the one action that
+   matters.
+
+   AxisCare unreachable does NOT block the assignment. The proxy is
+   read-only, so this record is the desk own work; refusing to let them
+   work because a third-party API is down would be worse than proceeding.
+   It says it could not check - the same distinction genderKnown draws in
+   Find Coverage: "checked and clear" and "could not check" are different
+   answers.                                                             */
+function verifyShiftStillOpen(shiftId){
+  var s=state.shifts.find(function(x){ return x.id===shiftId; });
+  /* No AxisCare id: an in-app shift, nothing upstream to disagree with. */
+  if(!s || !s.axisVisitId) return Promise.resolve({ok:true, checked:false});
+  if(typeof AxisCare==="undefined" || !AxisCare.get) return Promise.resolve({ok:true, checked:false});
+  return AxisCare.get("/api/visits", { visitIds: s.axisVisitId }).then(function(res){
+    var list=((res && res.data && res.data.results) || {}).visits || [];
+    var v=list.filter(function(x){ return x.id===s.axisVisitId; })[0];
+    if(!v) return {ok:true, checked:false};       /* ambiguous - do not block */
+    if(v.removed) return {ok:false, checked:true, why:"cancelled"};
+    if(v.caregiver && v.caregiver.id!=null){
+      /* A CALL-OFF IS RECORDED HERE AND NOWHERE ELSE. Both call-off paths
+         (the EVV "Cannot work" outcome and the Today call outcome) set
+         prevCaregiver=assigned, assigned=null, status="open", callOff=true
+         and then route straight into openFindCoverage(). The proxy forwards
+         GET only, so AxisCare has not been told and still shows the person
+         who called off.
+
+         Treating that as "already assigned" would refuse every replacement
+         on the most time-critical workflow the desk has, at the moment they
+         have just been sent to fill it. So when AxisCare names the caregiver
+         who called off, that is agreement, not conflict.
+
+         A DIFFERENT name still refuses: that means somebody was assigned
+         upstream while the desk was looking for cover, which is exactly the
+         collision this check exists to catch. */
+      if(s.callOff && s.prevCaregiver && s.prevCaregiver===("a"+v.caregiver.id))
+        return {ok:true, checked:true, calledOff:true};
+      return {ok:false, checked:true, why:"taken", axisCgId:v.caregiver.id,
+        axisCgName:((v.caregiver.firstName||"")+" "+(v.caregiver.lastName||"")).replace(/\s+/g," ").trim()};
+    }
+    return {ok:true, checked:true};
+  }, function(e){
+    /* A 404 "No visits found" lands here too and is ambiguous. Never block. */
+    return {ok:true, checked:false, err:(e&&e.message)||String(e)};
+  });
+}
+/* The one place both assign paths funnel through. */
+function guardAssign(shiftId, cgId, proceed){
+  verifyShiftStillOpen(shiftId).then(function(r){
+    if(r.ok){
+      if(r.checked===false) toast("Couldn\u2019t re-check AxisCare \u2014 assigning anyway");
+      proceed();
+      return;
+    }
+    openStaleShiftWarn(shiftId, cgId, r);
+  });
+}
+/* Refused, and told them WHY, rather than writing a record that
+   contradicts the system of record. Nothing in state is rewritten here:
+   that would be an edit to a tracked CLOUD slice made on one scheduler
+   behalf without them asking for it. They are told; they decide. */
+function openStaleShiftWarn(shiftId, cgId, r){
+  var s=state.shifts.find(function(x){ return x.id===shiftId; });
+  var cl=s?clById(s.clientId):null, cg=cgById(cgId);
+  var taken=r.why==="taken";
+  var who=r.axisCgName || (r.axisCgId!=null ? ("AxisCare caregiver "+r.axisCgId) : "somebody else");
+  mEl.innerHTML='<div class="mh"><span class="mt">This shift has changed in AxisCare</span>'+
+    '<button class="mc" onclick="closeModal()">\u00d7</button></div>'+
+    '<div class="mb"><div class="bw-alert hard">'+ic("alerts",22)+'<div>'+
+      '<div class="bw-h">'+(taken
+        ? esc(who)+" is already assigned to this visit"
+        : "This visit has been cancelled in AxisCare")+'</div>'+
+      '<div class="bw-sub">The open-shift list is loaded once when the page opens, so it can be '+
+      'hours old. AxisCare was re-checked just now and disagrees, so '+esc(cg?cg.name:"the caregiver")+
+      ' was NOT assigned.</div></div></div>'+
+      '<div class="bw-detail">'+
+        '<div><span class="bw-l">Client</span> '+esc(cl?cl.name:"\u2014")+'</div>'+
+        '<div><span class="bw-l">Shift</span> '+(s?esc(fmtDay(s.start)+" "+fmtTime(s.start)+"\u2013"+fmtTime(s.end)):"\u2014")+'</div>'+
+        '<div><span class="bw-l">AxisCare now says</span> '+(taken?"assigned to "+esc(who):"removed")+'</div>'+
+      '</div>'+
+      '<div class="subnote" style="margin-top:12px">Reload the page to pull a fresh list of open shifts.</div>'+
+    '</div>'+
+    '<div class="mf"><button class="btn" onclick="closeModal()">Close</button>'+
+    '<button class="btn pri" onclick="location.reload()">Reload</button></div>';
+  mbg.classList.add("show");
+}
+
 function dispAccept(shiftId,cgId){ const s=state.shifts.find(x=>x.id===shiftId); if(!s) return; const blk=cgBlockFor(cgId, s.clientId); if(blk){ openBlockWarn(shiftId,cgId); return; } doAssign(shiftId,cgId); }
-function doAssign(shiftId,cgId,override){ const s=state.shifts.find(x=>x.id===shiftId); pushContact(shiftId,cgId,'accepted',{note:'Assigned'}); s.status='filled'; s.assigned=cgId; s.callOff=false; s.replacementNeeded=false; s.escalated=false; s.filledToday=true; const cl=clById(s.clientId); logSchedChange('covered', s, {caregiverId:cgId}); logActivity(`${cl.name} shift reassigned to ${cgById(cgId).name}`, shiftId); if(override){ logActivity(`Client-block override \u2014 ${cgById(cgId).name} assigned to ${cl.name} despite ${override.level==='hard'?'HARD':'soft'} block (approved by ${override.by||state.onShift}): ${override.reason}`, shiftId); } resolveProblem({type:'Shift covered', client:cl.name, caregiver:cgById(cgId).name, detail:'Replacement assigned', shiftId}); toast(cgById(cgId).name+' assigned \u2713 \u2014 shift covered'); state.autoOffer=null; state.aoManage=false; closeModal(); render(); }
+/* Guarded. doAssignNow holds what this used to do, so every existing
+   caller keeps calling doAssign and gets the AxisCare re-check for free. */
+function doAssign(shiftId,cgId,override){ guardAssign(shiftId,cgId,function(){ doAssignNow(shiftId,cgId,override); }); }
+function doAssignNow(shiftId,cgId,override){ const s=state.shifts.find(x=>x.id===shiftId); pushContact(shiftId,cgId,'accepted',{note:'Assigned'}); s.status='filled'; s.assigned=cgId; s.callOff=false; s.replacementNeeded=false; s.escalated=false; s.filledToday=true; const cl=clById(s.clientId); logSchedChange('covered', s, {caregiverId:cgId}); logActivity(`${cl.name} shift reassigned to ${cgById(cgId).name}`, shiftId); if(override){ logActivity(`Client-block override \u2014 ${cgById(cgId).name} assigned to ${cl.name} despite ${override.level==='hard'?'HARD':'soft'} block (approved by ${override.by||state.onShift}): ${override.reason}`, shiftId); } resolveProblem({type:'Shift covered', client:cl.name, caregiver:cgById(cgId).name, detail:'Replacement assigned', shiftId}); toast(cgById(cgId).name+' assigned \u2713 \u2014 shift covered'); state.autoOffer=null; state.aoManage=false; closeModal(); render(); }
 function openBlockWarn(shiftId,cgId){ const s=state.shifts.find(x=>x.id===shiftId), cg=cgById(cgId), cl=clById(s.clientId), blk=cgBlockFor(cgId,s.clientId); const hard=(blk.level||'hard')==='hard'; state._bw={shiftId,cgId,hard};
   mEl.innerHTML=`<div class="mh"><span class="mt">${hard?'Assignment blocked':'Assignment warning'}</span><button class="mc" onclick="closeModal()">×</button></div>
   <div class="mb">
@@ -12474,7 +12588,10 @@ function logContact(result, opt){
   render();
 }
 
-function assignShift(shiftId, cgId){
+/* Same shape as doAssign above: the name every caller already uses now
+   carries the check, and the old body moves down one level. */
+function assignShift(shiftId, cgId){ guardAssign(shiftId,cgId,function(){ assignShiftNow(shiftId,cgId); }); }
+function assignShiftNow(shiftId, cgId){
   const s=state.shifts.find(x=>x.id===shiftId);
   s.status='filled'; s.assigned=cgId; s.callOff=false;
   logSchedChange('assigned', s, {caregiverId:cgId});
@@ -13863,6 +13980,114 @@ var AxisLive = (function () {
     };
   }
 
+  /* ---------- THE OPEN-SHIFT MIRROR --------------------------------
+
+     Reads public.open_shifts instead of deriving open shifts in the
+     browser. The derivation is unchanged - it just happens in
+     netlify/functions/openshifts-sync now, once every few minutes for
+     the whole desk, instead of 14 sequential AxisCare requests and 1,321
+     visits on every page load in every session.
+
+     THE SHAPE IS IDENTICAL to mapOpenShift(). Same ids from the same
+     shiftId(), same fields, same constants. That is deliberate and load-
+     bearing: `shifts` is a tracked CLOUD slice, so a record that differs
+     from what the live scan produced would be diffed into the overlay and
+     written to Supabase as though a scheduler had typed it. Nothing
+     downstream can tell where the row came from.
+
+     IT FALLS BACK TO THE LIVE SCAN. If the table is empty because the
+     sync has never run, or the heartbeat is cold because it died three
+     hours ago, or Supabase is unreachable, this returns the live scan
+     instead. So the first deploy is a non-event - schema, function and
+     this file can land in any order - and a dead sync degrades to exactly
+     the app we had yesterday rather than to a blank coverage board.
+     Slow and right beats fast and wrong at 7am.
+
+     Ageing out reads last_ok_at, NOT last_run_at: only a run that scanned
+     the WHOLE window is evidence that the absence of a shift means it is
+     no longer open. A partial run updates last_run_at and must not make
+     the mirror look fresh. */
+  var MIRROR_COLD_MS = 45 * 60 * 1000;   /* past this, stop trusting it */
+
+  function mirrorRowToShift(r) {
+    /* mapOpenShift builds `end` from `new Date(undefined)` when AxisCare
+       gave no end, which is an Invalid Date. Reproduced exactly rather
+       than improved: fmtTime and the sorters already cope with it, and a
+       null here would be a different value in the CLOUD diff. */
+    return {
+      id: shiftId(r.visit_id),
+      axisVisitId: r.visit_id,
+      source: 'axiscare',
+      clientId: (r.client_id != null) ? 'k' + r.client_id : null,
+      start: new Date(r.starts_at),
+      end: new Date(r.ends_at),
+      status: 'open',
+      assigned: null,
+      callOff: false,
+      openedAt: null,
+      service: r.service || null
+    };
+  }
+
+  /* Fire-and-forget. The read is what tells the backend somebody is
+     working, so the sync follows real usage instead of the clock - a
+     quiet weekend costs no AxisCare calls at all. Deliberately NOT
+     awaited: the point is that nobody waits for AxisCare. The function
+     debounces and holds a lock, so three schedulers opening at 9am
+     produce one scan, not three. */
+  function nudgeOpenShiftSync() {
+    try {
+      fetch('/.netlify/functions/openshifts-sync', { method: 'POST' })
+        .catch(function () {});
+    } catch (e) {}
+  }
+
+  function fetchOpenShiftsMirrored(get, opts) {
+    var cfg = window.SCHEDULER_CONFIG || {};
+    var live = function (why) {
+      console.info('[openshifts] live scan - ' + why);
+      return fetchOpenShifts(get, opts).then(function (r) {
+        r.source = 'live'; r.fallbackReason = why; return r;
+      });
+    };
+    if (!cfg.supabaseUrl || !cfg.supabaseAnonKey) return live('no Supabase keys');
+
+    var base = String(cfg.supabaseUrl).replace(/\/+$/, '');
+    var H = { apikey: cfg.supabaseAnonKey, Authorization: 'Bearer ' + cfg.supabaseAnonKey };
+    var grab = function (p) {
+      return fetch(base + p, { headers: H }).then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      });
+    };
+
+    return Promise.all([
+      grab('/rest/v1/open_shifts?select=visit_id,client_id,starts_at,ends_at,service&order=starts_at.asc'),
+      grab('/rest/v1/open_shifts_sync?id=eq.openshifts&select=last_ok_at,last_run_at,last_status,window_from,window_to')
+    ]).then(function (parts) {
+      var rows = parts[0] || [], st = (parts[1] || [])[0] || null;
+      nudgeOpenShiftSync();
+
+      if (!st || !st.last_ok_at) return live('the sync has not completed a scan yet');
+      var age = Date.now() - new Date(st.last_ok_at).getTime();
+      if (!(age >= 0) || age > MIRROR_COLD_MS)
+        return live('mirror is ' + Math.round(age / 60000) + 'm old');
+
+      /* A shift whose start has passed since the last sync is history, not
+         coverage - the same `> now` test the live scan applies. */
+      var now = (opts && opts.now) || new Date();
+      var shifts = rows.map(mirrorRowToShift)
+        .filter(function (x) { return x.clientId && x.start > now; });
+      console.info('[openshifts] mirror - ' + shifts.length + ' open, ' +
+        Math.round(age / 1000) + 's old');
+      return { shifts: shifts, scanned: rows.length, requests: 2,
+               from: st.window_from, to: st.window_to,
+               source: 'mirror', syncedAt: st.last_ok_at, ageMs: age };
+    }).catch(function (e) {
+      return live('mirror unreadable - ' + ((e && e.message) || e));
+    });
+  }
+
   /* Scans the window for visits needing coverage. Cost is linear in
      the window: ~8 requests / 4s for 4 weeks on this account. */
   function fetchOpenShifts(get, opts) {
@@ -14078,6 +14303,7 @@ var AxisLive = (function () {
     /* What the last client fetch actually returned - for verifying the count. */
     lastClientFetch: function () { return lastClientFetch; },
     fetchOpenShifts: fetchOpenShifts,
+    fetchOpenShiftsMirrored: fetchOpenShiftsMirrored,
     mapOpenShift: mapOpenShift,
     fetchCaregiverVisits: fetchCaregiverVisits,
     fetchClientVisits: fetchClientVisits,
@@ -14703,26 +14929,51 @@ var ROSTER = (function () {
        records the whole dataset as though a human typed it. */
     var problemsEarly = [];
 
-    /* NOTHING PAINTS UNTIL ALL FIVE HAVE SETTLED. That is slower than it
-       needs to be — the roster is ready in ~2s and waits on an ~5s shift
-       scan it does not read — and it is deliberate for now.
+    /* THE CAREGIVER LIST PAINTS ON ROSTER + PROFILES, NOT ON ALL FIVE.
 
-       The reason is `profiles`, assigned in the handler below. Until then
-       applyProfile() returns on its first line, so a roster painted early
-       carries no employment_status and every one of the 82 caregivers the
-       desk has parked reads as Active. Waiting is what makes the FIRST
-       thing on screen the RIGHT thing.
+       Measured: fetchProfiles 1.0s, roster 2.1s, clients 3.3s,
+       fetchOpenShifts 5.1s. Waiting for all five made the caregiver list as
+       slow as a 638-visit shift scan it does not read.
 
-       Making this fast is a real and wanted improvement; it just has to
-       carry the profiles with it. See CLAUDE.md, “The roster paints once”. */
+       `profiles` is the reason this could not simply be moved earlier.
+       applyProfile() returns on its first line while it is empty, so a
+       roster painted without it carries no employment_status and all 182
+       caregivers read Active when the desk has parked 82 — which is what
+       c.active, and therefore Find Coverage, filters on. An earlier attempt
+       (cd5b873, reverted) painted at 2.1s and got exactly that wrong.
+
+       So both promises are held, and the paint waits on the PAIR. Profiles
+       land first anyway, so this costs nothing and the split is right from
+       the first frame.
+
+       Safe against the boot-order rule in CLAUDE.md: this runs BEFORE
+       CLOUD.boot() snapshots its baseline, which is exactly what the rule
+       asks for. It cannot trigger a save either — hookRender() and
+       booted=true are both set in finishBoot(), and scheduleSave() returns
+       early while booted is false.
+
+       The plausibility guard is repeated here on purpose: it has to run
+       BEFORE anything reaches state.caregivers, and the tail runs too late
+       to protect this paint. */
+    var rosterP   = withTimeout(AxisCare.roster(), ROSTER_TIMEOUT_MS,
+        'AxisCare did not respond within ' + Math.round(ROSTER_TIMEOUT_MS/1000) + 's');
+    var profilesP = fetchProfiles();
+
+    Promise.all([rosterP, profilesP]).then(function (pair) {
+      var list = pair[0], pf = pair[1];
+      if (!list || list.length < 10) return;   /* let the tail report it */
+      profiles = pf || {};                     /* BEFORE applyRoster, always */
+      applyRoster(list);
+      render();
+      console.info('[axiscare] caregiver list painted at ' + ((Date.now() - t0)/1000).toFixed(1) + 's');
+    }).catch(function () { /* the settled path below reports every failure */ });
+
     return Promise.all([
-      withTimeout(AxisCare.roster(), ROSTER_TIMEOUT_MS,
-        'AxisCare did not respond within ' + Math.round(ROSTER_TIMEOUT_MS/1000) + 's')
-        .catch(function (e) { return { __err: e }; }),
+      rosterP.catch(function (e) { return { __err: e }; }),
       AxisLive.fetchClients(function (p, q) { return AxisCare.get(p, q); }).catch(function (e) { return { __err: e }; }),
-      AxisLive.fetchOpenShifts(function (p, q) { return AxisCare.get(p, q); }, {}).catch(function (e) { return { __err: e }; }),
+      AxisLive.fetchOpenShiftsMirrored(function (p, q) { return AxisCare.get(p, q); }, {}).catch(function (e) { return { __err: e }; }),
       fetchCareNotes().catch(function (e) { return { __err: e }; }),
-      fetchProfiles().catch(function (e) { return { __err: e }; })
+      profilesP.catch(function (e) { return { __err: e }; })
     ]).then(function (parts) {
       var cgRes = parts[0], clRes = parts[1], shRes = parts[2], cnRes = parts[3], pfRes = parts[4];
 
