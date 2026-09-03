@@ -7392,7 +7392,12 @@ function availDaysUntilDue(c){ const d=availNextDue(c); return d?Math.ceil((d-NO
 function availDue(c){ const n=availDaysUntilDue(c); return n!=null && n<=0; }
 function fmtDate(d){ return new Date(d).toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}); }
 function fmtTenure(d){ const days=Math.max(0,Math.floor((NOW-new Date(d))/864e5)); const y=Math.floor(days/365), m=Math.floor((days%365)/30); const parts=[]; if(y)parts.push(y+' year'+(y===1?'':'s')); parts.push(m+' month'+(m===1?'':'s')); return parts.join(' '); }
-function openCaregiver(id){ state.cgReturn=null; state.cgOpen=id; state.cgCalMonth=0; state.view='avail'; render(); window.scrollTo(0,0); }
+/* Opening ANY caregiver starts clean. state.cgTab and state.cbDel are single
+   globals, not per-caregiver, and neither was reset here: the tab carried
+   over so a second caregiver opened straight onto Profile rather than
+   Overview, and an armed Remove confirm survived the trip and came back
+   pre-armed on whatever was opened next. */
+function openCaregiver(id){ state.cgReturn=null; state.cgOpen=id; state.cgCalMonth=0; state.cgTab='overview'; state.cbDel=null; state.view='avail'; render(); window.scrollTo(0,0); }
 /* Opened from a row on Find Coverage. The only thing recorded is where to
    go back to - none of the coverage state (client, date, shift, filters,
    contact log, the ranked list) is touched, so closing re-renders exactly
@@ -7402,7 +7407,7 @@ function closeCgCalendar(){
   state.cgOpen=null; state.cgReturn=null; state.view='coverage';
   render(); window.scrollTo(0,0);
 }
-function backToCaregivers(){ state.cgOpen=null; render(); }
+function backToCaregivers(){ state.cgOpen=null; state.cbDel=null; render(); }
 function viewAvail(){
   if(state.cgOpen) return viewCaregiverWorkspace(cgById(state.cgOpen));
   const d=cgDir();
@@ -9937,15 +9942,22 @@ function clientBlocksBody(c){
      Not Assign" now, and repeating it would print it twice. */
   return '<div class="ws-grp">' + (ops.clientRestr.length
     ? `<div class="cb-list">${ops.clientRestr.map((r,i)=>{
-        const hard=(r.level||'hard')==='hard', cl2=clById(r.client), asking=state.cbDel===c.id+'|'+i;
+        /* Armed on the CLIENT id, never on the row index. A caregiver holds
+           at most one block per client (acrSave builds the array by
+           filtering state.clients), so this addresses the same block however
+           the array is later ordered or shortened - by another scheduler's
+           save landing on a poll, or by acrSave rewriting it in a different
+           order. Keyed by index, an armed row that came back after any of
+           that pointed at whatever now sat at that position. */
+        const hard=(r.level||'hard')==='hard', cl2=clById(r.client), asking=state.cbDel===c.id+'|'+r.client;
         /* Asked in place, the same way an update is deleted — a block is the
            record that stops an assignment, so one stray click should not
            quietly clear it. */
         const acts = asking
-          ? `<button class="btn xs danger" onclick="cbRemove('${c.id}',${i})">Remove</button>
+          ? `<button class="btn xs danger" onclick="cbRemove('${c.id}','${r.client}')">Remove</button>
              <button class="btn xs" onclick="cbRemoveAsk(null)">Keep</button>`
-          : `<button class="btn xs cb-more" onclick="openCgBlock('${c.id}',${i})">View Details</button>
-             <button class="btn xs cb-more" onclick="cbRemoveAsk('${c.id}|${i}')">Remove</button>`;
+          : `<button class="btn xs cb-more" onclick="openCgBlock('${c.id}','${r.client}')">View Details</button>
+             <button class="btn xs cb-more" onclick="cbRemoveAsk('${c.id}|${r.client}')">Remove</button>`;
         return `<div class="cb-item ${hard?'hard':'soft'}"><span class="cb-client">${cl2?esc(cl2.name):esc(r.client)}</span>${acts}</div>`;
       }).join('')}</div>`
     : `<div class="ws-none">No client blocks on file \u2014 this caregiver can be assigned to any client.</div>`) + '</div>';
@@ -10429,11 +10441,16 @@ function renderCgAllModal(){
    IS in the boot baseline, so a shortened array diffs as a patch and syncs;
    CLOUD.save flushes it rather than waiting on the debounce. */
 function cbRemoveAsk(key){ state.cbDel=key; render(); }
-function cbRemove(id, i){
+/* clientId, not a row index - see the arming comment on the card. If the
+   block is no longer there (another scheduler removed it while this row sat
+   armed) the confirm just clears rather than removing a neighbour. */
+function cbRemove(id, clientId){
   const c=cgById(id); if(!c) return;
-  const list=(c.ops.clientRestr||[]).slice(), gone=list[i];
+  const list=(c.ops.clientRestr||[]).slice();
+  const at=list.findIndex(function(r){ return r.client===clientId; });
+  const gone=at<0?null:list[at];
   if(!gone) { state.cbDel=null; return render(); }
-  list.splice(i,1);
+  list.splice(at,1);
   c.ops.clientRestr=list;
   c.ops.lastUpdated=new Date(); c.ops.lastUpdatedBy=state.onShift;
   state.cbDel=null; render();
@@ -10446,9 +10463,13 @@ function cbRemove(id, i){
    the Edit popup on the section, and this is the same record, spelled out.
    Keyed by INDEX rather than client id — the list is an array and nothing
    stops two entries naming the same client. */
-function openCgBlock(id, i){
+/* clientId, not a row index — the last of the index-addressed block paths.
+   This one only ever showed details, so a stale index could not destroy
+   anything; it is keyed the same way as the rest so there is no second
+   convention to remember. */
+function openCgBlock(id, clientId){
   const c=cgById(id); if(!c) return;
-  const r=(c.ops.clientRestr||[])[i]; if(!r) return;
+  const r=(c.ops.clientRestr||[]).find(function(x){ return x.client===clientId; }); if(!r) return;
   const cl=clById(r.client), hard=(r.level||'hard')==='hard';
   const f=(l,v,span)=>`<div class="cb-f${span?' span':''}"><span class="cb-fl">${l}</span><span class="cb-fv">${v}</span></div>`;
   mEl.innerHTML=`<div class="mh"><span class="mt">Client Block \u2014 ${esc(cl?cl.name:r.client)}</span>
@@ -11115,7 +11136,15 @@ var NO_AXIS_SOURCE={
 function retryAxis(){
   if(typeof ROSTER==='undefined') return;
   toast('Reconnecting to AxisCare\u2026');
-  ROSTER.hydrate().then(function(){ render(); });
+  ROSTER.hydrate().then(function(){
+    /* hydrate() rebuilt every caregiver object, so the scheduler’s own work
+       has to be layered back on BEFORE anything renders — a render schedules
+       a save, and a save against un-patched records deletes them. Runs first,
+       and synchronously, for exactly that reason. */
+    try{ if(typeof CLOUD!=='undefined' && CLOUD.relayer) CLOUD.relayer(); }
+    catch(e){ console.warn('[cloud] relayer failed',e); }
+    render();
+  });
 }
 
 /* One banner, telling the truth about where this screen's data came from. */
@@ -15051,7 +15080,28 @@ const CLOUD = (function(){
     try{ localStorage.setItem(LS_KEY, JSON.stringify(o)); }
     catch(e){ console.warn('[cloud] local save failed', e); }
   }
-  function bodyOf(o){ return sstr({ a:o.adds, d:o.dels, p:o.patches, m:o.maps, s:o.scalars }); }
+  /* THE COMPARISON KEY for “has anything actually changed”. Comparison only:
+     what gets stored and pushed is the overlay itself, untouched.
+
+     It has to be ORDER-INSENSITIVE over adds[] and dels[]. sstr() sorts
+     object keys but deliberately not array elements, and two sessions
+     legitimately hold the same records in a different array order: the
+     session that creates one unshifts it to the front (logActivity,
+     logFormActivity, sentForms, todayResolved …) while applyOverlay appends
+     whatever it receives (`arr.push(rr)`), and only activityLog is re-sorted
+     afterwards. Left uncanonicalised, two tabs holding an identical SET of
+     records produce permanently different bodies, doSave()'s no-op guard
+     never fires, and each tab pushes back at the other forever - the exact
+     exchange the lastBody change in pull() exists to end.
+
+     Sorting the SERIALISED members means it does not matter which fields a
+     record has or whether it is keyed by id or by signature. */
+  function bodyOf(o){
+    var a={}, d={};
+    Object.keys(o.adds||{}).forEach(function(k){ a[k]=(o.adds[k]||[]).map(sstr).sort(); });
+    Object.keys(o.dels||{}).forEach(function(k){ d[k]=(o.dels[k]||[]).slice().sort(); });
+    return sstr({ a:a, d:d, p:o.patches, m:o.maps, s:o.scalars });
+  }
 
   function scheduleSave(){
     if(muted || !booted) return;
@@ -15100,7 +15150,28 @@ const CLOUD = (function(){
   function saveFailed(msg){
     setStatus('error', msg);
     clearTimeout(retryTimer);
-    retryTimer=setTimeout(function(){ retryTimer=null; if(!muted && booted) doSave(); }, RETRY_MS);
+    /* A RETRY MUST ACTUALLY RETRY.
+
+       doSave() returns early when the overlay matches lastBody, and since
+       pull() began setting lastBody to the SERVER's body that guard can now
+       fire here - on exactly the case this timer exists for: our write
+       reached the database but its acknowledgement did not, so the row
+       already holds our content. The tick nulls retryTimer before calling
+       doSave, and `unsent`/`failed` are cleared in one place only (push()'s
+       success branch), so an early return here would end the chain with both
+       stuck true and nothing left to re-arm it.
+
+       That matters because `unsent` is the gate on pull()'s re-layer: stuck
+       true, every later poll would write this session's older records back
+       over another scheduler's newer ones and push the reversion. Clearing
+       lastBody guarantees one real push attempt. If the database already has
+       our content that costs a single identical write, after which the flags
+       are clear and it goes quiet. */
+    retryTimer=setTimeout(function(){
+      retryTimer=null;
+      lastBody=null;
+      if(!muted && booted) doSave();
+    }, RETRY_MS);
     /* Said once per outage, not once per attempt. */
     if(!failed){
       failed=true;
@@ -15152,8 +15223,37 @@ const CLOUD = (function(){
 
   function pull(force){
     if(!sb) return Promise.resolve();
-    return sb.from(TABLE).select('overlay,rev,updated_by').eq('id',WORKSPACE).maybeSingle()
+    /* TWO READS, AND THE FIRST IS DELIBERATELY TINY.
+
+       This runs every POLL_MS in every visible session, and the overwhelming
+       majority of the time it finds nothing new and returns two lines later.
+       Selecting the whole row meant every one of those no-op polls pulled the
+       entire `overlay` column down and threw it away: 378KB measured on the
+       live workspace, ~1.1MB a minute per session, about 1.6GB a day across
+       three schedulers - to learn one integer.
+
+       So ask for `rev` alone first, and only pay for the column when it has
+       actually moved. `serverRev` is still taken from the SECOND read, so the
+       rev and the overlay it is recorded against always come from the same
+       row version even if somebody writes between the two calls.
+
+       A missing row falls through to the full read as well, because the
+       first-run insert branch below needs it. */
+    var head = force
+      ? Promise.resolve(null)             /* forced: the column is wanted either
+                                             way, so do not pay for a head read
+                                             boot would only discard */
+      : sb.from(TABLE).select('rev').eq('id',WORKSPACE).maybeSingle();
+    return Promise.resolve(head)
+      .then(function(h){
+        if(h){
+          if(h.error){ setStatus('error',h.error.message); return null; }
+          if(h.data && h.data.rev===serverRev){ setStatus('synced'); return null; }
+        }
+        return sb.from(TABLE).select('overlay,rev,updated_by').eq('id',WORKSPACE).maybeSingle();
+      })
       .then(function(res){
+        if(!res) return;                      /* nothing new - already synced */
         if(res.error){ setStatus('error',res.error.message); return; }
         if(!res.data){                        /* first run — create the row */
           var o=buildOverlay();
@@ -15186,7 +15286,26 @@ const CLOUD = (function(){
         if(mine){ try{ applyOverlay(mine); }catch(e){ console.warn('[cloud] re-layer failed',e); } }
         try{ if(typeof ROSTER!=='undefined') ROSTER.reconcile(); }catch(e){ console.warn('[roster] reconcile failed',e); }
         muted=false;
-        lastBody=null;                        /* remote may differ from ours */
+        /* WHAT THE DATABASE NOW HOLDS. lastBody is doSave()'s only no-op
+           guard (`if(body===lastBody) return`), so this is what decides
+           whether the render below turns into a write.
+
+           It used to be null here, reasoning that the remote may differ from
+           ours. True - but nulling it also disarms the guard for the case
+           where it does NOT differ. Every applying pull then pushed back
+           content identical to what it had just received, which bumped the
+           rev, which made the OTHER session pull, null its own lastBody and
+           push back. Two idle tabs sustained a revision roughly every 15
+           seconds with nobody typing, and each turn ran applyOverlay,
+           ROSTER.reconcile() and a full re-render in every open session.
+
+           Setting it to the SERVER's body keeps the original intent exactly:
+           if the merge re-layered local work (`mine`), our body differs and
+           we still push; if the merge produced what the server already has,
+           the guard fires and the exchange ends. sstr() sorts keys
+           recursively and revive()/sstr() round-trips the live 387KB overlay
+           unchanged, so the two bodies are directly comparable. */
+        lastBody=bodyOf(res.data.overlay);
         /* Cache the MERGED result, not the server's overlay. Saving the raw
            remote copy dropped anything entered locally that the debounced
            push had not sent yet - click Save, let a poll land, refresh, and
@@ -15273,6 +15392,40 @@ const CLOUD = (function(){
   /* ---------- public ---------- */
   return {
     boot:    boot,
+    /* CALL THIS AFTER ANYTHING REBUILDS state.caregivers POST-BOOT.
+
+       ROSTER.hydrate() constructs every caregiver from scratch, so a refetch
+       after boot (retryAxis) throws away everything applyOverlay had written
+       onto those objects - client blocks, notes, flags, restrictions,
+       employment overrides, verify history. Nothing put it back, and because
+       buildOverlay() diffs against BASE - snapshotted from the identical
+       construction path - the rebuilt records match the baseline exactly, no
+       patch is emitted, and buildOverlay drops patches.caregivers entirely.
+       The next debounced save then wrote that omission to the shared row:
+       all 180 caregiver patches gone, for all three schedulers, with no
+       per-field tombstone to recover from.
+
+       The LOCAL overlay is the right source, not the server's: it is written
+       by both doSave() and pull(), so it already carries anything the
+       debounced push has not sent yet. applyOverlay only ever assigns and
+       guards its adds, so re-applying is idempotent - safe to call when the
+       hydrate failed and nothing was actually rebuilt.
+
+       Muted so the re-apply cannot schedule a save of its own half-way
+       through, and restored in a finally so a throw inside applyOverlay
+       cannot leave saving switched off for the rest of the session. */
+    relayer: function(){
+      if(!booted) return;
+      muted=true;
+      try{
+        var raw=localStorage.getItem(LS_KEY);
+        if(raw) applyOverlay(JSON.parse(raw));
+        /* Same rule as boot: an overlay can name caregivers the fresh roster
+           no longer has. */
+        if(typeof ROSTER!=='undefined') ROSTER.reconcile();
+      }catch(e){ console.warn('[cloud] overlay re-apply failed',e); }
+      finally{ muted=false; }
+    },
     save:    function(){ clearTimeout(saveTimer); doSave(); },
     sync:    function(){ return pull(true); },
     status:  function(){ return { state:statusState, msg:statusMsg, rev:serverRev, workspace:WORKSPACE, cloud:!!sb }; },

@@ -1554,6 +1554,104 @@ Leftover `dc.roster.v1` entries in schedulers’ browsers are inert — nothing
 reads the key any more. Clearing one needs DevTools → Application → Local
 Storage, or “Clear site data”; a hard reload does **not** remove it.
 
+3d. **`lastBody` is what stops the two-tab write loop — keep it honest.**
+
+    `doSave()`’s only no-op guard is `if(body===lastBody) return`. `pull()`
+    used to set `lastBody=null` after an applying pull, which disarmed that
+    guard even when the merge produced exactly what the server had just sent.
+    Every applying pull therefore pushed back identical content, bumping the
+    rev, which made the other session pull and push back. Two idle tabs held
+    a revision roughly every 15 seconds — measured at 90 in 21 minutes with
+    byte-identical data — and every turn ran `applyOverlay`,
+    `ROSTER.reconcile()` and a full re-render in each open session.
+
+    It is now `lastBody=bodyOf(res.data.overlay)`: push only if the merge
+    left us differing from the database. Two things make that work, and both
+    must stay:
+
+    - **`bodyOf()` is order-insensitive over `adds[]` and `dels[]`.** `sstr()`
+      sorts object keys but not array elements, and two sessions legitimately
+      hold the same records in different order — whoever creates a record
+      `unshift`s it, while `applyOverlay` `push`es what it receives. Without
+      canonicalising, the bodies never match and the loop survives. Verified
+      on the live 387KB overlay: reversing all 8 adds arrays leaves the body
+      unchanged.
+    - **The retry tick clears `lastBody` before calling `doSave()`.** A retry
+      must actually retry. `unsent` and `failed` are cleared in exactly one
+      place — `push()`’s success branch — and the tick nulls its own timer
+      first, so an early return at the guard would strand both flags with
+      nothing left to re-arm. Stuck `unsent` is the gate on `pull()`’s
+      re-layer, which would then write this session’s older records over a
+      colleague’s newer ones on every poll and push the reversion. This was
+      introduced by the first version of the fix and caught in review.
+
+3e. **Anything that rebuilds `state.caregivers` after boot must re-layer the
+    overlay — `CLOUD.relayer()`.**
+
+    `ROSTER.hydrate()` constructs every caregiver from scratch, so a post-boot
+    refetch (`retryAxis`) discards everything `applyOverlay` wrote onto those
+    objects. Nothing put it back, and because `buildOverlay()` diffs against
+    `BASE` — snapshotted from the identical construction path — the rebuilt
+    records match the baseline, no patch is emitted, and `buildOverlay` drops
+    `patches.caregivers` entirely. The next debounced save wrote that omission
+    to the shared row: **all 180 caregiver patches gone, for all three
+    schedulers**, with no per-field tombstone to recover from.
+
+    `relayer()` re-applies the LOCAL overlay (it carries anything the debounced
+    push has not sent yet), then `ROSTER.reconcile()`, muted so it cannot
+    schedule a save half-way, with `muted` restored in a `finally`.
+
+3f. **The poll reads `rev` first and the `overlay` column only when it moved.**
+
+    `pull()` runs every `POLL_MS` in every visible session and almost always
+    finds nothing new. It used to `select('overlay,rev,updated_by')` every
+    time and discard the column two lines later. Measured against the live
+    workspace: **418.8 KB per no-op poll**, ~1.1 MB a minute per session,
+    **1.73 GB a day** across three schedulers — to learn one integer.
+
+    It now asks for `rev` alone first: **14 bytes**, a 99.997% reduction,
+    0.1 MB a day for the whole desk. The full column is fetched only when the
+    revision has actually moved, or when the caller passed `force` — boot,
+    `CLOUD.sync()` and the `online` listener want it either way, so those skip
+    the head read rather than paying for one they would discard.
+
+    `serverRev` is still taken from the **second** read, so the revision and
+    the overlay it is recorded against always come from the same row version
+    even if somebody writes between the two calls. A missing row falls through
+    to the full read as well, because the first-run insert branch needs it.
+
+    The trade is one extra round trip on the rare path where something HAS
+    changed. That is the right way round: the common case went from 418.8 KB
+    to 14 bytes.
+
+    This composes with 3d — `lastBody` stops the needless writes, this stops
+    the needless reads. Neither makes the other redundant.
+
+### KNOWN, OPEN: Retry still writes AxisCare data into the shared overlay
+
+**Not fixed. Pre-existing — it predates `relayer()` and is not caused by it.**
+
+`hydrate()` replaces `state.clients`, `state.shifts` and `state.careNotes` as
+well as the caregivers, but `BASE` is still the boot-time snapshot and nothing
+refreshes it. So the save after a Retry diffs freshly-fetched AxisCare records
+against a stale baseline:
+
+- a care note or shift that arrived since boot is not in `BASE` → **`o.adds`**
+- one that was in `BASE` and AxisCare no longer returns — an open shift filled
+  in the intervening hour → **`o.dels`**, and `dels` is **not** gated on
+  `patchOnly`, so `clients` and `caregivers` produce them too
+
+Both are then replayed by `applyOverlay()` on every future boot for everyone:
+AxisCare-derived data written to the shared row as though a scheduler typed it,
+and a real coverage gap silently hidden. Same family as the 323KB bug in 2.
+
+The fix is to re-snapshot `BASE` for exactly the slices `hydrate()` actually
+reassigned, before `relayer()` re-applies the overlay — mirroring `finishBoot`.
+It must be exactly those: a slice whose fetch FAILED still holds overlay-applied
+data, and re-snapshotting that one would bake the scheduler’s own work into the
+baseline and delete it from the overlay on the next save. `hydrate()` therefore
+has to report which slices it assigned rather than the caller guessing.
+
 4. **`config.js` is generated at deploy time** from Netlify environment
    variables. Editing it has no effect — the build overwrites it. The committed
    copy is intentionally empty.
