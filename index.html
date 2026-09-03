@@ -9499,13 +9499,13 @@ const CG_PERS_OPTS=['Warm','Friendly','Respectful','Patient','Calm','Confident',
    caregiver is WILLING to take that kind of case belongs in this list. */
 const CG_SKILL_GROUPS=[
   {label:'Care Experience',     opts:['Dementia / Alzheimer’s care','Parkinson’s care',
-    'Stroke care','Diabetes care','Post-hospital recovery']},
+    'Stroke care','Diabetes care','Hospice care','Post-hospital recovery']},
   {label:'Mobility & Safety',   opts:['Transfer assistance','Gait belt','Hoyer lift','Bedbound care',
-    'Repositioning','Fall prevention','Wheelchair assistance']},
+    'Repositioning','Fall prevention','Mobility assistance','Wheelchair assistance']},
   {label:'Personal Care',       opts:['Bathing assistance','Dressing assistance','Grooming / hygiene',
     'Toileting assistance','Incontinence care','Feeding assistance']},
   {label:'Daily Living Support',opts:['Meal preparation','Medication reminders','Companionship',
-    'Light housekeeping','Transportation / errands']}
+    'Light housekeeping','Transportation / errands & appointments']}
 ];
 /* Flat, in group order — chipToggle indexes into this, cgChips filters by
    it, and the resume reads it. One source, so a group cannot drift out of
@@ -9581,6 +9581,13 @@ const CG_CHIP_RENAME={
     'Stroke':'Stroke care', 'Bedbound clients':'Bedbound care',
     'Fall-risk clients':'Fall prevention', 'Fall-risk care':'Fall prevention',
     'Incontinence':'Incontinence care',
+    /* Hospice care and Mobility assistance are back in the list, so the
+       AxisCare tags and retired names that mean them read again. */
+    'Hospice':'Hospice care', 'Hospice Support':'Hospice care',
+    'Good with hospice clients':'Hospice care',
+    'Mobility':'Mobility assistance', 'Mobility limitations':'Mobility assistance',
+    'Good with mobility assistance':'Mobility assistance',
+    'Transportation / errands':'Transportation / errands & appointments',
     'Post-hospital recovery':'Post-hospital recovery',
     /* Strengths */
     'Excellent companion':'Companionship', 'Strong with dementia behaviors':'Dementia / Alzheimer’s care',
@@ -9591,12 +9598,11 @@ const CG_CHIP_RENAME={
     'Strong repositioning skills':'Repositioning',
     'Good with fall-risk clients':'Fall prevention',
     'Good with medication reminders':'Medication reminders'
-    /* Deliberately unmapped, so nothing is invented onto a record: the
-       retired 'Hospice care', 'Personal care / ADLs', 'Mobility assistance'
-       and 'Care notes / documentation' have no single equivalent in the new
-       list. Their stored values are untouched; they simply stop being drawn,
-       and the next save writes the surviving vocabulary. Hospice is a
-       WILLINGNESS question now and is asked in Work Preferences. */
+    /* Deliberately unmapped, so nothing is invented onto a record:
+       'Personal care / ADLs' and 'Care notes / documentation' have no single
+       equivalent in this list. Their stored values are untouched; they
+       simply stop being drawn, and the next save writes the surviving
+       vocabulary. */
   }
 };
 
@@ -9830,7 +9836,6 @@ function prefVal(c,k){
      derived from that same tag (100 with it, 50 without), so reading a low
      number as a refusal would invent one — and a wrong No would quietly
      drop somebody out of assignments. */
-  if(k==='transfers')   return cgTag(c,'HLE') ? true : null;
   /* These rows are NOT seeded from Skills & Experience any more. The two
      sections now answer different questions — "knows how to use a Hoyer
      lift" is not "will take a bedbound case" — so reading one as the other
@@ -10930,14 +10935,8 @@ function workPrefsBody(c){
         ${row('Client gender preference', prefVal(c,'clientGender') ? esc(prefVal(c,'clientGender')) : 'Not recorded')}
         ${row('Smoking home', yn('smokingHome'))}
         ${row('Pets in home', yn('pets'))}
-        ${row('Can assist with transfers', yn('transfers'))}
-        ${row('Bedbound client', yn('bedbound'))}
-        ${row('Dementia care', yn('dementia'))}
-        ${row('Hospice care', yn('hospice'))}
-        ${row('Incontinence care', yn('incontinence'))}
         ${row('Overnight', yn('overnight'))}
         ${row('English proficiency', c.englishProficiency ? esc(ENGLISH_ALIAS[c.englishProficiency]||c.englishProficiency) : 'Not recorded')}
-        ${row('Errands/appointments', yn('errands'))}
       </div>
       ${tagsHtml}`;
 }
@@ -10957,8 +10956,19 @@ const WP_YN=[['','Not recorded'],['yes','Yes'],['no','No']];
 
    Any ops.prefs.hoyer a caregiver already has is left on the record
    untouched; nothing reads it. */
-const WP_TRI=['smokingHome','pets','transfers','bedbound','dementia',
-  'hospice','incontinence','overnight','errands'];
+/* PREFERENCES ONLY. The six capability rows that used to sit here —
+   transfers, bedbound, dementia, hospice, incontinence, errands — are gone:
+   each asked what a caregiver knows how to do, which is Skills &
+   Experience's question, and each now has an option there. What is left is
+   what a preference actually is: the shape of the shift, where they will
+   travel, and what the home is like.
+
+   The answers already stored under ops.prefs for those six are left on the
+   record untouched. Nothing reads them, and nothing writes them into Skills
+   either: "will take a bedbound case" is not evidence of having done one,
+   and asserting experience nobody recorded is the one thing the split
+   exists to prevent. */
+const WP_TRI=['smokingHome','pets','overnight'];
 function openWorkPrefsEdit(id){
   cgSnapStart(id);
   const c=cgById(id); if(!c) return;
@@ -11016,18 +11026,12 @@ function renderWpModal(){
       ${sel('clientGender','Client gender preference',[['','Not recorded'],['Either','Either'],['Female clients','Female clients'],['Male clients','Male clients']])}
       ${sel('smokingHome','Smoking home',WP_YN)}
       ${sel('pets','Pets in home',WP_YN)}
-      ${sel('transfers','Can assist with transfers',WP_YN)}
-      ${sel('bedbound','Bedbound client',WP_YN)}
-      ${sel('dementia','Dementia care',WP_YN)}
-      ${sel('hospice','Hospice care',WP_YN)}
-      ${sel('incontinence','Incontinence care',WP_YN)}
       ${sel('overnight','Overnight',WP_YN)}
       ${sel('english','English proficiency',[['','Not recorded']].concat(
         WP_ENGLISH.map(x=>[x,x]),
         /* a stored value outside the four stays pickable rather than being
            quietly dropped on the next save */
         (e.english && WP_ENGLISH.indexOf(e.english)<0) ? [[e.english, e.english]] : []))}
-      ${sel('errands','Errands/appointments',WP_YN)}
     </div>
     <div class="upd-acts"><button class="btn" onclick="wpCancel()">Cancel</button>
       <button class="btn pri" onclick="wpSave()">${ic('check',13)} Save</button></div></div>`;
@@ -12236,14 +12240,8 @@ const CG_REQUIRED=[
   {label:'Client gender preference',ok:c=>prefAnswered(c,'clientGender')},
   {label:'Smoking home preference', ok:c=>prefAnswered(c,'smokingHome')},
   {label:'Pets in home preference', ok:c=>prefAnswered(c,'pets')},
-  {label:'Can assist with transfers',ok:c=>prefAnswered(c,'transfers')},
-  {label:'Bedbound client',           ok:c=>prefAnswered(c,'bedbound')},
-  {label:'Dementia care',             ok:c=>prefAnswered(c,'dementia')},
-  {label:'Hospice care',              ok:c=>prefAnswered(c,'hospice')},
-  {label:'Incontinence care',         ok:c=>prefAnswered(c,'incontinence')},
   {label:'Overnight',                 ok:c=>prefAnswered(c,'overnight')},
   {label:'English proficiency',      ok:c=>hasVal(c.englishProficiency)},
-  {label:'Errands/appointments',      ok:c=>prefAnswered(c,'errands')},
   {label:'Caregiving experience',   ok:c=>hasVal(c.ops.experience)},
   {label:'Skills & experience',     ok:c=>cgChips(c,'skills').length>0},
   /* "if applicable" — having no blocks is the normal case and is never a
