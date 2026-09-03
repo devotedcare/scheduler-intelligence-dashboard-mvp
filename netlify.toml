@@ -71,6 +71,13 @@
 # function debounces anything closer than MIN_GAP_MS anyway. Correctness
 # does not rest on the cadence — an assignment is re-checked against
 # AxisCare before it is written (verifyShiftStillOpen in index.html).
+# NOTE: a scheduled function cannot be invoked over HTTP - Netlify answers
+# 403. So the browser posts to openshifts-sync-now instead, which carries no
+# schedule and delegates to the same handler. Do not add a schedule to the
+# "-now" twin, or the stale-while-revalidate trigger goes silent again.
+#
+# (matching-sync below has exactly this problem and nobody noticed: it is
+#  scheduled AND fetched from the browser, so its refresh has never run.)
 [functions."openshifts-sync"]
   schedule = "*/10 * * * *"
 

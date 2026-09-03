@@ -14128,10 +14128,17 @@ var AxisLive = (function () {
      quiet weekend costs no AxisCare calls at all. Deliberately NOT
      awaited: the point is that nobody waits for AxisCare. The function
      debounces and holds a lock, so three schedulers opening at 9am
-     produce one scan, not three. */
+     produce one scan, not three.
+
+     IT MUST BE THE "-now" TWIN. Netlify refuses HTTP invocation of a
+     SCHEDULED function with 403, so posting to openshifts-sync itself did
+     nothing at all - observed live 2026-09-03. matching-sync has the same
+     shape and has been quietly collecting 403s since it was written, which
+     its own catch hid. openshifts-sync-now carries no schedule and
+     delegates to the identical handler. */
   function nudgeOpenShiftSync() {
     try {
-      fetch('/.netlify/functions/openshifts-sync', { method: 'POST' })
+      fetch('/.netlify/functions/openshifts-sync-now', { method: 'POST' })
         .catch(function () {});
     } catch (e) {}
   }
@@ -15028,6 +15035,10 @@ var ROSTER = (function () {
        land BEFORE CLOUD.boot() snapshots its baseline, or the overlay
        records the whole dataset as though a human typed it. */
     var problemsEarly = [];
+    /* Which CLOUD slices this run actually replaced, for rebaseSlices().
+       Declared HERE, not inside a .then: it is written in the first handler
+       and read in the second, and they are separate function scopes. */
+    var refreshed = [];
 
     /* THE CAREGIVER LIST PAINTS ON ROSTER + PROFILES, NOT ON ALL FIVE.
 
@@ -15076,9 +15087,7 @@ var ROSTER = (function () {
       profilesP.catch(function (e) { return { __err: e }; })
     ]).then(function (parts) {
       var cgRes = parts[0], clRes = parts[1], shRes = parts[2], cnRes = parts[3], pfRes = parts[4];
-      /* Which CLOUD slices this run actually replaced. Only these may have
-         their baseline retaken - see rebaseSlices(). */
-      var refreshed = [];
+      refreshed.length = 0;          /* a retry re-reports from scratch */
 
       /* Profiles are additive: without them every caregiver still renders,
          just with less on the profile screen. So a failure is reported and
@@ -15202,7 +15211,14 @@ const CLOUD = (function(){
 
   /* ---- the only slices of state a human can change ---- */
   var SLICES = [
-    { path:'shifts',            key:'id' },
+    /* patchOnly, and for the same reason caregivers and clients are: every
+       shift comes from AxisCare. There is no code anywhere that creates one
+       - no state.shifts.push exists - so an ADD on this slice can only be
+       buildOverlay() having diffed a fresh AxisCare fetch against a stale
+       BASE. Marked 2026-09-03, after exactly that put three of a new
+       client's visits into the shared row and replayed them, frozen at
+       status:open, on every boot for every scheduler. */
+    { path:'shifts',            key:'id', patchOnly:true },
     { path:'caregivers',        key:'id', patchOnly:true },
     { path:'clients',           key:'id', patchOnly:true },
     { path:'tasks',             key:'id' },
@@ -15434,7 +15450,25 @@ const CLOUD = (function(){
         var p=patches[idOf(sl,r)];
         if(p) Object.keys(p).forEach(function(f){ r[f]=revive(p[f]); });
       });
+      /* patchOnly slices hold AxisCare records, so an add is always a leak
+         - buildOverlay refuses to CREATE one, and this refuses to APPLY one.
+
+         Both halves are needed. buildOverlay alone stops new leaks but is
+         powerless against the ones already written: the overlay is cached in
+         localStorage and applied at boot BEFORE any server pull, so an
+         affected browser replayed them forever and pushed them back however
+         many times the shared row was cleaned.
+
+         Refusing them here fixes every browser on its next load, with no
+         console surgery and nobody told to do anything - and it self-cleans:
+         with the adds dropped, state matches BASE, so the browser's next
+         save writes an overlay without them. */
       var adds=(o.adds&&o.adds[sl.path])||[];
+      if(adds.length && sl.patchOnly){
+        console.warn('[cloud] ignored ' + adds.length + ' stray add(s) on ' + sl.path +
+          ' - that slice comes from AxisCare and cannot be added to by hand');
+        adds=[];
+      }
       if(adds.length){
         var have={}; arr.forEach(function(r){ have[idOf(sl,r)]=1; });
         adds.forEach(function(r){
