@@ -94,6 +94,26 @@
 const SOFT_DEADLINE_MS = 8000;
 const MAX_MS_CAP       = 600000;
 
+/* A FULL SCAN DOES NOT FIT IN ONE INVOCATION, so a pass spans runs.
+
+   Measured 2026-09-03: the window is 58 days, 14 sequential requests and
+   ~10s. Against an 8s budget that stopped at 13 requests EVERY time and
+   reported `partial`. Nothing swept, last_ok_at never advanced, and after
+   MIRROR_COLD_MS the dashboard's read path fell back to the live scan
+   permanently — the mirror would have been built and then silently never
+   used. Caught 2026-09-03 when the desk asked why a filled shift was still
+   being offered.
+
+   So the window is cut into date chunks and the pass carries a cursor,
+   the same shape carenotes-sync uses. Chunks rather than an AxisCare
+   nextPageToken: nothing here has verified that a token survives the gap
+   between two invocations, while a date range is durable by construction
+   and costs one cheap re-request if a run dies mid-chunk.
+
+   The pass STAMP is held across runs too. Sweeping on a per-run stamp
+   would delete everything the previous run had just written. */
+const CHUNK_DAYS = 14;
+
 /* The read path treats the mirror as cold past this and falls back to the
    live scan, so the trigger has to be able to refresh well inside it. */
 const MIN_GAP_MS   = 90 * 1000;      /* debounce: ignore triggers this close together */
@@ -174,6 +194,23 @@ const patchSync = patch =>
   sbFetch('/open_shifts_sync?id=eq.openshifts', {
     method: 'PATCH', headers: sbHeaders({ Prefer: 'return=minimal' }), body: JSON.stringify(patch),
   });
+
+/* HOW MANY ARE OPEN, asked of the TABLE rather than of this run.
+
+   A pass spans several invocations, so `open.length` is only what THIS run
+   happened to see: a resumed run that finishes the last chunk might have
+   found none in it and would have written shifts_open:0 while the table
+   held eight. The browser reads this column, so it has to describe the
+   mirror, not the slice of it one invocation looked at. */
+async function countOpen() {
+  const base = env('SUPABASE_URL', '').replace(/\/+$/, '');
+  const r = await fetch(base + '/rest/v1/open_shifts?select=visit_id',
+    { headers: sbHeaders({ Prefer: 'count=exact', Range: '0-0' }),
+      signal: AbortSignal.timeout(15000) });
+  const cr = r.headers.get('content-range') || '';   /* e.g. "0-0/8" */
+  const m = /\/(\d+)\s*$/.exec(cr);
+  return m ? +m[1] : null;
+}
 
 const upsertShifts = rows =>
   rows.length
@@ -259,39 +296,62 @@ exports.handler = async function (event) {
                          agoMs: now - last });
   }
 
-  const stamp = now.toISOString();
-  await patchSync({ running_at: stamp });
-
-  /* ---- the scan -------------------------------------------------------- */
+  /* ---- the window, and where in it this pass has got to --------------- */
   /* Today through the END OF NEXT MONTH — the same window the browser used,
      so a scheduler filling next month's gaps sees all of them. */
   const from = ymd(now);
   const to = ymd(new Date(now.getFullYear(), now.getMonth() + 2, 0));
 
+  /* Chunk boundaries, recomputed identically every run so a cursor saved by
+     one invocation still means the same thing to the next. */
+  const chunks = [];
+  for (let d = new Date(from + 'T12:00:00'); ymd(d) <= to;) {
+    const a = ymd(d);
+    d.setDate(d.getDate() + CHUNK_DAYS - 1);
+    const b = ymd(d) > to ? to : ymd(d);
+    chunks.push([a, b]);
+    d.setDate(d.getDate() + 1);
+  }
+
+  /* Resume where the last run stopped, and keep ITS stamp: the sweep
+     deletes rows older than the pass stamp, so changing it mid-pass would
+     delete what the earlier runs of this same pass just wrote. */
+  let chunkAt = (state && state.cursor_chunk) || 0;
+  if (chunkAt >= chunks.length) chunkAt = 0;
+  const resuming = chunkAt > 0 && state && state.pass_stamp;
+  const stamp = resuming ? state.pass_stamp : now.toISOString();
+  await patchSync({ running_at: now.toISOString(), pass_stamp: stamp });
+
   let requests = 0, scanned = 0, complete = false, failure = null;
   const open = [];
 
   try {
-    let token = null;
-    for (;;) {
-      const params = { startDate: from, endDate: to, limit: PAGE_LIMIT };
-      if (token) params.nextPageToken = token;
-      const res = await axisGet('/api/visits', params);
-      requests++;
-      const results = (res && res.results) || {};
-      const list = results.visits || [];
-      scanned += list.length;
-      list.forEach(v => { if (isOpen(v, now)) open.push(toRow(v, stamp)); });
-
-      const next = results.nextPage;
-      if (!next) { complete = true; break; }
-      const m = /[?&]nextPageToken=([^&]+)/.exec(String(next));
-      if (!m) { failure = 'could not read the nextPage cursor'; break; }
-      token = decodeURIComponent(m[1]);
-
-      if (requests >= MAX_PAGES) { failure = 'stopped at the page cap (' + MAX_PAGES + ')'; break; }
-      if (outOfTime()) { failure = 'ran out of time after ' + requests + ' requests'; break; }
+    while (chunkAt < chunks.length) {
+      const [cFrom, cTo] = chunks[chunkAt];
+      let token = null;
+      for (;;) {
+        const params = { startDate: cFrom, endDate: cTo, limit: PAGE_LIMIT };
+        if (token) params.nextPageToken = token;
+        const res = await axisGet('/api/visits', params);
+        requests++;
+        const results = (res && res.results) || {};
+        const list = results.visits || [];
+        scanned += list.length;
+        list.forEach(v => { if (isOpen(v, now)) open.push(toRow(v, stamp)); });
+        const next = results.nextPage;
+        if (!next) break;
+        const m = /[?&]nextPageToken=([^&]+)/.exec(String(next));
+        if (!m) { failure = 'could not read the nextPage cursor'; break; }
+        token = decodeURIComponent(m[1]);
+        if (requests >= MAX_PAGES) { failure = 'stopped at the page cap (' + MAX_PAGES + ')'; break; }
+      }
+      if (failure) break;
+      chunkAt++;                                  /* this chunk is fully read */
+      /* Stop BETWEEN chunks, never inside one: a half-read chunk cannot be
+         resumed from a date boundary. */
+      if (chunkAt < chunks.length && outOfTime()) { failure = 'out of time after ' + chunkAt + '/' + chunks.length + ' chunks'; break; }
     }
+    if (!failure && chunkAt >= chunks.length) complete = true;
   } catch (e) {
     failure = redact(e.message);
   }
@@ -315,23 +375,34 @@ exports.handler = async function (event) {
     failure = failure || redact(e.message);
   }
 
+  /* After the writes, so it counts what the mirror now holds. Best-effort:
+     a failure here must not lose the run that already succeeded. */
+  let tableOpen = null;
+  try { tableOpen = await countOpen(); } catch (e) { /* fall back to open.length */ }
+
   const ms = Date.now() - t0;
   const status = failure ? (complete ? 'error: ' : 'partial: ') + failure : 'ok';
   const patch = {
     running_at: null,
-    last_run_at: stamp,
+    last_run_at: now.toISOString(),
     last_status: status,
     window_from: from,
     window_to: to,
     scanned: scanned,
-    shifts_open: open.length,
+    shifts_open: tableOpen != null ? tableOpen : open.length,
+    /* Where the next run resumes. Cleared on a completed pass so the next
+       one starts a fresh window with a fresh stamp. */
+    cursor_chunk: complete ? 0 : chunkAt,
+    pass_stamp: complete ? null : stamp,
   };
   /* last_ok_at is the freshness contract and only a WHOLE window earns it. */
   if (complete && !failure) patch.last_ok_at = stamp;
   try { await patchSync(patch); } catch (e) { /* the scan still happened */ }
 
   return json(failure && !complete ? 502 : 200, {
-    ok: !failure, complete, open: open.length, scanned, requests, deleted, ms,
+    ok: !failure, complete, open: tableOpen != null ? tableOpen : open.length,
+    seenThisRun: open.length, scanned, requests, deleted, ms,
     window: { from, to }, status,
+    chunks: chunks.length, cursorChunk: complete ? 0 : chunkAt, resumed: !!resuming,
   });
 };

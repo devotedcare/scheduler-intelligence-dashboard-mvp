@@ -7,11 +7,21 @@
 
   Two things that are easy to get wrong here:
 
-  1. THE CAREGIVERS, CLIENTS AND SHIFTS ON SCREEN ARE DEMO DATA.
-     Rosa Delgado, Cal Miller, Eleanor Wu and the rest are invented and
-     generated in the browser on every load. None of it comes from AxisCare.
-     The AxisCare connection is built and working, but no screen is wired to
-     it yet — that was a deliberate decision, explained in CLAUDE.md.
+  1. THE CAREGIVERS, CLIENTS AND SHIFTS ON SCREEN ARE LIVE.
+     They come from AxisCare through hydrate(): the roster and clients
+     directly, open shifts from the public.open_shifts mirror (with the live
+     scan as a fallback), care notes from the public.care_notes sweep. state
+     ships caregivers:[] clients:[] shifts:[] and those arrays are filled
+     from the network. There is no sample data and no way to switch any on.
+
+     If a screen is empty, AxisCare genuinely had nothing or the fetch
+     failed — and demoNotice() says which. Do not "fix" an empty screen by
+     inventing rows.
+
+     (This paragraph said the opposite until 2026-09-03. It described the
+     app as invented demo data with nothing wired to AxisCare, which had not
+     been true for weeks. It is the first thing anyone reads, so it was the
+     most expensive wrong sentence in the repo.)
 
   2. NEVER INVENT AN AXISCARE FIELD.
      CLAUDE.md lists every field AxisCare actually provides, confirmed by
@@ -19,9 +29,12 @@
      rather than guessing. A guessed field name renders a silently blank row
      and looks like it worked.
 
-     In particular AxisCare has NO reliability score, NO call-off count and
-     NO weekly-hours field. Those numbers in the UI are hardcoded demo
-     values. They can be computed from /api/visits, but they are not fields.
+     In particular AxisCare has NO reliability score and NO call-off count.
+     On a real caregiver those are null and render as "Not tracked" — they
+     are not hardcoded, and nothing invents a number for them.
+
+     Hours worked IS available, but it is derived rather than a field:
+     CGWORK sums visit durations from /api/visits. c.weekHrs stays null.
 
   Safe to edit: anything in this file EXCEPT the CLOUD PERSISTENCE block near
   the bottom and the CLOUD.boot() call on the last line. See CLAUDE.md.
@@ -5033,7 +5046,7 @@ function viewOpen(){
      without this the screen states everything is covered for the whole boot
      and then quietly fills with the gaps it just denied. */
   if(!groups.length && rosterLoading())
-    return emptyState('Loading open shifts\u2026','Reading the schedule from AxisCare.');
+    return emptyState('Loading open shifts\u2026','One moment.');
   if(!groups.length) return emptyState('All shifts are covered','A caregiver call-off or open visit will appear here.');
   return `<div class="osg-list">`+groups.map(openClientCardHTML).join('')+`</div>`;
 }
@@ -5103,7 +5116,12 @@ function openFindCoverage(shiftId){ seedQueryFromShift(shiftId);
                /* Prior caregivers, clashes and weekly hours all come from one
                   AxisCare visit window. It lands after the first paint and the
                   list re-ranks itself when it does. */
-               COVHIST.load(_d).then(function(){ try{ render(); }catch(e){} },
+               /* The ranker reads worked-before and hours as well as the
+                  clash, so it asks for all three. The client is what makes
+                  the history pull one request instead of thirteen. */
+               COVHIST.load(_d, {clientId:(state.coverageQuery&&state.coverageQuery.clientId)
+                                   ? String(state.coverageQuery.clientId).replace(/^k/,'') : null,
+                                 needHours:true}).then(function(){ try{ render(); }catch(e){} },
                                      function(){ try{ render(); }catch(e){} }); } }catch(e){}
   state.coverageQuery.mode='manual'; state.coverageQuery.locked=true; state.coverageContext='shift'; state.covDetails=false; state.dispCalling=null; state.expandedOpen=false; go('coverage'); }
 
@@ -5883,30 +5901,49 @@ var COVHIST = (function(){
     return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate());
   }
 
-  /* ONE NETWORK PULL PER WINDOW, SHARED BY EVERY DATE INSIDE IT.
+  /* THREE QUESTIONS, THREE WINDOWS. ONE PULL EACH, IN PARALLEL.
 
-     The derived answer (who worked with whom, who is busy, hours that week)
-     is specific to the date asked about, so `cache` stays keyed on the date.
-     The FETCH is not: the window is that date's week plus thirty days of
-     history, so ten consecutive dates ask for two windows between them, not
-     ten.
+     COVHIST answers three unrelated things, and until 2026-09-03 it got all
+     three from a single fetch: the shift's week PLUS thirty days of history,
+     unfiltered, for every caregiver. Nobody chose 36 days — it is just the
+     union of three windows that have nothing to do with each other.
 
-     That distinction is the whole reason this exists. The date search fires
-     up to COV_CLASH_MAX_DATES loads at once; keyed per date it opened ten
-     concurrent thirteen-request pulls — measured at ~45 requests in three
-     seconds, which AxisCare answered with 429 on every one of them. The
-     clash check then ran on nothing, and the 429 was account-wide, so the
-     care-notes sweep and the roster hydrate wore it too.
+     Measured on the live account, that union cost 13 requests and 1,097
+     visits (7.7s) to open Find Coverage on ONE shift, and 72 requests /
+     6,015 visits / 42.2s to work through the nine open shifts on the board.
 
-     A failed window is deleted rather than cached, so a retry is a retry. */
+     Asked separately, each question is cheap:
+
+       worked before   30 days, clientIds=<the client>    1 request
+       already booked  the date and the one before it     1 request
+       hours this week the shift's Mon-Sun week           2-3 requests
+
+     Whole board: 72 requests -> 26, 42.2s -> 2.6s. One shift: 13 -> 5,
+     7.7s -> 2.6s. The wall-clock gain is larger than the request gain
+     because these run in parallel where the old single window could not.
+
+     clientIds REALLY DOES filter server-side — verified on this account
+     2026-09-03: the same 30 days returned 925 visits across 28 clients
+     unfiltered and 40 visits for 1 client with clientIds set. (A comment in
+     AxisLive still called this unverified; it is not any more.) Note this is
+     the opposite of the caregiver trap: `caregiverIds` is plural-only and
+     the singular forms are silently ignored — see CLAUDE.md.
+
+     EACH CALLER ASKS FOR WHAT IT READS. covWorked() and covWeekHours() are
+     only ever called from coverageMatches(), which always has a client; the
+     date search reads nothing but `busy`. So it no longer pays for thirty
+     days of history and a week of hours it never looks at. */
   var winCache = {};
 
-  function fetchWindow(from, to){
-    var k=from+'|'+to;
+  /* One paginated pull, cached by the exact query. A failed pull is deleted
+     rather than cached, so a retry is a retry. */
+  function fetchWindow(from, to, clientId){
+    var k=from+'|'+to+'|'+(clientId==null?'':clientId);
     if(winCache[k]) return winCache[k];
     var out=[], pages=0;
     function page(token){
       var q={startDate:from, endDate:to};
+      if(clientId!=null) q.clientIds=clientId;
       if(token) q.nextPageToken=token;
       return AxisCare.get('/api/visits', q).then(function(res){
         var r=(res && res.data && res.data.results) || {};
@@ -5923,78 +5960,121 @@ var COVHIST = (function(){
     return winCache[k];
   }
 
-  function load(ds, force){
-    if(!ds) return Promise.resolve(null);
-    var cur=cache[ds];
-    if(cur && !force && (cur.state==='ready'||cur.state==='loading')) return cur.p||Promise.resolve(cur);
-    if(typeof AxisCare==='undefined' || !AxisCare || !AxisCare.get){
-      cache[ds]={state:'unconfigured', err:'AxisCare is not configured here'};
-      return Promise.resolve(cache[ds]);
-    }
-    var wk=weekBounds(ds);
-    var from=ymd(new Date(shiftDate(wk.from).getTime()-30*86400000));   /* 30 days of history */
-    var to=wk.to;
-
-    var rec={state:'loading'};
-    cache[ds]=rec;
-    rec.p=fetchWindow(from, to).then(function(w){
-      var acc=blank();
-      w.visits.forEach(function(v){ absorb(acc, v, ds, wk); });
-      cache[ds]={state:'ready', worked:acc.worked, busy:acc.busy, hours:acc.hours,
-                 visits:w.visits.length, requests:w.requests, from:from, to:to};
-      return cache[ds];
-    }, function(e){
-      /* A 404 on /api/visits means the window matched nothing, which is an
-         empty history - not a failure. Anything else is a real error and is
-         said out loud rather than passed off as "nobody has worked here". */
-      var msg=(e && e.message) || String(e);
-      if(/\b404\b|No visits found/i.test(msg)){
-        cache[ds]={state:'ready', worked:{}, busy:{}, hours:{}, visits:0, requests:1, from:from, to:to};
-        return cache[ds];
-      }
-      cache[ds]={state:'error', err:msg};
-      return cache[ds];
-    });
-    return rec.p;
+  /* A 404 from /api/visits means the window matched nothing, which is an
+     empty answer and not a failure. Anything else is a real error. */
+  function emptyOn404(e){
+    var msg=(e && e.message) || String(e);
+    if(/\b404\b|No visits found/i.test(msg)) return {visits:[], requests:1};
+    throw e;
   }
 
-  function absorb(acc, v, ds, wk){
-    if(!v || v.removed) return;
-    var cg=v.caregiver && v.caregiver.id;
-    if(cg==null) return;                                  /* an unassigned visit is an open shift */
+  /* ---- the three derivations, each from its OWN pull so nothing is
+     counted twice. The windows overlap; running one absorb() over all of
+     them would double the hours. ---- */
+
+  /* Already booked at that hour, on THIS date. */
+  function absorbBusy(acc, v, ds){
+    var cg=v.caregiver && v.caregiver.id; if(cg==null) return;   /* unassigned = an open shift */
     var cgKey='a'+cg;
-    var day=wallDay(v.scheduledStartDate || v.startDate);
-    if(!day) return;
-
-    var cl=v.client && v.client.id;
-    if(cl!=null && day<ds){                               /* strictly BEFORE the shift = history */
-      var ck='k'+cl;
-      acc.worked[cgKey]=acc.worked[cgKey]||{};
-      acc.worked[cgKey][ck]=(acc.worked[cgKey][ck]||0)+1;
-    }
-
-    var s=wallHour(v.scheduledStartDate || v.startDate);
+    var day=wallDay(v.scheduledStartDate || v.startDate); if(!day) return;
+    var s=wallHour(v.scheduledStartDate || v.startDate); if(s==null) return;
     var e=wallHour(v.scheduledEndDate || v.endDate);
-    if(s==null) return;
     /* AN OVERNIGHT ENDS AT A SMALLER WALL HOUR THAN IT STARTS. `e=s+1` read
        8pm-6am as an hour of work, so covClash() cleared a caregiver for the
-       small hours they were actually on a visit. Run it past 24 instead —
-       the same shape availability, the calendar and carvableVisits() use. */
+       small hours they were actually on a visit. */
     if(e==null) e=s+1; else if(e<=s) e+=24;
-
     var nm=(v.client && (v.client.firstName+' '+v.client.lastName).trim())||'another client';
     if(day===ds){
-      acc.busy[cgKey]=acc.busy[cgKey]||[];
-      acc.busy[cgKey].push({s:s, e:e, client:nm});
+      (acc.busy[cgKey]=acc.busy[cgKey]||[]).push({s:s, e:e, client:nm});
     } else if(e>24 && day===covPrevDay(ds)){
       /* LAST NIGHT'S VISIT RUNNING INTO THIS MORNING. A visit is filed on
          the date it starts, so without this the tail is invisible on the
          date it actually occupies — the same blind spot carvableVisits()
          had, and the reason a whole-day Open survived an overnight. */
-      acc.busy[cgKey]=acc.busy[cgKey]||[];
-      acc.busy[cgKey].push({s:Math.max(0, s-24), e:e-24, client:nm});
+      (acc.busy[cgKey]=acc.busy[cgKey]||[]).push({s:Math.max(0, s-24), e:e-24, client:nm});
     }
-    if(day>=wk.from && day<=wk.to) acc.hours[cgKey]=(acc.hours[cgKey]||0)+(e-s);
+  }
+
+  /* Hours already scheduled in the shift's own week. */
+  function absorbHours(acc, v, wk){
+    var cg=v.caregiver && v.caregiver.id; if(cg==null) return;
+    var day=wallDay(v.scheduledStartDate || v.startDate); if(!day) return;
+    if(!(day>=wk.from && day<=wk.to)) return;
+    var s=wallHour(v.scheduledStartDate || v.startDate); if(s==null) return;
+    var e=wallHour(v.scheduledEndDate || v.endDate);
+    if(e==null) e=s+1; else if(e<=s) e+=24;
+    acc.hours['a'+cg]=(acc.hours['a'+cg]||0)+(e-s);
+  }
+
+  /* Has this caregiver worked this client before? The pull is already
+     filtered to the one client, so only the date test is left. */
+  function absorbWorked(acc, v, ds){
+    var cg=v.caregiver && v.caregiver.id; if(cg==null) return;
+    var cl=v.client && v.client.id; if(cl==null) return;
+    var day=wallDay(v.scheduledStartDate || v.startDate); if(!day) return;
+    if(!(day<ds)) return;                                /* strictly BEFORE the shift */
+    var cgKey='a'+cg, ck='k'+cl;
+    acc.worked[cgKey]=acc.worked[cgKey]||{};
+    acc.worked[cgKey][ck]=(acc.worked[cgKey][ck]||0)+1;
+  }
+
+  /* What a cached record already holds, so a date first loaded for the date
+     search (busy only) can be topped up when the ranker later wants hours
+     and history, without refetching what it has. */
+  function wants(opts){
+    opts=opts||{};
+    return { busy:true,
+             hours:!!opts.needHours,
+             worked:(opts.clientId!=null? String(opts.clientId) : null) };
+  }
+  function satisfied(rec, w){
+    if(!rec || rec.state!=='ready') return false;
+    var h=rec.have||{};
+    if(w.hours && !h.hours) return false;
+    if(w.worked && h.worked!==w.worked) return false;
+    return !!h.busy;
+  }
+
+  function load(ds, opts){
+    if(!ds) return Promise.resolve(null);
+    var w=wants(opts);
+    var cur=cache[ds];
+    if(satisfied(cur, w)) return cur.p||Promise.resolve(cur);
+    /* A load already in flight for the SAME parts is shared rather than
+       duplicated; one asking for more parts supersedes it. */
+    if(cur && cur.state==='loading' && satisfied({state:'ready',have:cur.have||{}}, w)) return cur.p;
+    if(typeof AxisCare==='undefined' || !AxisCare || !AxisCare.get){
+      cache[ds]={state:'unconfigured', err:'AxisCare is not configured here'};
+      return Promise.resolve(cache[ds]);
+    }
+
+    var wk=weekBounds(ds);
+    var prev=covPrevDay(ds);
+    var histFrom=ymd(new Date(shiftDate(ds).getTime()-30*86400000));
+
+    /* busy needs the date AND the one before it, because an overnight is
+       filed on the date it starts. */
+    var jobs=[ fetchWindow(prev, ds, null).catch(emptyOn404) ];
+    jobs.push(w.hours   ? fetchWindow(wk.from, wk.to, null).catch(emptyOn404) : null);
+    jobs.push(w.worked  ? fetchWindow(histFrom, ds, w.worked).catch(emptyOn404) : null);
+
+    var rec={state:'loading', have:{busy:true, hours:w.hours, worked:w.worked}};
+    cache[ds]=rec;
+    rec.p=Promise.all(jobs).then(function(parts){
+      var acc=blank();
+      var reqs=0, seen=0;
+      if(parts[0]){ parts[0].visits.forEach(function(v){ if(!v||v.removed) return; absorbBusy(acc, v, ds); }); reqs+=parts[0].requests; seen+=parts[0].visits.length; }
+      if(parts[1]){ parts[1].visits.forEach(function(v){ if(!v||v.removed) return; absorbHours(acc, v, wk); }); reqs+=parts[1].requests; seen+=parts[1].visits.length; }
+      if(parts[2]){ parts[2].visits.forEach(function(v){ if(!v||v.removed) return; absorbWorked(acc, v, ds); }); reqs+=parts[2].requests; seen+=parts[2].visits.length; }
+      cache[ds]={state:'ready', worked:acc.worked, busy:acc.busy, hours:acc.hours,
+                 visits:seen, requests:reqs, from:histFrom, to:wk.to,
+                 have:{busy:true, hours:w.hours, worked:w.worked}};
+      return cache[ds];
+    }, function(e){
+      cache[ds]={state:'error', err:(e && e.message) || String(e)};
+      return cache[ds];
+    });
+    return rec.p;
   }
 
   return {
@@ -7019,7 +7099,11 @@ function runCoverageSearch(){
      rather than the only one. Failures are swallowed for the same reason:
      the search must still answer. */
   const _hist=dates.slice(0, COV_CLASH_MAX_DATES)
-    .map(function(d){ return COVHIST.load(d).catch(function(){ return null; }); });
+    /* Clash only. dateSearch() reads `busy` and nothing else — covWorked()
+       and covWeekHours() are called from coverageMatches() alone — so this
+       no longer drags back thirty days of history and a week of hours it
+       never looks at. Ten dates used to be ten 13-request pulls. */
+    .map(function(d){ return COVHIST.load(d, {}).catch(function(){ return null; }); });
   Promise.all(_hist).then(function(){ try{ render(); }catch(e){} });
   AVAIL.fetchDates(_need, true).then(function(){          /* always ask the database */
     state.covRun={status:'done', dates, start:sq.specStart, end:sq.specEnd, city:sq.city, error:null};
@@ -7649,9 +7733,15 @@ function cgFullCalNav(id, d){
 function _decH(d){ const dt=new Date(d); return dt.getHours()+dt.getMinutes()/60; }
 /* Assigned work for one day, in decimal hours.
 
-   AxisCare is the real source: state.shifts now holds only OPEN
-   (unassigned) visits, so for a live caregiver it contributes nothing.
-   The demo branch is kept so DEMO.on() still shows sample shifts. */
+   AxisCare is the real source, through CGVISITS. state.shifts holds open
+   (unassigned) visits, so it usually contributes nothing here.
+
+   The second branch is NOT dead and is not about sample data: assigning a
+   shift inside this dashboard sets s.assigned on the record in state.shifts
+   (doAssignNow), and that assignment never reaches AxisCare because the
+   proxy forwards GET only. So it is the only place an in-app assignment
+   shows up in a caregiver day. It used to say "kept so DEMO.on() still
+   shows sample shifts", which named a feature that does not exist. */
 function assignedOn(c, date){
   const live=(typeof CGVISITS!=='undefined') ? CGVISITS.forDay(c.id, date) : [];
   const demo=(state.shifts||[]).filter(s=>s.assigned===c.id && new Date(s.start).toDateString()===date.toDateString())
@@ -11151,7 +11241,11 @@ function retryAxis(){
        has to be layered back on BEFORE anything renders — a render schedules
        a save, and a save against un-patched records deletes them. Runs first,
        and synchronously, for exactly that reason. */
-    try{ if(typeof CLOUD!=='undefined' && CLOUD.relayer) CLOUD.relayer(); }
+    /* Only the slices the refetch actually replaced. A failed sub-fetch left
+       its slice holding overlay-applied work, and retaking that baseline
+       would delete it. */
+    var _st=null; try{ _st=ROSTER.status(); }catch(e){}
+    try{ if(typeof CLOUD!=='undefined' && CLOUD.relayer) CLOUD.relayer((_st&&_st.refreshed)||[]); }
     catch(e){ console.warn('[cloud] relayer failed',e); }
     render();
   });
@@ -11367,7 +11461,7 @@ function viewLog(){
   const shifts=openShifts().slice().sort((a,b)=>a.start-b.start);
   /* Same reason as viewOpen: not yet loaded is not the same as none. */
   if(!shifts.length && rosterLoading())
-    return emptyState('Loading open shifts\u2026','Reading the schedule from AxisCare.');
+    return emptyState('Loading open shifts\u2026','One moment.');
   if(!shifts.length) return emptyState('No open shifts to track','The contact log keeps every call attempt per shift so two schedulers never call the same caregiver twice.');
   if(!state.activeShift || !shifts.find(s=>s.id===state.activeShift)) state.activeShift=shifts[0].id;
   const s=state.shifts.find(x=>x.id===state.activeShift);
@@ -14195,14 +14289,19 @@ var AxisLive = (function () {
 
   /* One CLIENT's visits over a bounded window, for their schedule view.
 
-     clientIds is used, but never trusted. AxisCare accepts several visit
-     filter names, answers 200, and then silently ignores the ones it does
-     not implement - caregiverId, caregiver, employeeId and
-     caregiverExternalId all do exactly that (see CLAUDE.md). Whether
-     clientIds filters has not been verified on this account, so every
-     visit is checked against the client id anyway and the result is
-     correct either way. `filtered` in the response records which happened,
-     so the console says whether the window cost 3 requests or 30.
+     clientIds DOES filter server-side. Verified on this account
+     2026-09-03: the same 30-day window returned 925 visits across 28
+     clients unfiltered, and 40 visits for 1 client with clientIds set.
+     COVHIST now depends on that being true.
+
+     The local re-check below stays anyway, and should. AxisCare accepts
+     several visit filter names, answers 200, and then silently ignores the
+     ones it does not implement - caregiverId, caregiver, employeeId and
+     caregiverExternalId all do exactly that (see CLAUDE.md). A filter that
+     works today is not a filter that is guaranteed forever, and the cost of
+     checking is one comparison per visit. `filtered` in the response
+     records which happened, so the console says whether the window cost 3
+     requests or 30.
 
      The window is deliberately short - a month back, two months on - so a
      silently unfiltered pull is still bounded rather than dragging the
@@ -14739,14 +14838,15 @@ var ROSTER = (function () {
 
   var lastResult = null, lastShiftScan = null, lastProblems = [];
 
-  /* ---- demo data ------------------------------------------------
-     The seed records stay in the source so the dashboard can be
-     demoed on demand, but they are cleared at boot. Anything on
-     screen is then either live from AxisCare or genuinely empty.
+  /* ---- there is no demo data ------------------------------------
+     Everything on screen is live from AxisCare or genuinely empty.
+     There are no seed records left in the source and no toggle.
 
-         DEMO.on()    put the sample data back (reloads)
-         DEMO.off()   clear it again (reloads)
-         DEMO.isOn()
+     This block used to advertise DEMO.on() / DEMO.off() / DEMO.isOn().
+     No DEMO object has ever been defined in this file, so all three
+     throw ReferenceError; anyone who tried them was told the data was
+     restorable sample data when it is live AxisCare data. Removed
+     2026-09-03 along with the same recipe in CLAUDE.md.
   */
   /* Care notes are SWEPT into Supabase by netlify/functions/carenotes-sync,
      not fetched from AxisCare here. The note text only exists on the
@@ -14976,6 +15076,9 @@ var ROSTER = (function () {
       profilesP.catch(function (e) { return { __err: e }; })
     ]).then(function (parts) {
       var cgRes = parts[0], clRes = parts[1], shRes = parts[2], cnRes = parts[3], pfRes = parts[4];
+      /* Which CLOUD slices this run actually replaced. Only these may have
+         their baseline retaken - see rebaseSlices(). */
+      var refreshed = [];
 
       /* Profiles are additive: without them every caregiver still renders,
          just with less on the profile screen. So a failure is reported and
@@ -14986,19 +15089,20 @@ var ROSTER = (function () {
 
       /* clients */
       if (clRes && clRes.__err) { problems.push('clients: ' + (clRes.__err.message || clRes.__err)); }
-      else { state.clients = clRes.map(function (c) { return AxisLive.mapClient(c, AxisRoster.normCity); }); }
+      else { state.clients = clRes.map(function (c) { return AxisLive.mapClient(c, AxisRoster.normCity); }); refreshed.push('clients'); }
 
       /* open shifts — need clients present to resolve, so after them */
       if (shRes && shRes.__err) { problems.push('shifts: ' + (shRes.__err.message || shRes.__err)); }
       else {
         var known = {}; (state.clients || []).forEach(function (c) { known[c.id] = 1; });
         state.shifts = (shRes.shifts || []).filter(function (s) { return s.clientId && known[s.clientId]; });
+        refreshed.push('shifts');
         lastShiftScan = { scanned: shRes.scanned, requests: shRes.requests, from: shRes.from, to: shRes.to, kept: state.shifts.length };
       }
 
       /* care notes — the mirror, not AxisCare directly */
       if (cnRes && cnRes.__err) { problems.push('care notes: ' + (cnRes.__err.message || cnRes.__err)); }
-      else { state.careNotes = cnRes || []; }
+      else { state.careNotes = cnRes || []; refreshed.push('careNotes'); }
 
       if (cgRes && cgRes.__err) throw cgRes.__err;
       lastProblems = problems;
@@ -15008,6 +15112,7 @@ var ROSTER = (function () {
       if (!list || list.length < 10) throw new Error('implausibly small roster (' + (list ? list.length : 0) + ') — keeping demo data');
 
       var real = applyRoster(list);
+      refreshed.push('caregivers');
       /* Both rosters live in this one array, split by c.active — see
          applyProfile(). state.cgInactive used to be a second array for the
          parked roster; nothing ever pushed into it, so the Inactive tab was
@@ -15026,6 +15131,8 @@ var ROSTER = (function () {
         shiftScan: lastShiftScan,
         problems: lastProblems,
         remapped: remapped, ms: Date.now() - t0,
+        /* read by retryAxis so CLOUD.relayer can retake exactly these */
+        refreshed: refreshed,
         untagged: real.filter(function (c) { return !c.tagged; }).length
       };
       console.info('[axiscare] ' + real.length + ' caregivers, ' + (state.clients || []).length +
@@ -15206,17 +15313,53 @@ const CLOUD = (function(){
   }
 
   /* ---------- baseline / diff / apply ---------- */
+  /* One slice's baseline. Split out of snapshot() so rebaseSlices() below
+     can retake exactly one, by exactly the same rule. */
+  function snapshotSlice(sl){
+    var cur=getPath(state,sl.path);
+    if(sl.scalar) return sstr(cur===undefined?null:cur);
+    var m={};
+    if(sl.map){ Object.keys(cur||{}).forEach(function(k){ m[k]=sstr(cur[k]); }); }
+    else      { (cur||[]).forEach(function(r){ m[idOf(sl,r)]=sstr(r); }); }
+    return m;
+  }
   function snapshot(){
     var b={};
-    SLICES.forEach(function(sl){
-      var cur=getPath(state,sl.path);
-      if(sl.scalar){ b[sl.path]=sstr(cur===undefined?null:cur); return; }
-      var m={};
-      if(sl.map){ Object.keys(cur||{}).forEach(function(k){ m[k]=sstr(cur[k]); }); }
-      else      { (cur||[]).forEach(function(r){ m[idOf(sl,r)]=sstr(r); }); }
-      b[sl.path]=m;
-    });
+    SLICES.forEach(function(sl){ b[sl.path]=snapshotSlice(sl); });
     return b;
+  }
+
+  /* RETAKE THE BASELINE FOR SLICES THAT WERE JUST REFETCHED FROM AXISCARE.
+
+     buildOverlay() records the difference between state and BASE. BASE is
+     the boot snapshot, so anything AxisCare returns AFTER boot is a
+     difference — and gets written to the shared row as though a scheduler
+     typed it.
+
+     That is not hypothetical. On 2026-09-03 a new client (Marjorie Willis,
+     AxisCare 345) had three visits created after the desk had the app open.
+     A re-hydrate ran, and buildOverlay emitted them as adds.shifts. Because
+     applyOverlay only ever ASSIGNS, they then replayed on every boot for
+     every scheduler, frozen at status:open, long after AxisCare had assigned
+     all three. Reloading made it worse, not better: the local overlay cache
+     is applied at boot too, so the browser put them straight back.
+
+     ONLY the slices hydrate() ACTUALLY REASSIGNED may be retaken, which is
+     why it reports them rather than the caller guessing. A slice whose fetch
+     FAILED still holds overlay-applied data; retaking that one would fold
+     the scheduler's own work into the baseline and delete it from the
+     overlay on the very next save. That would be the same class of silent
+     loss, in the opposite direction. */
+  function rebaseSlices(paths){
+    if(!BASE || !paths || !paths.length) return 0;
+    var want={}; paths.forEach(function(p){ want[p]=1; });
+    var n=0;
+    SLICES.forEach(function(sl){
+      if(!want[sl.path]) return;
+      BASE[sl.path]=snapshotSlice(sl);
+      n++;
+    });
+    return n;
   }
 
   function buildOverlay(){
@@ -15663,10 +15806,17 @@ const CLOUD = (function(){
        Muted so the re-apply cannot schedule a save of its own half-way
        through, and restored in a finally so a throw inside applyOverlay
        cannot leave saving switched off for the rest of the session. */
-    relayer: function(){
+    relayer: function(refreshed){
       if(!booted) return;
       muted=true;
       try{
+        /* ORDER IS THE WHOLE POINT, and it mirrors finishBoot(): retake the
+           baseline for the refetched slices while state still holds PURE
+           AxisCare data, and only then layer the scheduler's work back on
+           top. Rebase after applyOverlay and the overlay would be folded
+           into the baseline and vanish on the next save. */
+        var n=rebaseSlices(refreshed);
+        if(n) console.info('[cloud] rebased ' + n + ' slice(s): ' + refreshed.join(', '));
         var raw=localStorage.getItem(LS_KEY);
         if(raw) applyOverlay(JSON.parse(raw));
         /* Same rule as boot: an overlay can name caregivers the fresh roster

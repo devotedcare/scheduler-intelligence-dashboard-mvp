@@ -1811,9 +1811,97 @@ Storage, or “Clear site data”; a hard reload does **not** remove it.
     This composes with 3d — `lastBody` stops the needless writes, this stops
     the needless reads. Neither makes the other redundant.
 
-### KNOWN, OPEN: Retry still writes AxisCare data into the shared overlay
+### FIXED 2026-09-03: a re-hydrate no longer writes AxisCare data into the overlay
 
-**Not fixed. Pre-existing — it predates `relayer()` and is not caused by it.**
+> **THIS HAS NOW HAPPENED FOR REAL — 2026-09-03. CARLO owns the recovery, not
+> Mitch.** Mitch works through Claude + GitHub on `index.html`; this failure
+> lands in the **Supabase `scheduler_state` row**, which is Carlo’s side (see
+> *Who does what*). Mitch cannot fix an instance of it by committing.
+
+> **What happened.** Marjorie Willis (AxisCare client **345**, "Marj") was added
+> as a new client, and her three visits appeared in AxisCare *after* a
+> scheduler’s page had already loaded. A re-hydrate ran, `BASE` was still the
+> boot-time snapshot, and `buildOverlay()` emitted the three visits as **adds**
+> on the `shifts` slice — AxisCare data written to the shared row as though
+> somebody had typed it:
+>
+> ```
+> adds.shifts: vv_57309_s_0_d_2026_09_07  vv_57310_s_0_d_2026_09_09
+>              vv_57311_s_0_d_2026_09_10     all status=open, assigned=null
+> ```
+>
+> The desk reported the shifts still being offered after AxisCare had assigned
+> all three to Ma Guadalupe Lemus. **Reloading did not help**, and that is the
+> tell: boot fetches the correct list from AxisCare, and then `applyOverlay()`
+> adds the stale ones straight back. `applyOverlay` only ever assigns — it
+> never clears — so an add like this replays on every boot for every
+> scheduler, frozen at whatever status it was captured with, forever.
+
+> **How it was cleared, and why that shape was chosen.** Removing the adds
+> alone would have been undone within ~20s: an open tab still held the shifts
+> in `state.shifts` and would have pushed them back on its next save. So the
+> adds were removed AND the three ids written to `dels.shifts` — `applyOverlay`
+> filters dels *before* it applies adds, so every open tab dropped them on its
+> next poll with nobody having to reload or close anything.
+>
+> The dels then cleared themselves: once a tab had dropped the shifts, its own
+> `buildOverlay()` produced neither an add nor a del for them, because its
+> baseline no longer contained them either. End state `adds.shifts: 0,
+> dels.shifts: 0`, verified stable over 80 seconds. **No residue was left to
+> strip.**
+
+> **Pausing Netlify does not stop this.** The browser writes straight to
+> Supabase with the anon key (`anon update scheduler state`); Netlify only
+> serves the HTML. Pausing it stops new page loads and does nothing about the
+> already-open tabs, which are the ones writing. Dropping the anon update
+> policy *would* stop the writes, but tabs still hold the bad records in memory
+> and re-add them the moment it is restored — it buys a window, not a fix.
+
+> **It will happen again to the next new client** until the fix below lands.
+> The tell is always the same: a shift that AxisCare says is filled keeps
+> being offered, and reloading does not clear it. Check
+> `overlay.adds.shifts` first.
+
+
+**Fixed by `rebaseSlices()`.** `hydrate()` now reports which slices it actually
+reassigned (`lastResult.refreshed`), `retryAxis()` passes that list to
+`CLOUD.relayer()`, and the relayer **retakes the baseline for exactly those
+slices before re-applying the overlay** — the same order `finishBoot()` uses.
+
+Proved against the real `snapshot`/`buildOverlay`/`rebaseSlices`, replaying the
+Marjorie Willis scenario (boot sees 2 shifts, a new client adds 3, a re-hydrate
+replaces the slice):
+
+```
+without the rebase   adds.shifts -> 3   the exact ids that bit the desk
+with the rebase      adds.shifts -> 0
+guard: a slice NOT in `refreshed` keeps its scheduler work   PRESERVED
+```
+
+Two things must stay:
+
+- **Only slices `hydrate()` really reassigned may be retaken.** A slice whose
+  fetch FAILED still holds overlay-applied work; retaking that baseline would
+  fold the scheduler’s own edits into it and delete them on the next save — the
+  same silent loss in the opposite direction. That is why `hydrate()` reports
+  the list instead of the caller guessing.
+- **Rebase BEFORE `applyOverlay`, never after.** After, and the overlay is
+  folded into the baseline and vanishes on the next save.
+
+> **This fix does NOT clean up an existing leak, and does not cover the boot
+> path.** `finishBoot()` applies the LOCAL overlay cache
+> (`dcs_scheduler_overlay_v1`) before any server pull, so a browser that
+> already holds leaked adds will replay them on every boot and push them back,
+> whatever the server says. That is why cleaning the shared row three times on
+> 2026-09-03 kept being undone within minutes, and why reloading made no
+> difference. Clearing an affected browser is the only deterministic cure:
+>
+> ```js
+> localStorage.removeItem('dcs_scheduler_overlay_v1'); location.reload();
+> ```
+>
+> It discards anything saved locally but not yet pushed — at most the last
+> ~900ms of edits. **Carlo owns any repeat**, per the note above.
 
 `hydrate()` replaces `state.clients`, `state.shifts` and `state.careNotes` as
 well as the caregivers, but `BASE` is still the boot-time snapshot and nothing
