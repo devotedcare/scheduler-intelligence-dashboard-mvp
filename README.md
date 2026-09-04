@@ -763,7 +763,7 @@ Next, in the order that unblocks the most:
 
 2. **Open shifts — done.** Derived from visits that are unassigned, not
    removed, and in the future. Verified against the previous dashboard: same
-   three shifts. Costs ~8 requests over a 28-day window.
+   three shifts. Costs ~14 requests over today → end of next month (measured 2026-09-03: 1,321 visits scanned, 9.1s).
 
 3. **Care notes — done.** Swept into Supabase every 15 minutes by
    `netlify/functions/carenotes-sync.js`, because the note text is only on
