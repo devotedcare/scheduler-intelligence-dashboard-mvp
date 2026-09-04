@@ -1396,15 +1396,47 @@ old wording rather than showing "Failed to fetch".
 
 ### What leaves the browser
 
-`deviContext()` sends, on every Devi question: today's date, client **names and
-cities**, up to 40 open shifts with times, and every active caregiver as
-name · base · skills. No care notes, no contact details, no clinical fields.
+**Widened 2026-09-03**, because the old snapshot was three sections and Devi
+kept answering "I can't see the availability table" — which the prompt was
+literally instructing it to say. `deviContext()` now sends, on every Devi
+question:
 
-**It is still PHI.** The sibling Client Concierge function's header records that
-adaptive thinking is not on Anthropic's BAA-covered feature list and concludes
-*"point this at invented data only"* — that note was written about the same API
-and has not been cleared for this one. It is Carlo's call with Anthropic, not a
-code question.
+- today's date, the roster count, client **names and cities**
+- the Today board's critical queue and its warnings (`buildWorkQueue`)
+- open shifts (40) with client, city, times and how soon each starts
+- the 20 most recent **attendance entries** — call-offs, no-shows, late, with
+  caregiver, client and whether coverage is still needed
+- the availability picture: who is due an update and when they last confirmed,
+  who has Open days and how many, plus who has incomplete profile fields
+- active caregivers with no assigned shift, and anyone at 38h+
+- the 15 most recent schedule changes
+- **care-note alerts** — missing/incomplete notes with client, caregiver and
+  AM/PM, and the open critical/high alerts with a 110-character excerpt
+- every active caregiver as name · base · open-day count · skills
+
+Every section reads the SAME function the matching screen reads, so Devi and
+the dashboard cannot disagree. Each list is capped (`DV_CAP`, 25 by default)
+and says how many were cut — **an uncapped list is how this becomes a
+100k-token request.** On the live roster the snapshot is roughly 30–40KB.
+
+**This is a materially larger PHI surface than before.** It now includes care
+note excerpts and attendance history alongside the names and cities it already
+carried. The BAA question below has not moved; it got bigger.
+
+**It is still PHI, and more of it.** The sibling Client Concierge function's
+header records that adaptive thinking is not on Anthropic's BAA-covered feature
+list and concludes *"point this at invented data only"* — that note was written
+about the same API and has not been cleared for this one. It is Carlo's call
+with Anthropic, not a code question. Blanking `CONCIERGE_MODEL`/the function URL
+is not the off switch here; `deviAsk()` degrades to the router's own answer when
+the call fails, so the local router keeps working with nothing leaving the
+browser.
+
+**The router is what makes that tolerable.** `aiNeedsAvail`, `aiOpenAvail`,
+`aiLate`, `aiConflicts`, `aiMissingNotes` and `aiTodayFocus` answer the
+questions the desk asks daily from the tables directly — exact, instant, free,
+and nothing leaves the browser. Devi only sees a question the router could not
+match. Adding a builder is always better than widening the snapshot.
 
 `c.base`, not `c.city`: a caregiver record has no `city`. Getting that wrong
 produced a dash on every line and Devi correctly reporting that nobody has a

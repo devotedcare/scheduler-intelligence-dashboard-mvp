@@ -11495,10 +11495,171 @@ function aiParseDay(q){
 function aiParseCity(q){ for(const c of AI_CITIES){ if(q.includes(c.toLowerCase())) return c; } return null; }
 function aiParseSkill(q){ for(const [k,v] of AI_SKILLS){ if(q.includes(k)) return v; } return null; }
 
+/* ---- Builders for the questions a scheduler asks every day ------------
+   These answer from the tables directly: instant, free, and exact. The
+   router stays in FRONT of Devi for exactly this reason — "how many need
+   availability updates" has a right answer and should never cost a model
+   call to get it. Devi picks up what these do not match. */
+
+/* "How many caregivers still need availability updates?" */
+function aiNeedsAvail(){
+  const needs=cgNeedsUpdate().filter(n=>n.items.some(i=>/availability/i.test(i.head)));
+  if(!needs.length) return {title:'Availability is up to date',
+    html:aiEmpty('No active caregiver is due an availability update.')};
+  const rows=needs.map(function(n){
+    const it=n.items.filter(i=>/availability/i.test(i.head));
+    const last=n.c.ops&&n.c.ops.availLastConfirmed;
+    return aiRow(aiCgLink(n.c)+' <span class="ai-tag '+(it.some(i=>i.tone==='bad')?'crit':'soon')+'">'+
+      escText(it[0].head)+'</span>',
+      'Last update: '+(last?fmtDate(last):'never recorded')+
+      ' · Cadence: '+escText((n.c.ops&&n.c.ops.availCheckFreq)||'not set')+
+      ' · Needs: '+escText(it.map(i=>i.lines.join('; ')).join(' — ')));
+  });
+  return {title:needs.length+' caregiver'+(needs.length===1?'':'s')+' still need availability updates',
+          html:aiRows(rows)};
+}
+
+/* "Who has open availability?" — Open blocks on record, most first. */
+function aiOpenAvail(){
+  const today=dateKey(NOW);
+  /* COUNT from coverage(), not openDays(). openDays reads the roster-wide
+     index — a week back to the end of next month — and somebody whose
+     availability is entered further out has none in it. That exact mismatch
+     is what made Needs Update accuse people whose calendars were full.
+     coverage() asks over the whole recordable span; openDays is only used
+     for the next upcoming date, which is all it is reliable for. */
+  try{ if(typeof AVAIL!=='undefined'&&AVAIL.primeCoverage) AVAIL.primeCoverage(); }catch(e){}
+  let cs=null; try{ cs=AVAIL.coverageInfo(); }catch(e){}
+  if(!cs || cs.state!=='ready') return {title:'Availability is still loading',
+    html:aiEmpty(cs&&cs.state==='error'
+      ? 'The availability table could not be read — '+escText(cs.err||'unknown error')+'.'
+      : 'Reading the availability table now — ask again in a moment.')};
+  const list=aiActive().map(function(c){
+    let cov={days:0}; try{ cov=AVAIL.coverage(c.id)||{days:0}; }catch(e){}
+    let d=[]; try{ d=AVAIL.openDays(c.id)||[]; }catch(e){}
+    return {c:c, n:cov.days||0, next:d.map(o=>o.day).filter(x=>x>=today)[0]};
+  }).filter(x=>x.n).sort((a,b)=>b.n-a.n);
+  if(!list.length) return {title:'Nobody has Open days on record',
+    html:aiEmpty('No caregiver has an Open block anywhere in the recordable window ('+cs.from+' to '+cs.to+'). That is "nobody has told us", not "nobody is free".')};
+  /* The COUNT is from coverage (whole window). The NEXT DATE is from the
+     prefetched index, which may not have landed — and "none upcoming" from
+     an unloaded index is a false negative, the one mistake this app treats
+     as the worst available. Say which of the two it is. */
+  const idxReady = (typeof AVAIL!=='undefined'&&AVAIL.indexStatus) ? AVAIL.indexStatus()==='ready' : false;
+  return {title:list.length+' caregiver'+(list.length===1?'':'s')+' have open availability on record',
+    html:aiRows(list.slice(0,40).map(x=>aiRow(aiCgLink(x.c)+' <span class="ai-tag good">'+x.n+' open day'+(x.n===1?'':'s')+'</span>',
+      (x.next ? 'Next open: '+x.next
+              : idxReady ? 'None in the next two months'
+                         : 'Next date not loaded yet')+' · '+escText(x.c.base||'no base recorded'))))};
+}
+
+/* "Who is late?" — the EVV alerts the Today board raises. */
+function aiLate(){
+  const al=attendanceAlerts().filter(a=>/late/i.test(a.type));
+  /* Two sources, because there are two: the EVV alerts the Today board
+     derives from clock-ins, and Late entries a scheduler typed on the
+     Attendance page. Reading only the first missed every logged one. */
+  const logged=(state.attendance||[]).filter(a=>/late/i.test((typeof attType==='function'?attType(a):a.type)||''))
+    .sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,15);
+  if(!al.length && !logged.length) return {title:'Nobody is flagged late', html:aiEmpty('No late-arrival alerts on the board and none logged on Attendance.')};
+  const rows=al.map(function(a){
+      const s=a.shift, cl=s?clById(s.clientId):null, cg=s&&s.assigned?cgById(s.assigned):null;
+      return aiRow((cg?aiCgLink(cg):'Unassigned')+' <span class="ai-tag crit">'+escText(a.type)+'</span>',
+        (cl?escText(cl.name):'?')+(s?' · '+fmtTime(s.start)+'–'+fmtTime(s.end):'')+
+        (a.minsLate?' · '+a.minsLate+' min late':''));
+  }).concat(logged.map(function(a){
+    return aiRow(escText(a.cg||'?')+' <span class="ai-tag soon">Late (logged)</span>',
+      (a.date||'')+(a.client?' · '+escText(a.client):'')+(a.note?' · '+escText(a.note):''));
+  }));
+  return {title:rows.length+' caregiver'+(rows.length===1?'':'s')+' running late', html:aiRows(rows)};
+}
+
+/* "Are there any scheduling conflicts?"
+   Only what is genuinely computable here: one caregiver on two shifts that
+   overlap, and hours over the overtime line. Travel time is NOT checked —
+   about 40% of active caregivers live outside the distance map, so a
+   "cannot make it in time" claim would be invented for two in five. */
+function aiConflicts(){
+  const rows=[], byCg={};
+  (state.shifts||[]).filter(s=>s.assigned).forEach(function(s){
+    (byCg[s.assigned]=byCg[s.assigned]||[]).push(s); });
+  Object.keys(byCg).forEach(function(id){
+    const list=byCg[id].slice().sort((a,b)=>a.start-b.start), c=cgById(id);
+    for(let i=1;i<list.length;i++){
+      if(list[i].start < list[i-1].end){
+        const a=list[i-1], b=list[i], ca=clById(a.clientId), cb=clById(b.clientId);
+        rows.push(aiRow((c?aiCgLink(c):'?')+' <span class="ai-tag crit">Double booked</span>',
+          escText((ca?ca.name:'?'))+' '+fmtTime(a.start)+'–'+fmtTime(a.end)+
+          ' overlaps '+escText((cb?cb.name:'?'))+' '+fmtTime(b.start)+'–'+fmtTime(b.end)));
+      }
+    }
+  });
+  overtimeRisk().forEach(function(c){
+    rows.push(aiRow(aiCgLink(c)+' <span class="ai-tag soon">Overtime risk</span>',
+      c.weekHrs+'h this week · keep off open shifts')); });
+  if(!rows.length) return {title:'No scheduling conflicts found',
+    html:aiEmpty('No overlapping assigned shifts and nobody at 38h+. Travel time between shifts is not checked — the distance map does not cover the whole roster.')};
+  return {title:rows.length+' scheduling conflict'+(rows.length===1?'':'s'), html:aiRows(rows)};
+}
+
+/* "Who has missing care notes?" */
+function aiMissingNotes(){
+  const miss=buildCareAlerts().filter(a=>a.catKey==='missing' && a.status!=='Resolved');
+  if(!miss.length) return {title:'No missing care notes', html:aiEmpty('Every synced care note has content.')};
+  return {title:miss.length+' care note'+(miss.length===1?'':'s')+' missing or incomplete',
+    html:aiRows(miss.slice(0,40).map(function(a){
+      const cl=clById(a.clientId), cg=cgById(a.cgId), t=new Date(a.at);
+      return aiRow(escText(cl?cl.name:'?')+' <span class="ai-tag soon">'+
+          (isNaN(t.getTime())?'':(t.getHours()<12?'AM':'PM'))+'</span>',
+        (cg?aiCgLink(cg):'?')+' · '+(isNaN(t.getTime())?'':fmtDate(t)));
+    }))};
+}
+
+/* "What needs my attention today?" / "What should I handle first?" */
+function aiTodayFocus(){
+  const wq=buildWorkQueue(), crit=wq.critical||[], warn=wq.warning||[];
+  const needs=cgNeedsUpdate().filter(n=>n.items.some(i=>/availability/i.test(i.head)));
+  const miss=buildCareAlerts().filter(a=>a.catKey==='missing'&&a.status!=='Resolved');
+  const rows=[];
+  crit.forEach(function(i){
+    if(i.kind==='attendance'){
+      const a=i.alert, s=a.shift, cl=s?clById(s.clientId):null, cg=s&&s.assigned?cgById(s.assigned):null;
+      rows.push(aiRow('<span class="ai-tag crit">'+escText(a.type)+'</span> '+(cg?aiCgLink(cg):'Unassigned'),
+        (cl?escText(cl.name):'?')+(s?' · '+fmtTime(s.start)+'–'+fmtTime(s.end):'')));
+    } else {
+      const s=i.shift, cl=i.client;
+      rows.push(aiRow('<span class="ai-tag crit">Uncovered</span> '+escText(cl?cl.name:'?'),
+        toDateInput(s.start)+' '+fmtTime(s.start)+'–'+fmtTime(s.end)+' · starts in '+hm(i.h)+
+        (s.callOff?' · call-off, no replacement':'')));
+    }
+  });
+  warn.forEach(w=>rows.push(aiRow('<span class="ai-tag soon">Watch</span> '+escText(htmlToText(w.title)),
+    escText(htmlToText(w.sub||'')))));
+  if(needs.length) rows.push(aiRow('<span class="ai-tag soon">Next</span> Availability updates',
+    needs.length+' caregiver'+(needs.length===1?'':'s')+' due — ask "who still needs availability updates"'));
+  if(miss.length) rows.push(aiRow('<span class="ai-tag soon">Next</span> Missing care notes',
+    miss.length+' note'+(miss.length===1?'':'s')+' missing or incomplete'));
+  if(!rows.length) return {title:'Nothing urgent on the board',
+    html:aiEmpty('No uncovered shifts, no attendance alerts, availability and care notes are up to date.')};
+  const title = crit.length
+    ? 'URGENT — '+crit.length+' thing'+(crit.length===1?'':'s')+' need'+(crit.length===1?'s':'')+' handling now'
+    : rows.length+' thing'+(rows.length===1?'':'s')+' to work through';
+  return {title:title, html:aiRows(rows)};
+}
+
 function aiAnswer(raw){
   const q=raw.toLowerCase().trim();
   const win=aiParseWin(q), city=aiParseCity(q), day=aiParseDay(q);
   const wantsAvail=/\bavailable\b|who can work|free /.test(q);
+  /* Ahead of everything: these are the questions the desk asks daily, and
+     each has an exact answer. "availability update" must be tested before
+     wantsAvail or "who is available" logic swallows it. */
+  if(/(need|needs|needed|due|outstanding|overdue|submit|update|updated|missing).{0,24}availab|availab.{0,24}(update|needed|due|outstanding|submit|expired|outdated)|who ?(has ?)?(n[o']?t|hasn'?t|haven'?t).{0,20}availab/.test(q)) return aiNeedsAvail();
+  if(/open availab|has availab|with availab|availab.{0,12}on record/.test(q)) return aiOpenAvail();
+  if(/\blate\b|running late|tardy/.test(q)) return aiLate();
+  if(/conflict|double.?book|overlap|clash/.test(q)) return aiConflicts();
+  if(/(missing|incomplete|no).{0,20}care note|care note.{0,20}(missing|incomplete|outstanding)/.test(q)) return aiMissingNotes();
+  if(/attention today|what.{0,12}(today|first|now)|priorit|handle first|contact first|urgent|need my/.test(q)) return aiTodayFocus();
   if(/overnight/.test(q) && (wantsAvail||/\bwho\b|caregiver/.test(q))) return aiOvernight();
   if(wantsAvail && (win||day||city) && !/sitter/.test(q)) return aiAvailable(day, win, city);
   if(/most call.?off|highest call.?off|call.?off.*most/.test(q)) return aiCallOffRank();
@@ -11514,7 +11675,7 @@ function aiAnswer(raw){
   if(/hardest|difficult.*staff|hard to staff/.test(q)) return aiHardestClients();
   if(/client/.test(q) && /concern|staffing|risk|problem|issue|trouble/.test(q)) return aiClientConcerns();
   if(/longest|slow/.test(q) && /fill|cover|open/.test(q)) return aiLongestFill();
-  if(/open shift|coverage need|uncovered|need.*cover|what.*open|shifts? open/.test(q)) return aiOpenShifts();
+  if(/open shift|coverage need|uncovered|need.*cover|what.*open|shifts?.{0,15}open|still open/.test(q)) return aiOpenShifts();
   if(/handoff|hand-off|hand off/.test(q)) return aiHandoff();
   if(/verif/.test(q)) return aiVerification();
   if(/risk/.test(q) || /biggest.*(gap|problem)/.test(q)) return aiCoverageRisks();
@@ -11726,6 +11887,38 @@ const DEVI_MAX_TOKENS = 4096;
    ask so it never goes stale. Deliberately NOT everything: no care notes, no
    client medical detail, no contact details. Names, cities, skills, shifts
    and counts — the things a scheduler asks about out loud. */
+/* WHAT DEVI CAN SEE.
+
+   Every section here reads the SAME source the matching dashboard page reads
+   — buildWorkQueue for Today, attendanceAlerts for Attendance, cgNeedsUpdate
+   for Schedule Updates, AVAIL for the calendar, buildCareAlerts for Care
+   Notes Review. Nothing is recomputed a second way, so Devi and the screen
+   can never disagree.
+
+   It is a snapshot of EXCEPTIONS AND COUNTS, not a dump of every table. The
+   roster line alone is ~180 entries; adding each caregiver's calendar would
+   multiply the prompt for data no question needs at that resolution. What a
+   scheduler actually asks about is what is wrong, and that is what is here.
+
+   Claude: if you add a section, cap it and say how many were cut. An
+   uncapped list is how this quietly becomes a 100k-token request. */
+var DV_CAP = 25;
+function dvSection(L, title, rows, cap){
+  cap = cap || DV_CAP;
+  L.push('');
+  L.push(title + ' (' + rows.length + '):');
+  if(!rows.length){ L.push('  none'); return; }
+  rows.slice(0, cap).forEach(function(r){ L.push('  ' + r); });
+  if(rows.length > cap) L.push('  …and ' + (rows.length - cap) + ' more');
+}
+function dvSafe(fn, dflt){ try{ var v=fn(); return v==null?dflt:v; }catch(e){ return dflt; } }
+function dvWhen(d){
+  if(!d) return 'never';
+  var t=(d instanceof Date)?d:new Date(d);
+  if(isNaN(t.getTime())) return String(d);
+  var days=Math.round((NOW-t)/86400000);
+  return toDateInput(t) + (days>0 ? ' ('+days+'d ago)' : days<0 ? ' (in '+(-days)+'d)' : ' (today)');
+}
 function deviContext(){
   const L=[];
   const active = state.caregivers.filter(c=>c.active!==false);
@@ -11734,18 +11927,121 @@ function deviContext(){
   L.push('CLIENTS: ' + state.clients.length + ' — ' +
     state.clients.map(c=>c.name + (c.city?' ('+c.city+')':'')).join('; '));
 
-  const open = (typeof openShifts==='function') ? openShifts() : [];
-  L.push('');
-  L.push('OPEN SHIFTS (' + open.length + '):');
-  if(!open.length) L.push('  none');
-  open.slice(0,40).forEach(s=>{
-    const cl = clById(s.clientId);
-    L.push('  ' + dayKey(s.start) + ' ' + toDateInput(s.start) + '  ' +
-      fmtClock(decHr(s.start)) + '-' + fmtClock(decHr(s.end)) + '  ' +
-      (cl?cl.name:'?') + (cl&&cl.city?' · '+cl.city:''));
-  });
-  if(open.length>40) L.push('  …and ' + (open.length-40) + ' more');
+  /* ---- 1. what the Today board is shouting about, in its own order ---- */
+  const wq = dvSafe(buildWorkQueue, {critical:[],warning:[]});
+  dvSection(L, 'URGENT NOW — the Today board’s critical queue, already in priority order',
+    (wq.critical||[]).map(function(i){
+      if(i.kind==='attendance'){
+        const a=i.alert, s=a.shift, cl=s?clById(s.clientId):null, cg=s&&s.assigned?cgById(s.assigned):null;
+        return a.type + ' — ' + (cg?cg.name:'unassigned') + ' · ' + (cl?cl.name:'?') +
+          (s?' · '+fmtTime(s.start)+'-'+fmtTime(s.end):'') +
+          (a.minsLate?' · '+a.minsLate+' min late':'');
+      }
+      const s=i.shift, cl=i.client;
+      return 'Uncovered shift — ' + (cl?cl.name:'?') + (cl&&cl.city?' ('+cl.city+')':'') +
+        ' · ' + toDateInput(s.start) + ' ' + fmtTime(s.start) + '-' + fmtTime(s.end) +
+        ' · starts in ' + hm(i.h) + (s.callOff?' · CALL-OFF, no replacement':'') + (i.extra||'');
+    }));
+  dvSection(L, 'WATCH — risks that are not a gap yet',
+    (wq.warning||[]).map(function(w){ return htmlToText(w.title) + ' — ' + htmlToText(w.sub||''); }));
 
+  /* ---- 2. open shifts, with how soon and how long open ---- */
+  const open = (typeof openShifts==='function') ? openShifts() : [];
+  dvSection(L, 'OPEN SHIFTS', open.slice().sort((a,b)=>a.start-b.start).map(function(s){
+    const cl = clById(s.clientId), h = hoursUntil(s.start);
+    /* AxisCare has no "opened at", so age is only known for shifts this
+       dashboard opened itself (a call-off). Never guess one. */
+    const age = s.openedAt ? ' · open ' + hm(Math.max(0,(NOW-new Date(s.openedAt))/36e5)) : '';
+    return dayKey(s.start) + ' ' + toDateInput(s.start) + '  ' +
+      fmtClock(decHr(s.start)) + '-' + fmtClock(decHr(s.end)) + '  ' +
+      (cl?cl.name:'?') + (cl&&cl.city?' · '+cl.city:'') +
+      (h>=0 ? ' · starts in ' + hm(h) : ' · STARTED ' + hm(-h) + ' ago') +
+      (s.callOff ? ' · call-off' + (s.callOffReason?' ('+s.callOffReason+')':'') : '') + age;
+  }), 40);
+
+  /* ---- 3. attendance: call-offs, no-shows, late ---- */
+  const att = (state.attendance||[]).slice()
+    .sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,20);
+  dvSection(L, 'ATTENDANCE LOGGED (most recent first)', att.map(function(a){
+    return (a.date||'?') + '  ' + (typeof attType==='function'?attType(a):a.type) + ' — ' + (a.cg||'?') +
+      (a.client?' · '+a.client:'') +
+      ' · coverage ' + (!a.coverNeeded?'not needed':(a.coverStatus==='Covered'?('covered by '+(a.coveredBy||'?')):'STILL NEEDED')) +
+      (a.note?' · '+a.note:'');
+  }), 20);
+
+  /* ---- 4. availability, from the same table the calendar and Find Coverage read ---- */
+  try{ if(typeof AVAIL!=='undefined' && AVAIL.primeCoverage) AVAIL.primeCoverage(); }catch(e){}
+  const cov = dvSafe(function(){ return AVAIL.coverageInfo(); }, null);
+  L.push('');
+  L.push('AVAILABILITY — per-date Open blocks a scheduler entered. A blank date is NOT available; it is never "probably free". AxisCare class tags are not availability.');
+  L.push('  source: ' + (cov ? cov.state + (cov.state==='ready' ? ' · ' + cov.caregivers + ' caregivers have Open days between ' + cov.from + ' and ' + cov.to : ' · ' + (cov.err||'')) : 'not loaded'));
+
+  const needs = dvSafe(cgNeedsUpdate, []);
+  const needAvail = needs.filter(function(n){
+    return n.items.some(function(i){ return /availability/i.test(i.head); }); });
+  dvSection(L, 'CAREGIVERS NEEDING AN AVAILABILITY UPDATE', needAvail.map(function(n){
+    const it=n.items.filter(function(i){ return /availability/i.test(i.head); });
+    return n.c.name + ' — ' + it.map(function(i){ return i.head; }).join('; ') +
+      ' · last update ' + dvWhen(n.c.ops&&n.c.ops.availLastConfirmed) +
+      ' · cadence ' + ((n.c.ops&&n.c.ops.availCheckFreq)||'not set');
+  }));
+  const needProfile = needs.filter(function(n){
+    return n.items.some(function(i){ return /profile/i.test(i.head); }); });
+  dvSection(L, 'CAREGIVERS WITH INCOMPLETE PROFILE FIELDS', needProfile.map(function(n){
+    const it=n.items.filter(function(i){ return /profile/i.test(i.head); })[0];
+    return n.c.name + ' — missing: ' + (it?it.lines.join(', '):'');
+  }), 15);
+
+  const today = dateKey(NOW);
+  /* Counted from coverage() — the whole recordable span — not from the
+     narrower prefetched index. openDays only supplies the next date. */
+  const withOpen = dvSafe(function(){
+    return active.map(function(c){
+      return {c:c, n:(AVAIL.coverage(c.id)||{}).days||0, d:(AVAIL.openDays(c.id)||[])}; })
+      .filter(function(x){ return x.n; }); }, []);
+  const idxReady = dvSafe(function(){ return AVAIL.indexStatus()==='ready'; }, false);
+  dvSection(L, 'CAREGIVERS WITH OPEN DAYS ON RECORD (count is the whole window; "next" is only known for the prefetched two months)',
+    withOpen.sort(function(a,b){ return b.n-a.n; }).map(function(x){
+      const next = x.d.map(function(o){ return o.day; })
+                      .filter(function(d){ return d >= today; })[0];
+      return x.c.name + ' — ' + x.n + ' open day' + (x.n===1?'':'s') +
+        (next ? ', next ' + next
+              : idxReady ? ', none in the next two months' : ', next date not loaded');
+    }), 30);
+
+  /* ---- 5. who is not on a case, and who is over hours ---- */
+  dvSection(L, 'ACTIVE CAREGIVERS WITH NO ASSIGNED SHIFT',
+    active.filter(function(c){ return !state.shifts.some(function(s){ return s.assigned===c.id; })
+      && !dvSafe(function(){ return cgActiveClient(c); }, null); })
+      .map(function(c){ return c.name + ' · ' + (c.base||'—'); }), 20);
+  dvSection(L, 'OVERTIME RISK (38h+ this week)',
+    dvSafe(overtimeRisk, []).map(function(c){ return c.name + ' · ' + c.weekHrs + 'h'; }));
+
+  /* ---- 6. recent schedule changes ---- */
+  dvSection(L, 'RECENT SCHEDULE CHANGES',
+    (state.schedChanges||[]).slice().sort(function(a,b){ return new Date(b.at)-new Date(a.at); })
+      .map(function(x){
+        const k=(typeof SCHED_KINDS!=='undefined'&&SCHED_KINDS[x.kind])?SCHED_KINDS[x.kind].label:x.kind;
+        return dvWhen(x.at) + '  ' + k + ' — ' + (x.caregiver||'?') + (x.client?' · '+x.client:'') +
+          (x.reason?' · '+x.reason:'');
+      }), 15);
+
+  /* ---- 7. care notes needing attention ---- */
+  const alerts = dvSafe(buildCareAlerts, []).filter(function(a){ return a.status!=='Resolved'; });
+  const missingNotes = alerts.filter(function(a){ return a.catKey==='missing'; });
+  dvSection(L, 'MISSING OR INCOMPLETE CARE NOTES', missingNotes.map(function(a){
+    const cl=clById(a.clientId), cg=cgById(a.cgId), t=new Date(a.at);
+    return dvWhen(a.at) + ' ' + (isNaN(t.getTime())?'':(t.getHours()<12?'AM':'PM')) +
+      ' — ' + (cl?cl.name:'?') + ' · ' + (cg?cg.name:'?');
+  }), 20);
+  dvSection(L, 'OPEN CARE-NOTE ALERTS (critical and high first)',
+    alerts.filter(function(a){ return a.catKey!=='missing'; }).map(function(a){
+      const cl=clById(a.clientId), cg=cgById(a.cgId);
+      return a.priority.toUpperCase() + ' ' + a.category + ' — ' + (cl?cl.name:'?') +
+        ' · ' + (cg?cg.name:'?') + ' · ' + dvWhen(a.at) + ' · "' + String(a.excerpt||'').slice(0,110) + '"';
+    }), 15);
+
+  /* ---- 8. the roster itself ---- */
   L.push('');
   /* c.base, NOT c.city. A caregiver record has no `city` — AxisRoster's
      mapCaregiver() calls it `base` (with prefCities beside it); only a CLIENT
@@ -11753,29 +12049,55 @@ function deviContext(){
      Devi then said, correctly per its own instructions, that nobody has a city
      recorded. CLAUDE.md calls this out as the most damaging mistake available
      in this codebase precisely because it looks like it worked. */
-  L.push('ACTIVE CAREGIVERS (name · city · skills):');
+  L.push('ACTIVE CAREGIVERS (name · base · open days on record · skills):');
   active.forEach(c=>{
+    const od = dvSafe(function(){ const v=AVAIL.coverage(c.id); return (v.state==='has'||v.state==='none') ? v.days : null; }, null);
     L.push('  ' + c.name + ' · ' + (c.base||'—') +
+      ' · ' + (od==null ? 'availability not loaded' : od ? od+' open days' : 'no open days on record') +
       ' · ' + ((c.skills&&c.skills.length)?c.skills.join(', '):'no skills recorded'));
   });
   return L.join('\n');
 }
 
-/* The rules Devi answers under. Kept short: a long prompt on a model that
-   already knows how to be helpful mostly buys tokens. What it MUST carry is
-   the two things Devi cannot work out for itself — that it cannot act, and
-   that availability in this app has a very specific meaning. */
+/* THE RULES DEVI ANSWERS UNDER.
+
+   Longer than it was, deliberately. The old prompt carried two things — you
+   cannot act, and availability means something specific — and then told Devi
+   that the snapshot did not include the availability table and to point the
+   scheduler at Find Coverage. That instruction is why Devi kept answering
+   "I can't see the availability table": it was accurate at the time and is
+   now false. The snapshot carries it, so the instruction is gone and its
+   opposite is in place.
+
+   What is added beyond that is a role, a priority ladder and a response
+   shape. None of it is decoration: without the ladder Devi lists problems in
+   the order it happens to find them, and a scheduler's first question is
+   always which one to do first. */
 function deviSystem(){
   return [
-    'You are Devi, the scheduling assistant inside the Devoted Care Scheduler Intelligence dashboard.',
-    'You are talking to a scheduler at the Devoted Care desk. Be direct and brief. Plain sentences, no preamble, no sign-off. Short lists are fine; markdown headings are not.',
+    'You are Devi, the Scheduler Intelligence Assistant for Devoted Care Services.',
     '',
-    'WHAT YOU CAN DO: answer questions about the scheduling picture below, and follow-up questions about answers already in this conversation. You can reason, compare, summarise and suggest.',
-    'WHAT YOU CANNOT DO: anything at all. You have no tools. You cannot assign a shift, record availability, message anyone, or change a record. If the scheduler asks you to DO something, say plainly that you can only advise and tell them where in the dashboard to do it.',
+    'ROLE. Behave like the most experienced scheduler on the desk: proactive, precise, organised, and focused on catching scheduling problems before they land. You are not a general chatbot. Every answer comes from the scheduling snapshot below — that is the same live data the Caregivers, Open Shifts, Find Coverage, Attendance, Care Notes Review, Schedule Updates and Today screens are built from.',
     '',
-    'AVAILABILITY MEANS SOMETHING SPECIFIC HERE. A caregiver is available only on dates where a scheduler logged an Open block; a blank calendar means NOT available, never "probably free". The AxisCare class tags are not availability. The snapshot below does not include the availability table, so if you are asked who is free on a date, say you cannot see the availability table from here and point them at Find Coverage, which reads it directly. Never guess at it.',
+    'ANSWER FIRST, THEN THE DETAIL. Open with the direct answer in one line — "7 caregivers still need availability updates." — then the supporting list. No preamble, no restating the question, no sign-off. Plain sentences and short lists; no markdown headings.',
+    'When something is urgent, lead with it in capitals: "URGENT — 2 shifts still need coverage today." then the specifics.',
+    'Name people and clients. A count with no names is half an answer.',
     '',
-    'NEVER INVENT ANYTHING. Only use what is in the snapshot below or earlier in this conversation. If something is not there, say so plainly — "that is not in what I can see" — rather than producing a plausible answer. A wrong caregiver name or a made-up shift is worse than no answer.',
+    'PRIORITY ORDER when several things are wrong. This is how the desk works, so use it rather than the order things appear in the snapshot:',
+    '  URGENT  1. an uncovered shift today   2. a no-show   3. a call-off with no replacement   4. a late arrival still unresolved',
+    '  NEXT    5. tomorrow’s uncovered shifts   6. scheduling conflicts and overtime risk   7. availability updates needed   8. missing care notes   9. incomplete profiles',
+    'If asked what to handle first, give ONE thing and why, then the rest in order.',
+    '',
+    'WHEN ASKED WHO CAN COVER A SHIFT, weigh, in this order: availability on that date (an Open block — anything else is a no), an existing shift at that hour, distance from the client’s city, the client’s caregiver gender preference, the skills and experience the case needs (dementia, hospice, transfers, Hoyer lift, bedbound, incontinence), driving if the client needs transport, pets and stairs in the home, overtime risk, recent call-offs or no-shows, and whether they have worked with that client before. Rank the strongest first and say in a few words why each one is on the list. Say plainly which of these you could not check.',
+    '',
+    'WHAT YOU CANNOT DO: anything at all. You have no tools. You cannot assign a shift, record availability, message anyone, or change a record. If the scheduler asks you to DO something, say plainly that you can only advise, and name the screen where they can do it.',
+    '',
+    'AVAILABILITY MEANS SOMETHING SPECIFIC HERE. A caregiver is available only on dates where a scheduler logged an Open block. A blank date means NOT available — never "probably free". The AxisCare class tags (WKDY, WKND, MRNNG, NOVRN, AD) are not availability and must never be read as a schedule. The snapshot below carries the availability picture: who needs an update, who has Open days on record, and how many. Answer from it.',
+    'The prefetched availability window runs a week back to the end of next month. For a date outside it, say the window does not reach that far rather than answering "nobody is free" — those are different answers and confusing them is the worst mistake available here.',
+    '',
+    'FIGURES THAT ARE NOT TRACKED. Reliability %, hours worked, call-off and decline counts and punctuality have no AxisCare source and are null on real caregivers. If one is asked for, say it is not tracked and offer what IS recorded — the logged attendance entries, which are real.',
+    '',
+    'NEVER INVENT ANYTHING. Only use what is in the snapshot below or earlier in this conversation. A wrong caregiver name or a made-up shift is far worse than no answer. If a list in the snapshot is capped, say how many more there were rather than guessing at them. If something genuinely is not in the snapshot, say exactly what is missing and what you CAN see instead — never a bare "I do not have enough information".',
     '',
     'THE SCHEDULING SNAPSHOT, as of this moment:',
     deviContext()
