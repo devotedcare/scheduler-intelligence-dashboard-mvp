@@ -12682,7 +12682,7 @@ function cgNeedsUpdate(){
   /* Asked on demand, not at boot — this tab is the only thing that needs it.
      Guarded internally, so calling it on every render costs one fetch. */
   let cov=null;
-  try{ if(typeof AVAIL!=='undefined'&&AVAIL.primeCoverage){ AVAIL.primeCoverage(); } }catch(e){}
+  try{ if(typeof AVAIL!=='undefined'&&AVAIL.primeMonthCoverage){ AVAIL.primeMonthCoverage(); } }catch(e){}
   (state.caregivers||[]).forEach(function(c){
     if(c.active===false || (c.ops&&c.ops.archived)) return;
     const items=[];
@@ -12702,19 +12702,26 @@ function cgNeedsUpdate(){
         action:'Contact caregiver'});
     }
 
-    /* 2 — THE CALENDAR, read over the whole span availability can exist for.
+    /* 2 — THE CALENDAR, read for the CURRENT CALENDAR MONTH ONLY.
 
        This used to call AVAIL.openDays(), which answers from the roster-wide
        index — a week back to the end of next month — and returns an empty
        array for "none entered", "still loading" and "the fetch failed"
        alike. Both halves were wrong here: a caregiver whose availability is
        entered further out had none in that window, and a failed index
-       flagged the entire roster. AVAIL.coverage() asks over searchWindow()
-       and returns a STATE, so only a definite 'none' is a finding. */
-    let cvg=null; try{ cvg=(typeof AVAIL!=='undefined'&&AVAIL.coverage)?AVAIL.coverage(c.id):null; }catch(e){}
+       flagged the entire roster. It was then switched to AVAIL.coverage(),
+       which widened to the whole searchWindow() (a month back to eleven
+       months on) and fixed that — but asked the wrong question for THIS
+       list: a caregiver fully booked out through next spring but blank for
+       the here-and-now no longer showed up. The desk needs to schedule THIS
+       month, so this reads AVAIL.monthCoverage() instead, which runs over
+       just the 1st to the last day of the current month and re-asks
+       automatically the moment the month turns over. It still returns a
+       STATE, so only a definite 'none' is a finding. */
+    let cvg=null; try{ cvg=(typeof AVAIL!=='undefined'&&AVAIL.monthCoverage)?AVAIL.monthCoverage(c.id):null; }catch(e){}
     if(cvg && cvg.state==='none')
       items.push({head:'Availability missing', tone:'bad',
-        lines:['No Open days entered on the calendar between '+cvg.from+' and '+cvg.to],
+        lines:['No availability entered for '+new Date(cvg.from+'T12:00:00').toLocaleDateString('en-US',{month:'long',year:'numeric'})+'.'],
         action:'Add availability'});
 
     /* 3 — blank profile fields. */
@@ -13488,7 +13495,7 @@ function suNeedsHTML(needs){
      check would make a short list look like good news. */
   let note='';
   try{
-    const cs=(typeof AVAIL!=='undefined'&&AVAIL.coverageInfo)?AVAIL.coverageInfo():null;
+    const cs=(typeof AVAIL!=='undefined'&&AVAIL.monthCoverageInfo)?AVAIL.monthCoverageInfo():null;
     if(cs && cs.state!=='ready'){
       note='<div class="demo-banner cal-meta'+(cs.state==='loading'||cs.state==='idle'?' load':' err')+'">'+
         (cs.state==='loading'||cs.state==='idle'
@@ -17426,7 +17433,11 @@ var AVAIL = (function () {
      So this asks its own question over searchWindow() — the whole span
      availability can exist for, the same reach as the profile calendar's
      month arrows — and pulls two columns rather than whole rows, because
-     all it needs is a count per caregiver.
+     all it needs is a count per caregiver. This is deliberately the WHOLE
+     window: "who has open availability at all" (aiOpenAvail) and Devi's own
+     snapshot both need that reach, and must keep it. Needs Update's own
+     "Availability missing" question is narrower — see monthCoverage() below
+     — and answers itself from a separate cache rather than reusing this one.
 
      Lazily, on demand: only Needs Update asks, so nobody who never opens
      that tab pays for it. */
@@ -17477,6 +17488,61 @@ var AVAIL = (function () {
     var d = covByCg && covByCg[cgId];
     var n = d ? Object.keys(d).length : 0;
     return { state: n ? 'has' : 'none', days: n, from: covFrom, to: covTo };
+  }
+
+  /* HAS THIS CAREGIVER GOT ANY AVAILABILITY ON RECORD FOR THE CURRENT MONTH?
+
+     A second, narrower cache for exactly one question: Needs Update >
+     "Availability missing". coverage() above deliberately spans the WHOLE
+     recordable window, because "who has open availability at all" wants
+     that reach — but that also means a caregiver who is fully booked out
+     through next spring and genuinely has NOTHING entered for the here-and-
+     now clears it, and the desk staffs one month at a time. This asks the
+     same table over just the 1st to the last day of the CURRENT calendar
+     month, taken from `NOW`, and re-derives that window on every call —
+     `monthCovKey` is what forces a re-fetch the moment the month turns
+     over, since the ready/loading guard would otherwise keep serving last
+     month's cached answer for the rest of the session. */
+  function currentMonthWindow() {
+    var base = (typeof NOW !== 'undefined' && NOW) ? NOW : new Date();
+    return { from: ymd(new Date(base.getFullYear(), base.getMonth(), 1)),
+             to:   ymd(new Date(base.getFullYear(), base.getMonth() + 1, 0)) };
+  }
+  var monthCovByCg = null, monthCovState = 'idle', monthCovErr = null,
+      monthCovFrom = null, monthCovTo = null, monthCovKey = null;
+  function primeMonthCoverage() {
+    var w = currentMonthWindow();
+    if (monthCovKey !== w.from) { monthCovState = 'idle'; monthCovByCg = null; }   /* the month rolled over */
+    if (monthCovState === 'loading' || monthCovState === 'ready') return Promise.resolve();
+    if (!configured()) { monthCovState = 'unconfigured'; monthCovErr = 'No Supabase keys on this build.'; return Promise.resolve(); }
+    monthCovFrom = w.from; monthCovTo = w.to; monthCovKey = w.from;
+    monthCovState = 'loading'; monthCovErr = null;
+    var acc = {}, t0 = Date.now(), rows = 0;
+    function page(offset) {
+      return coveragePage(w.from, w.to, offset).then(function (list) {
+        list = list || [];
+        rows += list.length;
+        list.forEach(function (r) {
+          var k = 'a' + r.caregiver_id, d = String(r.on_date).slice(0, 10);
+          (acc[k] || (acc[k] = {}))[d] = 1;
+        });
+        if (list.length === PAGE) return page(offset + PAGE);
+      });
+    }
+    return page(0).then(function () {
+      monthCovByCg = acc; monthCovState = 'ready';
+      console.info('[avail] month coverage: ' + Object.keys(acc).length + ' caregiver(s) with Open days, ' +
+        rows + ' row(s), ' + w.from + ' → ' + w.to + ', ' + (Date.now() - t0) + 'ms');
+    }).catch(function (e) {
+      monthCovState = 'error'; monthCovErr = (e && e.message) || String(e);
+      console.warn('[avail] month coverage failed', e);
+    }).then(function () { try { render(); } catch (e) {} });
+  }
+  function monthCoverage(cgId) {
+    if (monthCovState !== 'ready') return { state: monthCovState === 'idle' ? 'loading' : monthCovState, days: 0, err: monthCovErr };
+    var d = monthCovByCg && monthCovByCg[cgId];
+    var n = d ? Object.keys(d).length : 0;
+    return { state: n ? 'has' : 'none', days: n, from: monthCovFrom, to: monthCovTo };
   }
 
   /* Fire and forget at boot. Resolves either way so a caller can chain,
@@ -17650,7 +17716,7 @@ var AVAIL = (function () {
   /* `auto` marks a write made by the monthly copy. It picks the author stamp
      the guard reads, and it is what stops the copy re-triggering itself. */
   /* Availability was just written, so the coverage answer is stale. */
-  function forgetCov(){ covByCg = null; covState = 'idle'; }
+  function forgetCov(){ covByCg = null; covState = 'idle'; monthCovByCg = null; monthCovState = 'idle'; }
   /* `author` overrides the usual stamp. The re-carve passes it because it is
      narrowing somebody else's row around a visit, not making a statement of
      its own — the day panel's history line should still name whoever decided
@@ -17712,8 +17778,13 @@ var AVAIL = (function () {
       caregivers: covByCg ? Object.keys(covByCg).length : 0 }; },
     /* A save changes the answer, so the next ask re-reads it. */
     forgetCoverage: function () { covByCg = null; covState = 'idle'; },
+    /* The current-month-only cache behind Needs Update > Availability missing. */
+    primeMonthCoverage: primeMonthCoverage, monthCoverage: monthCoverage,
+    monthCoverageInfo: function () { return { state: monthCovState, err: monthCovErr, from: monthCovFrom, to: monthCovTo,
+      caregivers: monthCovByCg ? Object.keys(monthCovByCg).length : 0 }; },
+    forgetMonthCoverage: function () { monthCovByCg = null; monthCovState = 'idle'; },
     _reset: function () { byCg = {}; inFlight = {}; idx = {}; loaded = {}; pending = {}; idxState = 'idle'; idxCount = 0;
-      covByCg = null; covState = 'idle'; }
+      covByCg = null; covState = 'idle'; monthCovByCg = null; monthCovState = 'idle'; monthCovKey = null; }
   };
 })();
 
