@@ -1590,15 +1590,127 @@ that sentence has to stay as long as the tools array is empty.
 
 ### What Devi can and cannot do
 
-**It has no tools. It can only produce text.** Nothing it says reaches the
-availability table, the roster, a shift or AxisCare — the browser renders the
-words and stops. That is the entire safety argument for showing it real data,
-and it is why `supabase/functions/devi-agent/index.ts` forwards no `tools`
-array. **Claude: adding a tool invalidates that argument and has to be
+**THE MODEL has no tools. It can only produce text.** Nothing Claude says
+reaches the availability table, the roster, a shift or AxisCare — the browser
+renders the words and stops. That is the entire safety argument for showing it
+real data, and it is why `supabase/functions/devi-agent/index.ts` forwards no
+`tools` array. **Claude: adding a tool invalidates that argument and has to be
 re-made from scratch.**
+
+**THE BOARD can write, through the action layer below** — but only from
+proposals the *router* built in code, never from anything the model wrote, and
+never without somebody clicking Approve. The two are separate paths and they
+never meet: a proposal attaches to a router answer, and a router answer is by
+definition one the model was not asked about.
 
 `state.aiLog` is **not** a tracked CLOUD slice, so the conversation stays in the
 browser that asked it and is never written to Supabase or shared.
+
+### Devi actions — verify, prepare, approve, write
+
+The block headed `DEVI ACTIONS` in `index.html` is the only place Ask Devi
+changes anything. The flow is fixed and there is no way round it:
+
+```
+verify   the builder reads the live tables
+explain  the answer says what it found, with the numbers
+prepare  a proposal naming every record it would touch
+APPROVE  a person clicks
+write    through the SAME function the matching screen uses
+```
+
+`dactPrepare()` returns null when there is nothing to do, so a card only ever
+appears when there is a real change behind it. `e.act` rides the turn, so Clear
+takes proposals with the thread and an old card can never attach itself to a
+new question. `dactCards()` renders them, once, for both the dock and the full
+page.
+
+**Five rules, each of which cost something to learn:**
+
+- **Re-verify at approve.** `pull()` runs every 20 seconds, so a colleague can
+  change the named record between the preparing and the clicking. `approve()`
+  rebuilds from the live tables and, if the set moved, shows the new one and
+  asks again rather than replaying a stale write over somebody's newer work.
+- **A build that THREW is not a build that came back empty.** Both write
+  nothing; only one is good news. Reporting a thrown re-verify as "already
+  handled" would be a false success, which is the one outcome this block exists
+  to prevent.
+- **Hold an ID, never a caregiver object.** `ROSTER.hydrate()` reconstructs
+  every caregiver on a Retry, so an object captured at prepare time can be an
+  orphan by the time Approve is clicked — and writing to an orphan changes
+  nothing the app reads while reporting Done. `dvLive(id)` resolves through
+  `cgById()`, the lookup every screen uses, at build **and** at apply time, and
+  throws if the caregiver has gone. The pref and miles actions also read the
+  value back through it rather than trusting the write.
+- **Report what happened, not what was attempted.** done / partial / failed
+  comes from the result. `AVAIL.saveDays()` rejects with the database's own
+  words and those are what the card shows — "HTTP 400" tells a scheduler
+  nothing, "day shape rule violated" tells them what to change.
+- **No write path means say so.** `DEVI_NO_WRITE` — *"I can prepare this for
+  you, but I cannot save it yet."* — in those words, every time.
+
+**What is wired to a real write:**
+
+| Action | Writes through |
+|---|---|
+| Correct the availability warnings the calendar disproves | `devStampConfirmed()` → `c.ops`, the same stamp `confirmAvail()` writes |
+| Re-read the tables and recalculate Needs Update | `AVAIL.forgetCoverage()` + re-prime (a recompute; writes nothing) |
+| Create follow-up tasks | `state.tasks` |
+| Mark a task complete | `setTaskStatus()` |
+| Add a shift handoff note | `state.handoff.opener` / `.closer` |
+| Post an internal scheduling note | `state.updates` |
+| Record availability for given dates | `devAvailWrite()` → `carveSegs()` → `AVAIL.saveDays()` |
+| Record a work preference / travel distance | `devSetPref()` → `ops.prefs` + its mirrors |
+
+**What is deliberately prepare-only:** caregiver and family messages. There is
+no SMS or email channel in this dashboard and the AxisCare proxy forwards GET
+only, so a message leaves here by being copied out. Devi drafts the wording and
+offers to save it as a handoff note or a task; it says `DEVI_NO_WRITE` and does
+not pretend otherwise. **Do not "fix" this by adding a send.** That is a vendor,
+a secret and a PHI decision, and it is Carlo's.
+
+#### The warning that can actually be false
+
+"Availability missing" is raised only when the month read says `none`, so it is
+wrong only if that read is stale — which is what the refresh action is for.
+The one that can be genuinely false is the **cadence** warning: "nobody has
+checked in with this caregiver since X" is disproved whenever a *person* entered
+rows for them after X. `monthCoverage().lastHuman` is that evidence, and it
+**skips `Auto-copy`** — the monthly copy and the hourly re-carve write rows too,
+and neither is somebody answering the phone. Without that filter this would
+"confirm" a caregiver nobody had spoken to.
+
+`devStampConfirmed()` deliberately does **not** set `ops.archived` / `ops.inPool`,
+which `confirmAvail()` does. That is a scheduler saying "I spoke to them and they
+are working"; an availability row is only evidence that somebody recorded their
+hours. Claiming the stronger fact from the weaker one is the quiet overreach the
+whole block exists to avoid.
+
+#### Availability writes carve, exactly as the day panel does
+
+**Claude: do not simplify `devAvailWrite()` into an `AVAIL.saveDays()` call.**
+The carve is what stops Find Coverage offering somebody already on a Devoted
+visit, and `dpSave()` refuses to write at all when the visits have not loaded —
+`forDay()` answers `[]` for a FAILED fetch exactly as it does for a day with no
+visits. This path loads `CGVISITS` first and gives up if they will not come,
+for the same reason.
+
+#### The instruction grammar is deliberately narrow
+
+`dactCommand()` runs before the read router and answers only what is shaped like
+an instruction: an opening verb, a message verb, or a named caregiver plus a
+reporting verb. Everything else returns null, which is what keeps "which
+caregivers have missing availability" — a question containing the word
+availability — out of the write path. Verified: all fifteen daily read questions
+still reach their own builders unchanged.
+
+Everything it cannot read with confidence is **refused with the shape it does
+understand**, never approximated — an unparseable date, a name matching two
+people, a block under `AV_MIN_MIN`. Guessing which caregiver or which date was
+meant is how the wrong record gets changed. `dvFindCg()` deduplicates by id
+before calling a match ambiguous, because `state.caregivers` can hold one person
+twice (a saved overlay outliving a roster swap is why `ROSTER.reconcile()`
+exists) and two rows for one person is not a question worth asking.
 
 ### The key lives in a Supabase Edge Function
 
