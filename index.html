@@ -125,7 +125,7 @@
   .sidefoot b{color:#CBDAE6;font-weight:700}
 
   /* ---------- Main ---------- */
-  .main{min-width:0}
+  .main{min-width:0;display:flex;flex-direction:column}
   .topbar{
     background:#fff;border-bottom:1px solid var(--line-strong);
     padding:9px 20px;display:flex;align-items:stretch;gap:0;position:sticky;top:0;z-index:20;min-height:56px;
@@ -157,7 +157,7 @@
   .syncpill.s-offline{color:var(--neutral-tx);background:var(--neutral-bg)}
   .syncpill.s-error{color:var(--crit-tx);background:var(--crit-bg);cursor:help}
 
-  .view{padding:16px 28px 48px;max-width:1760px}
+  .view{padding:16px 28px 48px;max-width:1760px;flex:1 1 auto}
   .section-h{display:flex;align-items:center;gap:11px;border-bottom:1px solid var(--line-strong);padding-bottom:8px;margin:26px 0 14px}
   .section-h:first-child{margin-top:4px}
   .section-h h2{font-size:13px;text-transform:uppercase;letter-spacing:.9px;color:var(--ink);font-weight:800}
@@ -2323,7 +2323,7 @@ body.ai-white .main{display:flex;flex-direction:column;min-height:100vh}
    tallest of them (Work Preferences at 303px of body) with room for a
    service-areas list that wraps. Still one height per row, and every card in
    a row identical. */
-.ws-card.pfx.pfx-tall{height:376px}.ws-card.pfx.pfx-full{height:auto}.pf2 .ws-card.pfx-full .emp-grid{grid-template-columns:1fr 1fr;gap:0 32px}.pf-f.wp-span{grid-column:1/-1}.pf-f.wp-span .av-chks{display:flex;flex-direction:row;flex-wrap:wrap;gap:6px 18px}.str-grp{margin-bottom:7px}.str-grp:last-child{margin-bottom:0}.str-grp-h{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-faint);margin:0 0 4px}.tp-grp-h{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-faint);margin:11px 0 5px}.tp-grp-h:first-child{margin-top:0}
+.ws-card.pfx.pfx-tall{height:376px}.ws-card.pfx.pfx-full{height:auto}.pf2 .ws-card.pfx-full .emp-grid{grid-template-columns:1fr 1fr;gap:0 32px}.pf-f.wp-span{grid-column:1/-1}.pf-f.wp-span .av-chks{display:flex;flex-direction:row;flex-wrap:wrap;gap:6px 18px}#devidock{position:sticky;bottom:0;z-index:40;margin-top:auto}.dk{background:#fff;border-top:1px solid var(--line);box-shadow:0 -2px 10px rgba(0,0,0,.06)}.dk-bar{display:flex;align-items:center;gap:8px;padding:8px 18px}.dk-t{display:flex;align-items:center;gap:6px;font-family:inherit;font-size:12.5px;font-weight:800;color:var(--brand);background:none;border:none;cursor:pointer;padding:4px 2px;white-space:nowrap}.dk-n{font-size:11px;font-weight:800;color:#fff;background:var(--brand);border-radius:9px;padding:1px 6px;font-variant-numeric:tabular-nums}.dk-c{color:var(--ink-faint);font-size:10px}.dk-in{flex:1 1 auto;min-width:120px;box-sizing:border-box;font-family:inherit;font-size:13.5px;color:var(--ink);background:#fff;border:1px solid var(--line-strong);border-radius:8px;padding:8px 12px;outline:none}.dk-in:focus{border-color:var(--brand)}.dk-thread{max-height:44vh;overflow-y:auto;overscroll-behavior:contain;padding:12px 18px 2px;border-bottom:1px solid var(--line-soft)}.dk-turn{margin-bottom:12px}.dk-turn:last-child{margin-bottom:6px}.dk-q{font-size:12.5px;font-weight:700;color:var(--ink-soft);margin-bottom:4px}.dk-q:before{content:'\2937  '}.dk-at{font-size:13.5px;font-weight:800;color:var(--ink);margin-bottom:5px}@media(max-width:800px){.dk-t span:not(.dk-n):not(.dk-c){display:none}.dk-thread{max-height:38vh}}.str-grp{margin-bottom:7px}.str-grp:last-child{margin-bottom:0}.str-grp-h{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-faint);margin:0 0 4px}.tp-grp-h{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-faint);margin:11px 0 5px}.tp-grp-h:first-child{margin-top:0}
 .pfx-body{flex:1 1 auto;min-height:0;overflow:hidden;position:relative}.clm-card{width:100%;max-width:560px;height:340px}.clm-body{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain}.clm-stack{margin-top:11px}.clm-l{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-faint);margin-bottom:3px}.clm-v{font-size:13px;color:var(--ink);line-height:1.5}.clm-cgs{display:flex;flex-wrap:wrap;gap:6px;margin-top:5px}.clm-cg{font-size:12px;font-weight:650;border-radius:12px;padding:3px 10px;border:1px solid var(--line);background:var(--panel-head);color:var(--ink)}.clm-cg.unres{color:var(--ink-faint);border-style:dashed;font-style:italic}.clm-note{font-size:12.5px;color:var(--ink-faint);line-height:1.45}
 /* No fade over the cut. Everything on a card is full opacity; where the body
    is longer than the card it is simply clipped, and View Details is what says
@@ -2365,6 +2365,12 @@ body.ai-white .main{display:flex;flex-direction:column;min-height:100vh}
       </div>
     </div>
     <div class="view" id="view"></div>
+    <!-- ONE Ask Devi area for the whole dashboard. Rendered by renderDock()
+         and hidden on the Ask Devi page itself, which is the same thread at
+         full height — two visible copies of one conversation is not "one
+         area". Deliberately a docked strip, not a modal: the scheduler keeps
+         the page they are working on in view while they ask about it. -->
+    <div id="devidock"></div>
   </div>
 </div>
 
@@ -3044,6 +3050,7 @@ function render(){
   const mainEl=document.querySelector('.main');
   if(mainEl) mainEl.classList.toggle('main-white', state.view==='assistant');
   document.body.classList.toggle('ai-white', state.view==='assistant');
+  renderDock();
   /* A render replaces the whole view, so anything typed in the caregiver
      search would lose the cursor - including on the 8-second cloud poll,
      which fires while someone is still typing a name. Put it back. */
@@ -11581,6 +11588,17 @@ function viewAlerts(){
 const AI_CITIES=['Camarillo','Thousand Oaks','Westlake Village','Newbury Park','Moorpark','Simi Valley','Oxnard','Ventura','Ojai','Santa Paula','Fillmore','Port Hueneme'];
 const AI_SKILLS=[['dementia','Dementia'],['memory','Dementia'],['hospice','Hospice'],['hoyer','Hoyer Lift'],['transfer','Transfers'],['companion','Companion'],['medication','Medication Reminders'],['feeding','Feeding Tube'],['tube','Feeding Tube'],['suction','Suctioning']];
 const AI_EXAMPLES=[
+ /* The daily sweep first — these are what a scheduler opens the board to ask,
+    and each is answered by a builder rather than a model call. */
+ 'What needs my attention today?',
+ 'Which open shifts need coverage first?',
+ 'Which caregivers have missing availability?',
+ 'Which caregivers are available but not scheduled?',
+ 'Which Schedule Update warnings are incorrect?',
+ 'Who has repeated call-offs?',
+ 'Which caregivers need follow-up today?',
+ 'Which clients have missing care notes?',
+ 'Are there any scheduling conflicts?',
  'Who is available tomorrow from 8 AM\u20132 PM in Camarillo?',
  'Which caregivers have called off in the last 90 days?',
  'Who has the highest reliability score?',
@@ -11632,6 +11650,113 @@ function aiParseSkill(q){ for(const [k,v] of AI_SKILLS){ if(q.includes(k)) retur
    router stays in FRONT of Devi for exactly this reason — "how many need
    availability updates" has a right answer and should never cost a model
    call to get it. Devi picks up what these do not match. */
+
+/* "Which open shifts need coverage first?" — the same ordering the Today
+   board uses, so the two screens cannot disagree about what is urgent. */
+function aiCoverFirst(){
+  const list=openShifts().slice().sort((a,b)=>a.start-b.start);
+  if(!list.length) return {title:'No open shifts', html:aiEmpty('Everything on the board is covered.')};
+  return {title:list.length+' open shift'+(list.length===1?'':'s')+', soonest first',
+    html:aiRows(list.slice(0,25).map(function(s,i){
+      const cl=clById(s.clientId), h=hoursUntil(s.start);
+      const tone = h<0?'crit' : h<24?'crit' : h<72?'soon':'';
+      return aiRow((i+1)+'. '+escText(cl?cl.name:'?')+' <span class="ai-tag '+tone+'">'+
+          (h<0?'STARTED':'in '+hm(h))+'</span>',
+        toDateInput(s.start)+' '+fmtTime(s.start)+'–'+fmtTime(s.end)+
+        (cl&&cl.city?' · '+escText(cl.city):'')+
+        (s.callOff?' · call-off, no replacement':''));
+    }))};
+}
+
+/* "Who has repeated call-offs?" — from the logged attendance record, which
+   is real. Reliability % is NOT: it has no AxisCare source and is null on
+   every live caregiver, so it is never used to rank anybody here. */
+function aiRepeatCallOffs(){
+  const by={};
+  (state.attendance||[]).forEach(function(a){
+    const t=(typeof attType==='function')?attType(a):a.type;
+    if(!/call-?off|no show/i.test(t||'')) return;
+    (by[a.cg]=by[a.cg]||[]).push(a);
+  });
+  const list=Object.keys(by).map(n=>({name:n, rows:by[n]}))
+    .filter(x=>x.rows.length>=2).sort((a,b)=>b.rows.length-a.rows.length);
+  if(!list.length) return {title:'Nobody has repeated call-offs',
+    html:aiEmpty('No caregiver has two or more call-offs or no-shows in the logged attendance record.')};
+  return {title:list.length+' caregiver'+(list.length===1?'':'s')+' with repeated call-offs',
+    html:aiRows(list.map(function(x){
+      const c=state.caregivers.find(k=>k.name===x.name);
+      const dates=x.rows.map(r=>r.date).filter(Boolean).sort().reverse();
+      return aiRow((c?aiCgLink(c):escText(x.name))+' <span class="ai-tag crit">'+x.rows.length+'</span>',
+        'Most recent: '+escText(dates.slice(0,3).join(', '))+
+        ' · '+escText(x.rows.map(r=>(typeof attType==='function')?attType(r):r.type).join(', ')));
+    }))};
+}
+
+/* "Which caregivers are available but not scheduled?" */
+function aiAvailNotScheduled(){
+  try{ if(typeof AVAIL!=='undefined'&&AVAIL.primeCoverage) AVAIL.primeCoverage(); }catch(e){}
+  let cs=null; try{ cs=AVAIL.coverageInfo(); }catch(e){}
+  if(!cs||cs.state!=='ready') return {title:'Availability is still loading',
+    html:aiEmpty('Reading the availability table now — ask again in a moment.')};
+  const list=aiActive().map(function(c){
+    let n=0; try{ n=(AVAIL.coverage(c.id)||{}).days||0; }catch(e){}
+    const booked=(state.shifts||[]).some(s=>s.assigned===c.id);
+    return {c:c, n:n, booked:booked};
+  }).filter(x=>x.n && !x.booked).sort((a,b)=>b.n-a.n);
+  if(!list.length) return {title:'Nobody is sitting idle',
+    html:aiEmpty('Every caregiver with Open days on record has an assigned shift.')};
+  return {title:list.length+' caregiver'+(list.length===1?'':'s')+' have open availability and no assigned shift',
+    html:aiRows(list.slice(0,30).map(x=>aiRow(aiCgLink(x.c)+' <span class="ai-tag good">'+x.n+' open day'+(x.n===1?'':'s')+'</span>',
+      escText(x.c.base||'no base recorded')+' · '+((x.c.skills&&x.c.skills.length)?escText(x.c.skills.slice(0,4).join(', ')):'no skills recorded'))))};
+}
+
+/* "Which Schedule Update warnings are incorrect?" — Needs Update auditing
+   itself. Every finding is re-derived from the underlying table and any that
+   cannot be substantiated is named. This exists because a wrong warning was
+   shipped once: the availability check counted only Open rows, so a
+   caregiver recorded as Vacation all month read as having entered nothing. */
+function aiBadWarnings(){
+  const needs=cgNeedsUpdate(), bad=[], checked=[];
+  needs.forEach(function(n){
+    n.items.forEach(function(it){
+      if(it.head!=='Availability missing') return;
+      let m=null; try{ m=AVAIL.monthCoverage(n.c.id); }catch(e){}
+      checked.push(1);
+      if(!m || m.state!=='ready' && m.state!=='none' && m.state!=='has'){
+        bad.push({c:n.c, why:'the availability table could not be read, so this is unverified'});
+      } else if(m.state==='has'){
+        bad.push({c:n.c, why:m.days+' day'+(m.days===1?'':'s')+' ARE recorded this month ('+m.openDays+' Open) — this warning is wrong'});
+      }
+    });
+  });
+  if(!needs.length) return {title:'No warnings to check', html:aiEmpty('Needs Update is empty.')};
+  if(!bad.length) return {title:'All '+needs.length+' warning'+(needs.length===1?'':'s')+' check out',
+    html:aiEmpty('Every "Availability missing" flag was re-checked against the availability table and each one is correct — those caregivers genuinely have no rows for this month, of any status.')};
+  return {title:bad.length+' warning'+(bad.length===1?'':'s')+' cannot be substantiated',
+    html:aiRows(bad.map(x=>aiRow(aiCgLink(x.c)+' <span class="ai-tag crit">Check this</span>', escText(x.why))))};
+}
+
+/* "Which caregivers need follow-up today?" — everything with somebody's name
+   on it, in the order the desk would work them. */
+function aiFollowUp(){
+  const rows=[], seen={};
+  attendanceAlerts().forEach(function(a){
+    const s=a.shift, cg=s&&s.assigned?cgById(s.assigned):null; if(!cg||seen[cg.id])return; seen[cg.id]=1;
+    rows.push(aiRow(aiCgLink(cg)+' <span class="ai-tag crit">'+escText(a.type)+'</span>','Call now — shift in progress'));
+  });
+  (state.attendance||[]).filter(a=>a.coverNeeded&&a.coverStatus!=='Covered').forEach(function(a){
+    const c=state.caregivers.find(k=>k.name===a.cg);
+    rows.push(aiRow((c?aiCgLink(c):escText(a.cg||'?'))+' <span class="ai-tag crit">Coverage still needed</span>',
+      escText((a.date||'')+(a.client?' · '+a.client:''))));
+  });
+  cgNeedsUpdate().forEach(function(n){
+    const av=n.items.filter(i=>/availability/i.test(i.head))[0]; if(!av||seen[n.c.id])return; seen[n.c.id]=1;
+    rows.push(aiRow(aiCgLink(n.c)+' <span class="ai-tag soon">'+escText(av.head)+'</span>',
+      'Last update: '+(n.c.ops&&n.c.ops.availLastConfirmed?fmtDate(n.c.ops.availLastConfirmed):'never recorded')));
+  });
+  if(!rows.length) return {title:'Nobody needs a call today', html:aiEmpty('No attendance alerts, no uncovered call-offs, and availability is up to date.')};
+  return {title:rows.length+' caregiver'+(rows.length===1?'':'s')+' need follow-up today', html:aiRows(rows)};
+}
 
 /* "How many caregivers still need availability updates?" */
 function aiNeedsAvail(){
@@ -11786,8 +11911,13 @@ function aiAnswer(raw){
   /* Ahead of everything: these are the questions the desk asks daily, and
      each has an exact answer. "availability update" must be tested before
      wantsAvail or "who is available" logic swallows it. */
-  if(/(need|needs|needed|due|outstanding|overdue|submit|update|updated|missing).{0,24}availab|availab.{0,24}(update|needed|due|outstanding|submit|expired|outdated)|who ?(has ?)?(n[o']?t|hasn'?t|haven'?t).{0,20}availab/.test(q)) return aiNeedsAvail();
+  if(/(need|needs|needed|due|outstanding|overdue|submit|update|updated|missing|no).{0,24}availab|availab.{0,24}(update|needed|due|outstanding|submit|expired|outdated|missing)|who ?(has ?)?(n[o']?t|hasn'?t|haven'?t).{0,20}availab/.test(q)) return aiNeedsAvail();
+  if(/availab.{0,20}(but|and).{0,12}not schedul|not schedul.{0,20}availab|idle.{0,12}availab/.test(q)) return aiAvailNotScheduled();
   if(/open availab|has availab|with availab|availab.{0,12}on record/.test(q)) return aiOpenAvail();
+  if(/(which|what).{0,20}(warning|flag).{0,20}(wrong|incorrect|false|bad)|warning.{0,12}(incorrect|wrong)|verify.{0,20}warning/.test(q)) return aiBadWarnings();
+  if(/repeat.{0,20}call.?off|call.?off.{0,20}repeat|multiple call.?off|frequent.{0,12}call.?off/.test(q)) return aiRepeatCallOffs();
+  if(/follow.?up/.test(q)) return aiFollowUp();
+  if(/(which|what).{0,24}(shift|coverage).{0,24}(first|most urgent|priorit)|cover.{0,12}first/.test(q)) return aiCoverFirst();
   if(/\blate\b|running late|tardy/.test(q)) return aiLate();
   if(/conflict|double.?book|overlap|clash/.test(q)) return aiConflicts();
   if(/(missing|incomplete|no).{0,20}care note|care note.{0,20}(missing|incomplete|outstanding)/.test(q)) return aiMissingNotes();
@@ -12215,6 +12345,13 @@ function deviSystem(){
     'When something is urgent, lead with it in capitals: "URGENT — 2 shifts still need coverage today." then the specifics.',
     'Name people and clients. A count with no names is half an answer.',
     '',
+    'FOR ANYTHING THAT IS A REVIEW RATHER THAN A LOOKUP — a sweep of the board, several caregivers at once, "what is wrong with X" — use these four headings, in this order, and drop any that would be empty:',
+    '  WHAT I FOUND — the issue in a sentence or two, with the numbers.',
+    '  WHAT I CAN DO — what you can settle from here: compile and rank the list, cross-check one record against another, draft the message they will send, name the caregivers worth calling and in what order. You CANNOT change anything, so never list an action that writes to a record; if there is nothing of this kind, drop the heading rather than padding it.',
+    '  WHAT THE SCHEDULER NEEDS TO DO — only the steps that need a person, each naming the screen it happens on.',
+    '  PRIORITY — what to do first, and why, in one line.',
+    'A one-fact question ("who is late?") gets the plain answer, not four headings. Do not put a heading on a single row of data.',
+    '',
     'PRIORITY ORDER when several things are wrong. This is how the desk works, so use it rather than the order things appear in the snapshot:',
     '  URGENT  1. an uncovered shift today   2. a no-show   3. a call-off with no replacement   4. a late arrival still unresolved',
     '  NEXT    5. tomorrow’s uncovered shifts   6. scheduling conflicts and overtime risk   7. availability updates needed   8. missing care notes   9. incomplete profiles',
@@ -12488,6 +12625,66 @@ function viewAssistant(){
     </div>
     </div>
   </div>`;
+}
+
+/* ============ ASK DEVI DOCK — the whole dashboard, one thread ============
+   Available from every page, not just the Ask Devi screen, and backed by the
+   SAME state.aiLog and the SAME askAI() — so a question asked from Open
+   Shifts and one asked from the Ask Devi page are one conversation, and
+   clearing it clears both.
+
+   A strip, not a modal and not a card: the request was explicitly for the
+   answer to stay inline and for the scheduler to keep their page. Collapsed
+   it is one line; open it shows the last few turns above the box, capped and
+   scrollable so a long answer never pushes the dashboard off screen.
+
+   Hidden on state.view==='assistant', which is this same thread at full
+   height. Two visible copies of one conversation is not "one area". */
+const DOCK_TURNS = 6;
+function toggleDock(){ state.dockOpen=!state.dockOpen; render();
+  setTimeout(function(){ const i=document.getElementById('aiq'); if(i) i.focus(); },0); }
+function dockScrollBottom(){
+  const t=document.querySelector('#devidock .dk-thread');
+  if(t) t.scrollTop=t.scrollHeight;
+}
+function renderDock(){
+  const el=document.getElementById('devidock'); if(!el) return;
+  /* The Ask Devi page IS the dock, full height. */
+  if(state.view==='assistant'){ el.innerHTML=''; el.hidden=true; return; }
+  el.hidden=false;
+
+  /* A render replaces the strip, and render() also runs on the cloud poll —
+     so anything half-typed would vanish mid-sentence. Carry it across, the
+     same way the caregiver search box is carried in render(). */
+  const prev=document.getElementById('aiq');
+  const typed=(prev&&document.activeElement===prev)?{v:prev.value,s:prev.selectionStart,e:prev.selectionEnd}:null;
+  const carry=prev?prev.value:'';
+
+  const open=!!state.dockOpen, log=state.aiLog||[];
+  const busy=log.some(e=>e.pending);
+  const thread = open && log.length
+    ? '<div class="dk-thread">'+log.slice(-DOCK_TURNS).map(e=>`<div class="dk-turn">
+        <div class="dk-q">${escText(e.q)}</div>
+        <div class="dk-a"><div class="dk-at">${e.title}</div>${
+          e.pending?`<div class="ai-none ai-wait"><span class="cs-spin"></span>Devi is thinking…</div>`:e.html}</div>
+      </div>`).join('')+'</div>'
+    : '';
+  el.innerHTML = `<div class="dk${open?' on':''}">
+    ${thread}
+    <div class="dk-bar">
+      <button class="dk-t" aria-expanded="${open}" onclick="toggleDock()" title="${open?'Collapse':'Expand'}">
+        ${ic('spark',13)}<span>Ask Devi</span>${log.length?`<span class="dk-n">${log.length}</span>`:''}
+        <span class="dk-c">${open?'▾':'▴'}</span></button>
+      <input id="aiq" class="dk-in" placeholder="Ask about coverage, availability, call-offs, care notes…"
+        value="${esc(carry)}" onkeydown="if(event.key==='Enter'){state.dockOpen=true;askAI();}" autocomplete="off">
+      <button class="btn pri sm" onclick="state.dockOpen=true;askAI()">${busy?'…':'Ask'}</button>
+      ${log.length?`<button class="btn sm" onclick="clearAI()">Clear</button>`:''}
+      <button class="btn sm ghost" onclick="go('assistant')" title="Open the full Ask Devi page">Full view</button>
+    </div>
+  </div>`;
+  if(typed){ const i=document.getElementById('aiq');
+    if(i){ i.value=typed.v; i.focus(); try{ i.setSelectionRange(typed.s,typed.e); }catch(e){} } }
+  if(open) dockScrollBottom();
 }
 
 /* ============ MODALS ============ */

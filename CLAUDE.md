@@ -1551,6 +1551,43 @@ the signal. It is also, with no extra machinery, how **follow-ups** arrive:
 "why?", "what about Saturday?", "who else?" match no pattern, so they land in
 Devi with the whole conversation behind them.
 
+### The dock — one Ask Devi area, on every page
+
+`renderDock()` paints `#devidock`, a sticky strip at the bottom of `.main`:
+composer, and the last `DOCK_TURNS` (6) exchanges above it when it is open. It
+is called from `render()`, so it survives every navigation.
+
+Three things about it are deliberate, not stylistic:
+
+- **It is not a modal and not a card.** The scheduler keeps the page they are
+  asking about in view. A dialog would cover the thing being discussed.
+- **It hides itself on the Ask Devi page** (`state.view==='assistant'`), which
+  is the same `state.aiLog` at full height. Two visible copies of one
+  conversation is not "one area".
+- **The thread is one thread.** The dock and the full page read and write the
+  same `state.aiLog`, so a question asked from Open Shifts is still there when
+  the scheduler opens the full view, and follow-ups keep their context.
+
+`.main` is a flex column and `.view` takes the slack (`flex:1 1 auto`) — that is
+what `margin-top:auto` on the dock pushes against. Without it a short page
+strands the strip in the middle of the screen.
+
+**The composer keeps what is being typed across a re-render.** `render()` runs
+on every save and every 15-second poll; `renderDock()` reads `#aiq` before it
+rewrites the strip and restores the value, focus and selection afterwards.
+
+### The four-part answer, and its honest limit
+
+`deviSystem()` asks for **WHAT I FOUND / WHAT I CAN DO / WHAT THE SCHEDULER
+NEEDS TO DO / PRIORITY** on a *review* — a sweep of the board, several
+caregivers at once. A one-fact lookup gets the plain answer; a heading on a
+single row of data is noise.
+
+**"WHAT I CAN DO" may never list an action that writes to a record.** Devi has
+no tools (above), so compiling, ranking, cross-checking and drafting are real
+and "I'll update her availability" is a lie. The prompt says so explicitly, and
+that sentence has to stay as long as the tools array is empty.
+
 ### What Devi can and cannot do
 
 **It has no tools. It can only produce text.** Nothing it says reaches the
@@ -1640,6 +1677,14 @@ browser.
 questions the desk asks daily from the tables directly — exact, instant, free,
 and nothing leaves the browser. Devi only sees a question the router could not
 match. Adding a builder is always better than widening the snapshot.
+
+Five more were added for the daily sweep: `aiCoverFirst` (which gap to work
+first), `aiRepeatCallOffs`, `aiAvailNotScheduled` (open availability, no shift),
+`aiFollowUp`, and `aiBadWarnings` — which re-derives every *Availability
+missing* flag against `AVAIL.monthCoverage()` and names any it cannot
+substantiate. That last one is the "verify before saying something is missing"
+rule made answerable: the desk can ask the board to check its own warnings, and
+the answer comes from the same function the screen reads.
 
 `c.base`, not `c.city`: a caregiver record has no `city`. Getting that wrong
 produced a dash on every line and Devi correctly reporting that nobody has a
