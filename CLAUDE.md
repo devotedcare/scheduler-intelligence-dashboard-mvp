@@ -1001,6 +1001,44 @@ Driving is deliberately **not** wired, though `driving_required` sits in the
 same synced row and 10 clients set it. It stays a ranking signal until the
 desk asks for it.
 
+### "Availability missing" counts EVERY status, not just Open
+
+Needs Update's *Availability missing* answers one question: **has anybody told
+us anything about this caregiver's current month?** `AVAIL.monthCoverage()` is
+the only reader, and it counts rows of any status.
+
+It did not always. The query behind it hard-coded `status=eq.Open`, so a
+caregiver whose September was fully recorded as **Vacation**, **Unavailable**,
+**Sick**, **School**, **Childcare**, **Appointment** or **Other Agency** — every
+status in `AV_STATUSES` except Open — read as zero rows and was chased for
+availability they had already given. Reported by the desk on Alejandra Gibbs
+and Aliyah Moran; reproduced, and the difference is one row of the fixture:
+
+| | days | openDays | flagged before | flagged now |
+|---|---|---|---|---|
+| 4 Open days in September | 4 | 4 | no | no |
+| 4 days, all Vacation/Unavailable | 0 → **4** | 0 | **YES** | no |
+| nothing in September (October only) | 0 | 0 | YES | YES |
+
+`coveragePage(from, to, offset, openOnly)` now carries the distinction:
+
+- **`openOnly: true`** — *which dates can somebody actually work.* Used by
+  `primeCoverage`, which feeds "who has open availability" and Find Coverage.
+- **`openOnly: false`** — *has anybody told us anything.* Used by
+  `primeMonthCoverage`, which feeds this warning.
+
+`monthCoverage()` returns both counts — `days` (any status) and `openDays` —
+so the two questions can never be confused again. `state: 'none'` means no rows
+at all, and that is the ONLY thing that is honestly "Availability missing".
+Somebody down as Vacation all month is `has` with `openDays: 0`: an answer, not
+a gap, and chasing them wastes the call.
+
+The month window is the 1st to the last day of the current month, re-derived on
+every call, and `monthCovKey` forces a refetch when the month turns over.
+`forgetCov()` drops both caches, and the exported `forgetCoverage` is now that
+same function — it used to clear only the wide one, so a roster re-sync left the
+month cache stale.
+
 ### Two caches, one purpose each
 
 | | |

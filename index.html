@@ -12719,10 +12719,17 @@ function cgNeedsUpdate(){
        automatically the moment the month turns over. It still returns a
        STATE, so only a definite 'none' is a finding. */
     let cvg=null; try{ cvg=(typeof AVAIL!=='undefined'&&AVAIL.monthCoverage)?AVAIL.monthCoverage(c.id):null; }catch(e){}
-    if(cvg && cvg.state==='none')
+    /* ONLY a month with no rows at all. monthCoverage counts EVERY status,
+       so somebody down as Vacation or Unavailable for September has answered
+       and is not chased — the desk asked, they replied, that is not a gap.
+       `days` vs `openDays` is what tells the two apart. */
+    if(cvg && cvg.state==='none'){
+      const mon=new Date(cvg.from+'T12:00:00').toLocaleDateString('en-US',{month:'long',year:'numeric'});
       items.push({head:'Availability missing', tone:'bad',
-        lines:['No availability entered for '+new Date(cvg.from+'T12:00:00').toLocaleDateString('en-US',{month:'long',year:'numeric'})+'.'],
+        lines:['Nothing recorded on the calendar for any day of '+mon+
+               ' ('+cvg.from+' to '+cvg.to+') — no Open, Unavailable, Vacation or any other status.'],
         action:'Add availability'});
+    }
 
     /* 3 — blank profile fields. */
     const missing=CG_REQUIRED.filter(function(r){ try{ return !r.ok(c); }catch(e){ return false; } })
@@ -17442,11 +17449,23 @@ var AVAIL = (function () {
      Lazily, on demand: only Needs Update asks, so nobody who never opens
      that tab pays for it. */
   var covByCg = null, covState = 'idle', covErr = null, covFrom = null, covTo = null;
-  function coveragePage(from, to, offset) {
+  /* TWO DIFFERENT QUESTIONS, and conflating them is what put "Availability
+     missing" on caregivers whose September was full.
+
+       openOnly=true   which dates can somebody actually WORK      (status=Open)
+       openOnly=false  has anybody TOLD US anything about this month (any status)
+
+     AV_STATUSES is Open, Unavailable, Vacation, Sick, School, Childcare,
+     Appointment and Other Agency. A scheduler who records Vacation for the
+     whole month has answered the question — the desk asked and was told.
+     Filtering that out and calling the result "no availability entered" is
+     wrong twice over: it is not missing, and chasing them for it wastes the
+     call. Only a month with NO ROWS AT ALL is genuinely missing. */
+  function coveragePage(from, to, offset, openOnly) {
     var c = cfg();
     var url = c.supabaseUrl.replace(/\/+$/, '') + '/rest/v1/caregiver_availability' +
       '?on_date=gte.' + from + '&on_date=lte.' + to +
-      '&status=eq.Open&select=caregiver_id,on_date' +
+      (openOnly ? '&status=eq.Open' : '') + '&select=caregiver_id,on_date,status' +
       '&order=caregiver_id.asc,on_date.asc&limit=' + PAGE + '&offset=' + offset;
     return fetch(url, { headers: { apikey: c.supabaseAnonKey, Authorization: 'Bearer ' + c.supabaseAnonKey } })
       .then(function (r) {
@@ -17461,7 +17480,7 @@ var AVAIL = (function () {
     covState = 'loading'; covErr = null;
     var acc = {}, t0 = Date.now(), rows = 0;
     function page(offset) {
-      return coveragePage(w.from, w.to, offset).then(function (list) {
+      return coveragePage(w.from, w.to, offset, true).then(function (list) {
         list = list || [];
         rows += list.length;
         list.forEach(function (r) {
@@ -17519,30 +17538,38 @@ var AVAIL = (function () {
     monthCovState = 'loading'; monthCovErr = null;
     var acc = {}, t0 = Date.now(), rows = 0;
     function page(offset) {
-      return coveragePage(w.from, w.to, offset).then(function (list) {
+      /* openOnly FALSE — every status counts as "they told us". */
+      return coveragePage(w.from, w.to, offset, false).then(function (list) {
         list = list || [];
         rows += list.length;
         list.forEach(function (r) {
           var k = 'a' + r.caregiver_id, d = String(r.on_date).slice(0, 10);
-          (acc[k] || (acc[k] = {}))[d] = 1;
+          var e = acc[k] || (acc[k] = { days: {}, open: {} });
+          e.days[d] = 1;
+          if (r.status === 'Open') e.open[d] = 1;
         });
         if (list.length === PAGE) return page(offset + PAGE);
       });
     }
     return page(0).then(function () {
       monthCovByCg = acc; monthCovState = 'ready';
-      console.info('[avail] month coverage: ' + Object.keys(acc).length + ' caregiver(s) with Open days, ' +
+      console.info('[avail] month coverage: ' + Object.keys(acc).length + ' caregiver(s) with any availability, ' +
         rows + ' row(s), ' + w.from + ' → ' + w.to + ', ' + (Date.now() - t0) + 'ms');
     }).catch(function (e) {
       monthCovState = 'error'; monthCovErr = (e && e.message) || String(e);
       console.warn('[avail] month coverage failed', e);
     }).then(function () { try { render(); } catch (e) {} });
   }
+  /* `days` counts dates with ANY status; `openDays` counts the Open ones.
+     'none' means nothing at all was recorded for the month — the only state
+     that is honestly "Availability missing". Somebody down as Vacation all
+     month reads 'has' with openDays 0, which is an answer, not a gap. */
   function monthCoverage(cgId) {
-    if (monthCovState !== 'ready') return { state: monthCovState === 'idle' ? 'loading' : monthCovState, days: 0, err: monthCovErr };
-    var d = monthCovByCg && monthCovByCg[cgId];
-    var n = d ? Object.keys(d).length : 0;
-    return { state: n ? 'has' : 'none', days: n, from: monthCovFrom, to: monthCovTo };
+    if (monthCovState !== 'ready') return { state: monthCovState === 'idle' ? 'loading' : monthCovState, days: 0, openDays: 0, err: monthCovErr };
+    var e = monthCovByCg && monthCovByCg[cgId];
+    var n = e ? Object.keys(e.days).length : 0;
+    var o = e ? Object.keys(e.open).length : 0;
+    return { state: n ? 'has' : 'none', days: n, openDays: o, from: monthCovFrom, to: monthCovTo };
   }
 
   /* Fire and forget at boot. Resolves either way so a caller can chain,
@@ -17777,7 +17804,7 @@ var AVAIL = (function () {
     coverageInfo: function () { return { state: covState, err: covErr, from: covFrom, to: covTo,
       caregivers: covByCg ? Object.keys(covByCg).length : 0 }; },
     /* A save changes the answer, so the next ask re-reads it. */
-    forgetCoverage: function () { covByCg = null; covState = 'idle'; },
+    forgetCoverage: forgetCov,
     /* The current-month-only cache behind Needs Update > Availability missing. */
     primeMonthCoverage: primeMonthCoverage, monthCoverage: monthCoverage,
     monthCoverageInfo: function () { return { state: monthCovState, err: monthCovErr, from: monthCovFrom, to: monthCovTo,
