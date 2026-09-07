@@ -13951,18 +13951,23 @@ function dispCallback(shiftId,cgId,label,mins){ pushContact(shiftId,cgId,'callba
 function cgBlockFor(cgId, clientId){ const cg=cgById(cgId); const list=(cg&&cg.ops&&cg.ops.clientRestr)||[]; return list.find(r=>r.client===clientId)||null; }
 /* ===== ASSIGN-TIME FRESHNESS CHECK =====================================
 
-   state.shifts is fetched ONCE, at boot, and never refreshed:
-   fetchOpenShifts has a single call site inside hydrate(), and hydrate()
-   runs only from boot() and retryAxis(). So the open-shift list is exactly
-   as old as the tab. Four hours open, four-hour-old coverage gaps.
+   state.shifts is refreshed ONCE per load and then never again:
+   fetchOpenShifts is reached through fetchOpenShiftsMirrored inside
+   hydrate(), which runs only from boot() and retryAxis(), and
+   revalidateOpenShifts() re-reads the mirror a few seconds after boot.
+   After that there is no timer and no poll - so the list is as old as
+   the tab, minus that one refresh. Four hours open, four-hour-old
+   coverage gaps.
 
    That is not theoretical. On 2026-09-03 the Brenda Janowski 8a-8p visit
    (v=56967:s=0:d=2026-09-03) read caregiver:null in the morning and
    caregiver:1104 by the afternoon - filled in AxisCare while every open
    session carried on offering it and ranking caregivers for it.
 
-   Re-scanning the window costs what the boot costs: 8 requests, ~640
-   visits, ~5s. Re-checking ONE visit costs 1 request, ~890 bytes, ~1s -
+   Re-scanning the window costs what the boot costs: 14 requests, 1,321
+   visits, ~9.1s - measured 2026-09-03, not the "8 requests / ~640
+   visits / ~5s" this line used to claim. Re-checking ONE visit costs
+   1 request, ~890 bytes, ~1s -
    and the only moment it has to be right is the moment somebody assigns.
    So the cost moves off every page load and onto the one action that
    matters.
@@ -15502,7 +15507,28 @@ var AxisLive = (function () {
      the WHOLE window is evidence that the absence of a shift means it is
      no longer open. A partial run updates last_run_at and must not make
      the mirror look fresh. */
-  var MIRROR_COLD_MS = 45 * 60 * 1000;   /* past this, stop trusting it */
+  /* Past this, stop trusting the mirror and live-scan instead.
+
+     90 MINUTES, NOT 45. last_ok_at is the pass START stamp (only a whole
+     window earns it, and the earliest read in that window is the honest
+     time to claim), so it is already one full pass old the instant it is
+     written. A pass takes 2-3 runs, and at the quiet-period cadence - the
+     ten-minute cron - runs are 10 minutes apart. So a 3-run pass starts at
+     T, completes at T+20 stamping last_ok_at=T, and the next pass does not
+     complete until T+50: the peak age of last_ok_at in ordinary healthy
+     operation is ~50 minutes. Against 45 the mirror would read cold for
+     part of every cycle and every browser would fall back to the 9.6s live
+     scan - the mirror built, then not used, which is the exact failure this
+     whole design was written to avoid.
+
+     What makes 90 safe rather than merely convenient: the NEAR window
+     (today..+13 days, where the coverage board actually lives) is re-read on
+     EVERY run, so it is at most one run old regardless of what last_ok_at
+     says. This threshold now only governs how stale a whole-window
+     verification may be before we stop believing the far end of it. And a
+     shift that got filled is caught at the moment it matters anyway, by
+     verifyShiftStillOpen() on the assign path. */
+  var MIRROR_COLD_MS = 90 * 60 * 1000;
 
   function mirrorRowToShift(r) {
     /* mapOpenShift builds `end` from `new Date(undefined)` when AxisCare
@@ -15537,16 +15563,183 @@ var AxisLive = (function () {
      shape and has been quietly collecting 403s since it was written, which
      its own catch hid. openshifts-sync-now carries no schedule and
      delegates to the identical handler. */
+  var lastNudge = null;
   function nudgeOpenShiftSync() {
     try {
-      fetch('/.netlify/functions/openshifts-sync-now', { method: 'POST' })
-        .catch(function () {});
-    } catch (e) {}
+      lastNudge = fetch('/.netlify/functions/openshifts-sync-now', { method: 'POST' })
+        /* Parse the body whatever the status. A run that goes partial is
+           the NORMAL outcome - a full pass costs 9.6s against a 6s budget
+           - and the handler answers those 502. Gating on response.ok would
+           throw away almost every real result. */
+        .then(function (r) { return r.json().catch(function () { return null; }); })
+        .catch(function () { return null; });
+    } catch (e) { lastNudge = null; }
+    return lastNudge;
+  }
+
+  /* THE REVALIDATE HALF OF STALE-WHILE-REVALIDATE.
+
+     The read above is deliberately not blocked on AxisCare, so the board
+     paints from the mirror as it stood BEFORE the sync we just kicked off.
+     Nothing then told this session the answer had changed, so a scheduler
+     who had just created an unassigned visit in AxisCare reloaded, saw a
+     board without it, and reloaded again - reported by the desk
+     2026-09-03. Against the live scan this replaced that was a straight
+     regression: a live scan saw a new shift on the very next reload.
+
+     So wait for the sync WE triggered, and if it changed anything, re-read
+     the mirror and repaint. Nobody is blocked - the board is already up -
+     and it costs one 2-request re-read on a load that changed something.
+
+     It does NOT nudge again (opts.noNudge), or every revalidate would kick
+     off another sync and revalidate that. */
+  function revalidateOpenShifts() {
+    var p = lastNudge;
+    if (!p) return Promise.resolve(false);
+    lastNudge = null;                       /* at most one per page load */
+    return p.then(function (res) {
+      if (!res) return false;
+      /* `skipped` is the debounce or the lock turning us away. The mirror is
+         exactly what we already read, so re-reading NOW would learn nothing -
+         but the reason somebody is reloading is usually that they just
+         changed something in AxisCare, and making them reload a third time is
+         the complaint this whole change exists to answer. So wait out the
+         debounce and try once more. Bounded to ONE retry per page load. */
+      if (res.skipped) return retryAfterDebounce(res);
+      if (!res.scanned) return false;
+      return pullMirrorIntoState();
+    }).catch(function (e) {
+      console.warn('[openshifts] revalidate failed', e);
+      return false;
+    });
+  }
+
+  /* MIN_GAP_MS in openshifts-sync. Mirrored here only to work out how long
+     the debounce has left to run; nothing depends on the two agreeing, and a
+     wrong guess costs one wasted POST that comes back `skipped` again. */
+  var SYNC_MIN_GAP_MS = 90 * 1000;
+
+  /* Two different refusals arrive as `skipped`, and they need opposite
+     treatment:
+
+     - THE LOCK ("a run is already in flight"). A run is scanning right now,
+       so the mirror is about to change. The payload carries `since` and NO
+       `lastRunAt`. Re-nudging is pointless - the handler sets last_run_at to
+       that run’s START, so a nudge 10s later is certain to be debounced away
+       in turn. What we want is simply to WAIT for it and then re-read.
+
+     - THE DEBOUNCE ("synced recently"). A run finished within MIN_GAP_MS, so
+       our own boot read already saw its results and re-reading now learns
+       nothing. Here a nudge IS the point - but only once the debounce has
+       expired.
+
+     Both then re-read regardless of what the second nudge says: another
+     session, or the cron, may have moved the mirror in the meantime, and a
+     mirror read is two cheap Supabase requests against no AxisCare calls at
+     all. Getting this wrong meant the revalidate never fired on the load
+     that most needed it. */
+  function retryAfterDebounce(res) {
+    var lockHeld = !res.lastRunAt;
+    var wait;
+    if (lockHeld) {
+      /* Long enough for a run in flight to finish and write: measured runs
+         are 7.1-7.9s, and the hard ceiling is 9s plus its writes. */
+      wait = 12000;
+    } else {
+      /* agoMs is computed SERVER-side. Deriving it from Date.now() against a
+         server timestamp puts the viewer’s clock in the loop, and an unsynced
+         Windows desk running three minutes fast would wait too little, be
+         debounced a second time, and give up. */
+      var age = res.agoMs;
+      if (!(age >= 0)) age = Date.now() - new Date(res.lastRunAt).getTime();
+      if (!(age >= 0)) age = 0;
+      wait = SYNC_MIN_GAP_MS - age + 2000;
+    }
+    if (!(wait > 0)) wait = 2000;
+    wait = Math.max(2000, Math.min(wait, 100000));
+    console.info('[openshifts] sync ' + (lockHeld ? 'locked' : 'debounced') +
+      ' - retrying in ' + Math.round(wait / 1000) + 's');
+    return new Promise(function (go) { setTimeout(go, wait); })
+      .then(function () { return lockHeld ? null : nudgeOpenShiftSync(); })
+      .then(function () {
+        lastNudge = null;                 /* consumed - never a second retry */
+        return pullMirrorIntoState();
+      })
+      .catch(function () { return false; });
+  }
+
+  function pullMirrorIntoState() {
+    return fetchOpenShiftsMirrored(
+      function (path, q) { return AxisCare.get(path, q); }, { noNudge: true, mirrorOnly: true }
+    ).then(function (r) {
+      /* A fallback to the live scan already returned the truth, and it went
+         into state by whatever asked for it. Only act on a mirror read, so
+         this cannot fight the fallback path. mirrorOnly means a cold mirror
+         returns null here rather than paying for a full live scan. */
+      if (!r || r.source !== 'mirror') return false;
+      var known = {};
+      (state.clients || []).forEach(function (c) { known[c.id] = 1; });
+      /* The same filter hydrate() applies, so the two paths cannot disagree
+         about which shifts are showable. */
+      var fresh = (r.shifts || []).filter(function (x) { return x.clientId && known[x.clientId]; });
+      /* Compare by id SET, not by length: one shift filled and another opened
+         in the same window is a real change that a count misses. */
+      var sig = function (a) { return a.map(function (x) { return x.id; }).sort().join('|'); };
+      var have = state.shifts || [];
+      if (sig(fresh) === sig(have)) return false;
+
+      /* MERGE, DO NOT REPLACE. An earlier version assigned the mirror rows
+         straight over state.shifts and then called CLOUD.relayer(['shifts'])
+         to put the scheduler’s work back. That work comes from the LOCAL
+         overlay, which is only written by the 900ms-debounced doSave() - and
+         doSave returns early while a push is in flight, so the window is
+         longer still. An assignment made inside it exists in memory and
+         nowhere else, so the replace dropped it, the rebase folded the loss
+         into the baseline, and the next save pushed the reversion to all
+         three schedulers. relayer() also re-applies EVERY slice, so the
+         blast radius was never limited to shifts.
+
+         Keeping the existing object for an id we already hold avoids all of
+         it: in-app state (assignment, call-off, status) is untouched because
+         those objects are never rebuilt, and no baseline has to be retaken.
+         Adds and dels on this slice are refused by patchOnly, and an
+         untouched object diffs clean against BASE, so the overlay is not
+         disturbed at all - which is why there is no relayer call any more.
+
+         The cost, stated plainly: a shift RETIMED in AxisCare keeps its
+         boot-time hours until the page is reloaded, because its id encodes
+         the date but not the time. That is not a regression - before this
+         function existed nothing refreshed shifts at all - but it is not a
+         complete answer either, and applying the new times would need the
+         baseline rebase this note exists to avoid. */
+      var byId = {};
+      have.forEach(function (x) { byId[x.id] = x; });
+      var next = fresh.map(function (x) { return byId[x.id] || x; });
+      var was = have.length;
+      state.shifts = next;
+      /* NO CLOUD.relayer() HERE, deliberately - see the merge note above.
+         retryAxis() needs it because ROSTER.hydrate() rebuilds every record
+         from scratch; this path rebuilds none, so there is nothing to put
+         back and nothing to rebase. Adding it would reintroduce the
+         last-900ms clobber. */
+      console.info('[openshifts] revalidated - ' + was + ' -> ' + next.length + ' open');
+      render();
+      return true;
+    });
   }
 
   function fetchOpenShiftsMirrored(get, opts) {
     var cfg = window.SCHEDULER_CONFIG || {};
     var live = function (why) {
+      /* The revalidate pass asks mirrorOnly. It is a background refresh of a
+         board that is already on screen, and its caller discards anything
+         that is not a mirror read - so falling back here would spend a full
+         16-request, 9.6s AxisCare scan to produce a result nobody looks at,
+         on every load where the mirror happened to be cold. */
+      if (opts && opts.mirrorOnly) {
+        console.info('[openshifts] mirror-only, no fallback - ' + why);
+        return Promise.resolve(null);
+      }
       console.info('[openshifts] live scan - ' + why);
       return fetchOpenShifts(get, opts).then(function (r) {
         r.source = 'live'; r.fallbackReason = why; return r;
@@ -15568,7 +15761,7 @@ var AxisLive = (function () {
       grab('/rest/v1/open_shifts_sync?id=eq.openshifts&select=last_ok_at,last_run_at,last_status,window_from,window_to')
     ]).then(function (parts) {
       var rows = parts[0] || [], st = (parts[1] || [])[0] || null;
-      nudgeOpenShiftSync();
+      if (!(opts && opts.noNudge)) nudgeOpenShiftSync();
 
       if (!st || !st.last_ok_at) return live('the sync has not completed a scan yet');
       var age = Date.now() - new Date(st.last_ok_at).getTime();
@@ -15590,8 +15783,10 @@ var AxisLive = (function () {
     });
   }
 
-  /* Scans the window for visits needing coverage. Cost is linear in
-     the window: ~8 requests / 4s for 4 weeks on this account. */
+  /* Scans the window for visits needing coverage. Cost is linear in the
+     window, and the window is today..end of next month, NOT four weeks:
+     measured 2026-09-03 on the live account, 16 requests / 1,323 visits /
+     9.6s. That cost is the whole reason the mirror exists. */
   function fetchOpenShifts(get, opts) {
     opts = opts || {};
     var now = opts.now || new Date();
@@ -15811,6 +16006,7 @@ var AxisLive = (function () {
     lastClientFetch: function () { return lastClientFetch; },
     fetchOpenShifts: fetchOpenShifts,
     fetchOpenShiftsMirrored: fetchOpenShiftsMirrored,
+    revalidateOpenShifts: revalidateOpenShifts,
     mapOpenShift: mapOpenShift,
     fetchCaregiverVisits: fetchCaregiverVisits,
     fetchClientVisits: fetchClientVisits,
@@ -16644,7 +16840,12 @@ const CLOUD = (function(){
     { path:'schedChanges',      key:'id' },
     { path:'cgChanges',         key:'id' },
     { path:'taskArchive',       key:'id' },
-    { path:'careNotes',         key:'id' },
+    /* patchOnly for the same reason as shifts: care notes are swept into
+       public.care_notes by carenotes-sync and read from there. Nothing in
+       the app creates one - no state.careNotes.push exists - so an add or a
+       del here can only be a stale-BASE artefact. This was the next slice in
+       line to do what shifts did on 2026-09-03. */
+    { path:'careNotes',         key:'id', patchOnly:true },
     { path:'followUps',         key:'id' },
     { path:'placements',        key:'id' },
     { path:'escalations',       key:'id' },
@@ -16816,7 +17017,14 @@ const CLOUD = (function(){
         });
         if(dirty) patches[id]=diff;
       });
-      var dels=Object.keys(base).filter(function(id){ return !seen[id]; });
+      /* A patchOnly slice is owned by AxisCare, so a record missing from it
+         means AxisCare stopped returning it - a shift got filled, a note
+         aged out - NOT that a scheduler deleted anything. Recording that as
+         a del would make applyOverlay hide it permanently on every future
+         boot, which is how a real coverage gap gets silently buried. Adds
+         were already refused here; dels were not, and that was the other
+         half of the same hole. */
+      var dels=sl.patchOnly ? [] : Object.keys(base).filter(function(id){ return !seen[id]; });
       if(adds.length) o.adds[sl.path]=adds;
       if(dels.length) o.dels[sl.path]=dels;
       if(Object.keys(patches).length) o.patches[sl.path]=patches;
@@ -16842,6 +17050,15 @@ const CLOUD = (function(){
       }
       var arr=getPath(state,sl.path)||[];
       var dels=(o.dels&&o.dels[sl.path])||[];
+      /* Same rule as the adds below: an overlay may not delete from a slice
+         AxisCare owns. Refusing here is what repairs a workspace that was
+         already carrying one, since the overlay is cached in localStorage
+         and replayed at boot before any server pull. */
+      if(dels.length && sl.patchOnly){
+        console.warn('[cloud] ignored ' + dels.length + ' stray deletion(s) on ' + sl.path +
+          ' - that slice comes from AxisCare and cannot be deleted from by hand');
+        dels=[];
+      }
       if(dels.length){
         var dset={}; dels.forEach(function(d){ dset[d]=1; });
         arr=arr.filter(function(r){ return !dset[idOf(sl,r)]; });
@@ -17205,6 +17422,9 @@ const CLOUD = (function(){
        built against the final roster, and after hookRender(), so its own
        render() when it lands is a real one. Nothing waits on it. */
     try{ AVAIL.primeIndex(); }catch(e){ console.warn('[avail] index prime threw',e); }
+    /* The revalidate half of stale-while-revalidate - see AxisLive. After
+       booted=true, because it repaints and may save; nothing waits on it. */
+    try{ AxisLive.revalidateOpenShifts(); }catch(e){ console.warn('[openshifts] revalidate threw',e); }
   }
   function boot(){
     primeLazy();

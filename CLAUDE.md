@@ -367,6 +367,130 @@ observed the back half of the window, and deleting on that would empty the
 coverage board with no error anywhere. So the sweep runs only when the scan
 completed. That is the whole reason `last_ok_at` exists separately.
 
+#### A pass never fits in one run, so the NEAR window is re-read every run
+
+Measured 2026-09-03 against the live account: a full pass is **16 requests,
+1,323 visits, 9,622ms**, against a `SOFT_DEADLINE_MS` of 6,000. **So a pass
+always splits across runs — that is the steady state, not an edge case.**
+
+Which meant a resumed run began at the cursor — chunk 3 or 4, out in late
+October — and did not look at **chunk 0, today → +13 days**, until the pass
+finished and a fresh one came round. Chunk 0 is where a scheduler adds an
+unassigned visit. It was being read on every *other* run: **3 runs in 6**
+skipped it, up to ~20 minutes on the ten-minute cron alone. `last_ok_at`
+meanwhile stayed inside `MIRROR_COLD_MS`, so the browser went on trusting a
+mirror that was missing the shift somebody had just created.
+
+> **Reported by the desk 2026-09-03**: a newly added unassigned shift did
+> not appear after a reload, or a hard reload. It was a straight regression
+> against the live scan the mirror replaced — a live scan saw a new shift on
+> the very next load, every time. The asymmetry that makes it obvious: a
+> caregiver **name change shows instantly**, because the roster is still
+> fetched live. Only open shifts are mirrored.
+
+So a resumed run re-reads chunk 0 — **second, after its first cursor chunk,**
+and that ordering is the whole safety argument. Four rules, all load-bearing:
+
+- **The refresh goes AFTER the first cursor chunk, never before it.** The
+  near re-read is *optional* — ground this pass already covered — while a
+  cursor chunk is the run’s actual progress. An earlier version put the
+  optional work first, and a run could then spend its whole budget on it,
+  advance nothing, and repeat that forever: simulated at 3× AxisCare latency
+  the pass never completed in 40 runs, so `last_ok_at` froze, the mirror aged
+  out and every browser fell back to the live scan permanently. Ordering it
+  second makes every run advance the cursor at least once before anything may
+  stop it, so both deadlines can bound the run without starving the pass.
+- **The refresh is best-effort, and that is the right thing to give up.** On
+  a slow run it is skipped and freshness degrades to what it was before.
+  Progress and boundedness are guaranteed; freshness is not.
+- **Only a chunk at or beyond the cursor is progress.** The refresh must not
+  advance `cursor_chunk` — doing that would skip a chunk nothing ever read
+  and let `complete` lie to the sweep.
+- **Skipping the refresh is NOT a failure.** Running out of time with only
+  the optional read left still means every cursor chunk was read. Recording
+  that as a failure denied `complete`, blocked the sweep and froze
+  `last_ok_at` forever — the final run always had `[lastChunk, 0]` queued and
+  stopped between them. Caught in simulation, not in production.
+- **The sweep is untouched.** Absence is still evidence of nothing without a
+  complete pass. Re-reading a chunk only ever *upserts*.
+
+There are **two** deadlines. `SOFT_DEADLINE_MS` may only stop a run that has
+advanced the cursor; `HARD_DEADLINE_MS` (9,000) fires regardless, because being
+killed by the platform with `running_at` still held is worse than a pass that
+has to wait for AxisCare to recover.
+
+Verified by simulation across every budget from 20,000ms down to 1ms, AxisCare
+up to 10× slower, and pathological chunk shapes: `complete` never true without
+full coverage, no livelock anywhere, and the refresh still taken on every run
+that had the budget for it. Then end to end with the real handler against live
+AxisCare — a resumed run reads its cursor chunk at 654ms, the near window at
+2,810ms, another cursor chunk, and finishes in 7.6s.
+
+#### A cursor is an index, and the chunk list moves at midnight
+
+**This one deleted real coverage, about once a day, silently.**
+`cursor_chunk` indexes a chunk list rebuilt from `ymd(now)` every run, and
+`from` moves forward at **local midnight** — so every boundary slides one day
+while the saved index does not. A pass resuming across that boundary leaves a
+one-day **hole** between the last chunk the previous run read and the chunk
+this one resumes at, then reports `complete` and lets the sweep delete every
+row on that date. Real open shifts, gone from the board, `last_ok_at`
+advanced so the browser keeps trusting the mirror, no error anywhere.
+
+Replaying the handler’s own window/chunk code: cursor 2 loses **2026-10-01**,
+cursor 3 loses **2026-10-15**, cursor 4 loses **2026-10-29**, and a pass
+straddling the month rollover loses **2026-10-28**. The comment in the source
+used to claim the chunks are “recomputed identically every run so a cursor
+saved by one invocation still means the same thing to the next” — that only
+ever held *within a calendar day*.
+
+The fix is one line: if the window this run computed is not the window the
+cursor was saved against (`window_from`/`window_to`, already recorded on every
+run), **start a fresh pass**. Costs redoing one partial run a day.
+
+#### The cursor may not advance past rows that were never written
+
+The sweep needs *“every row in the window carries this pass’s stamp”*, which is
+strictly stronger than *“every chunk was read”*. `cursor_chunk` was advanced by
+the scan loop alone, so a failed upsert — a Supabase 5xx, a socket timeout —
+persisted a cursor claiming rows were stamped that were never written, and the
+next run completed the pass and swept them. A run that scans chunks 0–2 and
+then fails its upsert would take **28 days of the window** with it on the
+following run. `stored` now gates the cursor: if the write did not land, the
+cursor rewinds to where the run started. `pass_stamp` deliberately does not
+roll — chunks below it were stamped by earlier successful runs of the same pass.
+
+For the same reason the near refresh is wrapped in its own `try`: it is five
+extra requests of failure exposure on ground already covered, and a 429 in it
+must not cost the run its real work.
+
+`SOFT_DEADLINE_MS` is **6,000, not 8,000**, for a related reason: it is checked
+*between* chunks, so the real stop is always one chunk late. At 8,000 a run
+measured **9,941ms** before its writes — over the 10s platform timeout, which
+is the death the constant exists to prevent, and a run killed there strands
+`running_at` without advancing the cursor. At 6,000 runs measure 7.1–7.9s.
+
+The cost is one more run per pass, and **that is why `MIRROR_COLD_MS` moved from
+45 to 90 minutes.** `last_ok_at` is the pass START stamp — only a whole window
+earns it, and the earliest read in that window is the honest time to claim — so
+it is already one full pass old the instant it is written. A 3-run pass at the
+ten-minute cron starts at T, completes at T+20 stamping `last_ok_at = T`, and the
+next does not complete until T+50: **the peak age in ordinary healthy operation
+is ~50 minutes.** Against 45 the mirror would read cold for part of every cycle
+and every browser would fall back to the 9.6s live scan — the mirror built, then
+not used, which is the exact failure the whole design exists to avoid.
+
+> The paragraph that used to sit here compared pass **duration** against the
+> threshold. The browser compares `Date.now() - last_ok_at`, which is a
+> different and always larger number. Caught in review, not in production.
+
+What makes 90 safe rather than merely convenient: the **near window is re-read on
+every run**, so the part of the mirror the coverage board actually shows is at
+most one run old whatever `last_ok_at` says. The threshold now only governs
+how stale a *whole-window* verification may be before the far end stops being
+believed — and a shift that got filled is caught where it matters anyway, by
+`verifyShiftStillOpen()` on the assign path.
+
 #### Stale-while-revalidate
 
 The dashboard reads the mirror and then POSTs to the sync **without awaiting**
@@ -382,6 +506,74 @@ returned `skipped: "synced recently"` in 317ms.
 
 The `*/10` cron in `netlify.toml` is a **floor**, not the mechanism — it exists so
 the first person in each morning is not the one who eats the staleness.
+
+**The revalidate half has to reach the session that triggered it.** The read
+happens *before* the sync it kicks off, so on its own it shows the board as it
+stood beforehand and nothing ever says otherwise — the scheduler reloads, sees
+the shift still missing, and reloads again. `revalidateOpenShifts()` waits on
+the sync **we** nudged and, if that run scanned anything, re-reads the mirror
+and repaints. Nobody is blocked: the board is already up.
+
+Three details in it are load-bearing:
+
+- **It parses the body whatever the HTTP status.** A partial run is the
+  normal outcome and the handler answers those `502`. Gating on `response.ok`
+  would discard almost every real result.
+- **It passes `mirrorOnly`, so the re-read never falls back to the live scan.**
+  Without that, a load where the mirror happened to be cold would spend a full
+  16-request, 9.6s AxisCare scan on a result the caller then discards.
+- **It MERGES; it does not replace, and it must never call `CLOUD.relayer()`.**
+  An earlier version assigned the mirror rows straight over `state.shifts` and
+  then called `relayer(['shifts'])` to put the scheduler’s work back. That work
+  comes from the **local overlay**, which is only written by the 900ms-debounced
+  `doSave()` — and `doSave` returns early while a push is in flight, so the
+  window is longer still. An assignment made inside it exists in memory and
+  nowhere else, so the replace dropped it, the rebase folded the loss into the
+  baseline, and the next save pushed the reversion to all three schedulers.
+  `relayer()` re-applies **every** slice, so the blast radius was never limited
+  to shifts either. Keeping the existing object for an id already held avoids
+  all of it, and needs no rebase: an untouched object diffs clean against
+  `BASE`, and adds and dels are refused by `patchOnly`. `retryAxis()` still
+  needs `relayer()` because `ROSTER.hydrate()` rebuilds every record; this path
+  rebuilds none.
+
+  The cost, stated plainly: a shift **retimed** in AxisCare keeps its boot-time
+  hours until the page is reloaded, because a visit id encodes the date but not
+  the time. Not a regression — nothing refreshed shifts at all before — but not
+  a complete answer either.
+
+It compares by **id set**, not by count: one shift filled and another opened in
+the same window is a real change a count misses.
+
+**A `skipped` answer gets one bounded retry**, and that case matters more than
+it looks: reloading straight after changing something in AxisCare is exactly
+what a person does, and a reload inside `MIN_GAP_MS` (90s) — or while a run is
+already in flight — is turned away by the debounce or the lock. Without the
+retry the revalidate simply would not happen on the load that most needed it.
+Two different refusals arrive as `skipped` and they need **opposite**
+treatment, which the first version got wrong:
+
+- **The lock** (`a run is already in flight`) carries `since` and **no**
+  `lastRunAt`. A run is scanning right now, so re-nudging is pointless — the
+  handler stamps `last_run_at` with that run’s *start*, so a nudge 10s later is
+  certain to be debounced away in turn. Just wait ~12s for it and re-read.
+- **The debounce** (`synced recently`) carries `lastRunAt` **and a
+  server-computed `agoMs`**. Here a nudge is the point, once the debounce has
+  expired. Use `agoMs`: deriving the age from `Date.now()` against a server
+  timestamp puts the viewer’s clock in the loop, and an unsynced Windows desk
+  running three minutes fast waits too little, gets debounced again and gives
+  up.
+
+Both then **re-read regardless of what the second nudge says** — another
+session or the cron may have moved the mirror meanwhile, and a mirror read is
+two cheap Supabase requests against no AxisCare calls at all. The wait is
+clamped to 2–100s so a missing, stale or future timestamp can neither hang it
+nor spin it. **One retry per page load**, and `lastNudge` is nulled when
+consumed so there can never be a second.
+
+So a brand-new shift now appears **on the load that triggered the sync**,
+without anybody reloading again — a few seconds later, or ~90s later if the
+debounce was in the way. It was up to ~20 minutes.
 
 #### `shift_date` is sliced textually, never cast
 
@@ -399,19 +591,25 @@ forwards GET only — so a shift filled here stays in the table until somebody
 types it into AxisCare. That blind spot is not new (the live scan had it too),
 but it means these rows are **open in AxisCare**, not **needs coverage**.
 
-### The list is loaded once; the ASSIGNMENT is re-checked
+### The list is refreshed ONCE per load; the ASSIGNMENT is re-checked
 
-`fetchOpenShifts()` has exactly one call site — inside `hydrate()`’s
-`Promise.all` — and `hydrate()` runs only from `boot()` and `retryAxis()`.
-Nothing else refreshes it, no timer, no poll. **So the open-shift list is as old
-as the tab.** Four hours open, four-hour-old coverage gaps.
+`fetchOpenShifts()` is reached through `fetchOpenShiftsMirrored()`, whose call
+site is inside `hydrate()`’s `Promise.all`, and `hydrate()` runs only from
+`boot()` and `retryAxis()`. `revalidateOpenShifts()` then re-reads the mirror
+once, a few seconds after boot — see *Stale-while-revalidate* above.
+
+After that there is **no timer and no poll**, so the open-shift list is as old
+as the tab minus that one refresh. Four hours open, four-hour-old coverage
+gaps — which is why the assignment is still re-checked below.
 
 Observed on 2026-09-03: the Brenda Janowski 8a–8p visit
 (`v=56967:s=0:d=2026-09-03`) read `caregiver: null` in the morning and
 `caregiver: 1104` by the afternoon — filled in AxisCare while every open session
 went on offering it and ranking caregivers for it.
 
-Re-scanning the window costs what the boot costs: 8 requests, ~640 visits, ~5s.
+Re-scanning the window costs what the boot costs — 14 requests, 1,321 visits,
+9.1s, measured above, not the "8 requests / ~640 visits / ~5s" this line used to
+claim, which contradicted the table 200 lines earlier.
 Re-checking **one** visit costs **1 request, ~890 bytes, ~1s**:
 
 ```
@@ -2137,12 +2335,20 @@ against a stale baseline:
 
 - a care note or shift that arrived since boot is not in `BASE` → **`o.adds`**
 - one that was in `BASE` and AxisCare no longer returns — an open shift filled
-  in the intervening hour → **`o.dels`**, and `dels` is **not** gated on
-  `patchOnly`, so `clients` and `caregivers` produce them too
+  in the intervening hour → **`o.dels`**. At the time `dels` was **not**
+  gated on `patchOnly`, so `clients` and `caregivers` produced them too
 
 Both are then replayed by `applyOverlay()` on every future boot for everyone:
 AxisCare-derived data written to the shared row as though a scheduler typed it,
 and a real coverage gap silently hidden. Same family as the 323KB bug in 2.
+
+> **Neither half of that is true any more.** `buildOverlay()` emits no `dels` for
+> a `patchOnly` slice and `applyOverlay()` refuses any it is handed, which is
+> what repairs a browser already carrying one — the local overlay is replayed
+> at boot before any server pull. And `shifts`, `caregivers`, `clients` and
+> `careNotes` are **all** `patchOnly`, so none of them can emit a del at all.
+> `careNotes` was the last one added, on 2026-09-03; it was next in line to do
+> exactly what `shifts` did.
 
 The fix is to re-snapshot `BASE` for exactly the slices `hydrate()` actually
 reassigned, before `relayer()` re-applies the overlay — mirroring `finishBoot`.

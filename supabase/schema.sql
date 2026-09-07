@@ -801,8 +801,19 @@ create table if not exists public.open_shifts_sync (
   window_from  date,
   window_to    date,
   scanned      int         not null default 0,
-  shifts_open  int         not null default 0   -- open in AXISCARE; see above
+  shifts_open  int         not null default 0,  -- open in AXISCARE; see above
+  -- A full pass costs ~9.6s against a 6s budget, so it ALWAYS spans runs.
+  -- These two carry it. Written on every single invocation, so a rebuild that
+  -- omitted them made the sync 500 before it scanned anything.
+  cursor_chunk int         not null default 0,  -- next chunk index to read
+  pass_stamp   timestamptz                      -- the in-flight pass, null when idle
 );
+
+
+-- Added after the table shipped: a resumable pass needs somewhere to keep
+-- its place. Safe to re-run.
+alter table public.open_shifts_sync add column if not exists cursor_chunk int not null default 0;
+alter table public.open_shifts_sync add column if not exists pass_stamp   timestamptz;
 
 insert into public.open_shifts_sync (id) values ('openshifts')
 on conflict (id) do nothing;
