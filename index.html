@@ -16947,9 +16947,37 @@ const CLOUD = (function(){
 
      lastBody is the same thing as a string, used for doSave()'s no-op
      guard; this is the object, and pull()'s re-layer needs the object so it
-     can compare record by record. Set in exactly the places lastBody is:
-     a confirmed push, and an applying pull. */
+     can compare record by record. Set in exactly the places lastBody is -
+     a confirmed push, an applying pull, and the no-Supabase branch of
+     doSave() - plus seeded from the local cache in finishBoot(), because
+     until it holds something the re-layer falls back to carrying
+     everything. */
   var lastSent = null;
+  /* DETACHED, ALWAYS. This must be a SNAPSHOT, never a reference.
+
+     buildOverlay() writes the live object straight into the patch
+     (`diff[f]=r[f]`), and applyOverlay()'s revive() mutates in place and
+     hands back the SAME object - so after a pull `c.ops` and
+     `overlay.patches.caregivers[id].ops` are one object. The app then edits
+     ops in place (c.ops.maxMiles = ..., c.ops.clientRestr = ...), which
+     silently edited lastSent too. unsentOnly() compared the record against
+     itself, found no difference, dropped it from the re-layer, and the
+     incoming overlay wrote the older copy over the scheduler's edit - the
+     exact loss this whole change exists to stop, arriving through the drop
+     side instead of the re-lay side.
+
+     BASE has always avoided this by storing sstr() strings (see
+     snapshotSlice). A JSON round-trip is the same protection and compares
+     identically under sstr(), because JSON.stringify renders a Date as the
+     ISO string sstr() would see anyway.
+
+     On a failure it returns null, which unsentOnly() reads as "no agreement
+     recorded" and falls back to re-laying everything - the old behaviour,
+     which is the safe direction to fail in. */
+  function detach(o){
+    try{ return JSON.parse(JSON.stringify(o)); }
+    catch(e){ console.warn('[cloud] could not snapshot the agreed overlay', e); return null; }
+  }
   /* Last known patch per record on the patchOnly slices, so a record
      AxisCare did not return this load does not lose the desk's work.
      See buildOverlay(). */
@@ -17233,7 +17261,9 @@ const CLOUD = (function(){
     if(!pill||!txt) return;
     var map={ synced:['s-synced','Synced'], saving:['s-saving','Saving'],
               local:['s-offline','Local'],  offline:['s-offline','Offline'],
-              error:['s-error','Sync error'] };
+              error:['s-error','Sync error'],
+              /* not saving to the shared board until this tab is reloaded */
+              stale:['s-error','Refresh needed'] };
     var m=map[s]||map.local;
     pill.className='syncpill '+m[0];
     txt.textContent=m[1];
@@ -17241,6 +17271,84 @@ const CLOUD = (function(){
       : (s==='local' ? 'Saved on this device only. Add Supabase keys to share across the team.'
                      : 'Workspace "'+WORKSPACE+'" · revision '+serverRev);
   }
+
+  /* ================= STALE BUILD GUARD =================================
+
+     A Netlify deploy replaces what the server sends. It does NOT replace
+     the code already running in somebody's open tab, and that tab goes on
+     writing to the shared row with its old logic.
+
+     That is not theoretical. On 2026-09-07 a fix to pull()'s re-layer went
+     live at 15:21 and a tab opened beforehand was still reverting other
+     schedulers' work at 15:24 - so the fix looked broken when it was simply
+     not running yet. The same shape had already wiped an import of client
+     blocks twice.
+
+     So: ask the server what it is serving now, and compare it with what we
+     loaded. ETag first, Last-Modified second; a host that sends neither
+     (or file://, or a failed request) leaves the guard switched off rather
+     than guessing, which is no worse than before.
+
+     WHEN STALE THIS TAB STOPS WRITING TO SUPABASE. A banner alone would be
+     advisory, and the whole problem is that the tab keeps saving. It still
+     writes to localStorage, so nothing typed is lost - finishBoot() replays
+     that cache on the next load and it pushes then, under the new code. */
+  var BUILD_CHECK_MS = 60000;
+  var buildTag = null, staleBuild = false, buildTimer = null;
+
+  function buildStampOf(res){
+    return res.headers.get('etag') || res.headers.get('last-modified') || null;
+  }
+  function checkBuild(){
+    /* no-store rather than a cache-busting query: a query string can change
+       the ETag on some CDNs, which would report every check as a new build */
+    return fetch(location.pathname, { method:'HEAD', cache:'no-store' })
+      .then(function(res){
+        if(!res.ok) return;
+        var tag = buildStampOf(res);
+        if(!tag) return;                      /* nothing to compare - stay off */
+        if(buildTag === null){ buildTag = tag; return; }
+        if(tag !== buildTag) markStale();
+      })
+      .catch(function(){});                   /* offline, file://, CORS - stay off */
+  }
+  function markStale(){
+    if(staleBuild) return;
+    staleBuild = true;
+    clearInterval(buildTimer);                /* nothing further to learn */
+    console.warn('[cloud] a newer build is deployed - this tab has stopped writing to the shared board');
+    try{ setStatus('stale'); }catch(e){}
+    showStaleBanner();
+  }
+  function showStaleBanner(){
+    if(document.getElementById('stalebuild')) return;
+    var d = document.createElement('div');
+    d.id = 'stalebuild';
+    /* inline styles on purpose: this has to render even if something in the
+       page CSS or a view is mid-failure */
+    d.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:99999;'
+      + 'background:#7f1d1d;color:#fff;padding:12px 16px;font:600 13px/1.5 system-ui,sans-serif;'
+      + 'display:flex;align-items:center;gap:14px;flex-wrap:wrap;'
+      + 'box-shadow:0 2px 10px rgba(0,0,0,.35)';
+    var msg = document.createElement('div');
+    msg.style.cssText = 'flex:1 1 320px';
+    msg.innerHTML = '<b>A newer version of the dashboard has been deployed.</b> '
+      + 'This tab is running an older copy, so it has <b>stopped saving to the shared board</b> '
+      + 'to avoid overwriting your colleagues\u2019 work. '
+      + 'Hard refresh to carry on \u2014 <b>Ctrl+Shift+R</b> (Windows) or <b>Cmd+Shift+R</b> (Mac). '
+      + 'Anything you have typed is kept on this device and will save once you reload.';
+    var btn = document.createElement('button');
+    btn.textContent = 'Hard refresh now';
+    btn.style.cssText = 'flex:0 0 auto;background:#fff;color:#7f1d1d;border:0;border-radius:6px;'
+      + 'padding:8px 14px;font:700 13px system-ui,sans-serif;cursor:pointer';
+    btn.onclick = function(){ location.reload(true); };
+    d.appendChild(msg); d.appendChild(btn);
+    (document.body || document.documentElement).appendChild(d);
+    try{ document.body.style.paddingTop = '56px'; }catch(e){}
+  }
+  /* Exposed so a future check can raise it for any reason, not only a new
+     deploy - see CLAUDE.md, "When a fix keeps coming back". */
+  function forceRefreshNotice(){ markStale(); }
 
   /* ---------- saving ---------- */
   function saveLocal(o){
@@ -17289,7 +17397,13 @@ const CLOUD = (function(){
     var body=bodyOf(o);
     if(body===lastBody) return;              /* nothing actually changed */
     saveLocal(o);
-    if(!sb){ lastBody=body; lastSent=o; return; }
+    /* STALE TAB: keep the work on this device, but do not write it to the
+       shared row. Everything this tab holds was computed by older code, and
+       pushing it is exactly how an open session reverts a colleague's save.
+       lastBody is deliberately NOT set, so the local cache keeps tracking
+       every further edit and the next load pushes the lot. */
+    if(staleBuild) return;
+    if(!sb){ lastBody=body; lastSent=detach(o); return; }
     /* Already failing: keep writing to this device, but leave the network to
        the retry timer. Without this the conflict path re-entered itself
        through pull()'s render() and put thirty writes a minute on a database
@@ -17377,7 +17491,7 @@ const CLOUD = (function(){
           }, function(){ saveFailed('could not re-read the board'); pushDone(); });
           return;
         }
-        serverRev=res.data[0].rev; lastBody=body; lastSent=o; unsent=false;
+        serverRev=res.data[0].rev; lastBody=body; lastSent=detach(o); unsent=false;
         clearTimeout(retryTimer); retryTimer=null;
         if(failed){
           failed=false;
@@ -17501,8 +17615,18 @@ const CLOUD = (function(){
            database confirming it, so a normal poll still lets another
            scheduler's work through untouched, and boot still takes the
            server's copy as it always did. */
-        /* ONLY our unconfirmed records, not our whole world view. */
-        var mine = (unsent && booted) ? unsentOnly(buildOverlay(), lastSent) : null;
+        /* ONLY our unconfirmed records, not our whole world view.
+
+           Wrapped: this reads state and the incoming overlay, and a throw
+           here would abandon the merge with serverRev already advanced -
+           leaving the session believing it is current while holding the
+           older copy. Falling back to null re-lays everything, which is
+           the pre-fix behaviour and the safe direction to fail in. */
+        var mine = null;
+        if(unsent && booted){
+          try{ mine = unsentOnly(buildOverlay(), lastSent); }
+          catch(e){ console.warn('[cloud] could not narrow the re-layer', e); mine = null; }
+        }
         muted=true;
         try{ applyOverlay(res.data.overlay); }catch(e){ console.warn('[cloud] apply failed',e); }
         if(mine){ try{ applyOverlay(mine); }catch(e){ console.warn('[cloud] re-layer failed',e); } }
@@ -17528,7 +17652,9 @@ const CLOUD = (function(){
            recursively and revive()/sstr() round-trips the live 387KB overlay
            unchanged, so the two bodies are directly comparable. */
         lastBody=bodyOf(res.data.overlay);
-        lastSent=res.data.overlay;      /* the object form of the same fact */
+        /* AFTER applyOverlay above, so revive() has already run and this
+           snapshot matches what the records now hold. */
+        lastSent=detach(res.data.overlay);
         /* Cache the MERGED result, not the server's overlay. Saving the raw
            remote copy dropped anything entered locally that the debounced
            push had not sent yet - click Save, let a poll land, refresh, and
@@ -17568,6 +17694,12 @@ const CLOUD = (function(){
     pull(true);
     clearInterval(pollTimer);
     pollTimer=setInterval(function(){ if(!document.hidden) pull(false); }, POLL_MS);
+    /* Record what we are running, then watch for a deploy. Hidden tabs are
+       skipped like the poll, and the first call only takes the baseline. */
+    checkBuild();
+    clearInterval(buildTimer);
+    buildTimer=setInterval(function(){ if(!document.hidden) checkBuild(); }, BUILD_CHECK_MS);
+    window.addEventListener('focus', function(){ checkBuild(); });
     window.addEventListener('focus',  function(){ pull(false); });
     window.addEventListener('online', function(){ pull(true); });
     window.addEventListener('offline',function(){ setStatus('offline'); });
@@ -17586,7 +17718,26 @@ const CLOUD = (function(){
     BASE=snapshot();                          /* baseline = seed + whatever AxisCare supplied */
     try{
       var raw=localStorage.getItem(LS_KEY);
-      if(raw) applyOverlay(JSON.parse(raw));  /* instant, works offline */
+      if(raw){
+        var cached=JSON.parse(raw);
+        applyOverlay(cached);                 /* instant, works offline */
+        /* SEED THE AGREEMENT, or the first pull re-lays everything.
+
+           lastSent is otherwise null until a confirmed push or an applying
+           pull, and unsentOnly() reads null as "no agreement recorded" and
+           carries the WHOLE overlay - the exact behaviour this change
+           exists to remove. The window is real: render() below arms a
+           900ms save, connect()'s first pull is a network round trip, and
+           a push raised before it lands sets unsent=true and then takes
+           push()'s conflict path, which calls pull(true) with unsent still
+           true.
+
+           The cache is the honest baseline. It is what this browser last
+           held, so anything differing from it is work THIS session has
+           done and must survive the merge - and everything else yields to
+           the server, which is the whole point. */
+        lastSent=detach(cached);
+      }
     }catch(e){ console.warn('[cloud] local cache unreadable',e); }
     /* The stored overlay predates the roster swap, so it can bring back
        ids like 'c8' that no longer exist. Sweep again before rendering. */
@@ -17663,6 +17814,11 @@ const CLOUD = (function(){
     sync:    function(){ return pull(true); },
     status:  function(){ return { state:statusState, msg:statusMsg, rev:serverRev, workspace:WORKSPACE, cloud:!!sb }; },
     overlay: buildOverlay,
+    /* Raise the refresh banner by hand and stop this tab writing. Use it
+       when a fix keeps coming back because an older session is overwriting
+       it - see CLAUDE.md, "A deploy does not reach an open tab". */
+    forceRefreshNotice: forceRefreshNotice,
+    isStale: function(){ return staleBuild; },
     /* Wipe everything anyone has entered and go back to pure demo data. */
     reset: function(){
       if(!window.confirm('Clear all saved scheduler work and reload with fresh demo data?')) return;

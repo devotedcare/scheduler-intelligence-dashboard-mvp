@@ -2435,6 +2435,84 @@ app's distance map.
 
 ---
 
+## A deploy does not reach an open tab — say "hard refresh"
+
+**Claude: when a fix is deployed, it is not running for anybody who already
+has the dashboard open. Tell Mitch to have the desk hard refresh, every
+time. If a bug looks like it survived the fix, check this first.**
+
+Netlify replaces what the server sends. It does not replace the JavaScript
+already running in a scheduler's browser, and that tab keeps writing to the
+shared `scheduler_state` row with its old logic.
+
+This has cost real work twice, both on 2026-09-07:
+
+- An import of 17 client blocks was wiped, twice, by a session that had been
+  open since before the import.
+- A fix to `pull()`'s re-layer went live at **15:21:40**. A tab opened
+  beforehand was still reverting other schedulers' work at **15:24:59** — so
+  the fix looked broken when it simply was not running yet. Three minutes,
+  and it cost an afternoon of confusion.
+
+The tell is always the same: **a change is saved, looks right, and comes back
+a few seconds later**, on every machine, with no error and the sync pill
+still reading Synced. Reloading the page that made the change does not help,
+because the session undoing it is somebody else's.
+
+### The guard
+
+`checkBuild()` in the CLOUD block asks the server what it is serving now
+(HEAD, ETag then Last-Modified) and compares it with what this tab loaded. On
+a mismatch `markStale()` fires and the tab:
+
+- **stops writing to Supabase** — `doSave()` returns after `saveLocal(o)`,
+  so nothing typed is lost and `finishBoot()` replays the local cache on the
+  next load, under the new code
+- shows a fixed red banner naming the exact keystroke — **Ctrl+Shift+R** /
+  **Cmd+Shift+R** — with a Hard refresh button
+- reads **Refresh needed** on the sync pill
+
+Stopping the write is the load-bearing half. A banner alone is advisory, and
+the whole failure is that the tab keeps saving.
+
+A host that answers neither ETag nor Last-Modified — `file://`, a failed
+request, an offline laptop — leaves the guard **off** rather than guessing.
+That is no worse than before.
+
+### When a fix keeps coming back
+
+If something is reverting and you cannot see why, the answer is almost always
+an old session, not a bug in the fix. In order:
+
+1. Have every scheduler hard refresh. One un-refreshed tab is enough.
+2. Only then re-check whether the fix worked. Re-run any data import
+   afterwards — an import written before the refresh can still be wiped.
+3. `CLOUD.forceRefreshNotice()` raises the banner by hand for any reason,
+   not only a new deploy, and `CLOUD.isStale()` reports whether this tab has
+   already stopped writing.
+
+**Never conclude a fix failed until the desk has refreshed.** That mistake
+was made in this repo and led to a second "fix" being written for a bug that
+was already fixed.
+
+### The trap that fix itself fell into
+
+`lastSent` — the overlay this browser and the database last agreed on — must
+be a **detached snapshot**, never a reference. `buildOverlay()` writes the
+live object straight into the patch (`diff[f]=r[f]`), and `applyOverlay()`'s
+`revive()` mutates in place and returns the *same* object, so after a pull
+`c.ops` and `overlay.patches.caregivers[id].ops` are one object. The app then
+edits ops in place (`c.ops.maxMiles = …`), which silently edited `lastSent`
+too — `unsentOnly()` compared a record against itself, found no difference,
+dropped it from the re-layer, and the incoming overlay wrote the older copy
+over the scheduler's edit. **The same silent loss the change existed to
+stop, arriving through the drop side.** Caught in review before it did more
+damage; `detach()` is the fix, and `BASE` has always taken the same
+precaution by storing `sstr()` strings.
+
+Anything that remembers a piece of overlay for later comparison has this
+problem. Snapshot it.
+
 ## Sync status — what the pill in the top bar means
 
 | Pill | Meaning |
