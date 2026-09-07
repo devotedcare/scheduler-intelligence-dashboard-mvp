@@ -2827,7 +2827,7 @@ function rankCaregivers(arg){
     else if(_avd.state==='none') excluded = excluded || 'No availability entered';
     else if(_avd.state==='blocked') excluded = excluded || _avd.label;
     else if(!_avd.wins.some(([a,b])=>a<=_shS && b>=_shE)) excluded = excluded || 'Not available at that time';
-    if(ctx.clientId && cg.blockedClients.includes(ctx.clientId)) excluded = excluded || `Blocked from client`;
+    if(ctx.clientId && cgBlockedFrom(cg, ctx.clientId)) excluded = excluded || `Blocked from client`;
     if(rg && cg.gender!==rg) excluded = excluded || `Client restriction \u00b7 ${rg==='F'?'female':'male'} only`;
     const missing = reqSkills.filter(s=>!cg.skills.includes(s));
     if(missing.length) excluded = excluded || `Missing skill: ${missing.join(', ')}`;
@@ -3890,7 +3890,7 @@ function availReportBody(){
   const cgMatches=cl=>act.filter(c=>{
     const skillsOk=(cl.reqSkills||[]).every(s=>c.skills.includes(s));
     const genderOk=!/female/i.test((cl.restrictions||[]).join(' '))||c.gender==='F';
-    const blocked=(c.blockedClients||[]).includes(cl.id);
+    const blocked=!!cgBlockedFrom(c, cl.id);
     return skillsOk&&genderOk&&!blocked;
   }).length;
   const only1=state.clients.filter(cl=>cgMatches(cl)===1).length;
@@ -5118,7 +5118,10 @@ function openFindCoverage(shiftId){ seedQueryFromShift(shiftId);
           8p–8a reads as having nothing entered for the morning shift.
           coverageDetail() looks for that carry; it can only find it if the
           previous date has been pulled. */
-       if(_d){ AVAIL.fetchDates([_d, addDaysStr(_d,-1)], true).then(function(){ try{ render(); }catch(e){} },
+       /* ...and the day AFTER, for the mirror-image reason: an overnight
+          shift needs tomorrow morning, which nextWindows() can only read
+          if that date has been pulled. */
+       if(_d){ AVAIL.fetchDates([_d, addDaysStr(_d,-1), addDaysStr(_d,1)], true).then(function(){ try{ render(); }catch(e){} },
                                                   function(){ try{ render(); }catch(e){} });
                /* Prior caregivers, clashes and weekly hours all come from one
                   AxisCare visit window. It lands after the first paint and the
@@ -5376,8 +5379,15 @@ function coverageDetail(cg,dateStr,start,end){
   if(d.state==='blocked') return {cov:'none', label:d.label};
   /* The early hours of a date live on the previous date's row, because an
      overnight block is stored where it starts. */
-  const wins=d.wins.concat(AVAIL.carryWindows(cg.id, dateStr));
+  let wins=d.wins.concat(AVAIL.carryWindows(cg.id, dateStr));
+  /* A shift that runs past midnight needs tomorrow morning too. Consecutive
+     whole-day Opens cover an overnight between them; a single one still does
+     not, because it says nothing about the next day. */
+  if(end>24) wins=wins.concat(AVAIL.nextWindows(cg.id, dateStr));
   if(!wins.length)        return {cov:'none', label:'No availability entered'};
+  /* Merge first: [0,24] and [24,48] are one continuous window, and the test
+     below looks for a SINGLE window spanning the shift. */
+  wins=AVAIL.mergeWins(wins);
   for(const [ws,we] of wins){ if(ws<=start && we>=end) return {cov:'full', label:'Covers full shift'}; }
   /* Partial coverage is deliberately NOT a result. Somebody who can take
      half a shift cannot take the shift, and offering them costs a call
@@ -5413,7 +5423,7 @@ function manualSearch(q,dKey){
     if(!ex){ const a=assignedDuring(cg.id,dKey,start,end); if(a) ex='Already assigned \u00b7 '+a; }
     if(!ex && !q.allowOT && cg.weekHrs>=40) ex='Over overtime limit ('+cg.weekHrs+'h)';
     else if(!ex && !q.allowOT && cg.weekHrs>=38) ex='Overtime risk ('+cg.weekHrs+'h)';
-    if(!ex && q.clientId && cg.blockedClients.includes(q.clientId)) ex='Blocked from client';
+    if(!ex && q.clientId && cgBlockedFrom(cg, q.clientId)) ex='Blocked from client';
     if(!ex && rg && cg.gender!==rg) ex='Client restriction \u00b7 '+(rg==='F'?'female only':'male only');
     if(!ex){ const miss0=q.skills.filter(s=>!cg.skills.includes(s)); if(miss0.length) ex='Missing care-need skill: '+miss0.join(', '); }
     if(!ex && cl && cl.pets && cg.restrictions.includes('No pets')) ex='Caregiver restriction \u00b7 no pets';
@@ -6141,7 +6151,8 @@ function covClientPrefs(cl){
     drivingRequired: driving,
     preferred: (cl.preferred||[]).slice(),
     doNotSend: state.caregivers.filter(function(cg){
-      return (cg.blockedClients||[]).indexOf(cl.id)>=0; }).map(function(cg){ return cg.id; })
+      /* the same one list, read from the client side */
+      return !!cgBlockedFrom(cg, cl.id); }).map(function(cg){ return cg.id; })
   };
 }
 
@@ -6990,7 +7001,10 @@ function dateSearch(sq){
     if(cg.active===false) return;
     if(!caregiverPassesFilters(cg, sq.filters, {clientId:sq.clientId})) return;
     if((sq.skills||[]).some(sk=>!cg.skills.includes(sk))) return;
-    if(sq.clientId && cg.blockedClients.includes(sq.clientId)) return;
+    /* Dropped outright here, as this screen already does for its other
+       hard filters. The block is a Do-Not-Assign decision somebody recorded
+       with a reason; offering the caregiver costs a call that ends in no. */
+    if(sq.clientId && cgBlockedFrom(cg, sq.clientId)) return;
     if(rg && cg.gender!==rg) return;                    /* unrecorded gender is not a match */
     /* never-confirmed is not a reason to hide somebody; lapsed is */
     if(!(sq.filters||[]).includes('Include Unverified Caregivers') && availVerifyStatus(cg).key==='overdue') return;
@@ -7094,6 +7108,9 @@ function runCoverageSearch(){
      and the caregiver reads as unavailable. */
   const _need=dates.slice();
   dates.forEach(function(d){ const p=addDaysStr(d,-1); if(_need.indexOf(p)<0) _need.push(p); });
+  /* ...and the day AFTER each date: an overnight shift runs into tomorrow
+     morning, and nextWindows() can only read a date that has been pulled. */
+  dates.forEach(function(d){ const n=addDaysStr(d,1); if(_need.indexOf(n)<0) _need.push(n); });
   /* AxisCare's own view of who is already booked, alongside the availability
      read. dateSearch() uses it through covClash() so a stale Open cannot put
      somebody on the list who is on a visit.
@@ -7204,7 +7221,7 @@ function recurringSearch(rq){
   if(!reqDays.length) return {full,partial,excluded,reqDays};
   state.caregivers.forEach(cg=>{
     let ex=null;
-    if(rq.clientId && cg.blockedClients.includes(rq.clientId)) ex='Blocked from client';
+    if(rq.clientId && cgBlockedFrom(cg, rq.clientId)) ex='Blocked from client';
     if(!ex && rg && cg.gender!==rg) ex='Client restriction \u00b7 '+(rg==='F'?'female only':'male only');
     if(!ex){ const miss=rq.skills.filter(s=>!cg.skills.includes(s)); if(miss.length) ex='Missing skill: '+miss.join(', '); }
     if(!ex && cl && cl.pets && cg.restrictions.includes('No pets')) ex='Caregiver restriction \u00b7 no pets';
@@ -13961,6 +13978,30 @@ function dispResult(shiftId,cgId,result){ pushContact(shiftId,cgId,result); toas
 function dispExpandRow(shiftId,cgId,type){ state.dispExpand=(state.dispExpand&&state.dispExpand.cgId===cgId&&state.dispExpand.type===type)?null:{cgId,type}; render(); }
 function dispDecline(shiftId,cgId,reason){ pushContact(shiftId,cgId,'declined',{reason}); toast(cgById(cgId).name+' \u2014 Declined ('+reason+')'); render(); }
 function dispCallback(shiftId,cgId,label,mins){ pushContact(shiftId,cgId,'callback',{callback:label, callbackAt:new Date(NOW.getTime()+mins*60000).toISOString()}); toast(cgById(cgId).name+' \u2014 callback in '+label); render(); }
+/* IS THIS CAREGIVER BLOCKED FROM THIS CLIENT?
+
+   Every coverage screen used to ask cg.blockedClients, which derive() sets
+   to [] for every AxisCare caregiver (see "c.blockedClients = []"). So on
+   live data the block filter could never fire: the desk's real blocks live
+   in ops.clientRestr, written by Assignment & Client Rules, and were only
+   read at ASSIGN time by cgBlockFor(). A blocked caregiver was ranked,
+   offered and called, and the block surfaced only after somebody picked
+   them.
+
+   This reads BOTH - the seed field for demo records, ops.clientRestr for
+   everything real - and returns the block row so callers can quote the
+   reason. It is the same relation the client side shows, so blocking from
+   either direction is one list, not two.
+
+   Soft blocks are returned too. They are excluded from the list with their
+   reason shown rather than silently dropped; a soft block still needs
+   supervisor approval, and openBlockWarn() remains the path for that. */
+function cgBlockedFrom(cg, clientId){
+  if(!cg || !clientId) return null;
+  if((cg.blockedClients||[]).indexOf(clientId)>=0)
+    return {client:clientId, reason:'Do not assign', level:'hard'};
+  return ((cg.ops && cg.ops.clientRestr)||[]).find(function(r){ return r.client===clientId; }) || null;
+}
 function cgBlockFor(cgId, clientId){ const cg=cgById(cgId); const list=(cg&&cg.ops&&cg.ops.clientRestr)||[]; return list.find(r=>r.client===clientId)||null; }
 /* ===== ASSIGN-TIME FRESHNESS CHECK =====================================
 
@@ -19066,6 +19107,47 @@ var AVAIL = (function () {
     return out;
   }
 
+  /* THE NEXT DATE, in THIS date's frame (its 0..24 becomes 24..48).
+
+     An overnight shift runs past midnight, so covering it needs a statement
+     about tomorrow morning as well. A TIMED overnight block carries itself -
+     8p-6a is stored on its start date as 1200..1800 - but a WHOLE-DAY Open
+     stops at midnight by design, because "free all day Tuesday" says nothing
+     about Wednesday.
+
+     When Wednesday ALSO carries a whole-day Open, it does say something, and
+     that is what this reads. Reported by the desk 2026-09-07: two whole-day
+     Opens on consecutive dates did not match a 8p-6a shift spanning them,
+     while the equivalent timed block did.
+
+     Only a genuine Open contributes. 'blocked' (Vacation, Unavailable,
+     School...) is an explicit no and returns nothing; so does a date with
+     nothing recorded, because blank means unavailable; so does one that has
+     not loaded, which is no worse than today. */
+  function nextWindows(cgId, ds) {
+    var nxt = ymd(new Date(new Date(ds + 'T12:00:00').getTime() + 86400000));
+    if (!loaded[nxt]) return [];
+    var d = dayAvail(cgId, nxt);
+    if (d.state !== 'open') return [];
+    return d.wins.map(function (w) { return [w[0] + 24, w[1] + 24]; });
+  }
+
+  /* Overlapping or ABUTTING windows become one. Without this a whole-day
+     Open [0,24] and the next day's [24,48] stay two windows, and every
+     caller tests for a SINGLE window spanning the shift - so 8p-6a (20..30)
+     matched neither half. */
+  function mergeWins(ws) {
+    if (!ws || ws.length < 2) return ws || [];
+    var a = ws.slice().sort(function (x, y) { return x[0] - y[0]; });
+    var out = [a[0].slice()];
+    for (var i = 1; i < a.length; i++) {
+      var last = out[out.length - 1];
+      if (a[i][0] <= last[1]) { if (a[i][1] > last[1]) last[1] = a[i][1]; }
+      else out.push(a[i].slice());
+    }
+    return out;
+  }
+
   /* Everything this caregiver can work on this date: what is stored on it,
      plus the tail of an overnight that began the day before. */
   function windowsOn(cgId, date) {
@@ -19081,7 +19163,10 @@ var AVAIL = (function () {
      hours; an overnight is stored on its start date and runs past 24). */
   function coversOn(cgId, date, s, e) {
     if (e <= s) e += 24;
-    return windowsOn(cgId, date).some(function (w) { return w[0] <= s && w[1] >= e; });
+    var ws = windowsOn(cgId, date);
+    /* Only reach into tomorrow when the shift actually runs into it. */
+    if (e > 24) ws = ws.concat(nextWindows(cgId, dateKey(date)));
+    return mergeWins(ws).some(function (w) { return w[0] <= s && w[1] >= e; });
   }
 
   /* saveDays already re-reads byCg; the index is patched in place from the
@@ -19173,6 +19258,7 @@ var AVAIL = (function () {
     saveDays: saveDays,
     primeIndex: primeIndex, dayAvail: dayAvail, coversOn: coversOn, openDays: openDays,
     windowsOn: windowsOn, carryWindows: carryWindows,
+    nextWindows: nextWindows, mergeWins: mergeWins,
     fetchDates: fetchDates, searchWindow: searchWindow, isLoaded: isLoaded,
     indexStatus: indexStatus, indexInfo: indexInfo,
     primeCoverage: primeCoverage, coverage: coverage,
