@@ -16943,6 +16943,13 @@ const CLOUD = (function(){
   ];
 
   var sb = null, BASE = null, serverRev = 0, lastBody = null;
+  /* THE OVERLAY THIS BROWSER AND THE DATABASE LAST AGREED ON.
+
+     lastBody is the same thing as a string, used for doSave()'s no-op
+     guard; this is the object, and pull()'s re-layer needs the object so it
+     can compare record by record. Set in exactly the places lastBody is:
+     a confirmed push, and an applying pull. */
+  var lastSent = null;
   /* Last known patch per record on the patchOnly slices, so a record
      AxisCare did not return this load does not lose the desk's work.
      See buildOverlay(). */
@@ -17282,7 +17289,7 @@ const CLOUD = (function(){
     var body=bodyOf(o);
     if(body===lastBody) return;              /* nothing actually changed */
     saveLocal(o);
-    if(!sb){ lastBody=body; return; }
+    if(!sb){ lastBody=body; lastSent=o; return; }
     /* Already failing: keep writing to this device, but leave the network to
        the retry timer. Without this the conflict path re-entered itself
        through pull()'s render() and put thirty writes a minute on a database
@@ -17370,7 +17377,7 @@ const CLOUD = (function(){
           }, function(){ saveFailed('could not re-read the board'); pushDone(); });
           return;
         }
-        serverRev=res.data[0].rev; lastBody=body; unsent=false;
+        serverRev=res.data[0].rev; lastBody=body; lastSent=o; unsent=false;
         clearTimeout(retryTimer); retryTimer=null;
         if(failed){
           failed=false;
@@ -17379,6 +17386,60 @@ const CLOUD = (function(){
         setStatus('synced');
         pushDone();
       }, function(err){ saveFailed((err&&err.message)||'network'); pushDone(); });
+  }
+
+  /* ONLY WHAT THE DATABASE HAS NOT CONFIRMED FROM US.
+
+     pull() re-applies this session's work over an incoming overlay so a
+     poll landing mid-save cannot discard it. It used to re-apply the WHOLE
+     overlay, and that is what lost a scheduler's work: `ops` travels as one
+     field, so re-laying our copy of a caregiver reverted every field of
+     theirs - cadence, preferences, notes, client blocks - back to whatever
+     this browser happened to hold, and the render that follows pushed the
+     reversion to everybody. It needs no conflict to fire: an ordinary Save
+     in one session while another polls is enough, and both screens then
+     agree on the wrong value, so nobody sees an error.
+
+     A record we have not touched since the last agreement is dropped here,
+     so the server's copy of it stands. A record we HAVE touched is kept,
+     which is the whole point of the re-layer and is unchanged.
+
+     With no agreement recorded yet (`lastSent` null, before the first pull
+     or push has completed) this returns everything, exactly as before -
+     the conservative choice, since we then have no basis for saying which
+     records are ours. */
+  function unsentOnly(cur, base){
+    if(!cur || !base) return cur;
+    var out = { v: cur.v, adds:{}, dels:{}, maps:{}, patches:{}, scalars:{},
+                updatedAt: cur.updatedAt, updatedBy: cur.updatedBy };
+    /* patches and maps are keyed by record id: keep an id only when ours
+       differs from the agreed copy. */
+    ['patches','maps'].forEach(function(kind){
+      Object.keys(cur[kind]||{}).forEach(function(sl){
+        var mine=cur[kind][sl]||{}, agreed=((base[kind]||{})[sl])||{}, keep={}, any=false;
+        Object.keys(mine).forEach(function(id){
+          if(sstr(mine[id])!==sstr(agreed[id])){ keep[id]=mine[id]; any=true; }
+        });
+        if(any) out[kind][sl]=keep;
+      });
+    });
+    /* adds and dels are arrays: keep entries the agreed copy does not hold.
+       Both are already refused on patchOnly slices at either end, so this
+       only ever carries records the desk genuinely created here. */
+    Object.keys(cur.adds||{}).forEach(function(sl){
+      var agreed={}; (((base.adds||{})[sl])||[]).forEach(function(r){ agreed[sstr(r)]=1; });
+      var keep=(cur.adds[sl]||[]).filter(function(r){ return !agreed[sstr(r)]; });
+      if(keep.length) out.adds[sl]=keep;
+    });
+    Object.keys(cur.dels||{}).forEach(function(sl){
+      var agreed={}; (((base.dels||{})[sl])||[]).forEach(function(x){ agreed[x]=1; });
+      var keep=(cur.dels[sl]||[]).filter(function(x){ return !agreed[x]; });
+      if(keep.length) out.dels[sl]=keep;
+    });
+    Object.keys(cur.scalars||{}).forEach(function(k){
+      if(sstr(cur.scalars[k])!==sstr((base.scalars||{})[k])) out.scalars[k]=cur.scalars[k];
+    });
+    return out;
   }
 
   function pull(force){
@@ -17440,7 +17501,8 @@ const CLOUD = (function(){
            database confirming it, so a normal poll still lets another
            scheduler's work through untouched, and boot still takes the
            server's copy as it always did. */
-        var mine = (unsent && booted) ? buildOverlay() : null;
+        /* ONLY our unconfirmed records, not our whole world view. */
+        var mine = (unsent && booted) ? unsentOnly(buildOverlay(), lastSent) : null;
         muted=true;
         try{ applyOverlay(res.data.overlay); }catch(e){ console.warn('[cloud] apply failed',e); }
         if(mine){ try{ applyOverlay(mine); }catch(e){ console.warn('[cloud] re-layer failed',e); } }
@@ -17466,6 +17528,7 @@ const CLOUD = (function(){
            recursively and revive()/sstr() round-trips the live 387KB overlay
            unchanged, so the two bodies are directly comparable. */
         lastBody=bodyOf(res.data.overlay);
+        lastSent=res.data.overlay;      /* the object form of the same fact */
         /* Cache the MERGED result, not the server's overlay. Saving the raw
            remote copy dropped anything entered locally that the debounced
            push had not sent yet - click Save, let a poll land, refresh, and
