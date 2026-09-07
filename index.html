@@ -9948,7 +9948,20 @@ function prefVal(c,k){
      Preferences & Verification form writes them — so a ticked box is a yes
      and an empty one is somebody who was never asked. Reading false out of
      an untouched checkbox would put a No on the record nobody gave. */
-  if(k==='overnight')   return (c.ops.emergency && c.ops.emergency.overnight) ? true : null;
+  if(k==='overnight'){
+    if(c.ops.emergency && c.ops.emergency.overnight) return true;
+    /* NOVRN - "Nights/Overnight" - is a tag somebody recorded in AxisCare, so
+       it is a plain YES to overnight work, exactly as OWP is read for pets a
+       few lines above. 35 active caregivers carry it and 33 had no answer
+       recorded anywhere, so this is the difference between asking them again
+       and reading what they already told us.
+
+       Silence is still silence: no tag returns null, never false. And an
+       explicit answer wins outright - ops.prefs.overnight is checked at the
+       top of this function, so a recorded NO is never overruled by the tag. */
+    if(cgTag(c,'NOVRN')) return true;
+    return null;
+  }
   if(k==='liveIn')      return (c.ops.shiftPrefs && c.ops.shiftPrefs.liveIn) ? true : null;
   return null;
 }
@@ -16291,7 +16304,17 @@ var ROSTER = (function () {
 
     /* AxisCare records a hire date, not a career. Years of caregiving before
        Devoted Care only exist if somebody typed them into this table. */
-    var expY = pickCol(p, ['caregiving_experience_years', 'years_experience',
+    /* 'years_of_experience' FIRST, because that is what the column is
+       actually called. The four older spellings below it exist in no table,
+       so until this was added the value was fetched on every boot and
+       silently discarded while Needs Update asked the desk to collect it.
+
+       Safe against the overlay: applyProfile() runs BEFORE finishBoot() takes
+       the BASE snapshot, and applyOverlay() runs after, so a scheduler who
+       CLEARS the experience still wins - their null is what the overlay
+       carries and it is applied last. */
+    var expY = pickCol(p, ['years_of_experience',
+                           'caregiving_experience_years', 'years_experience',
                            'experience_years', 'caregiving_experience']);
     if (expY !== null) ops.experience = expY;
     if (nonEmpty(p.skills_strengths)) {
@@ -16305,6 +16328,12 @@ var ROSTER = (function () {
     var legacy = p.legacy_ops;
     if (legacy && typeof legacy === 'object') {
       Object.keys(legacy).forEach(function (k) {
+        /* minHours/maxHours in legacy_ops were DEMO DEFAULTS, not data -
+           exactly 20 and 40 on all 184 rows - and were the only thing making
+           "Preferred weekly hours" read as answered for most of the roster.
+           They have been deleted from the table; this stops them being
+           re-introduced by any row that still carries them. */
+        if (k === 'minHours' || k === 'maxHours') return;
         if (!nonEmpty(ops[k])) ops[k] = legacy[k];
       });
     }
