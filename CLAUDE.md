@@ -2163,6 +2163,65 @@ Leftover `dc.roster.v1` entries in schedulers’ browsers are inert — nothing
 reads the key any more. Clearing one needs DevTools → Application → Local
 Storage, or “Clear site data”; a hard reload does **not** remove it.
 
+3c-2. **A record AxisCare did not return this load must not lose the desk's
+    work — `CARRY`, and no `dels` on a patchOnly slice.**
+
+    `buildOverlay()` rebuilds the overlay WHOLE on every save: it is a diff
+    of current state against `BASE`, never an increment on what is stored.
+    So a caregiver who is not in `state.caregivers` when a save runs emits
+    no patch, and that save writes a shared row without one. Their review
+    cadence, work preferences, notes, flags and client blocks are gone, for
+    every scheduler, with no per-field tombstone to recover from.
+
+    `state.caregivers`, `state.clients` and `state.shifts` are assigned in
+    exactly one place — `ROSTER.hydrate()` — and nothing in the app removes
+    a record by hand, so "not in front of us" ALWAYS means AxisCare did not
+    return it on this load. Three ordinary ways that happens:
+
+    - the roster fetch failed, and the boot kept the seed roster
+    - it came back short, so the 3c plausibility guard threw and did the same
+    - AxisCare stopped listing that caregiver as Active
+
+    One scheduler with a bad fetch, whose tab then autosaved — which every
+    tab does — was enough to wipe the desk's work for everyone missing from
+    that read. **That is why some caregivers kept their cadence and others
+    lost it: the survivors were the ones present on the load that saved.**
+
+    Two halves, and both are needed:
+
+    - **`CARRY`** holds the last patch known for each record on a patchOnly
+      slice, seeded by `applyOverlay()` from every overlay that arrives —
+      including patches it could not apply because the record was absent.
+      `buildOverlay()` re-emits a carried patch for any id not currently in
+      state. A record it CAN diff always wins and corrects the carry, so
+      this never resurrects a value somebody has since changed: setting a
+      cadence back to No Cadence still saves as null.
+    - **`dels` are refused on patchOnly slices**, on the way out and on the
+      way in, exactly as stray adds already were. "In BASE, not in state"
+      means the same short read, and writing it as a deletion told every
+      other browser to drop that caregiver from the roster at boot,
+      permanently. Refusing them on the way in is what repairs a row that
+      already carries some, and it self-cleans: with the dels ignored, state
+      matches BASE and the next save writes an overlay without them. It also
+      closes the `dels.shifts` half of the 2026-09-03 leak, where a real
+      coverage gap was silently hidden.
+
+    Measured before and after, on a boot where the caregiver was absent
+    before `BASE` was taken (a failed read, exactly):
+
+    ```
+    before   patch survived the save: NO    -> "No review cadence" / "Not scheduled"
+    after    patch survived the save: YES   -> "Monthly" / next 2026-10-07
+    ```
+
+    **The review cadence has no database column of its own.** It is
+    `ops.availCheckFreq` (plus `ops.customCadenceDays`) inside the
+    `scheduler_state.overlay` JSON, like every other scheduler-entered
+    caregiver field. **The next review date is not stored at all** — it is
+    derived by `nextReview()` from `availLastConfirmed` plus the cadence,
+    deliberately, so there is no second field to drift. `applyCadence()`
+    stamps both, and they ride the one patch; fixing the patch fixes both.
+
 3d. **`lastBody` is what stops the two-tab write loop — keep it honest.**
 
     `doSave()`’s only no-op guard is `if(body===lastBody) return`. `pull()`

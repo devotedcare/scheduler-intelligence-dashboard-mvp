@@ -16873,6 +16873,10 @@ const CLOUD = (function(){
   ];
 
   var sb = null, BASE = null, serverRev = 0, lastBody = null;
+  /* Last known patch per record on the patchOnly slices, so a record
+     AxisCare did not return this load does not lose the desk's work.
+     See buildOverlay(). */
+  var CARRY = {};
   var muted = false, saveTimer = null, pollTimer = null, booted = false;
   /* One write in flight at a time, and a record of whether this session is
      holding work the server has not confirmed. Both exist because of the
@@ -17003,10 +17007,11 @@ const CLOUD = (function(){
         return;
       }
 
-      var adds=[], patches={}, seen={};
+      var adds=[], patches={}, seen={}, diffed={};
       (cur||[]).forEach(function(r){
         var id=idOf(sl,r); seen[id]=1;
         if(!(id in base)){ if(!sl.patchOnly) adds.push(r); return; }
+        diffed[id]=1;
         var b, diff={}, dirty=false;
         try{ b=JSON.parse(base[id]); }catch(e){ return; }
         Object.keys(r).forEach(function(f){
@@ -17017,14 +17022,48 @@ const CLOUD = (function(){
         });
         if(dirty) patches[id]=diff;
       });
-      /* A patchOnly slice is owned by AxisCare, so a record missing from it
-         means AxisCare stopped returning it - a shift got filled, a note
-         aged out - NOT that a scheduler deleted anything. Recording that as
-         a del would make applyOverlay hide it permanently on every future
-         boot, which is how a real coverage gap gets silently buried. Adds
-         were already refused here; dels were not, and that was the other
-         half of the same hole. */
-      var dels=sl.patchOnly ? [] : Object.keys(base).filter(function(id){ return !seen[id]; });
+
+      /* CARRY A PATCH FORWARD WHEN ITS RECORD IS NOT IN FRONT OF US.
+
+         This overlay is rebuilt WHOLE on every save — it is a diff of the
+         current state against BASE, not an increment on what was stored.
+         So a caregiver who is not in state.caregivers at the moment a save
+         runs produces no patch, and the save writes a shared row without
+         one: their cadence, their preferences and every other edit the desk
+         made are gone, for everybody, with nothing to recover from.
+
+         state.caregivers, state.clients and state.shifts are only ever
+         assigned by ROSTER.hydrate() — nothing in the app removes one by
+         hand — so "not in front of us" always means AxisCare did not return
+         it on THIS load. A failed roster read (the boot keeps the seed
+         roster), a short one (the plausibility guard throws and does the
+         same), or a caregiver AxisCare stopped listing as Active is enough.
+         One scheduler with a bad fetch, whose tab then autosaves, wiped the
+         desk's work for every caregiver missing from that read. That is why
+         some caregivers kept their cadence and others lost it: the ones
+         that survived were the ones present on the load that last saved.
+
+         CARRY holds the last patch known for each record, so an absent one
+         is re-emitted verbatim instead of being dropped. A record we could
+         actually diff always wins — the carry is corrected from it — so
+         this never resurrects a value a scheduler has since changed. */
+      if(sl.patchOnly){
+        var keep = CARRY[sl.path] || (CARRY[sl.path] = {});
+        Object.keys(diffed).forEach(function(id){
+          if(patches[id]) keep[id]=patches[id]; else delete keep[id];
+        });
+        Object.keys(keep).forEach(function(id){ if(!seen[id]) patches[id]=keep[id]; });
+      }
+
+      /* A DEL ON A PATCHONLY SLICE IS NEVER SOMEBODY'S INTENT, for exactly
+         the reason an add is not: these records come from AxisCare and the
+         desk cannot create or remove one. So "in BASE, not in state" means
+         the same thing as above — a read that came back short — and writing
+         it as a deletion told every other browser to drop that caregiver
+         from the roster on boot, permanently. Refused here, and refused
+         again on the way in, so a row that already carries one repairs
+         itself. */
+      var dels = sl.patchOnly ? [] : Object.keys(base).filter(function(id){ return !seen[id]; });
       if(adds.length) o.adds[sl.path]=adds;
       if(dels.length) o.dels[sl.path]=dels;
       if(Object.keys(patches).length) o.patches[sl.path]=patches;
@@ -17050,13 +17089,12 @@ const CLOUD = (function(){
       }
       var arr=getPath(state,sl.path)||[];
       var dels=(o.dels&&o.dels[sl.path])||[];
-      /* Same rule as the adds below: an overlay may not delete from a slice
-         AxisCare owns. Refusing here is what repairs a workspace that was
-         already carrying one, since the overlay is cached in localStorage
-         and replayed at boot before any server pull. */
       if(dels.length && sl.patchOnly){
-        console.warn('[cloud] ignored ' + dels.length + ' stray deletion(s) on ' + sl.path +
-          ' - that slice comes from AxisCare and cannot be deleted from by hand');
+        /* Same reasoning as the stray adds below, and the same self-clean:
+           with the dels ignored, state matches BASE again and this browser's
+           next save writes an overlay without them. */
+        console.warn('[cloud] ignored ' + dels.length + ' stray del(s) on ' + sl.path +
+          ' - that slice comes from AxisCare and cannot be deleted by hand');
         dels=[];
       }
       if(dels.length){
@@ -17064,6 +17102,14 @@ const CLOUD = (function(){
         arr=arr.filter(function(r){ return !dset[idOf(sl,r)]; });
       }
       var patches=(o.patches&&o.patches[sl.path])||{};
+      /* Remember every patch that arrives, whether or not its record is
+         here to receive it. This is what survives a boot on a roster that
+         came back short: the patch could not be applied, but it must not be
+         forgotten, or the next save writes it out of existence. */
+      if(sl.patchOnly && Object.keys(patches).length){
+        var kp = CARRY[sl.path] || (CARRY[sl.path] = {});
+        Object.keys(patches).forEach(function(id){ kp[id]=patches[id]; });
+      }
       arr.forEach(function(r){
         var p=patches[idOf(sl,r)];
         if(p) Object.keys(p).forEach(function(f){ r[f]=revive(p[f]); });
@@ -17488,6 +17534,7 @@ const CLOUD = (function(){
     reset: function(){
       if(!window.confirm('Clear all saved scheduler work and reload with fresh demo data?')) return;
       try{ localStorage.removeItem(LS_KEY); }catch(e){}
+      CARRY = {};                       /* or the next save would put it all back */
       var empty={ v:1, adds:{}, dels:{}, patches:{}, maps:{}, scalars:{},
                   updatedAt:new Date().toISOString(), updatedBy:state.onShift||'' };
       if(sb){
