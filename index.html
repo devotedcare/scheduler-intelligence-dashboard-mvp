@@ -2225,6 +2225,39 @@ body.ai-white .main{display:flex;flex-direction:column;min-height:100vh}
    why the img is wrapped: without the wrapper it would blank the header. */
 .cgh-photo.noimg{display:flex;align-items:center;justify-content:center;color:var(--ink-faint)}
 .cgh-photo.noimg svg{width:34px;height:34px}
+  /* The photo doubles as the control. A caregiver with no photo still gets
+     the menu, because "upload one" is the whole point of the empty state.
+
+     NOTE ON COLOURS: this app has NO --panel and NO --bad-tx. The white is
+     --surface and the danger red is --crit-tx. Using the names that do not
+     exist is not a harmless typo - an invalid custom property makes the
+     declaration compute to `unset`, so the badge icon inherited the dark
+     body colour and vanished into its own dark circle, and the menu lost
+     its background entirely and let the card show straight through it. */
+  .cgh-photowrap{position:relative;flex:0 0 auto;line-height:0}
+  .cgh-photowrap .cgh-photo{cursor:pointer}
+  .cgh-photowrap.busy{opacity:.55;pointer-events:none}
+  /* raised only while the menu is open, so it cannot sit above the header
+     content the rest of the time */
+  .cgh-photowrap.menuon{z-index:60}
+  .cgh-photoedit{position:absolute;right:0;bottom:0;width:30px;height:30px;border-radius:50%;
+    background:var(--surface);color:var(--ink-soft);display:flex;align-items:center;justify-content:center;
+    border:1px solid var(--line);box-shadow:0 1px 4px rgba(20,40,60,.18);cursor:pointer}
+  .cgh-photowrap:hover .cgh-photoedit{color:var(--brand);border-color:var(--brand)}
+  .cgh-photoedit svg{width:15px;height:15px}
+  .cgh-photomenu{position:absolute;left:0;top:calc(100% + 8px);z-index:61;min-width:206px;
+    background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+    box-shadow:0 10px 28px rgba(20,40,60,.20);padding:6px;line-height:1.4}
+  .cgh-photomenu button{display:flex;align-items:center;gap:9px;width:100%;background:none;border:0;
+    text-align:left;padding:9px 11px;border-radius:8px;cursor:pointer;
+    font-size:13px;font-weight:650;color:var(--ink)}
+  .cgh-photomenu button svg{flex:0 0 auto;color:var(--ink-faint)}
+  .cgh-photomenu button:hover{background:var(--panel-head)}
+  .cgh-photomenu button.danger{color:var(--crit-tx)}
+  .cgh-photomenu button.danger svg{color:var(--crit-solid)}
+  .cgh-photomenu button.danger:hover{background:var(--crit-bg)}
+  .cgh-photomenu .pm-note{margin-top:5px;padding:8px 11px 3px;border-top:1px solid var(--line-soft);
+    font-size:11px;font-weight:500;color:var(--ink-faint);line-height:1.45}
 .cgh-id{min-width:0}
 .cgh-name{font-size:24px;font-weight:800;letter-spacing:-.4px;color:var(--ink);margin-bottom:6px}
 .cgh-status{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;border-radius:14px;padding:3px 11px;margin-bottom:11px}
@@ -7627,19 +7660,234 @@ function cgPhotoUrl(c, px){
   if(!cfg.supabaseUrl || !c || c.axisId == null) return null;
   const base = String(cfg.supabaseUrl).replace(/\/+$/,'');
   const key = encodeURIComponent(String(c.axisId));
-  /* Ask Supabase to resize from the stored object rather than shipping the
-     original to a 44px slot. Nothing extra is stored and the original is
-     untouched - this is only which URL the browser requests. Worth it: a
-     third of these are PNGs over 1MB, and the biggest (2268KB) comes back
-     at 14KB. Omit px to get the original bytes. */
-  if(!px) return base + '/storage/v1/object/public/caregiver-photos/' + key;
-  return base + '/storage/v1/render/image/public/caregiver-photos/' + key +
-    '?width=' + px + '&height=' + px + '&resize=cover&quality=72';
+  /* THE PLAIN OBJECT, NEVER THE RENDER ENDPOINT.
+
+     This used to ask /storage/v1/render/image/... for a resized rendition,
+     because a third of the bucket was PNGs over 1MB being shipped to a 44px
+     slot. That is billed: Supabase counts the number of distinct ORIGIN
+     images transformed in a period, not the number of transformations, and
+     the Pro plan includes 100. With 177 photos, one paint of the caregiver
+     list put the account over on its own - 167 against 100 by 2026-09-06.
+
+     The cause was the FORMAT, not the size. Every object over 500KB was a
+     PNG and every PNG was over 500KB: 33 files, 57.4MB of a 64.9MB bucket,
+     against 144 JPEGs averaging 53KB. PNG is lossless and the wrong
+     container for a photograph. Re-encoding those 33 to JPEG at their
+     EXACT pixel dimensions - no resize, nothing cropped - took the bucket
+     to 11.0MB, largest object 432KB, done 2026-09-07 with the originals
+     backed up.
+
+     So the resize is no longer worth anything: the stored bytes are already
+     smaller than most transformed renditions were, they cache properly
+     (public, max-age=3600), and this way the transformation count is zero.
+
+     `px` is still accepted because every call site passes it and it says
+     what the slot is, but the browser does the scaling now - the CSS on
+     .cgh-photo img and the list row already sets object-fit:cover. */
+  /* A version stamp, added only after THIS session changed the photo,
+     otherwise a replaced photo stays hidden behind max-age. Absent for
+     everyone we have not touched, so the normal case stays cacheable. */
+  const v = (typeof CGPHOTO!=='undefined') ? CGPHOTO.stamp(c.axisId) : 0;
+  return base + '/storage/v1/object/public/caregiver-photos/' + key + (v?'?v='+v:'');
 }
 
 /* The image did not load - no photo, or the network. Swap in the placeholder
    rather than leaving a broken-image glyph. Clearing onerror first stops a
    loop if the swap itself ever fails. */
+/* ===== CAREGIVER PHOTO UPLOAD =====================================
+
+   The bytes live in this app's own Supabase Storage bucket
+   "caregiver-photos", one object per caregiver named for the AxisCare
+   numeric id and NO file extension - 312, not 312.jpg. That is the rule the
+   177 existing objects follow and the rule cgPhotoUrl() reads, so an upload
+   simply overwrites the key. There is no database row to keep in step and
+   no CLOUD slice involved, which is why none of the overlay hazards apply
+   here: nothing about a photo is ever diffed into scheduler_state.
+
+   WHAT IS ACCEPTED. JPEG and PNG, because those are the only two types
+   already in the bucket (144 and 33). The file dialog is filtered to them,
+   and the type is checked again on the way in - a dialog filter is advisory
+   on some platforms and a renamed file would otherwise be stored with a
+   content-type that does not match its bytes.
+
+   WHAT IS STORED. Exactly what the user chose, byte for byte, unless it is
+   larger than the biggest photo already here - 1433px, caregiver 38 at
+   1098x1433, measured across all 177 on 2026-09-07. Over that it is scaled
+   down to fit, keeping its aspect ratio and its format. Under it nothing is
+   re-encoded, so no quality is thrown away to a conversion nobody asked
+   for. */
+var CGPHOTO = (function(){
+  var MAX_EDGE = 1433;
+  var TYPES = { 'image/jpeg':1, 'image/png':1 };
+  var ver = {}, menuFor = null, busyFor = null;
+
+  function cfg(){ return window.SCHEDULER_CONFIG || {}; }
+  function able(){ var k=cfg(); return !!(k.supabaseUrl && k.supabaseAnonKey); }
+  function objUrl(axisId){
+    return String(cfg().supabaseUrl).replace(/\/+$/,'')
+         + '/storage/v1/object/caregiver-photos/' + encodeURIComponent(String(axisId));
+  }
+  function auth(extra){
+    var k=cfg().supabaseAnonKey;
+    return Object.assign({ apikey:k, Authorization:'Bearer '+k }, extra||{});
+  }
+  function repaint(){ try{ render(); }catch(e){} }
+  function say(m){ try{ toast(m); }catch(e){ console.info('[photo] '+m); } }
+
+  /* Only for a caregiver this session actually changed - see cgPhotoUrl. */
+  function stamp(axisId){ return (axisId==null) ? 0 : (ver[axisId]||0); }
+
+  /* SCALE ONLY WHEN WE MUST. At or under the cap the original File is
+     returned untouched, so the bytes stored are the bytes chosen. */
+  function fit(file){
+    return new Promise(function(done, fail){
+      var u = URL.createObjectURL(file), img = new Image();
+      img.onload = function(){
+        var w=img.naturalWidth, h=img.naturalHeight, longest=Math.max(w,h);
+        if(!longest){ URL.revokeObjectURL(u); fail(new Error('unreadable image')); return; }
+        if(longest<=MAX_EDGE){ URL.revokeObjectURL(u); done(file); return; }
+        var k=MAX_EDGE/longest, cw=Math.max(1,Math.round(w*k)), ch=Math.max(1,Math.round(h*k));
+        var cv=document.createElement('canvas'); cv.width=cw; cv.height=ch;
+        try{ cv.getContext('2d').drawImage(img,0,0,cw,ch); }
+        catch(e){ URL.revokeObjectURL(u); fail(e); return; }
+        /* same format in, same format out - a PNG stays a PNG */
+        cv.toBlob(function(b){
+          URL.revokeObjectURL(u);
+          if(b) done(b); else fail(new Error('could not resize that image'));
+        }, file.type, file.type==='image/jpeg' ? 0.9 : undefined);
+      };
+      img.onerror = function(){ URL.revokeObjectURL(u); fail(new Error('that file is not a readable image')); };
+      img.src = u;
+    });
+  }
+
+  function upload(cgId, file){
+    var c = cgById(cgId);
+    if(!c || c.axisId==null || busyFor) return;
+    if(!TYPES[file.type]){ say('Choose a JPEG or PNG image'); return; }
+    busyFor = cgId; menuFor = null; repaint();
+    fit(file)
+      .then(function(blob){
+        return fetch(objUrl(c.axisId), { method:'POST',
+          headers: auth({ 'Content-Type': blob.type || file.type,
+                          'x-upsert': 'true',
+                          /* max-age=60, NOT a bare "60". Storage stores this
+                             verbatim and serves it back as Cache-Control, and
+                             a lone number is not a directive - caches must
+                             ignore it, so the object would fall back to
+                             heuristic freshness and the 60 seconds intended
+                             here would simply not happen. */
+                          'cache-control': 'max-age=60' }),
+          body: blob });
+      })
+      .then(function(res){
+        if(res.ok) return;
+        return res.text().then(function(t){ throw new Error('HTTP '+res.status+' '+String(t).slice(0,140)); });
+      })
+      .then(function(){ ver[c.axisId]=Date.now(); busyFor=null; say('Photo updated'); repaint(); })
+      .catch(function(e){
+        busyFor=null; console.warn('[photo] upload failed', e);
+        say((e && e.message) ? 'Upload failed \u2014 '+e.message : 'Could not upload that photo');
+        repaint();
+      });
+  }
+
+  /* Opens the machine's own file explorer, filtered to the two types the
+     bucket holds. The input is created per click and never enters the DOM,
+     so a re-render cannot strand a half-used one. */
+  function pick(cgId){
+    menuFor = null; repaint();
+    var inp = document.createElement('input');
+    inp.type = 'file';
+    inp.accept = 'image/jpeg,image/png,.jpg,.jpeg,.png';
+    inp.onchange = function(){ var f = inp.files && inp.files[0]; if(f) upload(cgId, f); };
+    inp.click();
+  }
+
+  function remove(cgId){
+    var c = cgById(cgId);
+    menuFor = null;
+    if(!c || c.axisId==null || busyFor){ repaint(); return; }
+    if(!window.confirm('Remove the photo for '+c.name+'?\n\nThis deletes it for everyone, not just this browser.')){ repaint(); return; }
+    busyFor = cgId; repaint();
+    fetch(objUrl(c.axisId), { method:'DELETE', headers: auth() })
+      .then(function(res){
+        if(res.ok || res.status===404) return null;      /* gone is the goal */
+        /* A BARE 400 IS NOT "ALREADY GONE". Storage answers a missing public
+           object with 400 here, which is why the tolerance existed - but it
+           also returns 400 for a bad request, a bad key, and (on some
+           versions) an RLS refusal with the real 403 buried in the body. So
+           read the body the way upload() does and accept only a not-found.
+           Swallowing the rest reported "Photo removed" while the photo was
+           still there, and it reappeared in the same frame as the toast. */
+        return res.text().then(function(t){
+          var code=''; try{ var j=JSON.parse(t); code=String(j.statusCode||j.error||''); }catch(e){}
+          if(/404|NotFound|NoSuchKey/i.test(code)) return null;
+          throw new Error('HTTP '+res.status+' '+String(t).slice(0,140));
+        });
+      })
+      .then(function(){
+        ver[c.axisId]=Date.now(); busyFor=null; say('Photo removed'); repaint();
+      })
+      .catch(function(e){
+        busyFor=null; console.warn('[photo] delete failed', e);
+        /* say WHY, as upload() does - a policy or request failure is worth
+           reading rather than guessing at */
+        say((e && e.message) ? 'Remove failed — '+e.message : 'Could not remove that photo');
+        repaint();
+      });
+  }
+
+  function toggle(cgId){
+    if(busyFor) return;
+    menuFor = (menuFor===cgId) ? null : cgId;
+    repaint();
+  }
+  function close(){ if(menuFor!==null){ menuFor=null; repaint(); } }
+
+  /* The header photo, plus its menu. Rendered from here so the markup and
+     the state that drives it cannot drift apart. */
+  function headerHtml(c){
+    var src = cgPhotoUrl(c,160) || '';
+    var busy = (busyFor===c.id);
+    var open = (menuFor===c.id);
+    var canEdit = able() && c.axisId!=null;
+    /* menuon lifts the wrapper above the header's chips and lines while the
+       menu is open, and only then */
+    var h = '<div class="cgh-photowrap'+(busy?' busy':'')+(open?' menuon':'')+'">';
+    h += '<div class="cgh-photo"' + (canEdit ? ' onclick="CGPHOTO.toggle(\''+c.id+'\')" title="Change photo"' : '') + '>';
+    h += '<img src="'+esc(src)+'" alt="" loading="lazy" onerror="cgPhotoFail(this)">';
+    h += '</div>';
+    if(canEdit) h += '<div class="cgh-photoedit" onclick="CGPHOTO.toggle(\''+c.id+'\')" title="Change photo">'+ic('camera',13)+'</div>';
+    if(open){
+      h += '<div class="cgh-photomenu" onclick="event.stopPropagation()">';
+      /* 'camera', not 'upload': ic() renders an empty <svg> for a key the
+         icon map does not hold, and there is no 'upload' glyph. */
+      h += '<button onclick="CGPHOTO.pick(\''+c.id+'\')">'+ic('camera',14)+'Upload photo</button>';
+      h += '<button class="danger" onclick="CGPHOTO.remove(\''+c.id+'\')">'+ic('trash',14)+'Remove photo</button>';
+      /* No format/size note: the file dialog already filters to JPEG and PNG,
+         and the cap is high enough that nobody is asked to think about it. */
+      h += '</div>';
+    }
+    h += '</div>';
+    return h;
+  }
+
+  /* Click anywhere else and the menu goes away. Captured on mousedown so it
+     closes before a click lands on whatever is underneath. */
+  try{
+    document.addEventListener('mousedown', function(ev){
+      if(menuFor===null) return;
+      var w = ev.target && ev.target.closest ? ev.target.closest('.cgh-photowrap') : null;
+      if(!w) close();
+    }, true);
+  }catch(e){}
+
+  return { stamp:stamp, toggle:toggle, close:close, pick:pick, remove:remove,
+           headerHtml:headerHtml, maxEdge:function(){ return MAX_EDGE; },
+           busy:function(){ return busyFor; } };
+})();
+
 function cgPhotoFail(img){
   img.onerror = null;
   const box = img.parentNode;
@@ -9573,7 +9821,7 @@ function cgHeaderCard(c){
   const about=cgAbout(c);
   return `<div class="ws-card cgh">
     <div class="cgh-main">
-      <div class="cgh-photo"><img src="${cgPhotoUrl(c,160)||''}" alt="" loading="lazy" onerror="cgPhotoFail(this)"></div>
+      ${CGPHOTO.headerHtml(c)}
       <div class="cgh-id">
         <div class="cgh-name">${esc(c.name)}${cgGoesBy(c)}</div>
         <div class="cgh-status ${active?'on':'off'}"><span class="cgh-dot"></span>${active?'Active Caregiver':'Inactive Caregiver'}</div>
