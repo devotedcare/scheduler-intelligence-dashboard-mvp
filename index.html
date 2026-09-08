@@ -10028,18 +10028,37 @@ function openChipPick(id,key){
 }
 /* By INDEX, not by name: several options carry an apostrophe (Parkinson’s,
    Alzheimer’s) which would end the string inside the inline handler. */
-function chipToggle(i,on){
+function chipToggle(i,on,el){
   const p=state.chipPick; if(!p) return;
   const t=CG_CHIP_FIELDS[p.key].opts[i]; if(t===undefined) return;
   const at=p.sel.indexOf(t);
   if(on && at<0) p.sel.push(t); else if(!on && at>=0) p.sel.splice(at,1);
-  renderChipModal();
+  /* TOUCH ONLY THE ROW THAT WAS CLICKED. This used to call
+     renderChipModal(), which rewrites mEl.innerHTML — that destroys the
+     scrolling .mb and builds a new one, so every tick threw the modal back
+     to the top and the scheduler had to scroll down again to reach the next
+     option. Skills & Experience has four groups and twenty-four options, so
+     it happened on nearly every click.
+
+     Nothing else in this modal reads the selection: the checkbox is
+     visually hidden and the browser has already flipped its own checked
+     state, so the ONE thing the re-render changed was this label's `on`
+     class. Setting it directly is the whole update — no rewrite, no lost
+     scroll position, and focus stays on the control that was just used, so
+     the keyboard path keeps working too. */
+  const lab = (el && el.closest) ? el.closest('.tp-opt') : null;
+  if(lab){ lab.classList.toggle('on', !!on); return; }
+  /* No element to work from — nothing calls it that way today, but a
+     re-render must never be the thing that loses the position again. */
+  renderChipModal(true);
 }
 function chipNote(v){ if(state.chipPick) state.chipPick.note=v; }
 function chipCancel(){ state.chipPick=null; closeModal(); }
-function renderChipModal(){
+function renderChipModal(keepScroll){
   const p=state.chipPick; if(!p) return;
   const f=CG_CHIP_FIELDS[p.key], c=cgById(p.id);
+  const prevBody=keepScroll?mEl.querySelector('.mb'):null;
+  const sc=prevBody?prevBody.scrollTop:0;
   mEl.innerHTML=`<div class="mh"><span class="mt">${f.label} — ${esc(c?c.name:'')}</span>
       <button class="mc" onclick="chipCancel()">×</button></div>
     <div class="mb">
@@ -10047,17 +10066,18 @@ function renderChipModal(){
         ? f.groups.map(function(g){
             return `<div class="tp-grp-h">${g.label}</div><div class="tp-list">${g.opts.map(function(t){
               const i=f.opts.indexOf(t), on=p.sel.indexOf(t)>=0;
-              return `<label class="tp-opt${on?' on':''}"><input type="checkbox" ${on?'checked':''} onchange="chipToggle(${i},this.checked)"><span>${t}</span></label>`;
+              return `<label class="tp-opt${on?' on':''}"><input type="checkbox" ${on?'checked':''} onchange="chipToggle(${i},this.checked,this)"><span>${t}</span></label>`;
             }).join('')}</div>`;
           }).join('')
         : `<div class="tp-list">${f.opts.map(function(t,i){ const on=p.sel.indexOf(t)>=0;
-            return `<label class="tp-opt${on?' on':''}"><input type="checkbox" ${on?'checked':''} onchange="chipToggle(${i},this.checked)"><span>${t}</span></label>`;
+            return `<label class="tp-opt${on?' on':''}"><input type="checkbox" ${on?'checked':''} onchange="chipToggle(${i},this.checked,this)"><span>${t}</span></label>`;
           }).join('')}</div>`}
       ${f.note?`<div class="pf-f" style="margin-top:12px"><label class="el">${f.note}</label>
         <input class="ein" maxlength="120" placeholder="${esc(f.notePh||'')}" value="${esc(p.note||'')}" oninput="chipNote(this.value)"></div>`:''}
       <div class="upd-acts"><button class="btn" onclick="chipCancel()">Cancel</button>
         <button class="btn pri" onclick="chipSave()">${ic('check',13)} Save</button></div>
     </div>`;
+  if(keepScroll){ const body=mEl.querySelector('.mb'); if(body) body.scrollTop=sc; }
 }
 function chipSave(){
   const p=state.chipPick; if(!p) return;
