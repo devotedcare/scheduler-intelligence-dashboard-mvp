@@ -7710,14 +7710,26 @@ function cgPhotoUrl(c, px){
    on some platforms and a renamed file would otherwise be stored with a
    content-type that does not match its bytes.
 
-   WHAT IS STORED. Exactly what the user chose, byte for byte, unless it is
-   larger than the biggest photo already here - 1433px, caregiver 38 at
-   1098x1433, measured across all 177 on 2026-09-07. Over that it is scaled
-   down to fit, keeping its aspect ratio and its format. Under it nothing is
-   re-encoded, so no quality is thrown away to a conversion nobody asked
-   for. */
+   WHAT IS STORED. A JPEG, capped at 512px on its longest edge.
+
+   512 BECAUSE NOTHING DISPLAYS ABOVE 160px. The profile header is 160, the
+   list row is 44. 512 is more than three times the biggest slot, which
+   leaves room for a retina screen or a larger profile view later without
+   storing pixels no screen will ever show.
+
+   It was 1433 - the largest photo then in the bucket - on the reasoning
+   that the desk's own uploads set the standard. That was wrong once the
+   image-transformation endpoint had to go: with no server-side resize, the
+   list downloads ORIGINALS, and originals at 1433px meant a median avatar
+   of 64KB and a worst case of 432KB, about 1.6MB for twenty-five visible
+   rows. Re-encoding the 104 photos over 512 took the bucket from 11.3MB to
+   3.7MB on 2026-09-08; the 75 already under it were left untouched.
+
+   Keep this number and the stored photos in step. Raising it without
+   re-encoding what is already there just means new uploads are the biggest
+   objects in the bucket. */
 var CGPHOTO = (function(){
-  var MAX_EDGE = 1433;
+  var MAX_EDGE = 512;
   var TYPES = { 'image/jpeg':1, 'image/png':1 };
   var ver = {}, menuFor = null, busyFor = null;
 
@@ -7737,24 +7749,45 @@ var CGPHOTO = (function(){
   /* Only for a caregiver this session actually changed - see cgPhotoUrl. */
   function stamp(axisId){ return (axisId==null) ? 0 : (ver[axisId]||0); }
 
-  /* SCALE ONLY WHEN WE MUST. At or under the cap the original File is
-     returned untouched, so the bytes stored are the bytes chosen. */
+  /* WHAT GETS STORED: always a JPEG, at the original pixel dimensions unless
+     they exceed MAX_EDGE.
+
+     A JPEG that already fits is passed through byte for byte - no re-encode,
+     no quality lost to a conversion nobody asked for.
+
+     A PNG is always converted, even when it fits. That is not fussiness: the
+     bucket's 33 oversized objects were ALL PNGs and ALL of them were over
+     500KB, averaging 1.74MB against 53KB for the 144 JPEGs, and re-encoding
+     them at identical dimensions took 57.4MB down to 3.5MB. PNG is lossless
+     and the wrong container for a photograph. The schedulers upload straight
+     from a phone or a download - the audit trail on the old app shows
+     Angelica uploading a 2.28MB PNG for caregiver 1264 on 2026-09-03 - so
+     without this the bucket refills at ~2MB a time and the storage and
+     image-transformation costs come back one upload at a time.
+
+     The pixels are untouched either way; only the container changes. */
   function fit(file){
     return new Promise(function(done, fail){
       var u = URL.createObjectURL(file), img = new Image();
       img.onload = function(){
         var w=img.naturalWidth, h=img.naturalHeight, longest=Math.max(w,h);
         if(!longest){ URL.revokeObjectURL(u); fail(new Error('unreadable image')); return; }
-        if(longest<=MAX_EDGE){ URL.revokeObjectURL(u); done(file); return; }
-        var k=MAX_EDGE/longest, cw=Math.max(1,Math.round(w*k)), ch=Math.max(1,Math.round(h*k));
+        var over = longest > MAX_EDGE;
+        if(!over && file.type==='image/jpeg'){ URL.revokeObjectURL(u); done(file); return; }
+        var k = over ? MAX_EDGE/longest : 1;
+        var cw=Math.max(1,Math.round(w*k)), ch=Math.max(1,Math.round(h*k));
         var cv=document.createElement('canvas'); cv.width=cw; cv.height=ch;
-        try{ cv.getContext('2d').drawImage(img,0,0,cw,ch); }
-        catch(e){ URL.revokeObjectURL(u); fail(e); return; }
-        /* same format in, same format out - a PNG stays a PNG */
+        try{
+          var ctx=cv.getContext('2d');
+          /* a PNG may carry transparency and JPEG cannot. Fill white first,
+             or every transparent pixel encodes BLACK. */
+          ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,cw,ch);
+          ctx.drawImage(img,0,0,cw,ch);
+        }catch(e){ URL.revokeObjectURL(u); fail(e); return; }
         cv.toBlob(function(b){
           URL.revokeObjectURL(u);
-          if(b) done(b); else fail(new Error('could not resize that image'));
-        }, file.type, file.type==='image/jpeg' ? 0.9 : undefined);
+          if(b) done(b); else fail(new Error('could not process that image'));
+        }, 'image/jpeg', 0.88);
       };
       img.onerror = function(){ URL.revokeObjectURL(u); fail(new Error('that file is not a readable image')); };
       img.src = u;

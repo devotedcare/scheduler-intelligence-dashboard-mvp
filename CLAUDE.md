@@ -1678,17 +1678,49 @@ was verified byte-for-byte over the public URL afterwards. **This app depends
 on nothing outside its own Supabase** — that project and its keys can be
 deleted.
 
-### The list asks for a resized rendition, not the original
+### NEVER ask Supabase to transform these images
 
-`cgPhotoUrl(c, px)` returns the plain object URL with no `px`, and a Supabase
-**image-transformation** URL with one. The row asks for 96 (twice its 44px
-slot).
+`cgPhotoUrl(c, px)` returns the **plain object URL**, always. It still takes
+`px` because every call site passes it and it says how big the slot is, but
+the browser does the scaling — `object-fit:cover` on `.cgh-photo img` and on
+the list row already handles it.
 
-That is not premature tuning. The 177 split in two: 144 JPEGs averaging well
-under 100KB, and **33 PNGs over 1MB** — about 55MB of the 64.9MB total. The
-largest, caregiver 38, is **2268KB as stored and 14KB at 96px**. Nothing extra
-is stored and the originals are untouched; it is only which URL the browser
-asks for.
+**Claude: do not "optimise" this back to `/storage/v1/render/image/...`.**
+It looks like the obvious win and it is a billed one. Supabase counts the
+number of **distinct origin images transformed** in a billing period — not
+the number of transformations — and the Pro plan includes 100. There are 177
+photos, so a single paint of the caregiver list puts the account over on its
+own. That is exactly what happened: **167 against an allowance of 100 by
+2026-09-06**, discovered when the desk hit the overage warning.
+
+It used to do exactly that, for a reason that was true when it was written:
+a third of the bucket was PNGs over 1MB being shipped to a 44px slot.
+
+### The size problem was the FORMAT, and it is fixed
+
+Measured 2026-09-07: **every object over 500KB was a PNG, and every PNG was
+over 500KB.** 33 files, 57.4MB of a 64.9MB bucket, against 144 JPEGs
+averaging 53KB. PNG is lossless and the wrong container for a photograph.
+
+Those 33 were re-encoded to JPEG at their **exact pixel dimensions** — no
+resize, nothing cropped, the conversion asserted the dimensions were
+unchanged on every file and would have aborted otherwise:
+
+| | |
+|---|---|
+| bucket | 64.9MB → **11.0MB** |
+| the 33 PNGs | 57.4MB → **3.5MB** (−94%) |
+| largest object | 2268KB → **432KB** |
+| objects over 500KB | 33 → **0** |
+| transformations needed | **none** |
+
+So the resize buys nothing now: the stored bytes are already smaller than
+most of the transformed renditions were, and they cache properly
+(`public, max-age=3600`). The originals are backed up outside the repo.
+
+> The overage is a **billing-period total**. The fix stops it climbing; it
+> does not refund what was already spent, and the number will not drop until
+> the period resets.
 
 ### A missing photo is not an error
 
@@ -1703,6 +1735,93 @@ fallback. Supabase answers a missing public object with **400, not 404**; the
 > auth-gated, so each miss cost a gated round trip. Ours are public, a miss is
 > a plain 400, and `loading="lazy"` means only visible rows ask at all — so
 > the manifest would be machinery with nothing to buy.
+
+## Uploading and removing a photo
+
+`CGPHOTO` (beside `cgPhotoFail` in `index.html`) owns this. Clicking the
+profile photo — or the small camera badge on it — opens a menu with **Upload
+photo** and **Remove photo**. Upload opens the machine’s own file explorer,
+filtered to JPEG and PNG.
+
+**Claude: the UI here is yours to restyle. These seven rules are not.**
+Each one is either a billing decision, a data-integrity rule, or something
+that already went wrong once.
+
+1. **The object key is `c.axisId`, bare, with no file extension.** Not
+   `c.id` — that is `a312`, and the bucket is keyed `312`. All 177 existing
+   objects follow this and `cgPhotoUrl()` reads it, so an upload simply
+   overwrites the key. Getting this wrong writes a second orphan object that
+   nothing ever displays.
+2. **Never the transform endpoint.** See above — it is metered per origin
+   image and there are more photos than the plan allows.
+3. **Check the MIME type again after the file dialog.** `accept=` is
+   advisory on some platforms, so a renamed file would otherwise be stored
+   with a content-type that does not match its bytes.
+4. **Always store a JPEG, capped at `MAX_EDGE` (512) on the longest edge.**
+   Nothing in the app displays above **160px** — the profile header is 160,
+   the list row 44 — so 512 is already three times the largest slot.
+
+   It was 1433 (the biggest photo then in the bucket) until 2026-09-08. That
+   stopped making sense the moment the transform endpoint had to go: with no
+   server-side resize the list downloads **originals**, and at 1433px that
+   meant a median avatar of 64KB, a worst case of 432KB, and about **1.6MB
+   for twenty-five visible rows**. Re-encoding the 104 photos over 512 took
+   the bucket **11.3MB → 3.7MB**; the 75 already under it were left alone.
+
+   **Keep this number and the stored photos in step.** Raising it without
+   re-encoding what is already there just makes every new upload the largest
+   object in the bucket.
+   - A **JPEG that already fits passes through byte for byte** — no
+     re-encode, no quality lost to a conversion nobody asked for.
+   - A **PNG is always converted**, even when it fits. Every one of the 33
+     oversized objects was a PNG and every PNG was oversized: 1.74MB
+     average against 53KB for the 144 JPEGs. The schedulers upload straight
+     from a phone or a download — the old app's audit log has Angelica
+     uploading a **2.28MB PNG** for caregiver 1264 on 2026-09-03 — so
+     without this the bucket refills at roughly 2MB a time and the storage
+     and transformation costs come back one upload at a time.
+   - Fill the canvas **white before drawing**. PNG can be transparent and
+     JPEG cannot, and every transparent pixel otherwise encodes black.
+
+   The pixels are untouched either way; only the container changes.
+5. **The cache-buster is only for the session that made the change.**
+   `CGPHOTO.stamp()` returns 0 for everyone else, so the normal case still
+   gets a plain, cacheable URL. Without it an upload appears to do nothing
+   until `max-age` expires; with it on every URL, nothing would ever cache.
+6. **Nothing here touches a CLOUD slice.** The filename *is* the id, so
+   there is no database row and no `caregiver_profile` column. That is why
+   none of the overlay hazards in *Don’t break these* apply to photos —
+   keep it that way, and keep the per-caregiver state (`ver`, `menuFor`,
+   `busyFor`) module-level rather than in `state`.
+7. **Only a genuine not-found counts as “already gone” on delete.** Storage
+   answers a missing public object with **400**, so 400 was originally
+   treated as success — but it also returns 400 for a bad request and, on
+   some versions, an RLS refusal with the real 403 buried in the body. That
+   reported “Photo removed” while the photo reappeared in the same frame.
+   Read the body and accept only a not-found payload.
+
+### Writes are open to `anon`
+
+`storage.objects` carries INSERT / UPDATE / DELETE / SELECT policies for
+`anon`, scoped to `bucket_id = 'caregiver-photos'` and nothing else. Before
+2026-09-07 it had no write policies at all and the browser could not upload.
+
+This was **Mitch’s explicit call**, for consistency with how the rest of the
+app already writes (no login, `anon` can write `scheduler_state`). It does
+mean anyone with the site URL can replace or delete a caregiver photo, which
+was not true before. Do not re-litigate it; do flag anything that widens it
+further. It is listed in *Known and accepted*.
+
+### A trap that cost a round of UI bugs
+
+**This app has no `--panel` and no `--bad-tx` CSS variable.** The white is
+`--surface` and the danger red is `--crit-tx`. An invalid custom property
+makes the whole declaration compute to `unset`, so the first version of the
+photo menu had an icon that inherited the dark body colour and vanished into
+its own dark circle, and a menu with no background at all that the card
+showed straight through. Check a variable exists before using it — the
+palette is defined once, near the top of the `<style>` block.
+
 
 ---
 
@@ -2012,8 +2131,16 @@ in context is fine; treating them as bugs to fix is not.**
   2026-08-21 while the app is in development and the URL is known only to the
   team. It is written up in `README.md` under *Security posture*, with the
   trigger for revisiting it and the ten-minute fix.
+- **Anyone with the link can replace or delete a caregiver photo.**
+  `storage.objects` carries `anon` write policies scoped to the
+  `caregiver-photos` bucket, added 2026-09-07 so the desk could upload from
+  the profile page. Mitch chose this over a server-side route for
+  consistency with how the rest of the app writes, and because a Netlify
+  function would have put every photo change behind a deploy. Scoped to that
+  one bucket; nothing else in storage is open. See *Uploading and removing a
+  photo*.
 
-Neither is an oversight, and neither needs raising again unless the situation
+None of these is an oversight, and none needs raising again unless the situation
 changes — the app starts showing real AxisCare data, the URL gets shared more
 widely, or it goes into daily scheduling use. If one of those happens, mention
 it once, plainly, and point at the README. It is **Carlo's** call and Carlo's
