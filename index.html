@@ -2436,6 +2436,19 @@ const CITY = {
   'Thousand Oaks':[10,1],'Westlake Village':[12,1],'Moorpark':[9,4],'Simi Valley':[13,3]
 };
 function miles(a,b){ const A=CITY[a],B=CITY[b]; if(!A||!B) return 30; return Math.round(Math.hypot(A[0]-B[0],A[1]-B[1])*1.9); }
+/* THE SAME DISTANCE, BUT HONEST WHEN THE CITY IS NOT ON THE MAP.
+
+   miles() answers 30 for an unknown city, which the ranker then scored as
+   max(0, 20 - 30*0.8) = ZERO - a worse verdict than the furthest real
+   distance in the county - and the row printed "30 mi from client" as
+   though somebody had measured it. It hits 8 of the 104 schedulable
+   caregivers, 7 of whom have Open availability typed, so it is not a
+   latent edge case.
+
+   miles() itself is left alone: a dozen other call sites treat its answer
+   as a number and would break on null. Anything that SCORES or DISPLAYS a
+   distance should use this one and say "not known" when it gets null. */
+function milesOrNull(a,b){ const A=CITY[a],B=CITY[b]; if(!A||!B) return null; return Math.round(Math.hypot(A[0]-B[0],A[1]-B[1])*1.9); }
 
 const state = {
   onShift:'Mae',
@@ -2882,9 +2895,15 @@ function rankCaregivers(arg){
     if(ctx.city && cg.prefCities.includes(ctx.city)){ score+=8; reasons.push({t:'Preferred city', k:'plus'}); }
     if(ctx.clientId && cg.priorClients.includes(ctx.clientId)){ score+=13; reasons.push({t:'Worked with client', k:'plus'}); }
 
-    score += (cg.reliability/100)*15;
-    if(cg.reliability>=95) reasons.push({t:`${cg.reliability}% reliable`, k:'plus'});
-    else if(cg.reliability<85) reasons.push({t:`${cg.reliability}% reliable`, k:'minus'});
+    /* hasVal first. reliability is null on every AxisCare caregiver, and
+       `null < 85` is TRUE - the documented trap - so this printed a red
+       "null% reliable" chip on real people and docked them nothing while
+       looking like a performance concern. */
+    if(hasVal(cg.reliability)){
+      score += (cg.reliability/100)*15;
+      if(cg.reliability>=95) reasons.push({t:`${cg.reliability}% reliable`, k:'plus'});
+      else if(cg.reliability<85) reasons.push({t:`${cg.reliability}% reliable`, k:'minus'});
+    }
     const _av=availVerifyStatus(cg);
     if(_av.key==='current'){ score+=6; reasons.push({t:'Availability current', k:'plus'}); }
     else if(_av.key==='duesoon'){ score-=2; reasons.push({t:'Verification due soon', k:'minus'}); }
@@ -6156,10 +6175,19 @@ var COVHIST = (function(){
    The restrictions[] read stays underneath for the seed clients, which have
    no axisId and so nothing in Concierge to look up.
 
-   Driving is NOT wired. `client_match_prefs.driving_required` exists and 10
-   clients set it, but it stays a ranking signal until the desk asks for it. */
+   Driving IS wired, since 2026-09-08, and this paragraph used to say the
+   opposite twenty lines above the code that reads it. It comes from
+   `client_match_prefs.driving_required` through CLMATCH — 10 clients
+   require a driver, 6 explicitly do not. `cl.drivingRequired` stays
+   underneath for seed clients and was NEVER assigned for a real one, which
+   is why the ranker's driving branch could not previously fire at all.
+
+   It is a BONUS ONLY. `cg.driver` is false whenever the DL/OC tags are
+   merely absent, so a penalty would dock people for a question nobody
+   asked — see the ranker for the full reason. */
 function covClientPrefs(cl){
-  if(!cl) return {genderPref:null, genderHard:false, genderKnown:true, drivingRequired:null, preferred:[], doNotSend:[]};
+  if(!cl) return {genderPref:null, genderHard:false, genderKnown:true, drivingRequired:null,
+                  preferred:[], onList:[], matchOrder:{}, matchKnown:true, doNotSend:[]};
   var restr=cl.restrictions||[];
   var hard=reqGender(restr);
   var soft=restr.indexOf('Female caregiver preferred')>=0 ? 'F'
@@ -6170,10 +6198,50 @@ function covClientPrefs(cl){
      answered; a real one is answered only once the table is in. */
   var known = (cl.axisId==null) ||
               (typeof CLMATCH!=='undefined' && CLMATCH.status()==='ready');
-  var cm=null;
+  var cm=null, cmDrive=null, onList=[], matchOrder={};
   if(known && cl.axisId!=null && typeof CLMATCH!=='undefined'){
     var p=CLMATCH.prefs(cl.axisId);
     if(p && (p.gender_pref==='F' || p.gender_pref==='M')) cm=p.gender_pref;
+    /* WIRED 2026-09-08. cl.drivingRequired is a property nothing in this
+       file has ever assigned, so the driving branch in the ranker could
+       never fire - while Concierge records the answer for 16 clients and
+       10 of them say yes. covMatchNote() was telling the desk "No driving
+       requirement is recorded either" on two clients where it plainly is. */
+    if(p && (p.driving_required===true || p.driving_required===false)) cmDrive=p.driving_required;
+
+    /* THE CAREGIVERS THIS CLIENT ASKED FOR, from Concierge.
+       Until now CLMATCH.matches() had exactly ONE reader in the whole file
+       - the read-only card on the client schedule page - so a caregiver
+       the client had named got no ranking weight at all. Measured: 53
+       rows, every one resolving to an Active caregiver, and only 6 of them
+       coincide with the AxisCare preferredCaregiver the ranker was reading
+       instead. Ten active clients have Concierge matches and no AxisCare
+       preferred caregiver, so for them the ranker believed nobody was
+       preferred.
+
+       CLAUDE: match_state IS NOT A STRENGTH OF PREFERENCE, and an earlier
+       version of this block scored it as one - 'confirmed' +60 against
+       'auto' +22, labelled "Client's chosen caregiver" and "Suggested for
+       this client". Both labels were false. matching-sync.js says it
+       plainly: CONCIERGE OWNS WHICH NAMES ARE ON A CLIENT'S LIST, and this
+       app owns only WHICH CAREGIVER A NAME RESOLVES TO. So 'confirmed'
+       means a person fixed a NAME-TO-RECORD resolution the matcher could
+       not make confidently - typically a nickname - and 'auto' means the
+       name matched a caregiver first time. Client 217 lists five names,
+       all equally asked for; exactly one is 'confirmed', and only because
+       Concierge spells her differently. Ranking that one 38 points above
+       the other four would have been an artefact of spelling.
+
+       So EVERY resolved name carries the same weight, and sort_order -
+       Concierge's own ordering of the list - separates them. 'unmatched'
+       rows carry caregiver_id null and are skipped: we do not know who
+       they are, and guessing is what the confirmed guard exists to stop. */
+    CLMATCH.matches(cl.axisId).forEach(function(m, i){
+      if(m.caregiver_id==null) return;      /* a name Concierge could not resolve */
+      var mid='a'+m.caregiver_id;
+      matchOrder[mid]=hasVal(m.sort_order)?m.sort_order:i;
+      onList.push(mid);
+    });
   }
 
   return {
@@ -6182,12 +6250,131 @@ function covClientPrefs(cl){
        restriction. 'preferred' on a seed client stays a soft nudge. */
     genderHard: !!(cm || hard),
     genderKnown: known,
-    drivingRequired: driving,
+    /* Concierge first; cl.drivingRequired stays underneath for a seed
+       client, which has no Concierge record to look up. */
+    drivingRequired: cmDrive!==null ? cmDrive : driving,
     preferred: (cl.preferred||[]).slice(),
+    onList: onList,
+    matchOrder: matchOrder,
+    /* Whether Concierge was READABLE, so a caller can tell "this client has
+       nobody on their list" from "we could not ask". Same contract, and the
+       same reason, as genderKnown above. */
+    matchKnown: known,
     doNotSend: state.caregivers.filter(function(cg){
       /* the same one list, read from the client side */
       return !!cgBlockedFrom(cg, cl.id); }).map(function(cg){ return cg.id; })
   };
+}
+
+/* WHAT THE CAREGIVER ASKED FOR, in one place.
+
+   Until now the ranker read the client's side only. The desk collects a
+   great deal from the caregiver - a maximum travel distance, the cities
+   they want to work, whether they are comfortable with female or male
+   clients, the hours they want - shows it on the profile, and chases it on
+   Needs Update. None of it reached the order. Measured on the live roster:
+   prefCities on 111, maxMiles on 115 (real values, not the deriveOps
+   default - only 25 of 115 match that formula, which is chance), and
+   clientGender resolvable on most of the roster because prefVal() falls
+   back to the CFC/CMC tags.
+
+   THE MAGNITUDES ARE DELIBERATELY SMALL. Everything here totals at most
+   +26, and distance adds at most 20 more, so 46 is the strongest that the
+   caregiver's side and the geography together can ever push. Every
+   client-side term is worth more than that on its own (see the scoring
+   block in coverageMatches), which is what makes "the client's wishes
+   first, then the caregiver's" arithmetic rather than a hope.
+
+   NONE OF IT EXCLUDES ANYBODY. maxMiles is a penalty, not a gate: the
+   hard gates already decided who can genuinely be called, and a caregiver
+   who said 15 miles may still say yes to 18 for a client who asked for
+   them. Carlo's call, 2026-09-08. */
+function cgWants(cg, cl, dist, start, end){
+  var out={score:0, why:[]};
+  if(!cg) return out;
+  var ops=cg.ops||{};
+
+  /* a city they named themselves */
+  if(cl && cl.city && cgWantsCity(cg, cl.city)){
+    out.score+=12; out.why.push({t:'Wants to work in '+cl.city, k:'plus'});
+  }
+  /* Further than they told us they would travel. Only when the distance is
+     actually known - an unmapped city must not read as "too far".
+
+     CITY is a synthetic proximity grid, not road miles: its widest span,
+     Port Hueneme to Simi Valley, computes 25 where the real drive is
+     roughly double. So this UNDER-fires, which is the safe direction for a
+     penalty - it will miss some genuinely-too-far shifts and will not
+     invent one. The number in the chip is the caregiver's own stated
+     limit, which is a real figure; the comparison against it is not
+     precise, and tightening CITY is what would fix that. */
+  if(dist!=null && hasVal(ops.maxMiles) && dist>ops.maxMiles){
+    out.score-=25; out.why.push({t:'Past their '+ops.maxMiles+' mi limit', k:'minus'});
+  }
+  /* The client's gender against the caregiver's own stated comfort. Silent
+     when either side is unrecorded: "nobody asked" is not a preference.
+
+     DELIBERATELY ASYMMETRIC. prefVal() falls back to the AxisCare CFC/CMC
+     tags, and reads a present CFC with an absent CMC as "Female clients" -
+     but nobody ever ticked CMC, so that absence is silence, not a refusal.
+     A tag may therefore earn the BONUS and never the penalty; only an
+     answer a scheduler actually recorded in Work Preferences can hold
+     somebody back. Two active caregivers (AxisCare 248 and 321) are in
+     exactly that state. */
+  var want=prefVal(cg,'clientGender');
+  var wantTyped=(cg.ops && cg.ops.prefs) ? cg.ops.prefs.clientGender : null;
+  if(want && want!=='Either' && cl && cl.gender){
+    var wantsF = (want==='Female clients');
+    var clientF = String(cl.gender).trim().toUpperCase().charAt(0)==='F';
+    if(wantsF===clientF) out.score+=8;
+    else if(wantTyped){ out.score-=15; out.why.push({t:'Prefers '+String(want).toLowerCase(), k:'minus'}); }
+  }
+  /* the hours they said they want */
+  if(cgWantsHours(ops.prefTimes, start, end)){
+    out.score+=6; out.why.push({t:'Hours they prefer', k:'plus'});
+  }
+  return out;
+}
+function cgWantsCity(cg, city){
+  /* prefCitiesRecorded, or this reads the caregiver's own address back to
+     them as a preference - see the mapper. */
+  if(!cg.prefCitiesRecorded) return false;
+  var list=cg.prefCities||[];
+  if(!list.length || !city) return false;
+  /* THROUGH THE SAME NORMALISER THE CLIENT'S CITY WENT THROUGH. These come
+     from caregiver_profile.pref_cities, typed by a person and never cleaned,
+     while cl.city has already been through AxisRoster.normCity - so a raw
+     compare made "Westlake" and "Westlake Village" different places and the
+     preference matched nobody. Falls back to a plain trim if the roster
+     module is not loaded, which is what every other caller here does. */
+  var norm=(typeof AxisRoster!=='undefined' && AxisRoster.normCity)
+    ? AxisRoster.normCity : function(v){ return String(v||'').trim()||null; };
+  var t=String(norm(city)||'').trim().toLowerCase();
+  if(!t) return false;
+  return list.some(function(x){ return String(norm(x)||'').trim().toLowerCase()===t; });
+}
+/* PREF_TIMES as hour bands. Overnight appears twice because it wraps. */
+var CG_BANDS=[['Overnight',0,6],['Morning',6,12],['Afternoon',12,17],['Evening',17,22],['Overnight',22,24]];
+/* EVERY band the shift touches must be one they asked for. A caregiver who
+   picked Morning has not volunteered for an 8a-8p shift just because it
+   starts in the morning, and reading it that way would put them top of a
+   list for twelve hours they never offered. */
+function cgWantsHours(prefTimes, start, end){
+  var want=prefTimes||[];
+  /* BOTH ends must be real numbers. A mirrored open shift with no AxisCare
+     scheduledEndDate carries an Invalid Date, so q.end arrives NaN - and
+     treating that as a one-hour shift would award +6 and a "Hours they
+     prefer" chip for a shift whose length nobody knows. Silence is the
+     honest answer, and it is what every other term here does. */
+  if(!want.length || !hasVal(start) || !hasVal(end)) return false;
+  var s=start, e=end;
+  if(e<=s) e+=24;                                  /* an overnight runs past midnight */
+  var touched={};
+  var mark=function(a,b){ CG_BANDS.forEach(function(x){ if(a<x[2] && b>x[1]) touched[x[0]]=1; }); };
+  mark(s, Math.min(e,24));
+  if(e>24) mark(0, e-24);
+  var keys=Object.keys(touched);
+  return keys.length>0 && keys.every(function(k){ return want.indexOf(k)>=0; });
 }
 
 /* Has this caregiver worked this client before?  AxisCare visit history
@@ -6306,53 +6493,130 @@ function coverageMatches(q){
 
     var worked=covWorked(cg, cl, ds);
     var preferred=prefs.preferred.indexOf(cg.id)>=0;
-    var dist=(cl && cl.city && cg.base) ? miles(cg.base, cl.city) : null;
+    var onList=prefs.onList.indexOf(cg.id)>=0;
+    /* milesOrNull, not miles: an unmapped city used to score zero AND print
+       "30 mi from client" as though it had been measured. */
+    var dist=(cl && cl.city && cg.base) ? milesOrNull(cg.base, cl.city) : null;
     var hrs=covWeekHours(cg, ds);
-    var genderOk=prefs.genderPref ? (cg.gender===prefs.genderPref) : null;
-    var driveOk=prefs.drivingRequired===true ? !!cg.driver : null;
+    /* DRIVING IS A BONUS AND NEVER A PENALTY. cg.driver is false whenever
+       the DL/OC tags are simply absent - 18 of the 104 schedulable
+       caregivers, 11 of whom caregiver_profile records as owning a vehicle
+       - so false means "nobody asked" as often as it means "no". The file
+       states the rule itself at CG_REQUIRED: a tag is a Yes; silence is
+       silence.
 
+       An earlier version tried to keep a -20 by requiring the explicit
+       ops.prefs.driver === false. That guard does not hold: BOTH work-
+       preference editors seed their driver control from c.driver - the tag
+       guess - and write it back on every save, so a scheduler who edits
+       only the travel miles launders "never asked" into a recorded No, and
+       the caregiver is then docked 20 points and shown a red chip on the
+       strength of an untouched checkbox.
+
+       So there is no penalty. A driver gains +10 for the 10 clients whose
+       Concierge record needs one; nobody is docked for a field the desk has
+       not filled in. If a real "does not drive" answer ever gets its own
+       field - one no editor can write by omission - a penalty can come
+       back with it. */
+    var driveOk = (prefs.drivingRequired===true && cg.driver===true) ? true : null;
+
+    /* THE ORDER OF THIS LIST, 2026-09-08. Rewritten with Carlo so that the
+       client's wishes decide the top of the list, the caregiver's own
+       preferences decide within that, and geography breaks what is left.
+
+       The magnitudes are not decorative. Everything on the caregiver's side
+       tops out at +26 and distance adds at most +20, so 46 is the most that
+       the caregiver's side and the geography can ever contribute. The three
+       terms that say THE CLIENT ASKED FOR THIS PERSON - on their Concierge
+       list (+60), AxisCare preferred (+50), worked here recently (+50 and
+       up) - are each worth more than 46 on their own, so none of them can
+       be overturned by preferences and geography. That is what makes "the
+       client first" true in the arithmetic instead of true on average.
+       Change one of those three and check it still holds.
+
+       The driving term (+10) is deliberately NOT in that group: it is a
+       requirement of the placement, not a request for a person, and it is
+       meant to be weighed against the rest rather than to decide the list.
+
+       THE GUARANTEE IS ONE-SIDED, and it is worth being exact about which
+       side. A client-side term cannot be out-scored by another row's
+       preferences and geography, because those cap at +46. It does NOT say
+       a client-side row can never fall below a plain one: the caregiver
+       side also carries -25 (past their miles) and -15 (their own client
+       preference), so it really spans -40..+26, and a +60 row wearing both
+       penalties nets +20 against a plain row's possible +46. Measured over
+       275 live rows in 34 lists there are no such inversions and the
+       tightest margin is 13.1 points, so this is a wording precision, not a
+       live defect — but do not read the invariant as more than it is.
+
+       WHAT WAS REMOVED, and why none of it changes an order:
+         +25 for availability - availability is a hard gate, so every
+              surviving row scored it and nobody moved.
+         +12 for matching the gender preference - likewise a hard gate.
+              Its -25 branch was unreachable for the same reason.
+         +/-500 for a previous contact - renderCoverageCommand() filters
+              everybody in the contact log out of the queue before this
+              order is ever drawn, so it could not reach the screen. If
+              that filter ever goes, this needs to come back with it. */
     var score=0, why=[];
-    if(worked){ score+=40; why.push({t:'Previous caregiver', k:'plus'}); }
-    if(preferred){ score+=35; why.push({t:'Preferred caregiver', k:'plus'}); }
-    /* Availability is a GATE now, not a tiebreak: everybody still here
-       covers the whole shift, so this is the same constant on every row and
-       changes no order. The 'partial' and 'unknown' branches that used to
-       sit here could no longer fire — they described people the list no
-       longer contains. */
-    score+=25;
-    if(dist!=null) score+=Math.max(0, 20-dist*0.8);
-    if(genderOk===true){ score+=12; why.push({t:'Matches client preference', k:'plus'}); }
-    else if(genderOk===false) score-=25;
-    if(driveOk===true){ score+=10; why.push({t:'Driver', k:'plus'}); }
-    else if(driveOk===false) score-=20;
-    if(hrs!=null){
-      if(hrs>=40){ score-=25; why.push({t:'At 40 hrs — overtime', k:'minus'}); }
-      else if(hrs>=32) score-=8;
+
+    /* ---------- WHAT THE CLIENT WANTS ---------- */
+    /* Strongest signal only: these are the same statement from different
+       sources, and summing them would just inflate whoever appears twice.
+       Concierge outranks AxisCare because Concierge is the list the desk
+       actually edits - on two clients the two disagree. */
+    if(onList){ score+=60; why.push({t:'On this client\u2019s list', k:'plus'}); }
+    else if(preferred){ score+=50; why.push({t:'Preferred caregiver', k:'plus'}); }
+    /* Scaled by how much recent history there is. It was a flat +40, so one
+       visit with this client counted the same as twenty-five.
+       COVHIST's "worked before" window is THIRTY DAYS (see its header), not
+       the caregiver's whole history with this client, so the label has to
+       say so: somebody who covered this client for a year but not in the
+       last month scores nothing here, and claiming otherwise on the row
+       would be inventing a history we did not read. */
+    if(worked){
+      score+=Math.min(70, 50+(worked-1)*1.5);
+      why.push({t: worked>1 ? ('Worked '+worked+' visits here in 30 days')
+                            : 'Worked with this client in 30 days', k:'plus'});
     }
-    if(q.shiftId){
-      var lc=lastContact(q.shiftId, cg.id);
-      if(lc){
-        if(lc.result==='declined'||lc.result==='no-answer') score-=500;
-        if(lc.result==='accepted') score+=500;
-      }
+    if(driveOk===true){ score+=10; why.push({t:'Drives \u2014 this client needs it', k:'plus'}); }
+
+    /* ---------- WHAT THE CAREGIVER WANTS ---------- */
+    var wants=cgWants(cg, cl, dist, q.start, q.end);
+    score+=wants.score;
+    wants.why.forEach(function(w){ why.push(w); });
+
+    /* ---------- LOGISTICS ---------- */
+    if(dist!=null) score+=Math.max(0, 20-dist*0.8);
+    if(hrs!=null){
+      if(hrs>=40){ score-=25; why.push({t:'At 40 hrs \u2014 overtime', k:'minus'}); }
+      else if(hrs>=32) score-=8;
     }
     out.push({cg:cg, score:score, why:why, worked:worked, preferred:preferred, dist:dist,
               hrs:hrs, availState:availState, availLabel:availLabel, excluded:null});
   });
 
+  /* Concierge's own sort_order sits between distance and the alphabet: on
+     live data the distance tiebreak fires almost never, so without it a
+     block of equally-scored caregivers was ordered by NAME under a heading
+     that reads "Call in this order". */
+  var mo=function(r){ var v=prefs.matchOrder[r.cg.id]; return v==null?9999:v; };
   var eligible=out.filter(function(r){ return !r.excluded; })
-    .sort(function(a,b){ return (b.score-a.score) || ((a.dist==null?999:a.dist)-(b.dist==null?999:b.dist)) || a.cg.name.localeCompare(b.cg.name); });
+    .sort(function(a,b){ return (b.score-a.score)
+      || ((a.dist==null?999:a.dist)-(b.dist==null?999:b.dist))
+      || (mo(a)-mo(b))
+      || a.cg.name.localeCompare(b.cg.name); });
   /* "Closest available" is only true of one person, so it is decided here,
      once the order is known, rather than claimed by every nearby caregiver. */
   var closest=null;
-  eligible.forEach(function(r){ if(r.dist!=null && r.availState!=='no' && (closest===null || r.dist<closest.dist)) closest=r; });
+  /* The availState!=='no' guard that used to sit here could never be false:
+     availability is a hard gate, so every row reaching this point is 'yes'. */
+  eligible.forEach(function(r){ if(r.dist!=null && (closest===null || r.dist<closest.dist)) closest=r; });
   if(closest) closest.why.push({t:'Closest available', k:'plus'});
-  /* Driving is worth saying whether or not the client's record requires it -
-     a scheduler weighs it anyway. It goes last so a stronger reason keeps
-     the first slot when only three are shown. */
-  eligible.forEach(function(r){
-    if(r.cg.driver && !r.why.some(function(w){ return w.t==='Driver'; })) r.why.push({t:'Driver', k:'plus'});
-  });
+  /* The blanket 'Driver' chip was removed on 2026-09-08. It was pushed onto
+     every driver - 69% of rows - and was worth exactly zero points unless
+     the client needs one, so it filled a chip slot while explaining nothing
+     about the order. Driving still shows, as a plain fact on the row. */
   /* Counted for the empty state alone. Nobody excluded is ever listed, but
      a blank screen has to be able to say whether the desk has asked and
      been told no, has not asked yet, or could not read the answer. */
@@ -6871,6 +7135,11 @@ function covEmptyReason(q, tally, calledN){
   if(t.hours)   bits.push(`<b>${t.hours}</b> open at other hours`);
   if(t.none)    bits.push(`<b>${t.none}</b> with nothing entered for this date`);
   if(t.unknown) bits.push(`<b>${t.unknown}</b> whose availability didn’t load`);
+  /* The biggest bucket, and it was never printed. On one live client it is
+     92 of 183 - inactive, called off this shift, blocked for this client,
+     or already booked - so the desk read a list of reasons that accounted
+     for half of who was missing and silently dropped the rest. */
+  if(t.other)   bits.push(`<b>${t.other}</b> not currently schedulable, already booked, or flagged for this client`);
   const why = bits.length ? ` <span class="q-why">Of the caregivers checked: ${bits.join(', ')}.` +
     (t.none ? ` A caregiver only appears here once someone logs an <b>Open</b> block covering the whole shift on their calendar.` : '') +
     `</span>` : '';
@@ -6895,7 +7164,7 @@ function renderCoverageCommand(q){
      someone still worth ringing. */
   const called=contactedIds(q.shiftId);
   const queue=eligible.filter(r=>called.indexOf(r.cg.id)<0);
-  const note=covMatchNote(q);
+  const note=covMatchNote(q, queue);
   if(!queue.length){
     return note + `<div class="cvm-list">${covEmptyReason(q, tally, called.length)}</div>`
       + renderAttemptHistory(q, contacted);
@@ -6905,7 +7174,7 @@ function renderCoverageCommand(q){
     + renderAttemptHistory(q, contacted);
 }
 /* Said once, above the list, and only when it changes what the order means. */
-function covMatchNote(q){
+function covMatchNote(q, queue){
   const h=COVHIST.get(q.date), bits=[];
   if(h.state==='loading') bits.push('Checking AxisCare for schedule clashes and who has worked with this client\u2026');
   else if(h.state==='error') bits.push('AxisCare didn\u2019t answer, so previous caregivers and double-bookings couldn\u2019t be checked \u2014 ' + esc(h.err||''));
@@ -6925,8 +7194,35 @@ function covMatchNote(q){
   else if(p.genderPref)
     bits.push((p.genderPref==='F'?'Female':'Male')+' caregivers only — that is the preference Client Concierge records for this client.');
   else
-    bits.push('No caregiver gender preference is recorded for this client, so either gender is offered.'
-      + (p.drivingRequired===null ? ' No driving requirement is recorded either.' : ''));
+    bits.push('No caregiver gender preference is recorded for this client, so either gender is offered.');
+  /* Said from what Concierge actually records. This line used to assert
+     "No driving requirement is recorded either" unconditionally, because
+     it read cl.drivingRequired - a property nothing ever assigned - and
+     was therefore wrong on every client who does require one. */
+  if(p.drivingRequired===true)  bits.push('This client needs a caregiver who drives, so drivers rank higher.');
+  else if(p.drivingRequired===false) bits.push('Driving is not required for this client.');
+  /* NOT RECORDED vs NOT READ, for the match list as well as the gender
+     preference. An empty onList looks identical either way, and silently
+     treating "could not ask Concierge" as "this client has nobody they
+     asked for" drops the single largest term in the ranking with nothing
+     on screen to explain why the order looks wrong. */
+  if(!p.matchKnown)
+    bits.push('The caregivers this client asked for couldn\u2019t be read from Client Concierge, so they are NOT ranked first here.');
+  else if(p.onList.length){
+    /* COUNT WHO IS ACTUALLY ON SCREEN, not how long Concierge's list is.
+       The gates run first, and on live data most named caregivers have no
+       Open block for the shift - on one client all five are gone before
+       scoring. Saying "5 caregivers this client asked for are ranked
+       first" above a list that contains none of them is a plain untruth,
+       and it reads as a bug in the ranking rather than as an availability
+       problem. */
+    var _on=(queue||[]).filter(function(r){ return p.onList.indexOf(r.cg.id)>=0; }).length;
+    var _tot=p.onList.length;
+    if(_on) bits.push(_on+' of the '+_tot+' caregiver'+(_tot===1?'':'s')+' this client asked for '+
+      (_on===1?'is':'are')+' available, and ranked first.');
+    else bits.push('None of the '+_tot+' caregiver'+(_tot===1?'':'s')+' this client asked for '+
+      (_tot===1?'is':'are')+' available for this shift.');
+  }
   if(!bits.length) return '';
   return `<div class="cvm-note">${bits.join(' ')}</div>`;
 }
@@ -6934,10 +7230,18 @@ function covMatchRow(r,q,rank){
   const cg=r.cg, tel=(cg.phone||'').replace(/[^0-9]/g,'');
   const facts=[
     r.availLabel,
-    r.dist==null ? null : (r.dist===0 ? 'Same area as client' : `${r.dist} mi from client`),
+    /* "Distance not known" rather than a fabricated 30 mi. */
+    r.dist==null ? 'Distance not known'
+                 : (r.dist===0 ? 'Same area as client' : `${r.dist} mi from client`),
+    cg.driver ? 'Driver' : null,
     r.hrs!=null ? `${r.hrs} h this week` : 'Hours not tracked'
   ].filter(Boolean).join(' \u00b7 ');
-  const why=r.why.slice(0,3).map(w=>`<span class="cvm-tag ${w.k}">${w.t}</span>`).join('');
+  /* Up to four, and a REASON NOT TO CALL is never the one that gets cut.
+     The overtime chip was fifth in push order behind three green ones, so
+     the single warning on the row could be dropped for a positive. */
+  const _mins=r.why.filter(w=>w.k==='minus'), _plus=r.why.filter(w=>w.k!=='minus');
+  const why=_plus.slice(0, Math.max(1, 4-_mins.length)).concat(_mins)
+    .map(w=>`<span class="cvm-tag ${w.k}">${w.t}</span>`).join('');
   return `<div class="cvm-row${rank===1?' first':''}">
     <div class="cvm-rank">${rank}</div>
     <div class="cvm-main">
@@ -15738,6 +16042,12 @@ var AxisLive = (function () {
       active: !!(ax.status && ax.status.active),
 
       /* real, from AxisCare */
+      /* Mapped so the CAREGIVER's own stated comfort ("Female clients" /
+         "Male clients", from ops.prefs.clientGender or the CFC/CMC tags)
+         has something to be matched against. Read only in that direction:
+         it never filters, because which caregivers a client will accept is
+         Concierge's gender_pref and nothing else. */
+      gender: ax.gender || null,
       careType: (ax.triageLevel && ax.triageLevel.description) || null,
       payType: codes.map(function (c) { return PAY_LABEL[c]; }).filter(Boolean)[0] || null,
       allergies: ax.allergies || null,
@@ -16426,6 +16736,21 @@ var ROSTER = (function () {
       goesBy: m.goesBy || '',
       base: m.base || '',
       prefCities: m.prefCities && m.prefCities.length ? m.prefCities : (m.base ? [m.base] : []),
+      /* ...and BOTH sides of that fallback are the caregiver's own mailing
+         city, not a preference anybody stated: AxisRoster.mapCaregiver sets
+         prefCities:[city] from the mailing address, so m.prefCities is
+         already the address by the time we get here.
+
+         CLAUDE: the first version of this flag read
+         `!!(m.prefCities && m.prefCities.length)`, which made it TRUE for
+         exactly the caregivers it was added to exclude - a no-op guard that
+         read as a working one. It is hard-false here on purpose. The ONLY
+         writer is applyProfile(), from caregiver_profile.pref_cities, which
+         is the one place a human typed a city. Anything that says "wants to
+         work in X" must gate on this, or it puts words in their mouth - and
+         double-counts, because living there already earns the full distance
+         score. */
+      prefCitiesRecorded: false,
 
       /* unknown availability is stored as all-zero so nothing crashes,
          but availKnown records that we do not actually know — the UI
@@ -16629,7 +16954,7 @@ var ROSTER = (function () {
     setEmploymentStatus(c, p.employment_status);
 
     if (nonEmpty(p.max_miles)) ops.maxMiles = p.max_miles;
-    if (nonEmpty(p.pref_cities)) c.prefCities = p.pref_cities.slice();
+    if (nonEmpty(p.pref_cities)) { c.prefCities = p.pref_cities.slice(); c.prefCitiesRecorded = true; }
     if (nonEmpty(p.max_hours)) ops.maxHours = p.max_hours;
 
     /* SHIFT LENGTH IS NOT WEEKLY HOURS. pref_min_shift_hours is hours per
@@ -18210,6 +18535,14 @@ var AxisRoster = (function () {
     'Thousands Oaks':  'Thousand Oaks',
     'Thousands Oak':   'Thousand Oaks',
     'Newbury':         'Newbury Park',
+    /* 9 caregivers record their preferred area as plain "Westlake", and
+       AxisCare writes some addresses "WESTLAKE VLG". Neither ever equalled
+       the "Westlake Village" that CITY knows and that clients there
+       normalise to, so the preference silently matched nobody and the
+       distance silently fell off the map. */
+    'Westlake':        'Westlake Village',
+    'Westlake Vlg':    'Westlake Village',
+    'Westlake Village Ca': 'Westlake Village',
     '18 Canoga Park':  'Canoga Park'
   };
 

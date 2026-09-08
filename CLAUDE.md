@@ -1195,9 +1195,205 @@ was recorded in AxisCare on 2026-09-01 and **every active caregiver now has
 one**, so the rule currently excludes nobody. It stays as a guard for a future
 hire, and the fix is always to record the gender rather than loosen the rule.
 
-Driving is deliberately **not** wired, though `driving_required` sits in the
-same synced row and 10 clients set it. It stays a ranking signal until the
-desk asks for it.
+**Driving is wired now** — corrected 2026-09-08. This line used to say it was
+"deliberately not wired… a ranking signal until the desk asks for it", which
+described an intention rather than the code: `covClientPrefs()` read
+`cl.drivingRequired`, **a property nothing in `index.html` ever assigned**, so
+`prefs.drivingRequired` was permanently `null` and the `+10 / −20` branch in the
+ranker could not execute at all. Worse, `covMatchNote()` used that same null to
+tell the desk *"No driving requirement is recorded either"* — on two active
+clients (Mary Lou Brown, Ziad Niazi) where Concierge plainly records that one is.
+
+It now reads `client_match_prefs.driving_required` through `CLMATCH`, with
+`cl.drivingRequired` left underneath for seed clients. 10 clients require a
+driver, 6 explicitly do not.
+
+### How Find Coverage ORDERS the list — the client first, then the caregiver
+
+The gates above decide **who can be called**. This decides **who to call first**,
+and it was rewritten with Carlo on 2026-09-08. `coverageMatches()` is the only
+place it happens.
+
+The rule the desk asked for: *what the client wants decides the top of the list,
+what the caregiver wants decides within that, and geography breaks what is left.*
+
+| | Term | Points |
+|---|---|---|
+| **Client** | On this client's Concierge list | **+60** |
+| | AxisCare `preferredCaregiver` | **+50** |
+| | Worked with this client **in the last 30 days** | **50 + (visits−1) × 1.5**, capped 70 |
+| | Client needs a driver — and they drive | +10 (**never a penalty**) |
+| **Caregiver** | Client's city is one they asked for | +12 |
+| | Shift is past their stated `maxMiles` | −25 |
+| | Client's gender matches their own stated comfort / doesn't | +8 / −15 |
+| | Shift falls in hours they prefer | +6 |
+| Logistics | Distance | 0…20, **null if the city is unknown** |
+| | 32+ hrs / 40+ hrs this week | −8 / −25 |
+
+**The magnitudes are load-bearing, not taste.** Everything on the caregiver's
+side tops out at **+26** and distance adds at most **+20**, so **46** is the most
+the caregiver's side and the geography can ever contribute. The three terms that
+say *the client asked for this person* — Concierge list, AxisCare preferred,
+worked here recently — are each worth more than 46 on their own, so none can be
+overturned by preferences and geography. That is what makes "the client first"
+arithmetic rather than an average. **Change one of those three and re-check it
+still holds.**
+
+The driving term (+10 / −20) is deliberately *not* in that group: it is a
+requirement of the placement, not a request for a person.
+
+#### `match_state` is NAME RESOLUTION, not strength of preference
+
+**Claude: do not score `confirmed` above `auto`.** The first version of this
+change did exactly that — +60 "Client's chosen caregiver" against +22 "Suggested
+for this client" — and both labels were false.
+
+`matching-sync.js` says it plainly: **Concierge owns which names are on a
+client's list; this app owns only which caregiver a name resolves to.** So
+`confirmed` means a person fixed a *name-to-record* resolution the matcher could
+not make confidently — typically a nickname — and `auto` means the name matched
+first time. `unmatched` means it could not be resolved at all.
+
+Client 217 lists five names, all equally asked for. Exactly one is `confirmed`,
+and only because Concierge spells her differently. Ranking that one 38 points
+above the other four would have been an artefact of spelling.
+
+So **every resolved name carries the same weight**, and `sort_order` — Concierge's
+own ordering of the list — separates them. `unmatched` rows carry
+`caregiver_id: null` and are skipped: we do not know who they are, and guessing
+is what the confirmed guard exists to prevent.
+
+#### Concierge's matched caregivers were display-only until now
+
+`CLMATCH.matches()` had exactly **one** reader in the whole file — the read-only
+card on the client schedule page. So a caregiver the desk had explicitly matched
+to a client in Client Concierge got **no ranking weight at all**. Measured: 53
+rows, every one resolving to an Active caregiver, and only **6** coincide with
+the AxisCare `preferredCaregiver` the ranker was reading instead. Ten active
+clients have Concierge matches and no AxisCare preferred caregiver, so for them
+the ranker believed nobody was preferred.
+
+#### What was removed, and why none of it changed an order
+
+- **`+25` for availability** — availability is a hard gate, so every surviving
+  row scored it and nobody moved.
+- **`+12` for matching the gender preference** — likewise a hard gate. Its `−25`
+  branch was unreachable for the same reason.
+- **`±500` for a previous contact** — `renderCoverageCommand()` filters everybody
+  in the contact log out of the queue *before* the order is drawn, so it could
+  never reach the screen. **If that filter ever goes, this has to come back.**
+- **The blanket "Driver" chip** — pushed onto every driver (69% of rows) and
+  worth exactly zero unless the client needs one. It filled a chip slot while
+  explaining nothing. Driving still shows as a plain fact on the row.
+
+#### `miles()` fabricates 30 for an unknown city — use `milesOrNull()` to score
+
+`miles()` answers **30** when either city is missing from the 12-entry `CITY`
+map. The ranker scored that as `max(0, 20 − 30×0.8)` = **zero** — a worse verdict
+than the furthest real distance in the county — and the row printed
+*"30 mi from client"* as though somebody had measured it.
+
+`milesOrNull()` is identical on all 144 known city pairs and returns `null`
+instead. **`miles()` itself is deliberately unchanged**: a dozen other call sites
+treat its answer as a number and would break on null. Anything that *scores* or
+*displays* a distance should use `milesOrNull()` and say "Distance not known".
+
+#### The caregiver's own preferences — `cgWants()`
+
+Read from `c.prefCities` (111 caregivers, via `caregiver_profile.pref_cities`),
+`ops.maxMiles` (115), `prefVal(c,'clientGender')` (44 recorded, plus the CFC/CMC
+tag fallback), and `ops.prefTimes` (44).
+
+> `ops.maxMiles` **is real data.** It looks like it might be the `deriveOps()`
+> default `[15,20,25,30][id % 4]`, and it is not — only 25 of 115 match that
+> formula, which is chance, and the distribution holds values (10, 11, 13, 14,
+> 16, 18, 19, 23, 29, 35, 40, 50) the formula cannot produce.
+>
+> **`ops.minHours` by contrast IS fabricated** and must not be given a reader.
+> All 181 are exactly `20`, from `deriveOps()`'s `c.weekHrs < 25 ? 20 : 24`
+> firing on a `null` — the documented `null < 85` trap. Three records read
+> `20/16`, `20/12`, `20/8`, a minimum above the maximum, which nobody typed.
+> Live caregivers take `axisOps()`, which sets both to `null`; the values
+> survive only because `CARRY` faithfully re-emits patches from a code path
+> the roster no longer takes.
+
+**`maxMiles` is a penalty, not a gate** — Carlo's call, 2026-09-08. The hard
+gates already decided who can genuinely be called, and somebody who said 15
+miles may still say yes to 18 for a client who asked for them.
+
+**Nothing in `cgWants()` excludes anybody, and it must stay that way.** It also
+stays silent when either side is unrecorded: "nobody asked" is not a preference,
+and scoring it as one would rank a caregiver on a question never put to them.
+
+#### Three places where absence must never be read as a "no"
+
+All three were caught in review, and all three would have docked a real person
+points — and printed a red chip asserting it — on evidence nobody entered.
+
+- **Driving is a bonus and never a penalty.** `cg.driver` is `false` whenever
+  the `DL`/`OC` tags are simply absent — **18 of the 104** schedulable
+  caregivers, 11 of whom `caregiver_profile` records as owning a vehicle. A
+  first attempt kept a `−20` by requiring an explicit `ops.prefs.driver ===
+  false`, and **that guard does not hold**: both work-preference editors seed
+  their driver control from `c.driver` (the tag guess) and write it back on
+  every save, so a scheduler editing only the travel miles launders "never
+  asked" into a recorded No. A penalty can come back only when a real
+  "does not drive" answer gets a field no editor can write by omission.
+- **Client gender.** `prefVal()` falls back to the AxisCare `CFC`/`CMC` tags and
+  reads a present `CFC` with an absent `CMC` as *"Female clients"* — but nobody
+  ever ticked `CMC`, so that absence is silence. **A tag may earn the bonus and
+  never the penalty**; only a typed `ops.prefs.clientGender` can hold somebody
+  back. Two active caregivers (AxisCare 248, 321) are in exactly that state.
+- **Preferred cities.** `c.prefCities` falls back to **the caregiver's own
+  mailing city** when nothing was recorded, so "Wants to work in Oxnard" would be
+  claimed for anyone who merely lives there — and would double-count, since
+  living there already earns the full distance score. `c.prefCitiesRecorded` is
+  the flag that tells the two apart; `cgWantsCity()` requires it.
+
+  > **The flag is hard-`false` in the mapper, and `applyProfile()` is its only
+  > writer.** The first version derived it as `!!(m.prefCities &&
+  > m.prefCities.length)` — but `AxisRoster.mapCaregiver` has *already* filled
+  > `prefCities` with the mailing address by that point, so the flag was `true`
+  > for exactly the caregivers it existed to exclude. A no-op guard that reads
+  > like a working one is worse than no guard; it survived one review pass.
+
+> The pattern is the same one `hasVal()` and `nt()` exist for, arriving through
+> a different door: a boolean `false` that means "never asked" is exactly as
+> dangerous as `null < 85`.
+
+#### `CITY` is a proximity grid, not road miles
+
+The `maxMiles` comparison measures a caregiver's stated limit against `CITY`,
+which is a synthetic coordinate grid: its widest span, Port Hueneme → Simi
+Valley, computes **25** where the real drive is roughly double. So the penalty
+**under-fires** — it misses some genuinely-too-far shifts and cannot invent one,
+which is the safe direction. The number in the chip is the caregiver's own
+stated limit, which is real; the comparison against it is not precise.
+
+**25 is the grid's ceiling**, so a stated limit of 25 or more can never trigger
+the penalty at all — that is **31 of the 104** schedulable caregivers (25 mi: 14,
+30 mi: 11, and a tail at 29/35/40/50). Tightening `CITY` is the fix.
+**Do not "fix" it by raising the 1.9 multiplier** — the same number feeds the
+0…20 distance term, so it would silently re-weight every row on every list.
+
+#### Preferred cities must go through `normCity` too
+
+`caregiver_profile.pref_cities` is typed by a person and never cleaned, while
+`cl.city` has already been through `AxisRoster.normCity`. A raw string compare
+therefore made **"Westlake"** — which 9 caregivers record — a different place
+from the **"Westlake Village"** clients normalise to, so the preference matched
+nobody and looked like it was simply unpopular. `cgWantsCity()` now normalises
+both sides, and `CITY_FIX` gained `Westlake`, `Westlake Vlg` and
+`Westlake Village Ca`.
+
+> Worth knowing: `milesOrNull()` **surfaced** this rather than causing it. The
+> old fabricated 30 quietly absorbed every unmapped city, so nobody could see
+> which ones were missing. Expect more of these to become visible — that is the
+> point of the change, and each one is a one-line `CITY_FIX` or `CITY` entry.
+
+`cgWantsHours()` requires **every** band the shift touches to be one they asked
+for. A caregiver who picked *Morning* has not volunteered for an 8a–8p shift
+just because it starts in the morning.
 
 ### "Availability missing" counts EVERY status, not just Open
 
@@ -2556,9 +2752,17 @@ has to report which slices it assigned rather than the caller guessing.
 Two smaller notes for anyone wiring real data later: several places derive values
 from the numeric part of a demo id (`parseInt(c.id.slice(1))` on `'c7'`), which
 AxisCare ids would break; and AxisCare city strings are dirty — `CAMARILLO`,
-`Camarilllo`, `"Oxnard "` and `oxnard` are four distinct values today, and around
-40% of active caregivers live outside Ventura County so they are absent from the
-app's distance map.
+`Camarilllo`, `"Oxnard "` and `oxnard` are four distinct values today.
+
+> **Corrected 2026-09-08.** This paragraph used to end "and around 40% of active
+> caregivers live outside Ventura County so they are absent from the app's
+> distance map." That is wrong by about four times, and it mattered, because it
+> made the distance term look hopeless when it is nearly fine. `normCity()`
+> already cleans the dirty strings *before* `miles()` sees them, so the dirt is
+> not what moves anyone down the list. Measured on the live roster: **8 of the
+> 104 schedulable caregivers** live in a city the 12-entry `CITY` map does not
+> know — not ~40. Seven of the eight have Open availability typed, so it is a
+> live problem, just a small and fixable one: add their cities to `CITY`.
 
 ---
 
