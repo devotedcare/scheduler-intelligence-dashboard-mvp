@@ -2049,6 +2049,530 @@ returns the token itself.
 
 ---
 
+---
+
+## Quo — the phone system. Read-only, and the Communication Logs card reads it
+
+Added 2026-09-11. The proxy went in as plumbing with no reader, the same stage
+AxisCare went through; the **Communication Logs** card on the Caregiver
+Overview was built on it the same day and is its only consumer. See
+*Communication Logs* below.
+
+Quo was called **OpenPhone** until it rebranded in 2026. Every older doc, SDK,
+blog post and Stack Overflow answer you find under that name describes this
+same API. The OpenAPI spec is still served from an `openphone-public-api-prod`
+S3 bucket and is current.
+
+**The API key sees TWELVE inboxes, not the four the Quo app shows a signed-in
+user.** That gap matters — it is why the card sweeps every line rather than
+the one it was first asked for. Confirmed live 2026-09-11:
+
+| Number | Inbox | | Number | Inbox |
+|---|---|---|---|---|
+| +1 805 312 7736 | **Scheduling Department** | | +1 805 586 6886 | Emergency Hotline |
+| +1 805 427 8644 | **Recruitment** | | +1 805 910 1371 | Billing Department |
+| +1 805 419 6909 | Client Support Line | | +1 478 606 6282 | (Finance) |
+| +1 805 246 7002 | Client Inquiry Line | | +1 607 800 4842 | CEO Direct Line |
+| +1 507 417 8132 | Primary | | +1 256 408 5310 | Marketing Direct Line |
+| +1 405 809 8456 | Primary | | +1 901 370 8874 | Primary |
+
+Nine users: five owners, two admins, two members.
+
+### It lives in SUPABASE, not Netlify — and that has a cost
+
+Every other backend in this repo is a Netlify function. Quo is the second
+exception after `devi-agent`, and for the same reason: **the key is there.**
+`QUO_API_KEY` was put in the Supabase project secrets, so the function that
+reads it has to be a Supabase Edge Function.
+
+**A commit does not deploy it.** `index.html` auto-deploys to Netlify;
+`supabase/functions/` does not. After any change to `supabase/functions/quo/`:
+
+```
+npx supabase functions deploy quo --project-ref gdzgoyawavffjdjpjbfz --no-verify-jwt
+```
+
+**`--project-ref` is not optional**, and `supabase/config.toml` does not spare
+you it: `functions deploy` does **not** read `project_id` from that file — it
+wants a prior `supabase link` or the flag, and answers *"Cannot find project
+ref. Have you run supabase link?"* otherwise. The ref is pinned in
+`config.toml` so it is always to hand; pass it.
+
+`--no-verify-jwt` because the dashboard sends no JWT, exactly as with
+`devi-agent`.
+
+Auth is a **personal access token** (`sbp_…`), not the anon or service-role
+key — `supabase login`, or `SUPABASE_ACCESS_TOKEN`, which `.env` carries and
+`.env.example` documents. An expired one fails late and confusingly: the
+upload starts, then `unexpected deploy status 401: Unauthorized`.
+
+Deployed and verified live on 2026-09-11.
+
+> **The "not deployed" message had to be fixed to say so.** Supabase answers a
+> missing function with perfectly valid JSON — `{"code":"NOT_FOUND","message":
+> "Requested function was not found"}` — which has **no `error` key**, so the
+> module's generic `body.error || 'HTTP '+status` reported a bare *"HTTP 404"*
+> and buried the only useful sentence. The 404 test now runs first and does not
+> depend on the body parsing. Reported by the desk off the Communication Logs
+> card; the diagnostic had been written for exactly this case and sat in a
+> branch that could never run for it.
+
+This is worth knowing before diagnosing anything: **a Quo fix can look
+deployed and not be.** Netlify going green says nothing about this function.
+
+### Read-only, and that is the whole security argument
+
+AxisCare's API is a read API — if its token leaked, a stranger could read.
+**Quo's API can act.** Roughly half its ~45 endpoints mutate:
+
+```
+POST   /v1/messages               sends a real text, from a real agency
+                                  number, to a real person, billed to the
+                                  agency. Returns 202, and it is irreversible.
+DELETE /v1/contacts/{id}          deletes a contact
+PATCH  /v1/contacts/{id}          a destructive REPLACE, not a merge — omitted
+                                  emails/phoneNumbers/customFields are deleted
+POST   /v1/tasks/{id}/complete    and a dozen more state changes
+```
+
+So the **method gate** in `supabase/functions/quo/index.ts` is the security
+boundary of the file: the handler accepts GET, and the upstream call is GET.
+There is no reachable code path that sends a message. The path allowlist sits
+behind that as defence in depth, not as the primary lock.
+
+**Claude: do not add a POST branch, a `method` parameter, or a send action** —
+not even "so the dashboard can text a caregiver about an open shift". That is
+a real thing the desk will want and it is **not a code decision**. It is a PHI
+decision and a billing decision, and this file already records it as Carlo's
+under *Devi actions*: there is deliberately no SMS channel in this dashboard.
+Wiring one starts with that conversation.
+
+Verified 2026-09-11, 36 tests against the real handler, 8 of them live: every
+non-GET verb is refused 405, the preflight advertises `GET, OPTIONS` only, and
+`GET /v1/messages` reaches Quo as a read and never a send.
+
+### The key has no scopes
+
+One key does everything — the same value that lists messages can send them and
+delete contacts. There is no read-only key to issue instead. That is precisely
+why the boundary has to live in our code rather than in the credential, and
+why the GET-only gate is not a detail to tidy away later.
+
+Generated in Quo under **workspace settings → API**. Needs workspace Owner or
+Admin rights, and the key *name* may not contain spaces.
+
+### Authentication — no Bearer prefix, but it tolerates one
+
+```
+Authorization: <the key>
+```
+
+The raw key. Quo's docs say plainly *"The Quo API does not use a Bearer token
+for authentication."*
+
+**Measured 2026-09-11: `Bearer <key>` also returns 200.** Quo appears to strip
+the prefix, so this is more forgiving than the docs suggest and code copied
+from the AxisCare proxy would not actually break here. We send the documented
+raw form anyway — relying on undocumented leniency is how a working
+integration breaks during somebody else's refactor.
+
+There is **no version header**, and that is one place Quo is kinder than
+AxisCare: the version is in the path (`/v1/...`). The
+`X-AxisCare-Api-Version` trap — a wrong version returning 400 *before* auth is
+checked, masking every other error — has no equivalent here. Do not invent a
+`QUO_API_VERSION`.
+
+> The beta **webhooks** surface is the exception: it pins a payload version
+> with a `Quo-Api-Version` header at subscription time. Not used today.
+
+### `maxResults` is REQUIRED on the list routes, despite documenting a default
+
+This is the trap that will cost somebody an afternoon, because the docs show a
+default of 10 and the API rejects the call without it anyway — and the 400
+reads like a bug in our proxy.
+
+| Route | Required query params |
+|---|---|
+| `/v1/messages` | `phoneNumberId` (`PN…`), `participants`, `maxResults` |
+| `/v1/calls` | `phoneNumberId`, `participants` — **exactly one**, 1:1 only — `maxResults` |
+| `/v1/conversations` | `maxResults` |
+| `/v1/contacts` | `maxResults`, capped at **50** here, not 100 |
+| `/v1/phone-numbers` | none, and **not paginated** — no `maxResults`, no cursor |
+| `/v1/users` | none |
+
+`phoneNumberId` comes from `/v1/phone-numbers`, which is what `ping` reads.
+Paging is `pageToken`, never a page number; `since` is deprecated in favour of
+`createdAfter` / `createdBefore`.
+
+#### An array is a REPEATED parameter, and `name[]` is a silent trap
+
+**This is the `caregiverIds` trap again, in a different API.** Measured
+against the live account 2026-09-11:
+
+```
+?phoneNumbers=PN0T9aATba      25 rows, ALL from that one inbox
+?phoneNumbers[]=PN0T9aATba    25 rows from SIX different inboxes — HTTP 200,
+                              filter silently ignored, byte-identical to
+                              sending no filter at all
+?participants[]=%2B1805…      HTTP 400 "Expected array"
+```
+
+So `[]` either fails loudly or, far worse, succeeds while doing nothing. The
+correct form everywhere is plain repetition:
+
+```
+participants=%2B18055551234&participants=%2B18055559999
+```
+
+The **`+` must be percent-encoded as `%2B`** — a raw `+` in a query string
+decodes to a space, which is a different phone number and not an error.
+
+The proxy uses `params.append`, never `params.set`, for the same reason: `set`
+would keep only the last of a repeated parameter and turn a group lookup into
+a one-person lookup with no error anywhere.
+
+> `participants` on `/v1/conversations` is **also silently ignored** — a
+> number with no conversations returns the same 50 rows as no filter. There is
+> no way to find one person's conversations across lines in a single call,
+> which is why the card queries per inbox.
+
+Other limits worth knowing: **10 requests per second per API key**, shared by
+everything pointed at that key, `429` on exceeding it. Call **summaries and
+transcripts are Business/Scale plans only** and answer `403` otherwise. Phone
+numbers are E.164 everywhere (`+18053127736`).
+
+**404 is ambiguous and is not laundered into success.** AxisCare returns 404
+for an empty `/api/visits` and `openshifts-sync` treats that as empty. Quo's
+behaviour on an empty list is **undocumented** — do not copy that reflex here.
+The proxy returns the 404 with Quo's body intact.
+
+### The secrets
+
+These are **Supabase** project secrets (Project Settings → Edge Functions →
+Secrets), not Netlify environment variables. Only the first is required; the
+last is shared with `devi-agent` and already exists.
+
+| Name | Required | Default |
+|---|---|---|
+| `QUO_API_KEY` | **yes** | — |
+| `QUO_API_BASE` | no | `https://api.quo.com` — no trailing slash, and **no `/v1`**; every allowlisted path already starts `/v1/`, and doubling it gives `/v1/v1/…` and a 404 |
+| `QUO_ALLOWED_PATHS` | no | the built-in read-only list |
+| `QUO_SHARED_SECRET` | no | unset |
+| `ALLOWED_ORIGIN` | — | **reused from `devi-agent`**, not a new variable |
+
+**`QUO_SHARED_SECRET` buys less than it looks like it does, and it is worth
+being honest about.** CORS is enforced by the browser, not the server, so
+`ALLOWED_ORIGIN` stops another *website* reading replies in a visitor's
+browser and does nothing whatever about curl. Deployed `--no-verify-jwt`, this
+endpoint is reachable by anyone who knows the URL. But the dashboard has no
+login, so any secret the *browser* would have to send would ship in
+`config.js` and be public too. It is real protection only for a
+server-to-server caller. It is supported, and it is not a substitute for the
+read-only gate.
+
+What this endpoint reads back — message bodies, call transcripts, client
+contact details — is **materially more sensitive than the roster**. That is
+not a new decision (the no-login posture is reviewed and accepted, see
+*Known and accepted*), but it is a larger surface than AxisCare's, and it
+should be weighed before the allowlist is widened or a feature is built.
+
+### Communication Logs — the caregiver card, live from Quo
+
+Added 2026-09-11, replacing the **Call Log** card on the Caregiver Overview.
+
+`CGCOMMS` fetches; `cgCommsPanel` draws. Both are live — there is **no table,
+no sync job and nothing scheduled.** Opening a profile asks Quo, exactly as
+opening one asks AxisCare for the calendar.
+
+#### It sweeps EVERY line, and that is measured, not a preference
+
+Measured against the live account over the 600 most recent conversations:
+
+| Line | Caregiver conversations |
+|---|---|
+| Scheduling Department | 110 |
+| Recruitment | 43 |
+| Client Support | 30 |
+| Client Inquiry | 9 |
+| the other 8 lines | **0** |
+
+**111 of 181 caregivers appear.** A Scheduling-only card — which is what was
+first asked for — would have been missing 82 conversations, most of them
+Recruitment, which is exactly where a new caregiver's first contact lives.
+
+There are **12 inboxes on the account, not the 4** the Quo connector shows a
+signed-in user. The API key sees Finance, Billing, CEO Direct and Marketing
+too. `lineList()` reads `/v1/phone-numbers` once per session, so a new line
+appears on the next reload with nobody editing `index.html`.
+
+> **No secret names the line.** An earlier plan had `QUO_SCHEDULING_INBOX_ID`
+> and it is not used by anything — the sweep discovers the lines instead. If
+> the desk ever wants to restrict it (the four lines above would cut the sweep
+> from 24 requests to 8), that is a constant in `CGCOMMS`, not an env var.
+
+#### Cost, and why it is still a live fetch
+
+| | |
+|---|---|
+| requests, per caregiver | 12 lines × 2 (messages + calls) = **24** |
+| plus, once per session | `/v1/phone-numbers` + `/v1/users`, both cached in the module |
+| typical | **2.3s** (light caregiver) |
+| measured worst seen | **4.2s** — Edna Arma, 110 items, 78 entries |
+| concurrency | **4** |
+
+So the first profile opened in a session costs 26 requests and every one after
+it 24. `lineList()` and `userList()` each resolve once and are shared by every
+caregiver; `userList()` deliberately **never rejects** — it degrades to an
+empty map — so a failure there costs the staff names and not the sweep.
+
+`CONC` is 4 because Quo's ceiling is **10 requests a second for the whole API
+key**, and all three schedulers share that key because they share the function.
+Measured: 24 requests at concurrency 5 ran at 10.6 req/s and took **four 429s**.
+The Edge Function retries a 429 with backoff on top of this. Both halves are
+needed — the pool keeps one browser polite, the retry covers two browsers
+colliding.
+
+The card paints "Reading calls and texts from Quo…" first and fills in when the
+sweep lands, so nobody is blocked. Cached per caregiver for the session.
+
+#### `toE164()` is deliberately strict, and that is the safety property
+
+AxisCare gives one phone string per caregiver, collapsed from
+`mobilePhone || homePhone || otherPhone`. Measured across the 183 active
+caregivers: **182 have a number, every one in the single format
+`999-999-9999`**, and one has none at all.
+
+So the normaliser accepts the shape the data actually has, tolerates a leading
+`1`/`+1`, and returns **null** for everything else — including extensions and
+non-NANP numbers. It also rejects an area code or exchange starting `0` or `1`,
+which a bare ten-digit length test would wave through.
+
+**A loose match here would show one caregiver ANOTHER caregiver's private
+messages.** That is the worst thing this card could do, so there is no fuzzy
+matching, no last-7-digits fallback, and no "close enough". Null just means the
+card says it cannot look them up.
+
+**Nothing is written back onto `c`.** The E.164 form is derived on demand and
+never assigned to the caregiver record — `c.phone` rides the `caregivers` CLOUD
+slice, so normalising in place would diff into the shared overlay and replay for
+all three schedulers. Same hazard as everywhere else in *Don't break these*.
+
+#### Nothing goes into `state`
+
+`CGCOMMS` keeps its cache in the module, for the same reason `CGVISITS` does: a
+few hundred messages in a tracked CLOUD slice would be written to Supabase as
+though a scheduler had typed them. That is the 323KB overlay bug arriving
+through a new door.
+
+#### What replaced what
+
+The old card was **derived from `state.contactLog`** — a scheduler's own note
+that they had rung somebody about an open shift. Its comment was right at the
+time: direction is always outgoing, and no call duration is recorded anywhere,
+so neither was shown rather than invented. Quo has all three, plus the inbound
+half the desk never logged.
+
+**The whole database held exactly ONE hand-logged entry** (2026-08-23,
+"accepted", one caregiver), so nothing of substance was displaced.
+`state.contactLog` is **untouched** — still written on the assign path, still
+read by the coverage screens. It is only no longer the source of this card.
+
+#### The shape is borrowed from the old Scheduling app, on purpose
+
+Redesigned 2026-09-11 after the first version was reported as ugly. The first
+attempt was a flat list whose most prominent slot held one long dot-separated
+meta line — `Sep 10 · 1:52 PM · Outgoing · 2 messages · Scheduling Department`
+— which wrapped, and repeated "Scheduling Department" down the entire column.
+
+**ONE row shape now serves the card and the modal's rail**, so moving from one
+to the other is continuous rather than a different screen. It is the old app's
+rail row: glyph · bold heading · timestamp pushed right · a two-line gist
+underneath.
+
+```
+(○) Ruffa    Scheduling Department              Sep 10 · 1:52 PM
+    “Good afternoon! We're currently updating our caregiver profiles…”
+```
+
+**The bold slot holds WHO AT THE OFFICE handled it, not the line.** That is the
+old app's choice and it was right: the line is usually the same word repeated,
+while "Ruffa" and "Marivic" vary and are what a scheduler scans for. Resolved
+through `/v1/users` — Quo stamps `userId` on anything the desk sent and leaves
+it null on an inbound message, so a row with no staff falls back to the
+caregiver's own first name, which correctly marks the entries **they** started.
+`answeredBy` and `initiatedBy` are null on every call measured here; `userId`
+is the only field that carries a person.
+
+The line name stays, quietly, in `--ink-faint` beside the name — "Recruitment"
+among a run of "Scheduling" is exactly what you want to catch.
+
+The gist names the sender of the last message (`Edna: "Yes I can do Tuesday"`
+says she replied; no prefix means the heading already said who spoke last).
+
+#### View Details is master / detail, not a longer list
+
+A 286px scrolling rail of the same rows against a detail pane, following the
+old app's `.chlog-modal`. Our modal is 880px where theirs was 860.
+
+The detail pane leads with a facts block — direction, outcome, duration,
+messages, agency line, handled by — and then, **for a text day, the whole
+thread rendered directly rather than behind a fold.** The old app folded it
+because its pane led with an AI summary; we have no summary, so the messages
+*are* the content and hiding them would leave the pane almost empty.
+
+A call shows the facts and stops. Quo's recording and transcript endpoints are
+Business/Scale only and this account gets `403`, so an empty "Transcript"
+heading would be a promise we cannot keep.
+
+Messages are a flat run with a 2px left accent for direction — **not** chat
+bubbles. The old app deliberately avoided those and so does this.
+
+`cmSel` holds which entry the modal is showing. It is module-level and keyed by
+caregiver, **not** in `state`: it is one person's cursor inside one open dialog,
+and a slice would share it with the other two schedulers on the next poll.
+
+#### The card leads with the one fact worth a glance
+
+`Last contact 21 hours ago · 50 calls · 60 texts`, then as many rows as fit.
+"When did we last reach them" is the question the Overview is actually being
+asked; the exact stamp is still on every row. The card clips at 260px like its
+neighbours and `pfxFit()` raises *View Details* — no scrollbar inside the card,
+so it stays consistent with Notes, Concerns and Updates.
+
+#### Three layout rules that each fixed a reported wart (2026-09-11)
+
+All three look like tidying and are not. Reported from screenshots of the live
+card.
+
+- **Row separators are a TOP border on every row but the first, never a bottom
+  border.** The card clips at a fixed height, so the row that is *visually*
+  last is almost never `:last-child` and CSS cannot reach it — a bottom border
+  left a stray hairline hanging a few pixels above the *View Details*
+  separator. Drawn as a top border the trailing line cannot exist, in the card
+  or at the foot of the modal rail.
+- **`cmFit()` trims the card list to a WHOLE number of rows, and it must run
+  AFTER `pfxFit()`.** Whichever row the 260px clip landed in was being sliced
+  through its text, leaving a sliver of letters that reads as broken.
+
+  > A bottom fade was tried first and **made it worse** — a gradient over text
+  > that is perfectly readable reads as broken rather than as "there is more".
+  > Removed the same day. Do not reintroduce it: cutting on a row boundary
+  > means there is no partial row to disguise.
+
+  The ordering is the whole trick. `pfxFit()` decides whether *View Details*
+  appears by measuring the **full** list against the body; capping first would
+  make the content fit and the button would vanish along with the only way to
+  reach the other 46 entries. Measured first, trimmed second.
+
+  This is why **the gist is clamped to one line in the card** (two in the
+  rail, which has room): uniform row height is what makes one measurement
+  answer for every row. Every guard in `cmFit` — no rows, zero height, nothing
+  laid out yet, they all already fit — leaves the card exactly as it was, so
+  the worst case is the old clipping rather than a broken card.
+
+  The cap is `n*rowH − 1`. Row heights are fractional and the **next** row's
+  top border begins exactly at `n*rowH`, which on a fractional device-pixel
+  ratio can round back into view as the stray hairline this exists to remove.
+  The cost is 1px off the last row's 9px of bottom padding.
+
+- **`.pfx-more` loses its `border-top` on this card, and only this card.**
+  That rule separates *View Details* from the body, which is right on Notes,
+  Concerns and Updates — they run text straight into the footer. This card
+  already ends in its own row separators and sits just above the card's own
+  bottom edge, so the rule read as two hairlines a few pixels apart.
+
+  It is cleared in `cmFit` rather than in CSS so it cannot depend on `:has()`,
+  and **before** the guards, so a card that cannot be measured still loses the
+  rule. `document.querySelectorAll('.ws-card.pfx .cm-list')` is what scopes
+  it — no card without a `.cm-list` is ever touched.
+- **`.cm-split` is `calc(62vh - 148px)`, not a round `vh`.** The expanded card
+  sits inside `.mb`, which is `max-height:62vh; overflow:auto`. A split taller
+  than that minus the chrome above it put a **third** scrollbar on the outside
+  of the dialog, so the rail was scrolling inside a pane that was itself
+  scrolling. The 148px is `.mb` padding (32) + `.ws-card` padding and border
+  (32) + the tinted header (~34) + the summary strip (~31), rounded up so a
+  rounding error costs a few blank pixels rather than bringing the outer
+  scrollbar back. **If the summary strip or the header changes height, this
+  number has to move with it.**
+
+#### It shows unanswered calls and undelivered texts — the old app hid them
+
+This is a **deliberate divergence**. The old app filtered them out on Mitch's
+own instruction (Jul 10: *"should not show calls without responses, inbound or
+outbound"*), in a card that was about client conversation summaries.
+
+Here the log is for a scheduling desk, where "we rang her three times and she
+never picked up" is the point rather than noise. Measured in a 14-caregiver
+sample: **30 of 271 calls went unanswered** (12 `no-answer`, and 18 `completed`
+that nonetheless carry no `answeredAt`), and **9 of 314 texts were
+`undelivered`** — a shift offer that never arrived, which the sender had no way
+to know. Undelivered reads in `--crit-tx`.
+
+`answeredAt` is the only reliable mark. A call can read `completed` and still
+never have been picked up, so status alone is not enough.
+
+#### Timestamps are pinned to US/Pacific
+
+Quo stamps UTC. The agency and every visit are in Ventura County, so the log is
+formatted with an explicit `America/Los_Angeles`, and the **text-day grouping
+uses Pacific days too**. A scheduler on a laptop set to UTC would otherwise see
+yesterday evening's texts filed under today, and the day buckets would split in
+the wrong place. The old app pinned Pacific for the same reason, and CLAUDE.md
+already records this class of bug biting the care-notes sync and the caregiver
+calendar.
+
+#### Six states, and three of them must never read as "no communications"
+
+`nophone` / `idle` / `loading` / `error` / partial / ready. A caregiver we could
+not look up and a caregiver with a genuinely empty log are different facts, and
+only one of them is "No calls or texts with this caregiver on any agency line."
+
+A **partial** sweep — some lines answered, some did not — says so above the list
+and offers Retry, rather than passing a short list off as the whole log. If
+*every* read fails, that is an error, not an empty log: reporting it as "nothing
+on file" would be a confident lie about a caregiver we learned nothing about.
+
+#### Message text goes through `escText()`, never `esc()`
+
+`esc()` replaces `"` and nothing else — it is an attribute escaper, useless in a
+text position. Message bodies are arbitrary text typed by real people and land
+in `innerHTML`. This is the same trap the Devi reply path hit; see *Three traps*
+under Ask Devi.
+
+### The browser module
+
+`Quo` in `index.html`, deliberately a near-clone of `AxisCare` so the mental
+model transfers. It sits after every other module and five lines above
+`CLOUD.boot();`, where it cannot disturb the boot order.
+
+```js
+await Quo.status()      // configured? deployed? never returns the key
+await Quo.ping()        // does the key actually work, end to end
+await Quo.inboxes()     // all twelve phone numbers
+await Quo.users()       // the nine workspace members
+await Quo.get('/v1/conversations', { maxResults: 10 })
+```
+
+Query params go through the `q_` prefix, same convention as the AxisCare
+proxy. Quo wraps list results in `data`, so a raw `get()` reads
+`r.data.data`; `inboxes()` and `users()` unwrap it for you.
+
+**`CGCOMMS` is its only caller in the UI** — see *Communication Logs* above.
+Nothing Quo returns goes into `state`. It is not a `SLICES` entry and must not
+become one: a few hundred messages diffed into the CLOUD overlay is the 323KB
+bug in *Don't break these*, arriving through a new door. If Quo data ever
+needs to persist, it gets its own table and its own module cache, the way
+`CGVISITS` does.
+
+Console helpers for the card itself:
+
+```js
+CGCOMMS.status('a731')       // idle | loading | ready | error | nophone
+CGCOMMS.info('a731')         // { e164, entries, calls, msgs, lines, requests, ms, partial }
+CGCOMMS.toE164('805-555-0123')
+CGCOMMS.retry('a731')        // drop the cache and sweep again
+```
+
 ## Ask Devi — the local router first, Claude for the rest
 
 Ask Devi has two answerers and they are not interchangeable.

@@ -2305,6 +2305,131 @@ body.ai-white .main{display:flex;flex-direction:column;min-height:100vh}
 .cgp-when.fixed{width:152px}
 .cgp-st{flex:0 0 auto;font-size:11.5px;font-weight:700;border-radius:12px;padding:2px 10px}
 .cgp-st.plain{background:none;padding:0;color:var(--ink-soft);font-weight:650}
+/* ── Communication Logs ────────────────────────────────────────────────
+   Quo calls and texts on a caregiver profile. ONE row shape serves the
+   card and the modal's rail, so moving between them is continuous.
+   Row anatomy is borrowed from the old Scheduling app's master/detail
+   rail: glyph · bold heading with the time pushed right · gist beneath.
+   Colours reuse the existing h-tint palette values. NOTE the real
+   variable names are --surface and --crit-tx; there is no --panel and no
+   --bad-tx (CLAUDE.md records the bugs that cost). */
+
+/* the one-line headline above the list */
+.cm-sum{display:flex;align-items:baseline;justify-content:space-between;gap:10px;
+  font-size:12.5px;color:var(--ink-soft);padding:0 0 9px;margin-bottom:3px;
+  border-bottom:1px solid var(--line)}
+.cm-sum b{color:var(--ink);font-weight:700}
+.cm-sum span{flex:0 0 auto;font-variant-numeric:tabular-nums}
+
+.cm-list{display:flex;flex-direction:column}
+
+/* the shared row.
+   SEPARATORS ARE DRAWN AS A TOP BORDER ON EVERY ROW BUT THE FIRST, never as
+   a bottom border. The card clips at a fixed 260px, so the row that is
+   visually last is almost never the last in the DOM and :last-child cannot
+   reach it — a bottom border therefore left a stray line hanging above the
+   View Details separator, two hairlines a few pixels apart. Drawn this way
+   the trailing line cannot exist, in the card or at the foot of the rail. */
+.cm-row{display:flex;align-items:flex-start;gap:9px;width:100%;
+  padding:9px 2px;border:0;
+  background:none;text-align:left;font:inherit;color:var(--ink);min-width:0}
+.cm-row + .cm-row{border-top:1px solid var(--line-soft)}
+.cm-pick{cursor:pointer;border-left:2px solid transparent;padding:10px 10px 10px 9px;
+  border-radius:0;transition:background .12s ease}
+.cm-pick:hover{background:var(--line-soft)}
+.cm-pick.on{background:#EAF5F0;border-left-color:#1E7A5C}
+
+.cm-ic{flex:0 0 auto;width:22px;height:22px;border-radius:50%;
+  display:inline-flex;align-items:center;justify-content:center;
+  border:1px solid var(--line);background:var(--surface);color:var(--ink-soft);margin-top:1px}
+.cm-ic.cm-call{color:#1E7A5C;border-color:#D2E7DE;background:#EAF5F0}
+.cm-ic.cm-miss{color:#97572E;border-color:#EEDECB;background:#FAF2EA}
+.cm-ic.cm-text{color:#2A6899;border-color:#D7E4EF;background:#EDF3F8}
+.cm-ic.cm-fail{color:var(--crit-tx);border-color:#EFD5D5;background:#FBEFEF}
+
+.cm-main{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
+.cm-top{display:flex;align-items:baseline;gap:8px;justify-content:space-between;min-width:0}
+.cm-name{flex:0 1 auto;min-width:0;font-weight:700;font-size:13px;color:var(--ink);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* The agency line, quietly. It repeats down the whole column on most
+   caregivers, so it must not compete with the name — but "Recruitment"
+   sitting among a run of "Scheduling" is exactly what you want to catch. */
+.cm-lineq{flex:1 1 auto;min-width:0;font-size:11.5px;color:var(--ink-faint);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cm-when{flex:0 0 auto;font-size:11.5px;color:var(--ink-soft);white-space:nowrap;
+  font-variant-numeric:tabular-nums}
+/* ONE line in the card, ellipsised. Two reasons, and the second is the one
+   that matters: a long message would otherwise make some rows twice the
+   height of others, and UNIFORM ROW HEIGHT is what lets cmFit() cut the list
+   on a row boundary instead of through the middle of somebody's sentence.
+   The rail has room, so it keeps two lines. */
+.cm-gist{font-size:12.5px;color:var(--ink-soft);line-height:1.45;min-width:0;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cm-rail .cm-gist{white-space:normal;overflow-wrap:anywhere;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.cm-bad{color:var(--crit-tx)}
+
+.cm-warn{font-size:12px;color:var(--crit-tx);padding:0 0 8px;
+  border-bottom:1px solid var(--line);margin-bottom:7px}
+
+/* NO FADE HERE ANY MORE, deliberately. A gradient over the clipped row was
+   the first attempt and it made things worse: it washes out text that is
+   perfectly readable, which reads as broken rather than as "there is more".
+   cmFit() cuts on a row boundary instead, so there is never a partial row to
+   disguise. Do not reintroduce it. */
+
+/* ── View Details: master / detail ─────────────────────────────────── */
+/* ONE scroll region, not three. The expanded card sits inside .mb, which is
+   `max-height:62vh; overflow:auto` — so a split taller than that minus the
+   chrome above it put a second scrollbar on the outside of the dialog and the
+   rail scrolled inside a pane that was itself scrolling. Sized to fit inside
+   62vh instead, the outer one never appears and only the rail and the detail
+   pane scroll, which is what a master/detail is supposed to do.
+
+   The 148px is the chrome between the two: .mb padding (32) + .ws-card
+   padding and border (32) + the tinted header (~34) + the summary strip
+   (~31), rounded up so a rounding error costs a few blank pixels rather than
+   bringing the outer scrollbar back. */
+.cm-split{display:flex;gap:0;height:calc(62vh - 148px);min-height:240px;
+  border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.cm-rail{flex:0 0 286px;overflow-y:auto;border-right:1px solid var(--line);
+  display:flex;flex-direction:column;background:var(--surface)}
+.cm-detail{flex:1;min-width:0;overflow-y:auto;padding:16px 18px}
+
+.cm-dhead{display:flex;align-items:flex-start;gap:10px;margin-bottom:14px}
+.cm-dtitle{font-size:15px;font-weight:700;color:var(--ink);line-height:1.3}
+.cm-dwhen{font-size:12.5px;color:var(--ink-soft);margin-top:1px}
+
+/* the facts block — a call has nothing else, so it carries the pane */
+.cm-facts{display:flex;flex-wrap:wrap;gap:8px 26px;margin:0 0 4px;padding:12px 14px;
+  background:var(--line-soft);border-radius:10px}
+.cm-fact{display:flex;flex-direction:column;gap:2px;min-width:0}
+.cm-fact dt{font-size:10.5px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;
+  color:var(--ink-faint)}
+.cm-fact dd{margin:0;font-size:13px;color:var(--ink);font-weight:650}
+
+.cm-threadwrap{margin-top:16px}
+.cm-dlabel{font-size:10.5px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;
+  color:var(--ink-faint);margin-bottom:9px}
+.cm-thread{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:10px}
+/* NOT chat bubbles — a flat, readable run, the way the old app had it. The
+   left accent is the only direction cue, which keeps long threads calm. */
+.cm-msg{border-left:2px solid var(--line);padding-left:11px}
+.cm-msg.cm-in{border-left-color:#2A6899}
+.cm-msg.cm-out{border-left-color:#C9D2DE}
+.cm-msgh{display:flex;align-items:baseline;gap:8px;margin-bottom:2px}
+.cm-msgh b{font-size:12px;color:var(--ink);font-weight:700}
+.cm-t{font-size:11.5px;color:var(--ink-faint);font-variant-numeric:tabular-nums}
+.cm-undel{font-size:11px;font-weight:700;color:var(--crit-tx)}
+.cm-msgtx{font-size:13.5px;color:var(--ink);line-height:1.55;overflow-wrap:anywhere}
+
+/* Narrow: stack the panes and cap the rail, as the old app did. */
+@media(max-width:760px){
+  .cm-split{flex-direction:column;height:auto;max-height:70vh}
+  .cm-rail{flex:0 0 auto;max-height:190px;border-right:none;border-bottom:1px solid var(--line)}
+  .cm-detail{padding:14px}
+}
+
 .cgp-stack{flex-direction:column;align-items:flex-start;gap:3px}
 .fb-type{align-self:flex-start;font-size:11px;font-weight:800;letter-spacing:.2px;border-radius:11px;padding:2px 9px;border:1px solid;white-space:nowrap}
 /* ---- caregiver rating ---- */
@@ -3091,6 +3216,7 @@ const I = {
   refresh:'<path d="M20.5 12a8.5 8.5 0 11-2.49-6.01" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/><path d="M20.5 3.5v4.8h-4.8" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
   history:'<path d="M3.5 12a8.5 8.5 0 108.5-8.5 8.4 8.4 0 00-6.01 2.49" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/><path d="M3.5 3.5v4.8h4.8" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 7.8V12l3.2 1.9" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
   bell:'<path d="M18 8.5a6 6 0 10-12 0c0 6-2.5 7.5-2.5 7.5h17S18 14.5 18 8.5M13.6 19.5a2 2 0 01-3.2 0" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
+  chat:'<path d="M20.5 11.4a7.9 7.9 0 01-8.5 7.9 9 9 0 01-2.5-.4L4.5 20.5l1.3-4.2A7.7 7.7 0 014.5 11.4a7.9 7.9 0 018-7.9 7.9 7.9 0 018 7.9z" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
 };
 const ic = (k,sz=17) => `<svg class="ico" width="${sz}" height="${sz}" viewBox="0 0 24 24">${I[k]||''}</svg>`;
 
@@ -3203,6 +3329,8 @@ function render(){
   /* Measured after the paint, because scrollHeight is only meaningful once
      the markup is in the document. A no-op on every screen but the profile. */
   try{ pfxFit(); }catch(e){}
+  /* AFTER pfxFit, never before — see the note on cmFit(). */
+  try{ cmFit(); }catch(e){}
 }
 
 /* ============ TODAY ============ */
@@ -10598,6 +10726,68 @@ function pfxFit(){
   pairs.forEach(function(p){ p[1].hidden=!p[2]; });
 }
 
+/* Trim the Communication Logs card to a WHOLE number of rows.
+   ---------------------------------------------------------------------
+   The card is a fixed 260px and the list is always longer, so the clip used
+   to land wherever it landed — usually part way through a row, leaving a
+   sliver of letters that reads as broken. Fading it was worse: it washes out
+   text that is perfectly readable. Cutting on a row boundary means there is
+   never a partial row at all.
+
+   MUST RUN AFTER pfxFit(), and that ordering is the whole trick. pfxFit
+   decides whether "View Details" appears by measuring the FULL list against
+   the body; capping first would make the content fit and the button would
+   vanish along with the way to reach the other 46 entries. Measured first,
+   trimmed second: the button reflects what there is, the list shows what
+   fits.
+
+   Rows are uniform height by construction — the gist is clamped to one line
+   in the card for exactly this reason — so a single measurement answers for
+   all of them. Anything unexpected (no rows, zero height, a browser that
+   reports nothing) simply leaves the card clipping as it did before. */
+function cmFit(){
+  const lists=document.querySelectorAll('.ws-card.pfx .cm-list');
+  if(!lists.length) return;
+  lists.forEach(function(list){
+    list.style.maxHeight='';
+    const body=list.parentElement;             /* .pfx-body, position:relative */
+
+    /* THE FOOTER RULE COMES OFF, FOR THIS CARD ONLY.
+       .pfx-more carries a border-top so "View Details" is separated from the
+       body, which is right on Notes, Concerns and Updates — they run text
+       straight into the footer. This card already ends in its own row
+       separators and sits just above the card's own bottom edge, so the rule
+       made two hairlines a few pixels apart. Done here rather than in CSS
+       because it must not depend on :has(), and BEFORE the guards below so a
+       card that cannot be measured still loses the rule. Other cards are
+       untouched — the selector only reaches a card containing .cm-list. */
+    const card=body&&body.parentElement;
+    const more=card&&card.querySelector('.pfx-more');
+    if(more) more.style.borderTop='none';
+
+    const row=list.querySelector('.cm-row');
+    if(!body||!row) return;
+    /* The second row carries a 1px top border the first does not, so measure
+       one of those where there is one — otherwise the estimate drifts by a
+       pixel per row and the last one creeps back into view. */
+    const gauge=list.children[1]||row;
+    const rowH=gauge.getBoundingClientRect().height;
+    if(!rowH) return;
+    const avail=body.clientHeight-list.offsetTop;
+    if(avail<=0) return;
+    const n=Math.floor(avail/rowH);
+    if(n<1) return;                             /* too small to show one cleanly */
+    if(n>=list.children.length) return;         /* they all fit; leave it alone */
+    /* Minus one pixel. Row heights are fractional and the NEXT row's top
+       border begins exactly at n*rowH — on a fractional device-pixel ratio
+       that can round back into view as a stray hairline, which is the very
+       thing this is here to remove. The cost is 1px off the last row's 9px
+       of bottom padding, which nobody can see. */
+    list.style.maxHeight=(n*rowH-1)+'px';
+    list.style.overflow='hidden';
+  });
+}
+
 /* ---- Client & Assignment Preferences ---------------------------------
    What the caregiver PREFERS about a placement, kept apart from Assignment
    & Client Rules, which holds only hard restrictions: these describe the
@@ -10866,10 +11056,14 @@ function empSave(){
 /* =========================================================
    CAREGIVER OVERVIEW  —  the four panels under the calendar
    ---------------------------------------------------------
-   Notes read from the caregiver_day_notes table (NOTES); the other three
-   are the desk's own records. Concerns and Updates are tracked CLOUD
-   slices, so all three schedulers see the same list. The Call Log is
-   DERIVED, not stored — see cgCalls().
+   Notes read from the caregiver_day_notes table (NOTES). Concerns and
+   Updates are the desk's own records and are tracked CLOUD slices, so
+   all three schedulers see the same list.
+
+   Communication Logs is the odd one out: it is neither the desk's work
+   nor stored anywhere in this app. It is read live from Quo on every
+   profile open and cached only in CGCOMMS — see that module, and the
+   note there about why it must never go into `state`.
    ========================================================= */
 function cgUid(p){ return p+Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
 function cgDateTime(v){
@@ -10886,10 +11080,12 @@ function cgDateTime(v){
    of handlers does the work, so the three sections cannot behave
    differently from each other.
 
-   Call Log is deliberately absent: it is DERIVED from state.contactLog —
-   the record of the desk actually ringing this caregiver about a shift —
-   so there is no row here to edit or delete, and rewriting one would be
-   rewriting what happened. */
+   Communication Logs is deliberately absent, and more firmly than the Call
+   Log it replaced ever was. That card was DERIVED from state.contactLog —
+   the desk's own note that it had rung somebody — so there was no row to
+   edit. This one is read live from Quo: the rows are what actually happened
+   on the phone, they are not ours to rewrite, and the proxy forwards GET
+   only so there is nothing to write them back through. */
 const CG_ENTRY={
   note:  {slice:'cgNotes',    open:'openCgNoteEdit',    gone:'Note deleted'},
   fb:    {slice:'cgConcerns', open:'openCgConcernEdit', gone:'Entry deleted'},
@@ -11122,41 +11318,249 @@ function cgFbSave(){
   toast(f.fbId?'Feedback saved':'Feedback recorded');
 }
 
-/* ---- Call Log ------------------------------------------------------
-   DERIVED from state.contactLog, which is the real record of the desk
-   ringing this caregiver about an open shift — keyed by shift, so it is
-   read across every shift and filtered to this person. Nothing here is
-   stored twice.
+/* ---- Communication Logs --------------------------------------------
+   The texts and calls between the agency and this caregiver, live from
+   Quo, across every agency line. CGCOMMS does the fetching; this only
+   draws it. Replaced the old Call Log on 2026-09-11.
 
-   Direction is always OUTGOING: every entry in contactLog was placed by a
-   scheduler. AxisCare has no call records and the app captures no call
-   DURATION, so neither is shown rather than invented — the outcome the
-   scheduler recorded is shown instead, which is what the log is for. */
-const CALL_RESULT={accepted:'Accepted', declined:'Declined', noanswer:'No answer',
-  callback:'Asked for a callback', left:'Left a message', texted:'Texted'};
-function cgCalls(id){
-  const out=[];
-  Object.keys(state.contactLog||{}).forEach(function(sid){
-    (state.contactLog[sid]||[]).forEach(function(l){
-      if(l.caregiverId!==id) return;
-      const sh=(state.shifts||[]).find(x=>x.id===sid), cl=sh?clById(sh.clientId):null;
-      out.push({ at:l.time, result:CALL_RESULT[l.result]||l.result||'Logged',
-                 by:l.by, about: cl?cl.name:null });
-    });
-  });
-  return out.sort((a,b)=>new Date(b.at)-new Date(a.at));
+   WHAT THE OLD CALL LOG WAS, AND WHY IT WENT. It was DERIVED from
+   state.contactLog — a scheduler's own note that they had rung somebody
+   about an open shift. Its header comment said, correctly at the time,
+   that direction is always outgoing and that no call duration is
+   recorded anywhere, so neither was shown rather than invented. Quo has
+   all three: real direction, real duration, and the inbound side the
+   desk never logged. The whole database held exactly ONE hand-logged
+   entry (2026-08-23, "accepted"), so nothing of substance was displaced.
+
+   state.contactLog is UNTOUCHED — it is still written on the assign
+   path and still read by the coverage screens. It is only no longer
+   the source of this card.
+
+   THE SHAPE IS BORROWED FROM THE OLD SCHEDULING APP, ON PURPOSE. A flat
+   newest-first list where one entry is either one call or one whole
+   DAY of texting on one line; a glyph for which; one dot-separated grey
+   meta line; direction as a WORD. Deliberately NOT a chat transcript
+   with left/right bubbles — a scheduler is scanning for what happened
+   and when, not re-reading a conversation.
+
+   WHAT IS DIFFERENT HERE. It is built from this app's own card
+   vocabulary rather than the old one's emoji-in-a-circle; it names the
+   LINE on every row, because this sweeps all twelve and "Recruitment"
+   versus "Scheduling" is the most useful word on the row; it shows a
+   short preview of the message itself; and it shows unanswered calls
+   and undelivered texts, which the old app hid.
+   -------------------------------------------------------------------- */
+
+function cmDur(s){
+  if(s==null) return '';
+  if(s<60) return s+' sec';
+  return Math.max(1,Math.round(s/60))+' min';
 }
-function cgCallPanel(c, all){
-  const list=cgCalls(c.id), shown=all?list:list.slice(0,20);
-  const body = shown.length
-    ? `<div class="cgp-scroll${all?' tall':''}">${shown.map(l=>`<div class="cgp-row">
-         <span class="cgp-when fixed">${esc(cgDateTime(l.at))}</span>
-         <span class="cgp-tx">Outgoing call${l.about?' · '+esc(l.about):''}</span>
-         <span class="cgp-st plain">${esc(l.result)}</span>
-       </div>`).join('')}</div>`
-    : `<div class="ws-none">No calls logged to this caregiver yet.</div>`;
-  return cgPanelShell(all, {title:'Call Log', icon:'phone', tint:'h-emp', body:body,
-    onAll:"openCgAll('"+c.id+"','calls')", total:list.length});
+
+/* "2 days ago" reads faster than a date when the question is "have we spoken
+   to her lately". The exact stamp is still on every row. */
+function cmAgo(iso){
+  const t=new Date(iso).getTime();
+  if(!isFinite(t)) return '';
+  const m=Math.floor((Date.now()-t)/60000);
+  if(m<1) return 'just now';
+  if(m<60) return m+' min ago';
+  const h=Math.floor(m/60); if(h<24) return h+(h===1?' hour ago':' hours ago');
+  const d=Math.floor(h/24); if(d<30) return d+(d===1?' day ago':' days ago');
+  const mo=Math.floor(d/30); return mo+(mo===1?' month ago':' months ago');
+}
+
+const CM_PREVIEW=150;
+function cmPreview(s){
+  const t=String(s==null?'':s).replace(/\s+/g,' ').trim();
+  if(!t) return '';
+  return t.length>CM_PREVIEW ? t.slice(0,CM_PREVIEW-1)+'…' : t;
+}
+
+/* The glyph, tinted by what actually happened. Four states and no more:
+   a connected call, a call nobody answered, a text, a text that failed. */
+function cmIcon(e,sz){
+  const isCall=e.kind==='call';
+  const tone=isCall?(e.answered?'cm-call':'cm-miss'):(e.failed?'cm-fail':'cm-text');
+  const label=isCall?(e.answered?'Call':'Call, not answered')
+                    :(e.failed?'Message not delivered':'Text');
+  return '<span class="cm-ic '+tone+'" title="'+esc(label)+'">'+ic(isCall?'phone':'chat',sz||12)+'</span>';
+}
+
+/* The GIST — the one line under the heading that says what this was.
+   For a text day it is the last message; for a call there is no text, so it
+   is the outcome, which is the only thing there is to say. */
+function cmGist(e, who, head){
+  if(e.kind==='call'){
+    const bits=[e.dir==='in'?'Incoming call':'Outgoing call'];
+    if(!e.answered) bits.push('no answer');
+    else if(e.dur!=null&&e.dur>0) bits.push(cmDur(e.dur));
+    return bits.join(' · ');
+  }
+  const p=cmPreview(e.text);
+  if(!p) return e.count>1 ? e.count+' messages' : 'Message';
+  /* Naming the sender of the LAST message makes the line self-contained:
+     "Edna: …" says she replied, "Ruffa: …" says the desk spoke last and is
+     still waiting. The heading names who at the office owns the thread,
+     which is a different question and often a different person. */
+  const last=(e.msgs&&e.msgs[e.msgs.length-1])||null;
+  const from=(e.lastDir==='in') ? (who||'Caregiver') : ((last&&last.staff)||'Office');
+  /* …but not when it just repeats the heading. "Ruffa · Ruffa: …" is noise;
+     the prefix earns its place only when the last word came from someone
+     other than the person the row is already filed under. */
+  return (from===head) ? '“'+p+'”' : from+': “'+p+'”';
+}
+
+/* ONE row shape, used by the card AND the modal's rail. That is deliberate:
+   the two read alike, so moving from the card to View Details is continuous
+   rather than a different screen. Borrowed from the old Scheduling app's
+   master/detail rail — glyph, bold heading, timestamp pushed right, then a
+   two-line gist underneath. */
+function cmRow(e, opts){
+  opts=opts||{};
+  const on=opts.sel?' on':'';
+  /* WHO, not WHICH LINE, gets the prominent slot. The line is usually the
+     same word repeated down the whole column; the person varies and is what
+     a scheduler is actually scanning for. Falls back to the caregiver's own
+     first name when the desk sent nothing — that entry is one THEY started,
+     which is exactly the thing worth noticing. */
+  const who = e.staff || opts.who || 'Caregiver';
+  const inner=
+    cmIcon(e,12)+
+    '<span class="cm-main">'+
+      '<span class="cm-top">'+
+        '<span class="cm-name">'+escText(who)+'</span>'+
+        '<span class="cm-lineq">'+escText(e.line||'')+'</span>'+
+        '<span class="cm-when">'+escText(CGCOMMS.stamp(e.at,true))+'</span>'+
+      '</span>'+
+      '<span class="cm-gist'+(e.failed?' cm-bad':'')+'">'+escText(cmGist(e,opts.who,who))+'</span>'+
+    '</span>';
+  if(opts.pick) return '<button type="button" class="cm-row cm-pick'+on+'" onclick="'+opts.pick+'">'+inner+'</button>';
+  return '<div class="cm-row">'+inner+'</div>';
+}
+
+/* ---- the detail pane -------------------------------------------------- */
+
+function cmFact(k,v){
+  return v ? '<div class="cm-fact"><dt>'+escText(k)+'</dt><dd>'+escText(v)+'</dd></div>' : '';
+}
+
+function cmDetail(e, cgName){
+  const isCall=e.kind==='call';
+  const who=(String(cgName||'').trim().split(/\s+/)[0])||'Caregiver';
+
+  const head='<div class="cm-dhead">'+cmIcon(e,15)+
+    '<div><div class="cm-dtitle">'+(isCall?'Phone call':'Text conversation')+'</div>'+
+    '<div class="cm-dwhen">'+escText(CGCOMMS.stamp(e.at,true))+' · '+escText(cmAgo(e.at))+'</div></div></div>';
+
+  const facts='<dl class="cm-facts">'+
+    cmFact('Direction', e.dir ? (e.dir==='in'?'Incoming':'Outgoing') : 'Both ways')+
+    (isCall ? cmFact('Outcome', e.answered?'Answered':'No answer') : '')+
+    (isCall && e.answered && e.dur!=null ? cmFact('Duration', cmDur(e.dur)) : '')+
+    (!isCall ? cmFact('Messages', String(e.count)) : '')+
+    cmFact('Agency line', e.line)+
+    /* Null on an entry the caregiver started, which is a real answer rather
+       than a gap — so it is named as one instead of showing an empty cell. */
+    cmFact('Handled by', e.staff || (e.dir==='in' ? who+' started it' : null))+
+    '</dl>';
+
+  /* A call has nothing else to show — Quo's recording and transcript
+     endpoints are Business/Scale only and this account gets 403 from them,
+     so an empty "Transcript" heading would be a promise we cannot keep. */
+  if(isCall) return head+facts;
+
+  /* The thread, in full and NOT behind a fold. The old app hid it because its
+     detail pane led with an AI summary; we have no summary, so the messages
+     ARE the content and hiding them would leave the pane almost empty. */
+  const msgs=(e.msgs||[]).map(function(m){
+    const t=CGCOMMS.stamp(m.at,true).split(' · ').pop();
+    return '<li class="cm-msg '+(m.dir==='in'?'cm-in':'cm-out')+'">'+
+      '<div class="cm-msgh"><b>'+escText(m.dir==='in' ? who : (m.staff||'Office'))+'</b>'+
+        '<span class="cm-t">'+escText(t)+'</span>'+
+        (m.failed?'<span class="cm-undel">Not delivered</span>':'')+'</div>'+
+      '<div class="cm-msgtx'+(m.failed?' cm-bad':'')+'">'+escText(m.text||'(no text)')+'</div></li>';
+  }).join('');
+
+  return head+facts+'<div class="cm-threadwrap"><div class="cm-dlabel">Messages</div>'+
+    '<ul class="cm-thread">'+msgs+'</ul></div>';
+}
+
+/* Which entry the modal is showing. Module-level and keyed by caregiver, NOT
+   in `state` — it is one person's cursor inside one open dialog, and a slice
+   would share it with the other two schedulers on the next poll. */
+var cmSel = null;
+function cmPick(cgId, key){
+  cmSel={cg:cgId, key:key};
+  try{ renderCgAllModal(); }catch(e){}
+}
+
+/* ---- the card and the expanded view ----------------------------------- */
+
+function cgCommsPanel(c, all){
+  const SHELL=function(body,total){
+    return cgPanelShell(all, {title:'Communication Logs', icon:'chat', tint:'h-emp',
+      body:body, onAll:"openCgAll('"+c.id+"','comms')", total:total||0});
+  };
+  if(typeof CGCOMMS==='undefined' || typeof Quo==='undefined')
+    return SHELL('<div class="ws-none">The Quo connection is not available in this build.</div>',0);
+
+  /* Opening the profile is what asks Quo, the same way the calendar asks
+     AxisCare. load() returns immediately once it has an answer, so this is
+     one sweep per caregiver per session and nothing on a re-render. */
+  CGCOMMS.load(c);
+  const st=CGCOMMS.status(c.id), inf=CGCOMMS.info(c.id)||{};
+
+  /* The unhappy states must never read as "no communications" — a caregiver
+     we could not look up and one with a genuinely empty log are different
+     facts, and only one of them is an empty log. */
+  if(st==='nophone') return SHELL(
+    '<div class="ws-none">AxisCare has no phone number for this caregiver, so there is nothing to look up in Quo.</div>',0);
+  if(st==='idle'||st==='loading') return SHELL(
+    '<div class="ws-none">Reading calls and texts from Quo…</div>',0);
+  if(st==='error') return SHELL(
+    '<div class="ws-none">Couldn\'t read the communication log. '+escText(inf.error||'')+
+    ' <button class="btn xs" style="margin-left:8px" onclick="CGCOMMS.retry(\''+c.id+'\')">Retry</button></div>',0);
+
+  const list=CGCOMMS.entries(c.id);
+  if(!list.length) return SHELL(
+    '<div class="ws-none">No calls or texts with this caregiver on any agency line.</div>',0);
+
+  /* A partial sweep is reported rather than passed off as the whole log. */
+  const warn=inf.partial
+    ? '<div class="cm-warn">'+inf.failedReads+' of '+inf.requests+' reads failed, so this list may be incomplete.'+
+      ' <button class="btn xs" style="margin-left:6px" onclick="CGCOMMS.retry(\''+c.id+'\')">Retry</button></div>'
+    : '';
+
+  /* The one line worth reading at a glance: when did we last reach them. */
+  const summary='<div class="cm-sum"><b>Last contact '+escText(cmAgo(list[0].at))+'</b>'+
+    '<span>'+inf.calls+' call'+(inf.calls===1?'':'s')+' · '+inf.msgs+' text'+(inf.msgs===1?'':'s')+'</span></div>';
+
+  const who=(String(c.name||'').trim().split(/\s+/)[0])||'Caregiver';
+
+  /* ---- the CARD: summary + as many WHOLE rows as fit in 260px ----
+     Every row is rendered and the card clips, exactly as its neighbours do —
+     that is what makes pfxFit() raise "View Details". cmFit() then trims the
+     list to a whole number of rows so the cut never lands inside one. */
+  if(!all){
+    return SHELL(warn+summary+'<div class="cm-list">'+
+      list.map(function(e){ return cmRow(e,{who:who}); }).join('')+'</div>', list.length);
+  }
+
+  /* ---- VIEW DETAILS: master / detail, after the old Scheduling app ---- */
+  const sel=(cmSel && cmSel.cg===c.id && list.some(function(e){return e.id===cmSel.key;}))
+    ? cmSel.key : list[0].id;
+  const cur=list.filter(function(e){return e.id===sel;})[0]||list[0];
+
+  const rail=list.map(function(e){
+    return cmRow(e,{ sel:e.id===sel, who:who,
+      pick:"cmPick('"+c.id+"','"+String(e.id).replace(/'/g,"\\'")+"')" });
+  }).join('');
+
+  return SHELL(warn+summary+
+    '<div class="cm-split">'+
+      '<div class="cm-rail">'+rail+'</div>'+
+      '<div class="cm-detail">'+cmDetail(cur, c.name)+'</div>'+
+    '</div>', list.length);
 }
 
 /* ---- Updates -------------------------------------------------------
@@ -11260,7 +11664,7 @@ function renderCgAllModal(){
   const a=state.cgAll; if(!a) return;
   const c=cgById(a.id); if(!c) return cgAllClose();
   const T={notes:['Notes',cgNotesPanel], concerns:['Client Feedback & Concerns',cgConcernsPanel],
-           calls:['Call Log',cgCallPanel], updates:['Updates',cgUpdatesPanel]}[a.which];
+           comms:['Communication Logs',cgCommsPanel], updates:['Updates',cgUpdatesPanel]}[a.which];
   if(!T) return cgAllClose();
   mEl.innerHTML=`<div class="mh"><span class="mt">${esc(T[0])} — ${esc(c.name)}</span>
       <button class="mc" onclick="cgAllClose()">×</button></div>
@@ -11597,7 +12001,7 @@ function viewCaregiverWorkspace(c){
     <div class="ws-grid ws-prof">
       ${cgNotesPanel(c,false)}
       ${cgConcernsPanel(c,false)}
-      ${cgCallPanel(c,false)}
+      ${cgCommsPanel(c,false)}
       ${cgUpdatesPanel(c,false)}
     </div>`;
 
@@ -19044,6 +19448,364 @@ var CGVISITS = (function () {
   };
 })();
 
+
+/* =========================================================
+   CGCOMMS  —  a caregiver's real phone traffic, from Quo
+   ---------------------------------------------------------
+   The texts and calls between the agency and this caregiver, on
+   EVERY agency line, read live from Quo when a profile is opened.
+
+   WHY ALL LINES AND NOT JUST SCHEDULING. Measured against the live
+   account on 2026-09-11, over the 600 most recent conversations:
+
+       Scheduling       110 caregiver conversations
+       Recruitment       43
+       Client Support    30
+       Client Inquiry     9
+       the other 8 lines  0
+
+   111 of 181 caregivers appear. A Scheduling-only card would have
+   been missing 82 conversations — mostly Recruitment, which is
+   exactly where a new caregiver's first contact lives. So the sweep
+   asks every line Quo reports and lets the empty ones be empty.
+
+   COST, MEASURED, NOT ESTIMATED. 12 lines x 2 reads = 24 requests,
+   about 2.3 seconds at CONC 4, once per caregiver per session. That
+   is the same shape as CGVISITS and it is why this is a live fetch
+   rather than a synced table: there is nothing to schedule, nothing
+   to deploy separately, and nothing that can go stale.
+
+   Plus two more on the FIRST profile opened in a session and none
+   after it: lineList() reads /v1/phone-numbers for the inboxes, and
+   userList() reads /v1/users so a row can say WHO at the office
+   handled it. Both resolve once and are shared by every caregiver.
+   userList() deliberately never rejects — it degrades to an empty
+   map — so losing it costs the staff names and not the sweep.
+
+   Quo's ceiling is 10 requests a second FOR THE WHOLE API KEY, and
+   all three schedulers share it because they share the function.
+   CONC is 4 for that reason — 24 requests at concurrency 5 measured
+   10.6 req/s and took four 429s. The Edge Function retries a 429 on
+   top of this; the two together are what keep a busy morning working.
+
+   NOT IN `state`, for the same reason CGVISITS is not: it is not the
+   scheduler's typed work, and a tracked CLOUD slice would write a few
+   hundred messages to Supabase as though somebody had entered them by
+   hand. That is the 323KB overlay bug in CLAUDE.md, and it would
+   happen again. Everything here lives in this module's own cache.
+
+   NOTHING IS WRITTEN BACK TO `c`. The E.164 number is derived on
+   demand and never assigned onto the caregiver record — `c.phone`
+   rides the `caregivers` CLOUD slice, so normalising it in place
+   would diff into the shared overlay and replay for everyone.
+
+   From the browser console:
+       CGCOMMS.status('a731')
+       CGCOMMS.info('a731')
+       CGCOMMS.retry('a731')
+   ========================================================= */
+var CGCOMMS = (function () {
+  'use strict';
+
+  var byCg = {}, inFlight = {};
+  var lines = null, linesP = null;
+  var users = null, usersP = null;
+
+  var CONC = 4;        /* see the header — Quo allows 10/s per KEY, not per user */
+  var PER_LINE = 50;   /* Quo's cap is 100; 50 is two months of a busy caregiver */
+
+  /* The agency is in Ventura County and so is every visit. Pinning the
+     zone means the log reads the same on every machine — a scheduler on
+     a laptop still set to UTC would otherwise see yesterday's evening
+     texts filed under today. The old app pinned US/Pacific for exactly
+     this reason, and CLAUDE.md documents the same class of bug biting
+     the care-notes sync and the caregiver calendar. */
+  var TZ = 'America/Los_Angeles';
+
+  /* AxisCare gives a caregiver ONE phone string, collapsed from
+     mobilePhone || homePhone || otherPhone, and Quo needs bare E.164.
+
+     Measured across the 183 active caregivers on 2026-09-11: 182 have a
+     number, every one of them in the single format 999-999-9999, and one
+     has none at all. So this is deliberately STRICT rather than clever —
+     it accepts the shape the data actually has, tolerates a leading 1 or
+     +1, and returns null for anything else.
+
+     Strict is the safety property, not a limitation. A loose match here
+     would show one caregiver ANOTHER caregiver's private messages, which
+     is the worst thing this card could do. Returning null just means the
+     card says it cannot look them up. */
+  function toE164(raw) {
+    var d = String(raw == null ? '' : raw).replace(/[^0-9]/g, '');
+    if (d.length === 11 && d.charAt(0) === '1') d = d.slice(1);
+    if (d.length !== 10) return null;
+    /* No NANP area code or exchange starts with 0 or 1. This rejects the
+       junk that a 10-digit length test alone would let through. */
+    if (d.charAt(0) === '0' || d.charAt(0) === '1') return null;
+    if (d.charAt(3) === '0' || d.charAt(3) === '1') return null;
+    return '+1' + d;
+  }
+
+  /* The line list, fetched once for the whole session and shared by every
+     caregiver. Twelve lines today; a new one appears here on the next
+     reload without anybody editing this file. */
+  function lineList() {
+    if (lines) return Promise.resolve(lines);
+    if (linesP) return linesP;
+    linesP = Quo.get('/v1/phone-numbers').then(function (r) {
+      var rows = (r && r.data && r.data.data) || [];
+      lines = rows.filter(function (n) { return n && n.id; }).map(function (n) {
+        return { id: n.id, name: n.name || n.number || n.id, number: n.number || '' };
+      });
+      return lines;
+    }, function (e) { linesP = null; throw e; });
+    return linesP;
+  }
+
+  /* WHO AT THE OFFICE HANDLED IT. Quo stamps `userId` on anything the desk
+     sent — an outgoing text, a call somebody placed or picked up — and leaves
+     it null on an inbound message the caregiver sent unprompted. One cheap
+     call to /v1/users resolves those ids to names, once per session.
+
+     This is the field the old Scheduling app put in the most prominent slot
+     of its rail, and it was right to: "Mae" and "Jenn" vary and are worth
+     scanning, where the line name is usually the same word repeated down the
+     whole column. */
+  function userList() {
+    if (users) return Promise.resolve(users);
+    if (usersP) return usersP;
+    usersP = Quo.get('/v1/users', { maxResults: 50 }).then(function (r) {
+      var rows = (r && r.data && r.data.data) || [];
+      users = {};
+      rows.forEach(function (u) {
+        if (!u || !u.id) return;
+        /* Trim: this workspace really does have a lastName of "Jenn " with a
+           trailing space, which renders as a stray gap next to a timestamp. */
+        var n = ((u.firstName || '') + ' ' + (u.lastName || '')).replace(/\s+/g, ' ').trim();
+        users[u.id] = n || u.email || u.id;
+      });
+      return users;
+    }, function () { usersP = null; users = {}; return users; });
+    return usersP;
+  }
+
+  /* First name only. The row is narrow and the desk knows its own people. */
+  function staffName(id) {
+    if (!id || !users) return null;
+    var n = users[id];
+    if (!n) return null;
+    return n.split(/\s+/)[0];
+  }
+
+  /* A bounded worker pool. Promise.all over 24 fetches would fire them all
+     at once and take a wall of 429s; this keeps CONC in flight and no more.
+     A job never rejects — a single line failing must not blank the card —
+     so a failure resolves to null and is counted as a partial instead. */
+  function pool(jobs, n) {
+    var out = new Array(jobs.length), i = 0;
+    function worker() {
+      if (i >= jobs.length) return Promise.resolve();
+      var k = i++;
+      return jobs[k]().then(function (r) { out[k] = r; return worker(); });
+    }
+    var ws = [];
+    for (var w = 0; w < Math.min(n, jobs.length); w++) ws.push(worker());
+    return Promise.all(ws).then(function () { return out; });
+  }
+
+  function rows(r) { return (r && r.data && r.data.data) || []; }
+
+  function mapMsg(m, L) {
+    return {
+      id: m.id, at: m.createdAt, kind: 'text',
+      dir: (m.direction === 'incoming') ? 'in' : 'out',
+      lineId: L.id, line: L.name,
+      text: (m.text == null ? '' : String(m.text)),
+      /* `undelivered` is a text that never reached the caregiver. 9 of 314
+         in a sample of 14 caregivers, so it is not rare — and a scheduler
+         who thinks they sent a shift offer that never arrived is exactly
+         the person this card should be telling. */
+      failed: (m.status === 'undelivered' || m.status === 'failed'),
+      status: m.status || '', dur: null, answered: null,
+      staff: staffName(m.userId)
+    };
+  }
+
+  function mapCall(v, L) {
+    return {
+      id: v.id, at: v.createdAt, kind: 'call',
+      dir: (v.direction === 'incoming') ? 'in' : 'out',
+      lineId: L.id, line: L.name, text: '', failed: false,
+      status: v.status || '',
+      dur: (typeof v.duration === 'number') ? v.duration : null,
+      /* answeredAt is the only reliable mark: a call can read `completed`
+         and still never have been picked up (18 of 271 in the sample). */
+      answered: !!v.answeredAt,
+      /* answeredBy and initiatedBy are null on every call measured on this
+         account, so userId is the only one that actually carries a person. */
+      staff: staffName(v.userId || v.answeredBy || v.initiatedBy)
+    };
+  }
+
+  /* ONE ENTRY IS NOT ONE MESSAGE. A call stands alone; a day's texting on
+     one line collapses into a single entry, the way the old app did it —
+     otherwise a normal back-and-forth about one shift fills the whole card
+     with six rows that say nothing individually. Calls are never grouped:
+     two calls on one day are two different events. */
+  function dayKey(iso) {
+    try {
+      return new Date(iso).toLocaleDateString('en-CA', { timeZone: TZ });
+    } catch (e) { return String(iso || '').slice(0, 10); }
+  }
+
+  function groupEntries(items) {
+    var out = [], buckets = {};
+    items.forEach(function (it) {
+      if (it.kind === 'call') { out.push({
+        kind: 'call', at: it.at, dir: it.dir, line: it.line, lineId: it.lineId,
+        dur: it.dur, answered: it.answered, msgs: [], count: 1, failed: false,
+        text: '', id: it.id, staff: it.staff || null
+      }); return; }
+      var k = it.lineId + '|' + dayKey(it.at);
+      var b = buckets[k];
+      if (!b) {
+        b = buckets[k] = { kind: 'text', at: it.at, dir: it.dir, line: it.line,
+          lineId: it.lineId, dur: null, answered: null, msgs: [], count: 0,
+          failed: false, text: '', id: k, staff: null, staffSet: {} };
+        out.push(b);
+      }
+      b.msgs.push(it);
+      b.count++;
+      /* A day's thread can involve more than one person at the desk, so the
+         set is collected and de-duplicated — the same thing the old app did. */
+      if (it.staff) b.staffSet[it.staff] = 1;
+      if (it.failed) b.failed = true;
+      /* The entry sorts by its LATEST message, so an active thread stays
+         at the top of the log while it is still being replied to. */
+      if (String(it.at) > String(b.at)) b.at = it.at;
+      if (b.dir && b.dir !== it.dir) b.dir = null;   /* mixed = a conversation */
+    });
+    out.forEach(function (e) {
+      if (e.kind !== 'text') return;
+      e.msgs.sort(function (a, b) { return String(a.at) < String(b.at) ? -1 : 1; });
+      var last = e.msgs[e.msgs.length - 1];
+      e.text = last ? last.text : '';
+      e.lastDir = last ? last.dir : null;
+      var st = Object.keys(e.staffSet || {});
+      e.staff = st.length ? st.join(', ') : null;
+      delete e.staffSet;
+    });
+    out.sort(function (a, b) { return String(b.at) < String(a.at) ? -1 : (String(b.at) > String(a.at) ? 1 : 0); });
+    return out;
+  }
+
+  function status(cgId) {
+    var r = byCg[cgId];
+    return r ? r.status : (inFlight[cgId] ? 'loading' : 'idle');
+  }
+  function info(cgId) { return byCg[cgId] || null; }
+  function entries(cgId) {
+    var r = byCg[cgId];
+    return (r && r.status === 'ready') ? r.entries : [];
+  }
+
+  function load(c) {
+    if (!c) return Promise.resolve(null);
+    if (byCg[c.id]) return inFlight[c.id] || Promise.resolve(byCg[c.id]);
+    if (inFlight[c.id]) return inFlight[c.id];
+    if (typeof Quo === 'undefined') return Promise.resolve(null);
+
+    var e164 = toE164(c.phone);
+    if (!e164) {
+      /* A real state, not an error and not an empty log. One active
+         caregiver has no number at all, and saying "no calls or texts"
+         about them would be a claim we cannot support. */
+      byCg[c.id] = { status: 'nophone', entries: [], error: null, e164: null };
+      return Promise.resolve(byCg[c.id]);
+    }
+
+    byCg[c.id] = { status: 'loading', entries: [], error: null, e164: e164 };
+
+    var t0 = Date.now();
+    /* BOTH before the sweep, not just the lines: staffName() reads the
+       resolved user map at MAP time, so a late /v1/users would leave every
+       row that had already been mapped with a null staff and no way to tell.
+       userList() never rejects — it degrades to an empty map — so this cannot
+       fail the sweep for the sake of a display nicety. */
+    var p = Promise.all([lineList(), userList()]).then(function (both) {
+      var ls = both[0];
+      var jobs = [];
+      ls.forEach(function (L) {
+        jobs.push(function () {
+          return Quo.get('/v1/messages', { phoneNumberId: L.id, participants: e164, maxResults: PER_LINE })
+            .then(function (r) { return rows(r).map(function (m) { return mapMsg(m, L); }); },
+                  function () { return null; });
+        });
+        jobs.push(function () {
+          return Quo.get('/v1/calls', { phoneNumberId: L.id, participants: e164, maxResults: PER_LINE })
+            .then(function (r) { return rows(r).map(function (v) { return mapCall(v, L); }); },
+                  function () { return null; });
+        });
+      });
+      return pool(jobs, CONC).then(function (res) {
+        var items = [], failed = 0;
+        res.forEach(function (arr) { if (arr == null) failed++; else items = items.concat(arr); });
+        /* EVERY read failing is not an empty log — it is a failure, and
+           reporting it as "nothing on file" would be a confident lie about
+           a caregiver we learned nothing about. */
+        if (failed === jobs.length && jobs.length) throw new Error('Every line failed to read.');
+        byCg[c.id] = {
+          status: 'ready', entries: groupEntries(items), error: null, e164: e164,
+          lines: ls.length, requests: jobs.length, partial: failed > 0, failedReads: failed,
+          msgs: items.filter(function (x) { return x.kind === 'text'; }).length,
+          calls: items.filter(function (x) { return x.kind === 'call'; }).length,
+          ms: Date.now() - t0
+        };
+        console.info('[cgcomms] ' + c.name + ': ' + items.length + ' item(s) across ' + ls.length +
+          ' line(s) in ' + jobs.length + ' request(s), ' + (Date.now() - t0) + 'ms' +
+          (failed ? '  (' + failed + ' read(s) failed)' : ''));
+      });
+    })
+    .then(null, function (e) {
+      byCg[c.id] = { status: 'error', entries: [], error: (e && e.message) || String(e), e164: e164 };
+      console.warn('[cgcomms] ' + c.name + ' failed', e);
+    })
+    .then(function () {
+      delete inFlight[c.id];
+      try { render(); } catch (e) {}
+      try { if (state.cgAll) renderCgAllModal(); } catch (e) {}
+      return byCg[c.id];
+    });
+    inFlight[c.id] = p;
+    return p;
+  }
+
+  function retry(cgId) {
+    delete byCg[cgId]; delete inFlight[cgId];
+    var c = (typeof cgById === 'function') ? cgById(cgId) : null;
+    if (c) load(c);
+    try { render(); } catch (e) {}
+  }
+
+  /* Exposed for the panel — it formats in the pinned zone too. */
+  function stamp(iso, withTime) {
+    try {
+      var o = { timeZone: TZ, month: 'short', day: 'numeric' };
+      var d = new Date(iso);
+      var s = d.toLocaleDateString('en-US', o);
+      if (withTime) s += ' · ' + d.toLocaleTimeString('en-US',
+        { timeZone: TZ, hour: 'numeric', minute: '2-digit' });
+      return s;
+    } catch (e) { return String(iso || ''); }
+  }
+
+  return {
+    load: load, status: status, info: info, entries: entries, retry: retry,
+    toE164: toE164, stamp: stamp,
+    _reset: function () { byCg = {}; inFlight = {}; lines = null; linesP = null; users = null; usersP = null; }
+  };
+})();
+
 /* =========================================================
    CGWORK  —  hours ACTUALLY worked, from AxisCare visit history
    ---------------------------------------------------------
@@ -20431,6 +21193,137 @@ var AVNOTECLEAN = (function () {
   return { run: function () { return run(true); }, auto: function () { return run(false); },
            status: function () { return last; }, sql: SQL };
 })();
+
+/* =========================================================
+   QUO  —  read-only client for the Supabase Edge Function
+   ---------------------------------------------------------
+   Quo is the phone system: the numbers the desk answers. It
+   was called OpenPhone until the 2026 rebrand, so anything
+   you find written about OpenPhone's API describes this one.
+
+   CGCOMMS is its only caller in the UI — the Communication
+   Logs card on the Caregiver Overview. It went in as plumbing
+   with no reader, exactly as AxisCare did at stage one, and
+   stays a plain transport: every decision about what to fetch
+   and how to draw it lives in CGCOMMS, not here.
+
+   The key stays server-side. This talks to our own Supabase
+   Edge Function, which holds it. Two things follow from that
+   and both surprise people:
+
+     · It lives in SUPABASE, not Netlify, because that is
+       where the QUO_API_KEY secret is. Every other backend
+       in this repo is a Netlify function.
+     · A COMMIT DOES NOT DEPLOY IT. Netlify auto-deploys
+       index.html; supabase/functions/ needs
+           npx supabase functions deploy quo \
+             --project-ref gdzgoyawavffjdjpjbfz --no-verify-jwt
+       --project-ref is NOT optional: functions deploy does
+       not read project_id from supabase/config.toml. Until
+       that has run every call 404s, and call() names the
+       deploy command rather than reporting a bare status.
+
+   READ-ONLY, AND THAT IS THE POINT. Quo's API can send real
+   texts from real agency numbers and delete records. The
+   function forwards GET and refuses every other verb, so no
+   call made from here can send or change anything. There is
+   deliberately no send path. Adding one is a PHI and billing
+   decision, not a code change — see CLAUDE.md.
+
+   From the browser console:
+       await Quo.status()                      configured? deployed?
+       await Quo.ping()                        does the key work?
+       await Quo.inboxes()                     all twelve phone numbers
+       await Quo.users()                       the nine workspace members
+       await Quo.get('/v1/conversations', { maxResults: 10 })
+
+   Paths carry the /v1 prefix, the way AxisCare paths carry
+   /api. Quo pages on `pageToken`, not a page number, and
+   wraps list results in `data`.
+   ========================================================= */
+const Quo = (function(){
+  'use strict';
+
+  /* Empty when there are no Supabase keys, which is how the rest of the app
+     behaves too — the feature says it is unavailable rather than erroring. */
+  function fnUrl(){
+    var u=(window.SCHEDULER_CONFIG||{}).supabaseUrl;
+    return u ? String(u).replace(/\/+$/,'') + '/functions/v1/quo' : '';
+  }
+
+  function unavailable(reason){
+    var e=new Error(reason); e.quoUnavailable=true; return Promise.reject(e);
+  }
+
+  function call(params){
+    var base=fnUrl();
+    if(!base){
+      return unavailable('Quo is unavailable because this copy of the dashboard has no Supabase URL. '+
+        'The Quo key lives in a Supabase Edge Function, so without SUPABASE_URL there is nothing to call. '+
+        'The dashboard itself works fine without it.');
+    }
+    return fetch(base+'?'+new URLSearchParams(params).toString(), { headers:{ 'Accept':'application/json' } })
+      .catch(function(err){
+        return unavailable('Could not reach the Quo function at '+base+'. '+
+          '('+((err&&err.message)||'network error')+')');
+      })
+      .then(function(r){
+        return r.json()
+          .catch(function(){ return null; })   /* body may not be JSON at all */
+          .then(function(body){
+            if(r.ok) return body;
+
+            /* THE 404 TEST COMES FIRST, AND DOES NOT DEPEND ON THE BODY.
+               Supabase answers a MISSING function with a perfectly valid
+               JSON body that has no `error` key:
+                   {"code":"NOT_FOUND","message":"Requested function was not found"}
+               So the generic `body.error || 'HTTP '+status` produced a bare
+               "HTTP 404" and buried the only thing worth saying. This branch
+               used to live in the json() catch, where it could never run for
+               that exact case — the one case it was written for. Reported by
+               the desk on the Communication Logs card, 2026-09-11. */
+            if(r.status===404) throw Object.assign(new Error(
+              'The Quo function is not deployed. Committing does not deploy it — '+
+              'it needs: npx supabase functions deploy quo --no-verify-jwt'),
+              { status:404, notDeployed:true });
+
+            /* Our own function answers {ok:false, error}. Supabase's gateway
+               answers {message}. Prefer ours, fall back to theirs, and only
+               then to a bare status. */
+            var why=(body&&(body.error||body.message))||('HTTP '+r.status);
+            throw Object.assign(new Error(why), { status:r.status, body:body });
+          });
+      });
+  }
+
+  return {
+    /* Is the function deployed and is the key present? Never returns the key. */
+    status: function(){ return call({ action:'status' }); },
+    /* Actually call Quo and confirm the key works end to end. */
+    ping:   function(){ return call({ action:'ping' }); },
+    /* Proxy a GET to Quo. `path` must match the allowlist inside the function,
+       and must be a GET route — nothing else can be reached. */
+    get: function(path, query){
+      var p={ action:'get', path:path };
+      if(query) Object.keys(query).forEach(function(k){ p['q_'+k]=query[k]; });
+      return call(p);
+    },
+
+    /* Two convenience reads, both free of client information, for confirming
+       the wiring is live. Neither is called by anything in the UI. */
+    inboxes: function(){
+      return this.get('/v1/phone-numbers').then(function(r){
+        return (r && r.data && r.data.data) || [];
+      });
+    },
+    users: function(){
+      return this.get('/v1/users').then(function(r){
+        return (r && r.data && r.data.data) || [];
+      });
+    }
+  };
+})();
+
 
 /* Green means the caregiver can take a shift. Every other status they can
    record is a reason they cannot, and reads red — the label says which. */

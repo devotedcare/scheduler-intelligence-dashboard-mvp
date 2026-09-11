@@ -1,0 +1,36 @@
+# Supabase CLI config for the Scheduler Intelligence dashboard.
+#
+# WHY THIS FILE EXISTS. Everything else in this repo deploys to Netlify on a
+# commit. supabase/functions/ does NOT — it needs the CLI, and the CLI needs
+# to be told which project. Pinning the ref here means nobody has to remember
+# it, and nobody can deploy this app's functions to the wrong project.
+#
+#   Scheduler Intelligence   gdzgoyawavffjdjpjbfz   <- this repo
+#
+# Note the Supabase MCP connector has been seen pointed at a DIFFERENT
+# project (oplfuumzkgolqclgzoiv). That connector is read-only and cannot
+# deploy a function in any case, so it is not an alternative to this.
+#
+# DEPLOY:
+#   npx supabase login                                  # once per machine
+#   npx supabase functions deploy quo --project-ref gdzgoyawavffjdjpjbfz --no-verify-jwt
+#
+# `functions deploy` does NOT read project_id from this file — it wants
+# either a prior `supabase link` or an explicit --project-ref, and says
+# "Cannot find project ref. Have you run supabase link?" otherwise. The
+# ref is pinned here so the right one is always to hand; pass it.
+#
+# Auth is a PERSONAL ACCESS TOKEN, not the anon or service-role key.
+# Either `supabase login` (interactive, opens a browser) or the
+# SUPABASE_ACCESS_TOKEN environment variable, which .env.example
+# documents. An expired token fails late and confusingly: the upload
+# starts, then "unexpected deploy status 401: Unauthorized".
+#
+# --no-verify-jwt is REQUIRED: the dashboard sends no JWT. Same as
+# devi-agent. Deploying without it returns 401 to every browser call.
+#
+# Secrets are NOT set from this file — they live in the Supabase dashboard
+# under Project Settings > Edge Functions > Secrets. See .env.example for
+# the names (QUO_API_KEY, ANTHROPIC_API_KEY, ALLOWED_ORIGIN, ...).
+
+project_id = "gdzgoyawavffjdjpjbfz"
