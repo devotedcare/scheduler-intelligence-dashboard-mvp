@@ -2004,6 +2004,33 @@ body.ai-white .main{display:flex;flex-direction:column;min-height:100vh}
   .fr-preview{background:#52555A;padding:20px;max-height:60vh;overflow:auto;border-radius:var(--r);display:flex;justify-content:center;align-items:flex-start}
   .fr-preview #studioPrev,.fr-preview>div{width:100%;display:flex;justify-content:center}
   .modal.mwide{max-width:880px}
+  /* Communication Logs ONLY — every other modal, mwide or not, is untouched.
+     It is the one expanded card that is master AND detail rather than a
+     single column, so it has two things to fit: at 880 the rail ellipsised a
+     staff list like "Jenn, Ruffa, Marivic" down to "Jenn, …" and the bubbles
+     were squeezed into what was left.
+
+     THE min() IS DOING TWO JOBS. 875px is the size Mitch asked for on
+     2026-09-11, having seen 1340 and found it too big — a dialog that takes
+     most of a monitor to show one phone thread. 94vw is not a second opinion
+     about width, it is the fit-to-screen guard: below a ~931px window the
+     fixed number would overflow, and 94vw takes over. .modal-bg only pads
+     20px a side, so 94vw always fits. Change the px; leave the vw alone.
+
+     The class is added in openCgAll AND re-asserted in renderCgAllModal, so
+     it cannot be lost on a re-render; closeModal takes it off with mwide. */
+  /* !important IS REQUIRED HERE, and it is not laziness.
+     A bare `.mwide{max-width:680px!important}` lives ~70k characters further
+     down this stylesheet, wedged between .qs-customtog and .rv-grid with no
+     comment. It beats `.modal.mwide{max-width:880px}` outright, so EVERY wide
+     modal in this app is really 680px and that 880 has been dead for as long
+     as the override has existed. Measured in Chromium on 2026-09-11: plain
+     460, mwide 680, and this rule 680 until it was marked important too.
+     An !important can only be outranked by another, and `.modal.mwide.mcomms`
+     (0,3,0) beats `.mwide` (0,1,0), so this wins on specificity and nothing
+     else changes. Fixing the bare rule instead would resize every modal in
+     the app, which is a much bigger change than this card asked for. */
+  .modal.mwide.mcomms{max-width:min(875px, 94vw)!important}
   .pf-doc{background:#fff;color:#000;font-family:Arial,Helvetica,sans-serif;width:816px;max-width:none;margin:0 auto;padding:46px 54px;box-shadow:0 4px 18px rgba(0,0,0,.35)}
   .fr-preview .pf-doc{zoom:.66}
   .pf-letter{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #000;padding-bottom:11px;margin-bottom:13px}
@@ -2349,12 +2376,23 @@ body.ai-white .main{display:flex;flex-direction:column;min-height:100vh}
 
 .cm-main{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
 .cm-top{display:flex;align-items:baseline;gap:8px;justify-content:space-between;min-width:0}
+/* THE NAME TAKES THE SPACE AND THE LINE GIVES IT UP. These two were the wrong
+   way round: the line name grew while the name shrank, so a real staff list
+   ("Jenn, Ruffa, Marivic") ellipsised to "Jenn, …" while "Scheduling
+   Department" sat there in full. The name is the thing being scanned for. */
 .cm-name{flex:0 1 auto;min-width:0;font-weight:700;font-size:13px;color:var(--ink);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-/* The agency line, quietly. It repeats down the whole column on most
-   caregivers, so it must not compete with the name — but "Recruitment"
-   sitting among a run of "Scheduling" is exactly what you want to catch. */
-.cm-lineq{flex:1 1 auto;min-width:0;font-size:11.5px;color:var(--ink-faint);
+/* The agency line, quietly, and first to be cut. It repeats down the whole
+   column on most caregivers, so it must not compete with the name — but
+   "Recruitment" among a run of "Scheduling" is what you want to catch. */
+/* SHRINK FACTOR 100, not 1, and that is the whole fix. Flex shrinks each item
+   in proportion to (factor x base width), so with both at 1 the NAME — being
+   the wider of the two — gave up more than the line did and ellipsised first.
+   Measured in Chromium: "Jenn, Ruffa, Marivic" still clipped at a 340px rail
+   until this was raised. At 100 the line collapses almost entirely before the
+   name loses a character, which is the priority the row wants. The full line
+   name stays in the title attribute. */
+.cm-lineq{flex:0 100 auto;min-width:0;font-size:11.5px;color:var(--ink-faint);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .cm-when{flex:0 0 auto;font-size:11.5px;color:var(--ink-soft);white-space:nowrap;
   font-variant-numeric:tabular-nums}
@@ -2392,7 +2430,21 @@ body.ai-white .main{display:flex;flex-direction:column;min-height:100vh}
    bringing the outer scrollbar back. */
 .cm-split{display:flex;gap:0;height:calc(62vh - 148px);min-height:240px;
   border:1px solid var(--line);border-radius:10px;overflow:hidden}
-.cm-rail{flex:0 0 286px;overflow-y:auto;border-right:1px solid var(--line);
+/* 330px: the SMALLEST rail that still shows a real staff list in full, so the
+   conversation keeps everything else. Swept in Chromium against an 875px
+   dialog (839px of split), with the longest list that actually occurs —
+   three first names, "Deprise, Kristine, Marivic":
+
+       rail  detail  bubble   clips
+       300    537     401     "Deprise, Kristine, Marivic"
+       316    521     388     "Deprise, Kristine, Marivic"
+       330    507     377     none   <- here
+       372    465     343     none
+
+   Anything under 330 starts eating names; anything over it is taking width
+   from the messages for no gain. Re-run scratch railsweep if the row ever
+   grows a fourth element. */
+.cm-rail{flex:0 0 330px;overflow-y:auto;border-right:1px solid var(--line);
   display:flex;flex-direction:column;background:var(--surface)}
 .cm-detail{flex:1;min-width:0;overflow-y:auto;padding:16px 18px}
 
@@ -2400,28 +2452,54 @@ body.ai-white .main{display:flex;flex-direction:column;min-height:100vh}
 .cm-dtitle{font-size:15px;font-weight:700;color:var(--ink);line-height:1.3}
 .cm-dwhen{font-size:12.5px;color:var(--ink-soft);margin-top:1px}
 
-/* the facts block — a call has nothing else, so it carries the pane */
-.cm-facts{display:flex;flex-wrap:wrap;gap:8px 26px;margin:0 0 4px;padding:12px 14px;
-  background:var(--line-soft);border-radius:10px}
-.cm-fact{display:flex;flex-direction:column;gap:2px;min-width:0}
-.cm-fact dt{font-size:10.5px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;
-  color:var(--ink-faint)}
-.cm-fact dd{margin:0;font-size:13px;color:var(--ink);font-weight:650}
+/* The grey facts box that used to sit here is GONE. Everything in it —
+   direction, outcome, duration, agency line, who handled it — is already on
+   the rail row the scheduler just clicked, so it was furniture around a
+   repeat. It is one dot-joined line under the heading now (.cm-dwhen), and
+   the pane leads with the actual content. Do not put the box back. */
+.cm-dmain{min-width:0}
+
+/* Quo's AI summary of a call. Labelled as Quo's — it is machine-written and
+   that has to be visible before anybody acts on it. */
+.cm-sumwrap{margin-top:16px}
+.cm-byai{font-weight:700;color:var(--ink-faint);letter-spacing:0;text-transform:none;
+  font-size:10.5px}
+.cm-bul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px}
+.cm-bul li{font-size:13.5px;color:var(--ink);line-height:1.55;overflow-wrap:anywhere}
+.cm-next{margin-top:14px}
 
 .cm-threadwrap{margin-top:16px}
 .cm-dlabel{font-size:10.5px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;
   color:var(--ink-faint);margin-bottom:9px}
-.cm-thread{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:10px}
-/* NOT chat bubbles — a flat, readable run, the way the old app had it. The
-   left accent is the only direction cue, which keeps long threads calm. */
-.cm-msg{border-left:2px solid var(--line);padding-left:11px}
-.cm-msg.cm-in{border-left-color:#2A6899}
-.cm-msg.cm-out{border-left-color:#C9D2DE}
-.cm-msgh{display:flex;align-items:baseline;gap:8px;margin-bottom:2px}
-.cm-msgh b{font-size:12px;color:var(--ink);font-weight:700}
-.cm-t{font-size:11.5px;color:var(--ink-faint);font-variant-numeric:tabular-nums}
-.cm-undel{font-size:11px;font-weight:700;color:var(--crit-tx)}
-.cm-msgtx{font-size:13.5px;color:var(--ink);line-height:1.55;overflow-wrap:anywhere}
+/* CHAT BUBBLES, left for the caregiver and right for the desk.
+   The old Scheduling app deliberately avoided these and so did the first
+   version here — a flat run with a left accent. Mitch asked for "messenger
+   vibes" on 2026-09-11 having seen both, so this is a decision, not drift:
+   a thread reads as a conversation, and who-said-what is carried by the side
+   it sits on rather than by a name you have to read.
+
+   The RAIL is still a flat list. Bubbles are for reading one conversation,
+   not for scanning fifty. */
+.cm-thread{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:13px}
+/* 80% of the pane, capped at a comfortable reading measure. At today's 875px
+   dialog the 80% wins and a bubble is 377px; the 560 only bites if the dialog
+   is ever widened again — at the 1340 that was briefly tried, an uncapped
+   bubble ran to ~700px and the eye lost the start of the next line. */
+.cm-msg{display:flex;flex-direction:column;max-width:min(80%, 560px);min-width:0}
+.cm-msg.cm-in{align-self:flex-start;align-items:flex-start}
+.cm-msg.cm-out{align-self:flex-end;align-items:flex-end}
+/* pre-wrap keeps the line breaks people actually typed — a shift offer laid
+   out over three lines is unreadable reflowed into one paragraph. */
+.cm-bub{padding:9px 13px;border-radius:15px;font-size:13.5px;line-height:1.55;
+  color:var(--ink);overflow-wrap:anywhere;white-space:pre-wrap}
+.cm-in .cm-bub{background:var(--line-soft);border:1px solid var(--line);
+  border-bottom-left-radius:5px}
+.cm-out .cm-bub{background:#E4EEF9;border:1px solid #CFE0F2;
+  border-bottom-right-radius:5px}
+.cm-bub-fail{background:#FBEFEF;border-color:#EFD5D5}
+.cm-cap{font-size:11px;color:var(--ink-faint);margin-top:4px;padding:0 5px;
+  font-variant-numeric:tabular-nums}
+.cm-undel{font-weight:700;color:var(--crit-tx)}
 
 /* Narrow: stack the panes and cap the rail, as the old app did. */
 @media(max-width:760px){
@@ -3217,6 +3295,12 @@ const I = {
   history:'<path d="M3.5 12a8.5 8.5 0 108.5-8.5 8.4 8.4 0 00-6.01 2.49" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/><path d="M3.5 3.5v4.8h4.8" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 7.8V12l3.2 1.9" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
   bell:'<path d="M18 8.5a6 6 0 10-12 0c0 6-2.5 7.5-2.5 7.5h17S18 14.5 18 8.5M13.6 19.5a2 2 0 01-3.2 0" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
   chat:'<path d="M20.5 11.4a7.9 7.9 0 01-8.5 7.9 9 9 0 01-2.5-.4L4.5 20.5l1.3-4.2A7.7 7.7 0 014.5 11.4a7.9 7.9 0 018-7.9 7.9 7.9 0 018 7.9z" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
+  /* A handset with an arrow, so direction reads at a glance instead of being
+     a word to parse: callout points AWAY (up-right), callin points BACK at
+     the phone (down-left). The handset is the same shape in both, scaled down
+     from `phone` to leave the top-right corner free for the arrow. */
+  callout:'<path d="M4.6 3.6h3.1l1.6 3.9-2.3 1.6a8.7 8.7 0 003.9 3.9l1.6-2.3 3.9 1.6v3.1a1.6 1.6 0 01-1.6 1.6A12.5 12.5 0 013 5.2a1.6 1.6 0 011.6-1.6z" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linejoin="round"/><path d="M15.2 8.8l5.6-5.6M16.9 3.2h3.9v3.9" stroke="currentColor" stroke-width="1.9" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
+  callin:'<path d="M4.6 3.6h3.1l1.6 3.9-2.3 1.6a8.7 8.7 0 003.9 3.9l1.6-2.3 3.9 1.6v3.1a1.6 1.6 0 01-1.6 1.6A12.5 12.5 0 013 5.2a1.6 1.6 0 011.6-1.6z" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linejoin="round"/><path d="M20.8 3.2l-5.6 5.6M15.2 4.9v3.9h3.9" stroke="currentColor" stroke-width="1.9" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
 };
 const ic = (k,sz=17) => `<svg class="ico" width="${sz}" height="${sz}" viewBox="0 0 24 24">${I[k]||''}</svg>`;
 
@@ -11351,6 +11435,16 @@ function cgFbSave(){
    and undelivered texts, which the old app hid.
    -------------------------------------------------------------------- */
 
+/* The row label for an agency line. Quo's inbox names carry a category word
+   that is the same on most of them — "Scheduling Department", "Client Support
+   Line", "CEO Direct Line" — and on a 340px row those eleven characters are
+   taken straight out of the caregiver's name. The distinguishing word is the
+   first one, so the suffix goes. The FULL name is still what the detail pane
+   shows under "Agency line", where there is room for it. */
+function cmLine(s){
+  return String(s==null?'':s).replace(/\s+(Direct Line|Department|Line|Hotline)$/i,'').trim();
+}
+
 function cmDur(s){
   if(s==null) return '';
   if(s<60) return s+' sec';
@@ -11382,9 +11476,14 @@ function cmPreview(s){
 function cmIcon(e,sz){
   const isCall=e.kind==='call';
   const tone=isCall?(e.answered?'cm-call':'cm-miss'):(e.failed?'cm-fail':'cm-text');
-  const label=isCall?(e.answered?'Call':'Call, not answered')
-                    :(e.failed?'Message not delivered':'Text');
-  return '<span class="cm-ic '+tone+'" title="'+esc(label)+'">'+ic(isCall?'phone':'chat',sz||12)+'</span>';
+  /* The arrow carries the direction on a call, so "Incoming"/"Outgoing" does
+     not have to be read to know which way it went. A text entry can run both
+     ways in one day, so it keeps the neutral bubble. */
+  const glyph=isCall ? (e.dir==='in'?'callin':'callout') : 'chat';
+  const label=isCall
+    ? ((e.dir==='in'?'Incoming call':'Outgoing call')+(e.answered?'':', not answered'))
+    : (e.failed?'Message not delivered':'Text');
+  return '<span class="cm-ic '+tone+'" title="'+esc(label)+'">'+ic(glyph,sz||12)+'</span>';
 }
 
 /* The GIST — the one line under the heading that says what this was.
@@ -11430,7 +11529,7 @@ function cmRow(e, opts){
     '<span class="cm-main">'+
       '<span class="cm-top">'+
         '<span class="cm-name">'+escText(who)+'</span>'+
-        '<span class="cm-lineq">'+escText(e.line||'')+'</span>'+
+        '<span class="cm-lineq" title="'+esc(e.line||'')+'">'+escText(cmLine(e.line))+'</span>'+
         '<span class="cm-when">'+escText(CGCOMMS.stamp(e.at,true))+'</span>'+
       '</span>'+
       '<span class="cm-gist'+(e.failed?' cm-bad':'')+'">'+escText(cmGist(e,opts.who,who))+'</span>'+
@@ -11441,48 +11540,75 @@ function cmRow(e, opts){
 
 /* ---- the detail pane -------------------------------------------------- */
 
-function cmFact(k,v){
-  return v ? '<div class="cm-fact"><dt>'+escText(k)+'</dt><dd>'+escText(v)+'</dd></div>' : '';
+/* Quo's own summary of ONE call, in whichever of four states it is in. */
+function cmSummary(e){
+  CGCOMMS.loadSummary(e.id);
+  const s=CGCOMMS.summary(e.id);
+  const L='<div class="cm-dlabel">Call summary';
+  if(!s || s.status==='loading')
+    return '<div class="cm-sumwrap">'+L+'</div><div class="ws-none">Reading Quo’s summary of this call…</div></div>';
+  if(s.status==='error')
+    return '<div class="cm-sumwrap">'+L+'</div><div class="ws-none">Couldn’t read the summary. '+escText(s.error||'')+'</div></div>';
+  if(s.status==='none')
+    return '<div class="cm-sumwrap">'+L+'</div><div class="ws-none">Quo found nothing to summarise on this call.</div></div>';
+  const bul=function(arr){ return '<ul class="cm-bul">'+arr.map(function(b){
+    return '<li>'+escText(b)+'</li>'; }).join('')+'</ul>'; };
+  /* Labelled as Quo's, not ours. It is machine-written and a scheduler should
+     know that before acting on it — the same reason the old app put an
+     "AI Summary" chip on its equivalent block. */
+  return '<div class="cm-sumwrap">'+L+' <span class="cm-byai">from Quo</span></div>'+
+    bul(s.bullets)+
+    (s.next.length ? '<div class="cm-dlabel cm-next">Next steps</div>'+bul(s.next) : '')+
+    '</div>';
 }
 
 function cmDetail(e, cgName){
   const isCall=e.kind==='call';
   const who=(String(cgName||'').trim().split(/\s+/)[0])||'Caregiver';
 
+  /* THE GREY FACTS BOX IS GONE. Direction, outcome, duration, agency line and
+     who handled it are all on the rail row the scheduler just clicked, so
+     boxing them up again was furniture around a repeat. What is left is one
+     quiet dot-joined line under the heading — the same grammar the rest of
+     this card uses — and then the actual content. */
+  const bits=[CGCOMMS.stamp(e.at,true), cmAgo(e.at)];
+  if(isCall){
+    bits.push(e.dir==='in'?'Incoming':'Outgoing');
+    if(!e.answered) bits.push('No answer');
+    else if(e.dur!=null && e.dur>0) bits.push(cmDur(e.dur));
+  }else{
+    bits.push(e.count+(e.count===1?' message':' messages'));
+    if(e.dir) bits.push(e.dir==='in'?'Incoming':'Outgoing');
+  }
+  /* THE AGENCY LINE AND THE STAFF NAME ARE DELIBERATELY NOT HERE. Both are
+     already on the rail row the scheduler clicked to get here — bold, at the
+     top of that row — so repeating them a second time two inches to the right
+     is the same redundancy the grey box was removed for. What is left is what
+     the row does NOT say: exactly when, how long ago, and how the call went. */
+
   const head='<div class="cm-dhead">'+cmIcon(e,15)+
-    '<div><div class="cm-dtitle">'+(isCall?'Phone call':'Text conversation')+'</div>'+
-    '<div class="cm-dwhen">'+escText(CGCOMMS.stamp(e.at,true))+' · '+escText(cmAgo(e.at))+'</div></div></div>';
+    '<div class="cm-dmain"><div class="cm-dtitle">'+(isCall?'Phone call':'Text conversation')+'</div>'+
+    '<div class="cm-dwhen">'+escText(bits.filter(Boolean).join(' · '))+'</div></div></div>';
 
-  const facts='<dl class="cm-facts">'+
-    cmFact('Direction', e.dir ? (e.dir==='in'?'Incoming':'Outgoing') : 'Both ways')+
-    (isCall ? cmFact('Outcome', e.answered?'Answered':'No answer') : '')+
-    (isCall && e.answered && e.dur!=null ? cmFact('Duration', cmDur(e.dur)) : '')+
-    (!isCall ? cmFact('Messages', String(e.count)) : '')+
-    cmFact('Agency line', e.line)+
-    /* Null on an entry the caregiver started, which is a real answer rather
-       than a gap — so it is named as one instead of showing an empty cell. */
-    cmFact('Handled by', e.staff || (e.dir==='in' ? who+' started it' : null))+
-    '</dl>';
+  /* A call used to end here with nothing to read at all. Quo writes a summary
+     for every one, so that is what fills the pane now. */
+  if(isCall) return head+cmSummary(e);
 
-  /* A call has nothing else to show — Quo's recording and transcript
-     endpoints are Business/Scale only and this account gets 403 from them,
-     so an empty "Transcript" heading would be a promise we cannot keep. */
-  if(isCall) return head+facts;
-
-  /* The thread, in full and NOT behind a fold. The old app hid it because its
-     detail pane led with an AI summary; we have no summary, so the messages
-     ARE the content and hiding them would leave the pane almost empty. */
+  /* The thread, in full and with NO heading over it. "MESSAGES" labelled the
+     only thing in the pane, which is a label that tells you nothing. */
   const msgs=(e.msgs||[]).map(function(m){
     const t=CGCOMMS.stamp(m.at,true).split(' · ').pop();
+    const from=(m.dir==='in') ? who : (m.staff||'Office');
+    /* The caption sits UNDER the bubble, the way a messenger app does it —
+       the bubble is what you read, the attribution is what you check. */
+    const cap=escText(from)+' · '+escText(t)+
+      (m.failed?' · <span class="cm-undel">Not delivered</span>':'');
     return '<li class="cm-msg '+(m.dir==='in'?'cm-in':'cm-out')+'">'+
-      '<div class="cm-msgh"><b>'+escText(m.dir==='in' ? who : (m.staff||'Office'))+'</b>'+
-        '<span class="cm-t">'+escText(t)+'</span>'+
-        (m.failed?'<span class="cm-undel">Not delivered</span>':'')+'</div>'+
-      '<div class="cm-msgtx'+(m.failed?' cm-bad':'')+'">'+escText(m.text||'(no text)')+'</div></li>';
+      '<div class="cm-bub'+(m.failed?' cm-bub-fail':'')+'">'+escText(m.text||'(no text)')+'</div>'+
+      '<div class="cm-cap">'+cap+'</div></li>';
   }).join('');
 
-  return head+facts+'<div class="cm-threadwrap"><div class="cm-dlabel">Messages</div>'+
-    '<ul class="cm-thread">'+msgs+'</ul></div>';
+  return head+'<div class="cm-threadwrap"><ul class="cm-thread">'+msgs+'</ul></div>';
 }
 
 /* Which entry the modal is showing. Module-level and keyed by caregiver, NOT
@@ -11657,7 +11783,11 @@ function cgUpdSave(){
    that could drift from the one on the page. */
 function openCgAll(id,which){
   state.cgAll={id:id, which:which};
-  renderCgAllModal(); mEl.classList.add('mwide'); mbg.classList.add('show');
+  renderCgAllModal(); mEl.classList.add('mwide');
+  /* Communication Logs is master/detail and needs the extra width — see
+     .modal.mwide.mcomms. closeModal() takes it off again. */
+  if(which==='comms') mEl.classList.add('mcomms');
+  mbg.classList.add('show');
 }
 function cgAllClose(){ state.cgAll=null; closeModal(); }
 function renderCgAllModal(){
@@ -11666,9 +11796,34 @@ function renderCgAllModal(){
   const T={notes:['Notes',cgNotesPanel], concerns:['Client Feedback & Concerns',cgConcernsPanel],
            comms:['Communication Logs',cgCommsPanel], updates:['Updates',cgUpdatesPanel]}[a.which];
   if(!T) return cgAllClose();
+  /* Re-asserted here, not only in openCgAll: this runs again on every cmPick,
+     and the wide-modal class must survive a re-render. Adding a class that is
+     already there is a no-op, and the `comms` test keeps it off the other
+     three expanded cards. */
+  if(a.which==='comms') mEl.classList.add('mcomms'); else mEl.classList.remove('mcomms');
+
+  /* KEEP THE SCROLL POSITIONS ACROSS THE REBUILD.
+     This replaces innerHTML wholesale, so every pane inside it is destroyed
+     and recreated at scrollTop 0. On Communication Logs that meant clicking a
+     row near the bottom of the rail threw the list back to the top — the row
+     you just chose scrolled out of sight, which is the one thing a
+     master/detail must not do. It fires on every re-render, so the summary
+     landing a second later did it again.
+     Read before, restore after, and only when there is something to restore. */
+  const keep=[];
+  ['.cm-rail','.cm-detail'].forEach(function(sel){
+    const el=mEl.querySelector(sel);
+    if(el && el.scrollTop) keep.push([sel, el.scrollTop]);
+  });
+
   mEl.innerHTML=`<div class="mh"><span class="mt">${esc(T[0])} — ${esc(c.name)}</span>
       <button class="mc" onclick="cgAllClose()">×</button></div>
     <div class="mb cg-allbody">${T[1](c,true)}</div>`;
+
+  keep.forEach(function(p){
+    const el=mEl.querySelector(p[0]);
+    if(el) el.scrollTop=p[1];
+  });
 }
 
 /* Remove a client block. ops.clientRestr is on the caregivers slice, which
@@ -14680,7 +14835,7 @@ function renderDock(){
 
 /* ============ MODALS ============ */
 const mbg=document.getElementById('modalbg'), mEl=document.getElementById('modal');
-function closeModal(){ mbg.classList.remove('show'); mEl.classList.remove('mwide'); mEl.innerHTML=''; }
+function closeModal(){ mbg.classList.remove('show'); mEl.classList.remove('mwide'); mEl.classList.remove('mcomms'); mEl.innerHTML=''; }
 mbg.addEventListener('click', e=>{ if(e.target===mbg) closeModal(); });
 document.getElementById('sidebg').addEventListener('click', e=>{ if(e.target.id==='sidebg') closeSidePanel(); });
 
@@ -19510,6 +19665,7 @@ var CGCOMMS = (function () {
   var byCg = {}, inFlight = {};
   var lines = null, linesP = null;
   var users = null, usersP = null;
+  var sums = {}, sumsP = {};
 
   var CONC = 4;        /* see the header — Quo allows 10/s per KEY, not per user */
   var PER_LINE = 50;   /* Quo's cap is 100; 50 is two months of a busy caregiver */
@@ -19597,6 +19753,66 @@ var CGCOMMS = (function () {
     return n.split(/\s+/)[0];
   }
 
+  /* QUO'S OWN AI SUMMARY OF A CALL — fetched ONE AT A TIME, on demand.
+     ---------------------------------------------------------------------
+     A call leaves nothing to read: no text, no transcript on the row. Quo
+     generates a summary for each one, and it is real content — measured over
+     14 answered calls longer than 45 seconds on this account, every single
+     one came back `status: "completed"` with bullets and next steps.
+
+     > CLAUDE.md used to say these endpoints were "Business/Scale plans only
+     > and this account gets 403". That came from reading Quo's docs and was
+     > never tested here. It is WRONG: /v1/call-summaries, /v1/call-transcripts
+     > and /v1/call-recordings all answer 200 on this key. Corrected
+     > 2026-09-11 after actually calling them.
+
+     ONE REQUEST, ONLY WHEN A CALL IS OPENED. A caregiver has ~50 calls;
+     fetching every summary during the sweep would be 50 more requests against
+     a 10/s ceiling for content nobody has asked to see. So this is lazy, keyed
+     by call id, cached for the session, and re-renders the dialog when it
+     lands — the same shape as the sweep itself.
+
+     A short call genuinely has nothing to say and Quo returns the sentence
+     "This call had no actionable details to summarize." That is an answer,
+     not an error, and it is shown as one. */
+  function summary(callId) {
+    return sums[callId] || (sumsP[callId] ? { status: 'loading' } : null);
+  }
+
+  function loadSummary(callId) {
+    if (!callId || sums[callId] || sumsP[callId]) return;
+    if (typeof Quo === 'undefined') return;
+    sumsP[callId] = Quo.get('/v1/call-summaries/' + encodeURIComponent(callId))
+      .then(function (r) {
+        var d = (r && r.data && r.data.data) || {};
+        var bullets = Array.isArray(d.summary) ? d.summary.filter(Boolean) : [];
+        /* Quo's own words for "nothing happened here". Treated as a state of
+           its own so the pane can say it plainly instead of showing it as if
+           it were a finding. */
+        var empty = !bullets.length ||
+          (bullets.length === 1 && /no actionable details/i.test(bullets[0]));
+        sums[callId] = {
+          status: empty ? 'none' : 'ready',
+          bullets: empty ? [] : bullets,
+          next: Array.isArray(d.nextSteps) ? d.nextSteps.filter(Boolean) : [],
+          state: d.status || null
+        };
+      }, function (e) {
+        /* A 404 HERE IS "NO SUMMARY", NOT A FAILURE. Quo has no summary row
+           for plenty of calls — 4 of 14 on one caregiver, and every one of
+           them short or unanswered — and answers 404 rather than an empty
+           body. Reporting that as an error put a red diagnostic on an
+           ordinary 31-second call. */
+        sums[callId] = (e && e.status === 404)
+          ? { status: 'none', bullets: [], next: [] }
+          : { status: 'error', bullets: [], next: [], error: (e && e.message) || String(e) };
+      })
+      .then(function () {
+        delete sumsP[callId];
+        try { if (state.cgAll) renderCgAllModal(); } catch (e) {}
+      });
+  }
+
   /* A bounded worker pool. Promise.all over 24 fetches would fire them all
      at once and take a wall of 429s; this keeps CONC in flight and no more.
      A job never rejects — a single line failing must not blank the card —
@@ -19626,7 +19842,7 @@ var CGCOMMS = (function () {
          who thinks they sent a shift offer that never arrived is exactly
          the person this card should be telling. */
       failed: (m.status === 'undelivered' || m.status === 'failed'),
-      status: m.status || '', dur: null, answered: null,
+      dur: null, answered: null,
       staff: staffName(m.userId)
     };
   }
@@ -19636,7 +19852,6 @@ var CGCOMMS = (function () {
       id: v.id, at: v.createdAt, kind: 'call',
       dir: (v.direction === 'incoming') ? 'in' : 'out',
       lineId: L.id, line: L.name, text: '', failed: false,
-      status: v.status || '',
       dur: (typeof v.duration === 'number') ? v.duration : null,
       /* answeredAt is the only reliable mark: a call can read `completed`
          and still never have been picked up (18 of 271 in the sample). */
@@ -19661,8 +19876,13 @@ var CGCOMMS = (function () {
   function groupEntries(items) {
     var out = [], buckets = {};
     items.forEach(function (it) {
+      /* `msgs: []` and `text: ''` on a CALL are not dead weight — they keep
+         every entry the same shape, so a consumer iterating the one mixed
+         array can read e.msgs.length without first asking what kind it is.
+         `lineId` is NOT carried onto the entry: it is the bucket key below
+         and nothing reads it afterwards. */
       if (it.kind === 'call') { out.push({
-        kind: 'call', at: it.at, dir: it.dir, line: it.line, lineId: it.lineId,
+        kind: 'call', at: it.at, dir: it.dir, line: it.line,
         dur: it.dur, answered: it.answered, msgs: [], count: 1, failed: false,
         text: '', id: it.id, staff: it.staff || null
       }); return; }
@@ -19670,7 +19890,7 @@ var CGCOMMS = (function () {
       var b = buckets[k];
       if (!b) {
         b = buckets[k] = { kind: 'text', at: it.at, dir: it.dir, line: it.line,
-          lineId: it.lineId, dur: null, answered: null, msgs: [], count: 0,
+          dur: null, answered: null, msgs: [], count: 0,
           failed: false, text: '', id: k, staff: null, staffSet: {} };
         out.push(b);
       }
@@ -19801,8 +20021,9 @@ var CGCOMMS = (function () {
 
   return {
     load: load, status: status, info: info, entries: entries, retry: retry,
-    toE164: toE164, stamp: stamp,
-    _reset: function () { byCg = {}; inFlight = {}; lines = null; linesP = null; users = null; usersP = null; }
+    toE164: toE164, stamp: stamp, summary: summary, loadSummary: loadSummary,
+    _reset: function () { byCg = {}; inFlight = {}; lines = null; linesP = null;
+      users = null; usersP = null; sums = {}; sumsP = {}; }
   };
 })();
 
@@ -21273,16 +21494,26 @@ const Quo = (function(){
           .then(function(body){
             if(r.ok) return body;
 
-            /* THE 404 TEST COMES FIRST, AND DOES NOT DEPEND ON THE BODY.
-               Supabase answers a MISSING function with a perfectly valid
-               JSON body that has no `error` key:
-                   {"code":"NOT_FOUND","message":"Requested function was not found"}
-               So the generic `body.error || 'HTTP '+status` produced a bare
-               "HTTP 404" and buried the only thing worth saying. This branch
-               used to live in the json() catch, where it could never run for
-               that exact case — the one case it was written for. Reported by
-               the desk on the Communication Logs card, 2026-09-11. */
-            if(r.status===404) throw Object.assign(new Error(
+            /* TWO DIFFERENT 404s, AND THEY MUST NOT BE CONFUSED.
+               ---------------------------------------------------------
+               · The SUPABASE GATEWAY answers a missing function with a
+                 perfectly valid JSON body that has no `error` key:
+                     {"code":"NOT_FOUND","message":"Requested function was not found"}
+                 The generic `body.error || 'HTTP '+status` therefore produced
+                 a bare "HTTP 404" and buried the only useful sentence.
+               · OUR OWN FUNCTION forwards Quo's 404 verbatim, inside its own
+                 envelope: {ok:false, status:404, error:"Quo returned HTTP 404."}.
+                 Quo 404s routinely — a call with no summary is a 404, 4 of 14
+                 on one caregiver — so this is an ordinary answer, not an
+                 outage.
+
+               The envelope is what tells them apart: ours always carries
+               `ok:false` and `error`. A first version tested only the status
+               and told the desk the function was undeployed while it was
+               serving the request perfectly. Reported 2026-09-11 off a call
+               that simply had no summary. */
+            const ours = body && body.ok === false && body.error;
+            if(r.status===404 && !ours) throw Object.assign(new Error(
               'The Quo function is not deployed. Committing does not deploy it — '+
               'it needs: npx supabase functions deploy quo --no-verify-jwt'),
               { status:404, notDeployed:true });

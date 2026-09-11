@@ -2237,9 +2237,30 @@ a one-person lookup with no error anywhere.
 > which is why the card queries per inbox.
 
 Other limits worth knowing: **10 requests per second per API key**, shared by
-everything pointed at that key, `429` on exceeding it. Call **summaries and
-transcripts are Business/Scale plans only** and answer `403` otherwise. Phone
-numbers are E.164 everywhere (`+18053127736`).
+everything pointed at that key, `429` on exceeding it. Phone numbers are E.164
+everywhere (`+18053127736`).
+
+> **Corrected 2026-09-11. Call summaries and transcripts DO work on this
+> account.** This paragraph used to say they were "Business/Scale plans only
+> and answer `403` otherwise" — which came from reading Quo's docs and was
+> never tested here. Measured against the live key, all three answer **200**:
+>
+> ```
+> GET /v1/call-summaries/{callId}    {callId, summary[], nextSteps[], status, jobs}
+> GET /v1/call-transcripts/{id}      {callId, dialogue[], duration, status, createdAt}
+> GET /v1/call-recordings/{callId}   an array, empty on this account
+> ```
+>
+> And the summaries are real: **14 of 14** answered calls longer than 45
+> seconds came back `status: "completed"` with bullets and next steps. The
+> Communication Logs detail pane is built on them — see below. A short call
+> genuinely has nothing to say and Quo returns the sentence *"This call had no
+> actionable details to summarize."*, which is an answer rather than an error.
+>
+> The lesson is the repo's own first rule: **check what the data actually
+> does before writing it down.** A documented limitation that is not real is
+> as expensive as an invented field — it stopped a working feature from being
+> built for half a day.
 
 **404 is ambiguous and is not laundered into success.** AxisCare returns 404
 for an empty `/api/visits` and `openshifts-sync` treats that as empty. Quo's
@@ -2411,21 +2432,194 @@ says she replied; no prefix means the heading already said who spoke last).
 
 #### View Details is master / detail, not a longer list
 
-A 286px scrolling rail of the same rows against a detail pane, following the
-old app's `.chlog-modal`. Our modal is 880px where theirs was 860.
+A **330px** scrolling rail of the same rows against a detail pane, following
+the old app's `.chlog-modal` — which was a 288px rail in an 860px dialog.
 
-The detail pane leads with a facts block — direction, outcome, duration,
-messages, agency line, handled by — and then, **for a text day, the whole
-thread rendered directly rather than behind a fold.** The old app folded it
-because its pane led with an AI summary; we have no summary, so the messages
-*are* the content and hiding them would leave the pane almost empty.
+**This modal is `min(875px, 94vw)` where the other three expanded cards are a
+flat `.mwide`.** It is the only one that is master *and* detail rather than a
+single column, so it has two things to fit.
 
-A call shows the facts and stops. Quo's recording and transcript endpoints are
-Business/Scale only and this account gets `403`, so an empty "Transcript"
-heading would be a promise we cannot keep.
+**The `min()` is doing two different jobs, and only one of them is a size
+choice.** 875px is what Mitch settled on after seeing 1340 and finding it too
+big — a dialog taking most of a monitor to show one phone thread. `94vw` is not
+a second opinion about width, it is the **fit-to-screen guard**: below a ~931px
+window the fixed number would overflow, and the vw takes over. Measured across
+viewports: 1600 → 875, 1280 → 875, 931 → 875, 900 → 846, 720 → 677.
+**Change the px; leave the vw alone.**
 
-Messages are a flat run with a 2px left accent for direction — **not** chat
-bubbles. The old app deliberately avoided those and so does this.
+The bubbles cap separately at `min(80%, 560px)`, which at this dialog resolves
+to 377px — the 560 only bites if the dialog is ever widened again.
+
+##### The 330px rail is the measured floor, not a guess
+
+Swept in Chromium at the 875px dialog (839px of split), against the longest
+staff list that actually occurs — three first names:
+
+| rail | detail | bubble | clips |
+|---|---|---|---|
+| 300 | 537 | 401 | "Deprise, Kristine, Marivic" |
+| 316 | 521 | 388 | "Deprise, Kristine, Marivic" |
+| **330** | **507** | **377** | **none** |
+| 372 | 465 | 343 | none |
+
+330 is the smallest rail that still shows a real staff list in full, so the
+conversation keeps everything else. Under it names start being eaten; over it
+width is taken from the messages for no gain. Re-run the sweep if the rail row
+ever grows a fourth element.
+
+It gets there through its own **`.mcomms`** class, added in `openCgAll`,
+**re-asserted in `renderCgAllModal`** so a re-render from `cmPick` cannot lose
+it, and removed in `closeModal` beside `mwide`. `renderCgAllModal` also
+*removes* it for any other `which`, so switching card type in place cannot
+leave a Notes modal oversized. Nine assertions cover that lifecycle, including
+"open Comms, close, open Notes" — the leak that scoping exists to prevent.
+
+##### `.mwide` IS 680px, NOT 880 — there is an `!important` you cannot see
+
+**Every wide modal in this app is 680px**, and `.modal.mwide{max-width:880px}`
+has been dead for as long as this has been true:
+
+```
+.mwide{max-width:680px!important}
+```
+
+It sits ~70,000 characters further down the stylesheet, wedged between
+`.qs-customtog` and `.rv-grid`, with no comment. Nothing in the 880 rule hints
+that it is overridden.
+
+This is why the first two attempts at widening this dialog **changed nothing on
+screen** while looking correct in the source. Measured in Chromium: plain 460,
+`mwide` 680, and `.mcomms` also 680 until it was marked `!important` too. An
+`!important` can only be outranked by another, and `.modal.mwide.mcomms`
+(0,3,0) beats `.mwide` (0,1,0) — so the scoped rule wins and nothing else
+moves.
+
+> **Do not "clean this up" by deleting the bare rule.** It would resize every
+> wide modal in the app at once — Notes, Concerns, Updates, the form studio,
+> the history sheets — which is a far bigger change than any one card should
+> make. If the 680 is wrong, that is its own decision, taken deliberately and
+> looked at everywhere.
+
+##### The row's shrink factors are load-bearing
+
+`.cm-lineq` is `flex:0 **100** auto`, not `0 1 auto`. Flex shrinks each item in
+proportion to *factor × base width*, so with both at 1 the **name** — the wider
+of the two — gave up more than the agency line and ellipsised first: exactly
+backwards, since the name is the thing being scanned for. Measured: "Jenn,
+Ruffa, Marivic" was still clipped at a 340px rail until the factor was raised.
+At 100 the line collapses almost entirely before the name loses a character,
+and the full line name stays in the `title`.
+
+`cmLine()` also strips the category suffix — "Scheduling Department" renders as
+"Scheduling" — because on a row that carries a name, a line and a timestamp,
+those eleven characters come straight out of the name. The detail pane still
+shows the full value under *Agency line*.
+
+The detail pane is **one heading, one quiet meta line, then the content.**
+
+> **The grey facts box is gone (2026-09-11).** It held direction, outcome,
+> duration, agency line and who handled it in a boxed `<dl>` — every one of
+> which is already on the rail row the scheduler just clicked, so it was
+> furniture around a repeat. Reported as "redundant information"; removed, and
+> the same facts now run as one dot-joined line under the heading, the grammar
+> the rest of this card uses. `cmFact()` and `.cm-facts` went with it. **Do
+> not put the box back.**
+
+- **A text day** shows the whole thread directly, with **no heading over it**.
+  The old app folded its thread behind "View messages" because its pane led
+  with an AI summary; here the messages *are* the content. A "MESSAGES" label
+  over the only thing in the pane tells the reader nothing, so it went too.
+- **A call** shows **Quo's own summary**, fetched on demand. This is the
+  reason the endpoint correction above matters: a call has no text to read, so
+  before it the pane simply ended after the facts.
+
+##### The call summary is lazy, one request, and labelled as Quo's
+
+`CGCOMMS.loadSummary(callId)` fires the first time a call is opened, caches by
+call id for the session, and re-renders the dialog when it lands. **Not during
+the sweep:** a caregiver has ~50 calls, and fetching every summary up front
+would be 50 more requests against a 10/s ceiling for content nobody asked to
+see.
+
+Four states, and three of them are not failures: `loading`, `ready` (bullets,
+plus a *Next steps* list when Quo produced one), **`none`** — Quo's own
+"This call had no actionable details to summarize.", shown as *"Quo found
+nothing to summarise on this call."* — and `error`.
+
+It carries a **"from Quo"** label. The text is machine-written and a scheduler
+should know that before acting on it; the old app put an "AI Summary" chip on
+its equivalent block for the same reason.
+
+##### Quo 404s when a call has no summary — that is NOT an outage
+
+Measured on Alejandra Gibbs: **4 of 14** calls answer `404` from
+`/v1/call-summaries`, every one of them short or unanswered. Quo has no summary
+row for those and says so with a status code rather than an empty body.
+
+Two things had to learn the difference:
+
+- `loadSummary` maps a **404 to `none`**, not `error` — *"Quo found nothing to
+  summarise on this call."* A red diagnostic on an ordinary 31-second call is
+  worse than no summary at all.
+- The `Quo` module's 404 branch now checks **whose 404 it is.** Our proxy
+  forwards Quo's status verbatim inside its own envelope
+  (`{ok:false, status:404, error}`), while the Supabase gateway answers a
+  missing function with `{code:"NOT_FOUND", message}` and no `ok`. Testing the
+  status alone told the desk *"The Quo function is not deployed… npx supabase
+  functions deploy quo"* **while the function was serving that very request**.
+  Reported from a screenshot, 2026-09-11.
+
+> Both halves were introduced by the fix that made 404 say something useful.
+> The lesson is narrow and worth keeping: once a proxy forwards upstream
+> statuses, a status code alone no longer identifies who answered.
+
+##### The detail meta line does NOT repeat the rail row
+
+`Sep 10 · 3:15 PM · 1 day ago · Outgoing · 31 sec` — and deliberately **not**
+the agency line or the staff name. Both are already bold at the top of the row
+the scheduler clicked to get here, so repeating them two inches to the right is
+the same redundancy the grey box was removed for. What is left is what the row
+does *not* say: exactly when, how long ago, and how the call went.
+
+##### `renderCgAllModal` preserves the rail and detail scroll positions
+
+It replaces `innerHTML` wholesale, so every pane inside is destroyed and
+recreated at `scrollTop` 0. Clicking a row near the bottom of a 78-row rail
+therefore threw the list back to the top and scrolled the chosen row out of
+sight — the one thing a master/detail must not do — and the summary landing a
+second later did it again. Read before, restore after, guarded so a fresh open
+still starts at the top and the other three cards (which have no rail) are
+untouched.
+
+##### The call icon carries direction
+
+`callout` and `callin` — a handset with an arrow pointing away or back. Added
+to `I` beside `chat`. Direction stops being a word to parse in the meta line
+and becomes something the eye catches scanning the rail. A text entry keeps the
+neutral `chat` bubble, because a day's thread can legitimately run both ways.
+
+#### The thread IS chat bubbles — reversed on purpose, 2026-09-11
+
+The old app deliberately avoided bubbles, and the first version here followed
+it: a flat run with a 2px left accent for direction. **Mitch asked for
+"messenger vibes" having seen both**, so this is a decision rather than drift.
+Do not quietly revert it to the old app's shape on the grounds that the old app
+did it differently — that is the question that was already asked and answered.
+
+Caregiver left, the desk right; the attribution (`Ruffa · 8:31 AM`) sits
+*under* the bubble, the way a messenger app does it — the bubble is what you
+read, the attribution is what you check. `white-space:pre-wrap` keeps the line
+breaks people actually typed, because a shift offer laid out over three lines
+is unreadable reflowed into a paragraph.
+
+**An undelivered text gets a red bubble and "Not delivered" in its caption.**
+Worth more than it sounds: on the live account one caregiver's thread shows the
+same CARE GOALS message sent twice at 3:00 PM, both undelivered, before a third
+attempt got through at 3:01 — which the sender had no way of knowing at the
+time.
+
+**The RAIL stays a flat list.** Bubbles are for reading one conversation, not
+for scanning fifty.
 
 `cmSel` holds which entry the modal is showing. It is module-level and keyed by
 caregiver, **not** in `state`: it is one person's cursor inside one open dialog,
