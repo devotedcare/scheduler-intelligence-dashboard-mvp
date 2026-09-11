@@ -2749,6 +2749,42 @@ has to report which slices it assigned rather than the caller guessing.
    overlay and written to Supabase as though a scheduler typed them. That is
    bug 2 above, again. `state.shifts` holds *open* (unassigned) shifts only.
 
+6. **`state.onShift` is PER BROWSER and must never go back into `SLICES`.**
+
+   It is the name stamped on everything the desk writes — caregiver notes,
+   `ops.lastUpdatedBy`, availability confirmations, task completion, call-offs,
+   ratings, client blocks — read in about 60 places. Until 2026-09-11 it was the
+   literal string `'Mae'`, set once and **written by nothing**, so every
+   scheduler's work was attributed to Mae whoever was actually typing.
+
+   It was also a tracked CLOUD **scalar** slice, which was harmless *only*
+   because nothing wrote it. A scalar is assigned straight onto `state` by
+   `applyOverlay()` on every poll, so the moment a picker writes it the desk has
+   **one** selected person: Mae choosing "Mae" while Carlo chooses "Carlo" means
+   each selection is overwritten by the other within 20 seconds — the dropdown
+   visibly flipping, and work stamped with whoever wrote last.
+
+   So it now lives in `localStorage` under `dcs_on_shift_v1`, and the slice is
+   gone. Any value still sitting in the shared row is inert (nothing reads a path
+   absent from `SLICES`) and the next save drops it.
+
+   The picker's list, `SCHED_PEOPLE`, is **deliberately separate from
+   `state.schedulerNames`** — Mitch, Sean, Carlo, Mae, Jen, Angelica, Patty,
+   Tine. `schedulerNames` is shared, still `['Mae','Sunshine','Kristine']`, and
+   is what task assignment and the shift handoff read. Sunshine has left and
+   Kristine is recorded as Tine here, but their past work is correctly stamped
+   with the names they used, and rewriting that list would not change those
+   records anyway. Carlo's call, 2026-09-11.
+
+   > Two small rules in `whoamiLoad()` are worth keeping. A stored name that is
+   > no longer in `SCHED_PEOPLE` **falls back to Mae** rather than being trusted —
+   > the value outlives the list, and stamping work with somebody who has left is
+   > the failure the picker exists to end. And every storage access is wrapped:
+   > a private window throws on `localStorage`, and that must not take the app
+   > down. **Mae stays the default** rather than an unset dash, because the dash
+   > would land in the record as the author and mean nothing to whoever reads it
+   > back months later.
+
 Two smaller notes for anyone wiring real data later: several places derive values
 from the numeric part of a demo id (`parseInt(c.id.slice(1))` on `'c7'`), which
 AxisCare ids would break; and AxisCare city strings are dirty — `CAMARILLO`,

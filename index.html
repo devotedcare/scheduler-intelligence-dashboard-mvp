@@ -121,6 +121,24 @@
   .nav a .pill.soon{background:var(--soon-solid);color:#fff}
   .nav a .pill.neut{background:rgba(255,255,255,.14);color:#C7D6E2}
 
+  /* ===== "Working as", pinned to the bottom of the sidebar ===== */
+  .whoami{flex:0 0 auto;margin:auto 10px 12px;padding:11px 10px 0;border-top:1px solid rgba(255,255,255,.22)}
+  .wa-l{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.7px;font-weight:800;color:#8AA0B2;margin-bottom:6px}
+  .wa-sel{position:relative;display:block}
+  .wa-sel select{
+    -webkit-appearance:none;appearance:none;width:100%;box-sizing:border-box;
+    font-family:inherit;font-size:13px;font-weight:700;color:#fff;letter-spacing:-.01em;
+    background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.22);
+    border-radius:6px;padding:7px 26px 7px 10px;cursor:pointer;outline:none;
+  }
+  .wa-sel select:hover{background:rgba(255,255,255,.17)}
+  .wa-sel select:focus{border-color:#fff}
+  /* The closed control is white-on-navy; the open LIST is drawn by the OS
+     and inherits nothing, so it needs its own colours or Windows renders
+     white text on white. */
+  .wa-sel select option{color:var(--ink);background:#fff;font-weight:600}
+  .wa-sel::after{content:'\u25be';position:absolute;right:10px;top:50%;transform:translateY(-50%);font-size:9px;color:rgba(255,255,255,.7);pointer-events:none}
+
   .sidefoot{padding:11px 16px;border-top:1px solid var(--navy-700);font-size:10.5px;color:#7C92A4;line-height:1.5}
   .sidefoot b{color:#CBDAE6;font-weight:700}
 
@@ -2385,6 +2403,9 @@ body.ai-white .main{display:flex;flex-direction:column;min-height:100vh}
   <aside class="sidebar">
     <div class="brand-txt">Scheduler<span class="brand-date" id="tbdate"></span></div>
     <nav class="nav" id="nav"></nav>
+    <!-- Who the desk is working as. .nav is flex:1 1 auto, so this sits at
+         the bottom of the sidebar on its own. Painted by renderWhoAmI(). -->
+    <div class="whoami" id="whoami"></div>
   </aside>
 
   <!-- MAIN -->
@@ -2450,8 +2471,72 @@ function miles(a,b){ const A=CITY[a],B=CITY[b]; if(!A||!B) return 30; return Mat
    distance should use this one and say "not known" when it gets null. */
 function milesOrNull(a,b){ const A=CITY[a],B=CITY[b]; if(!A||!B) return null; return Math.round(Math.hypot(A[0]-B[0],A[1]-B[1])*1.9); }
 
+/* ===================== WHO IS AT THIS DESK =====================
+
+   Every record the desk writes is stamped with state.onShift - caregiver
+   notes, ops.lastUpdatedBy, availability confirmations, task completion,
+   call-offs, ratings, client blocks. Until now that was the literal string
+   'Mae', set once here and written by nothing, so every scheduler's work
+   was attributed to Mae whoever was actually typing.
+
+   CLAUDE: THIS IS PER BROWSER AND MUST STAY THAT WAY.
+
+   onShift used to be a tracked CLOUD scalar slice, which was harmless only
+   because nothing ever wrote it. The moment a picker does, the shared row
+   carries one value for the whole desk: applyOverlay() assigns scalars
+   straight onto state, the poll runs every 20 seconds in every open
+   session, and Mae choosing "Mae" while Carlo chooses "Carlo" means each
+   one's selection is overwritten by the other's within a poll - the
+   dropdown visibly flipping, and work stamped with whoever wrote last.
+   It is removed from SLICES for exactly that reason; do not put it back.
+
+   localStorage, so each machine remembers its own person and nothing about
+   the choice is shared or saved to Supabase.
+
+   The list is DELIBERATELY SEPARATE from state.schedulerNames. That one is
+   shared, is still ['Mae','Sunshine','Kristine'], and is what task
+   assignment and the shift handoff read - Sunshine has left and Kristine is
+   recorded as Tine here, but their past work is correctly stamped with the
+   names they used and rewriting that list would not change those records
+   anyway. Carlo's call, 2026-09-11: this picker is new and stands alone. */
+const SCHED_PEOPLE = ['Mitch','Sean','Carlo','Mae','Jen','Angelica','Patty','Tine'];
+const WHOAMI_KEY = 'dcs_on_shift_v1';
+/* Mae stays the default. An unset browser could show a dash instead, but
+   the dash then lands in the record as the author and means nothing to
+   whoever reads it back months later - Carlo's call, same conversation. */
+const WHOAMI_FALLBACK = 'Mae';
+
+function whoamiLoad(){
+  /* A name no longer on the list falls back rather than being trusted: the
+     value outlives the list, and stamping work with somebody who has left
+     is the failure this picker exists to end. */
+  try{
+    var v = localStorage.getItem(WHOAMI_KEY);
+    return (v && SCHED_PEOPLE.indexOf(v) >= 0) ? v : WHOAMI_FALLBACK;
+  }catch(e){ return WHOAMI_FALLBACK; }        /* private window, blocked storage */
+}
+function whoamiSet(name){
+  if(SCHED_PEOPLE.indexOf(name) < 0) return;  /* never accept an off-list name */
+  state.onShift = name;
+  try{ localStorage.setItem(WHOAMI_KEY, name); }catch(e){}
+  render();
+  toast('Now working as ' + name + ' \u2014 new entries are tagged to them');
+}
+function renderWhoAmI(){
+  var el = document.getElementById('whoami');
+  if(!el) return;
+  /* esc() for the attribute, escText() for the text position - they are
+     different escapers and CLAUDE.md names this trap by name. */
+  var opts = SCHED_PEOPLE.map(function(n){
+    return '<option value="'+esc(n)+'"'+(n===state.onShift?' selected':'')+'>'+escText(n)+'</option>';
+  }).join('');
+  el.innerHTML =
+    '<label class="wa-l" for="waSel">Working as</label>'+
+    '<div class="wa-sel"><select id="waSel" onchange="whoamiSet(this.value)">'+opts+'</select></div>';
+}
+
 const state = {
-  onShift:'Mae',
+  onShift: whoamiLoad(),
   schedulerNames:['Mae','Sunshine','Kristine'],
   caregivers:[],
   clients:[],
@@ -3087,6 +3172,7 @@ function renderStatbar(){
 }
 function render(){
   renderNav();
+  renderWhoAmI();
   document.getElementById('tbdate').textContent = headerDate();
   const at=document.getElementById('tbattn');
   at.innerHTML='';
@@ -17560,7 +17646,16 @@ const CLOUD = (function(){
     { path:'formDefs',          map:true },
     { path:'formCatCollapsed',  map:true },
     { path:'evvLog',            map:true },
-    { path:'onShift',           scalar:true },
+    /* onShift is NOT here, deliberately - see the WHOAMI block near the top
+       of the file. It is per browser, in localStorage. Sharing it means the
+       desk has ONE selected person: applyOverlay() assigns a scalar
+       straight onto state on every poll, so two schedulers who pick
+       different names overwrite each other every 20 seconds and their work
+       is stamped with whoever wrote last. It sat here safely only because
+       nothing wrote it; a picker writes it. Do not add it back.
+
+       Any value already stored in the shared row is now inert - nothing
+       reads a path that is not in SLICES - and the next save drops it. */
     { path:'schedulerNames',    scalar:true },
     { path:'verifyTemplate',    scalar:true },
     { path:'textTemplate',      scalar:true }
