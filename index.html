@@ -2619,8 +2619,8 @@ body.ai-white .main{display:flex;flex-direction:column;min-height:100vh}
 .ct-sp{flex:1}
 .ct-areawrap{position:relative}
 /* Room for the count, so the last line of a long message never runs under it. */
-.ct-areawrap .ct-area{padding-bottom:26px;display:block}
-.ct-count{position:absolute;left:11px;bottom:7px;font-size:11.5px;color:var(--ink-faint);background:#fff;padding:0 3px 0 0;pointer-events:none}
+.ct-areawrap .ct-area{padding-bottom:30px;display:block}
+.ct-count{position:absolute;left:11px;bottom:7px;font-size:11.5px;color:var(--ink-faint);background:#fff;padding:0 6px 0 2px;pointer-events:none;border-radius:3px}
 .ct-err{display:flex;align-items:flex-start;gap:7px;font-size:12px;color:var(--crit-tx);background:#FEF2F2;border:1px solid var(--crit-tx);border-radius:var(--r);padding:9px 11px;margin-top:12px;line-height:1.5}
 .ct-err.soft{color:var(--ink-soft);background:var(--panel-head);border-color:var(--line)}
 .ct-chips.recips{margin-bottom:14px}
@@ -5543,21 +5543,27 @@ function openFindCoverage(shiftId){ seedQueryFromShift(shiftId);
   state.coverageQuery.mode='manual'; state.coverageQuery.locked=true; state.coverageContext='shift'; state.covDetails=false; state.dispCalling=null; state.expandedOpen=false; go('coverage'); }
 
 /* A client's name as it may appear in a MESSAGE THAT LEAVES THE BUILDING.
-   Given name in full, surname reduced to an initial: "Brenda Janowski"
-   becomes "Brenda J." Mitch's call, 2026-09-14 — a caregiver being offered
-   a shift does not need the client's full legal name, and a text message is
-   forwarded, screenshotted and read on a lock screen.
+   The GIVEN NAME AND NOTHING ELSE: "Brenda Janowski" becomes "Brenda".
+   A caregiver being offered a shift does not need the client's legal name,
+   and a text message is forwarded, screenshotted and read on a lock screen.
+
+   This went in on 2026-09-14 as "Brenda J." and was changed the same day to
+   drop the initial too, across every template — Mitch's call both times.
+   Do not reinstate the initial for one template and not the others: the
+   whole point is that a caregiver sees the same form of a client's name
+   wherever it reaches them.
 
    THE GIVEN NAME IS KEPT WHOLE, not cut to one word. "Mary Lou Brown" is
-   "Mary Lou B." and "Helen Jean Kelly" is "Helen Jean K." — those are what
-   the office and the caregiver both call them, and trimming to "Mary B."
-   renames somebody rather than shortening them. Same reason "Duane & Lynne
-   Georgeson" stays "Duane & Lynne G.": it is a couple, and dropping half of
-   it would be wrong rather than brief.
+   "Mary Lou" and "Helen Jean Kelly" is "Helen Jean" — those are what the
+   office and the caregiver both call them, and trimming to "Mary" renames
+   somebody rather than shortening them. Same reason "Duane & Lynne
+   Georgeson" stays "Duane & Lynne": it is a couple, and dropping half of it
+   would be wrong rather than brief.
 
    A SUFFIX IS NOT A SURNAME. AxisCare stores "Calvin George" / "Miller Jr",
-   which joins to "Calvin George Miller Jr" — so taking the last word gives
-   "Calvin George J.", initialling the Jr. The suffix is stripped first.
+   which joins to "Calvin George Miller Jr" — so taking the last word off
+   leaves "Calvin George Miller", keeping the very surname this exists to
+   remove. The suffix is stripped first.
    mapClient() keeps only the joined `name`, not firstName/lastName, which
    is why this works on the string rather than the fields; adding fields to
    the mapper would change the shape of a patchOnly CLOUD slice for a
@@ -5571,27 +5577,27 @@ function openFindCoverage(shiftId){ seedQueryFromShift(shiftId);
 function shortClientName(name){
   var s = String(name || '').replace(/\s+/g, ' ').trim();
   if(!s) return '';
-  /* Trailing generational suffixes, with or without the point. */
+  /* Trailing generational suffixes, with or without the point: "Miller Jr"
+     is not a surname followed by a name, and dropping the suffix first is
+     what lets the surname be identified at all. */
   var parts = s.split(' ');
   while(parts.length > 2 && /^(jr|sr|ii|iii|iv|v)\.?$/i.test(parts[parts.length - 1])) parts.pop();
-  if(parts.length < 2) return parts.join(' ');          /* one name only - nothing to initial */
-  var sur = parts.pop();
-  var initial = sur.replace(/[^A-Za-z]/g, '').charAt(0);
-  if(!initial) return parts.join(' ');                  /* a surname with no letters in it */
-  return parts.join(' ') + ' ' + initial.toUpperCase() + '.';
+  if(parts.length < 2) return parts.join(' ');          /* one name only - nothing to drop */
+  parts.pop();                                          /* the surname goes entirely */
+  return parts.join(' ');
 }
 
 /* ===================== AI OPEN-SHIFT AUTO-OFFER ===================== */
 function shiftById(id){ return state.shifts.find(x=>x.id===id); }
 function defaultOfferTemplates(){ return [
   {id:'ot_std', name:'Standard Open Shift', isDefault:true, body:'Devoted Care: Open shift available for {client} in {city} on {date} from {time}. Reply YES if interested.'},
-  {id:'ot_urg', name:'Urgent Coverage Needed', isDefault:false, body:'Devoted Care: URGENT \u2014 we need coverage for {client} in {city} on {date} from {time}. Can you take it? Reply YES or NO as soon as possible.'},
+  {id:'ot_urg', name:'Urgent Coverage Needed', isDefault:false, body:'Devoted Care: URGENT - we need coverage for {client} in {city} on {date} from {time}. Can you take it? Reply YES or NO as soon as possible.'},
   {id:'ot_ovn', name:'Overnight Shift', isDefault:false, body:'Devoted Care: Overnight shift available for {client} in {city} on {date}, {time}. Are you available overnight? Reply YES if interested.'},
   {id:'ot_hi', name:'High Priority Client', isDefault:false, body:'Devoted Care: A high-priority shift is open for {client} in {city} on {date} from {time}. We need an experienced caregiver. Reply YES if you can help.'},
-  {id:'ot_bon', name:'Bonus Shift', isDefault:false, body:'Devoted Care: Bonus shift for {client} in {city} on {date} from {time} \u2014 extra pay for this shift. Reply YES if interested.'},
-  {id:'ot_new', name:'New Client Introduction', isDefault:false, body:'Devoted Care: New client opportunity \u2014 {client} in {city}, {date} from {time}. A great fit if you want steady hours. Reply YES to learn more.'}
+  {id:'ot_bon', name:'Bonus Shift', isDefault:false, body:'Devoted Care: Bonus shift for {client} in {city} on {date} from {time} - extra pay for this shift. Reply YES if interested.'},
+  {id:'ot_new', name:'New Client Introduction', isDefault:false, body:'Devoted Care: New client opportunity - {client} in {city}, {date} from {time}. A great fit if you want steady hours. Reply YES to learn more.'}
 ]; }
-function offerCtx(s){ const cl=clById(s.clientId); return {client:shortClientName(cl.name), city:cl.city, date:s.start.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}), time:fmtTime(s.start)+'\u2013'+fmtTime(s.end)}; }
+function offerCtx(s){ const cl=clById(s.clientId); return {client:shortClientName(cl.name), city:cl.city, date:s.start.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}), time:fmtTime(s.start)+'-'+fmtTime(s.end)}; }
 function offerFill(body,s){ const c=offerCtx(s); return (body||'').replace(/\{client\}/g,c.client).replace(/\{city\}/g,c.city).replace(/\{date\}/g,c.date).replace(/\{time\}/g,c.time); }
 function autoOfferTiers(shiftId){
   const s=shiftById(shiftId); const r=rankCaregivers(s); const best=[],possible=[],donot=r.excluded.slice();
@@ -5838,6 +5844,85 @@ var QUOSEND = (function(){
   };
 })();
 
+/* ===== CARE — the one line of care needs for a shift-offer text ========
+   Calls supabase/functions/care-brief, which reads Concierge itself and
+   returns a single sentence. THE RAW CARE RECORD NEVER COMES BACK HERE:
+   this module only ever holds the finished line, which is the whole reason
+   the function fetches its own data instead of being handed it.
+
+   Claude: do not "simplify" this by reading Concierge from the browser and
+   posting the text up to be summarised. The dashboard has no login, and
+   that would make a client's mobility, continence and cognition readable by
+   anyone with the site URL. */
+var CARE = (function(){
+  'use strict';
+
+  var cache = {};     /* axisId -> { st, line, note, srcHash, p } */
+
+  function fnUrl(){
+    var u=(window.SCHEDULER_CONFIG||{}).supabaseUrl;
+    return u ? String(u).replace(/\/+$/,'') + '/functions/v1/care-brief' : '';
+  }
+
+  function load(axisId){
+    axisId = String(axisId == null ? '' : axisId);
+    if(!axisId) return Promise.resolve(null);
+    var e = cache[axisId];
+    if(e && (e.st === 'ready' || e.st === 'none' || e.st === 'error')) return Promise.resolve(e);
+    if(e && e.p) return e.p;
+
+    var base = fnUrl();
+    if(!base){
+      cache[axisId] = { st:'error', line:null, note:'This copy of the dashboard has no Supabase URL, so care needs cannot be read.' };
+      return Promise.resolve(cache[axisId]);
+    }
+    e = cache[axisId] = { st:'loading', line:null, note:null };
+    e.p = fetch(base + '?clientAxisId=' + encodeURIComponent(axisId), { headers:{ 'Accept':'application/json' } })
+      .then(function(r){
+        return r.json().catch(function(){ return null; }).then(function(b){
+          if(r.status === 404){
+            /* Two different 404s, the same trap the Quo module documents: the
+               Supabase gateway answers a missing FUNCTION with {code,message}
+               and no `ok`, while ours answers a missing CLIENT inside its own
+               envelope. Telling them apart is the difference between "deploy
+               the function" and "this client is not in Concierge". */
+            var ours = b && b.ok === false && b.error;
+            if(!ours) throw new Error('The care-brief function is not deployed. Committing does not deploy it — '+
+              'it needs: npx supabase functions deploy care-brief --no-verify-jwt');
+            cache[axisId] = { st:'none', line:null, note:'Concierge has no record for this client.' };
+            return cache[axisId];
+          }
+          if(!r.ok) throw new Error((b && (b.error || b.message)) || ('HTTP ' + r.status));
+          if(b && b.line){
+            cache[axisId] = { st:'ready', line:b.line, srcHash:b.srcHash, note:null };
+          } else {
+            /* 'none-recorded' and 'rejected' are different facts and the
+               scheduler is told which: one means Concierge holds nothing, the
+               other means a line was written and thrown away (a medication
+               slipped in, or it came back unusable). Neither invents text. */
+            cache[axisId] = { st:'none', line:null, srcHash:b && b.srcHash,
+              note: (b && (b.note || b.reason)) || 'No care needs are recorded for this client.' };
+          }
+          return cache[axisId];
+        });
+      })
+      .catch(function(err){
+        cache[axisId] = { st:'error', line:null, note:(err && err.message) || 'Could not read the care needs.' };
+        return cache[axisId];
+      });
+    return e.p;
+  }
+
+  return {
+    load: load,
+    get: function(axisId){ return cache[String(axisId)] || { st:'idle', line:null, note:null }; },
+    status: function(axisId){ return (cache[String(axisId)] || {}).st || 'idle'; },
+    line: function(axisId){ var e = cache[String(axisId)]; return (e && e.line) || null; },
+    /* Console helper: drop the cache and ask again. */
+    retry: function(axisId){ delete cache[String(axisId)]; return load(axisId); }
+  };
+})();
+
 /* ===== Coverage Text composer: keyword templates, auto-populated from shift + caregiver ===== */
 const SCHED_PHONE='(805) 312-7736';
 function orList(arr){ if(!arr.length) return ''; if(arr.length===1) return arr[0]; if(arr.length===2) return arr[0]+' and '+arr[1]; return arr.slice(0,-1).join(', ')+', and '+arr[arr.length-1]; }
@@ -5854,22 +5939,60 @@ function coverageTextCtx(cgId){
   const validDate=(startD instanceof Date)&&!isNaN(startD);
   const validEnd=(endD instanceof Date)&&!isNaN(endD);
   const cl=q.clientId?clById(q.clientId):null; const overnight=(q.end<=q.start)||(q.start>=22||q.end<=6);
+  /* The care-needs line, if CARE has it. Never generated here and never
+     invented: an absent line leaves the section out of the message entirely
+     and the composer says so. */
+  const careLine = (cl && cl.axisId != null) ? CARE.line(cl.axisId) : null;
   return { cgName: cg?cg.name.split(' ')[0]:'there', clName: cl?shortClientName(cl.name):'your client', city: q.city||(cl&&cl.city)||'your area',
+    careLine: careLine, clAxisId: (cl && cl.axisId != null) ? cl.axisId : null,
+    dayName: validDate?startD.toLocaleDateString('en-US',{weekday:'long'}):'the scheduled day',
     dateStr: validDate?startD.toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric'}):'the scheduled date',
     startStr: validDate?fmtTime(startD):'the start time', endStr: validEnd?fmtTime(endD):'the end time',
     reqs: coverageReqs(q, overnight), phone: SCHED_PHONE };
 }
 function ctReq(c){ return c.reqs.length? ' This shift requires '+orList(c.reqs)+'.' : ''; }
 function ctCb(c){ return ' Questions? Call Devoted Care Scheduling at '+c.phone+'.'; }
+/* GSM-7 ONLY IN THESE BODIES. One en-dash, em-dash, curly quote or
+   ellipsis forces the entire SMS into UCS-2, and a concatenated segment
+   drops from 153 characters to 67 — so a single decorative character
+   roughly doubles what every message of that type costs to send. Measured
+   2026-09-14: 12 of the 14 outbound templates were paying that, 45 segments
+   against 25. Use - and ' and ... Plain ASCII reads identically on a phone. */
 const TEXT_TEMPLATES=[
   {key:'open',label:'Open shift offer',build:c=>`Hi ${c.cgName}, this is Devoted Care. Are you available for a shift with ${c.clName} in ${c.city} on ${c.dateStr} from ${c.startStr} to ${c.endStr}? Please reply YES or NO.`+ctReq(c)+ctCb(c)+' Thank you.'},
-  {key:'urgent',label:'Urgent coverage needed',build:c=>`Hi ${c.cgName}, this is Devoted Care with an URGENT coverage need for ${c.clName} in ${c.city} on ${c.dateStr}, ${c.startStr}\u2013${c.endStr}. Are you able to take it? Please reply YES or NO as soon as you can.`+ctReq(c)+ctCb(c)+' Thank you.'},
-  {key:'calloff',label:'Call-off replacement',build:c=>`Hi ${c.cgName}, this is Devoted Care. A caregiver called off for ${c.clName} in ${c.city} on ${c.dateStr}, ${c.startStr}\u2013${c.endStr}. Can you cover this shift? Please reply YES or NO.`+ctReq(c)+ctCb(c)+' Thank you.'},
+  {key:'urgent',label:'Urgent coverage needed',build:c=>`Hi ${c.cgName}, this is Devoted Care with an URGENT coverage need for ${c.clName} in ${c.city} on ${c.dateStr}, ${c.startStr}-${c.endStr}. Are you able to take it? Please reply YES or NO as soon as you can.`+ctReq(c)+ctCb(c)+' Thank you.'},
+  {key:'calloff',label:'Call-off replacement',build:c=>`Hi ${c.cgName}, this is Devoted Care. A caregiver called off for ${c.clName} in ${c.city} on ${c.dateStr}, ${c.startStr}-${c.endStr}. Can you cover this shift? Please reply YES or NO.`+ctReq(c)+ctCb(c)+' Thank you.'},
   {key:'confirm',label:'Confirm availability',build:c=>`Hi ${c.cgName}, this is Devoted Care. Confirming your shift with ${c.clName} in ${c.city} on ${c.dateStr} from ${c.startStr} to ${c.endStr}. Please reply YES to confirm, or call us if anything has changed.`+ctReq(c)+ctCb(c)+' Thank you.'},
-  {key:'weekend',label:'Weekend availability',build:c=>`Hi ${c.cgName}, this is Devoted Care. Are you available for weekend coverage with ${c.clName} in ${c.city}? The shift is ${c.dateStr}, ${c.startStr}\u2013${c.endStr}. Please reply YES or NO.`+ctReq(c)+ctCb(c)+' Thank you.'},
-  {key:'overnight',label:'Overnight shift offer',build:c=>`Hi ${c.cgName}, this is Devoted Care. We have an overnight shift with ${c.clName} in ${c.city} on ${c.dateStr}, ${c.startStr}\u2013${c.endStr}. Are you available to work overnight? Please reply YES or NO.`+ctReq(c)+ctCb(c)+' Thank you.'},
-  {key:'followup',label:'Follow-up after no answer',build:c=>`Hi ${c.cgName}, this is Devoted Care following up on the shift with ${c.clName} in ${c.city} on ${c.dateStr}, ${c.startStr}\u2013${c.endStr}. Are you still able to take it? Please reply YES or NO.`+ctReq(c)+ctCb(c)+' Thank you.'},
-  {key:'reminder',label:'Reminder to respond',build:c=>`Hi ${c.cgName}, this is a friendly reminder from Devoted Care about the shift with ${c.clName} in ${c.city} on ${c.dateStr}, ${c.startStr}\u2013${c.endStr}. Please reply YES or NO when you get a chance.`+ctCb(c)+' Thank you.'},
+  /* WEEKEND AVAILABILITY IS A FIXED STRUCTURE, not a sentence like the
+     others. Mitch wrote it on 2026-09-14 and the point is that a caregiver
+     sees what they are accepting BEFORE they say yes:
+
+         Hi <first name>, are you available for weekend coverage with <client>?
+         <Day>, <times> - <city>
+         Care needs: <one line, written by care-brief from Concierge>
+         Please reply YES if you're available and comfortable with these care
+         needs. Thank you.
+
+     Keep this shape for every client. Only the shift details and the care
+     needs change. It deliberately drops the requirements sentence (ctReq)
+     and the call-back line (ctCb) the other templates carry — the care-needs
+     line replaces the first, and the message is already three lines long.
+
+     THE CARE-NEEDS LINE IS NEVER WRITTEN HERE. If care-brief has nothing,
+     the section is omitted rather than guessed at, and ctCareWarn() tells
+     the scheduler why. */
+  {key:'weekend',label:'Weekend availability',build:c=>
+    [
+      `Hi ${c.cgName}, are you available for weekend coverage with ${c.clName}?`,
+      `${c.dayName}, ${c.startStr}-${c.endStr} - ${c.city}`,
+      /* Dropped entirely when there is no line, so the blank lines close up
+         rather than leaving a gap where the care needs should have been. */
+      c.careLine ? `Care needs: ${c.careLine}` : null,
+      `Please reply YES if you're available and comfortable with these care needs. Thank you.`,
+    ].filter(Boolean).join('\n\n')},
+  {key:'overnight',label:'Overnight shift offer',build:c=>`Hi ${c.cgName}, this is Devoted Care. We have an overnight shift with ${c.clName} in ${c.city} on ${c.dateStr}, ${c.startStr}-${c.endStr}. Are you available to work overnight? Please reply YES or NO.`+ctReq(c)+ctCb(c)+' Thank you.'},
+  {key:'followup',label:'Follow-up after no answer',build:c=>`Hi ${c.cgName}, this is Devoted Care following up on the shift with ${c.clName} in ${c.city} on ${c.dateStr}, ${c.startStr}-${c.endStr}. Are you still able to take it? Please reply YES or NO.`+ctReq(c)+ctCb(c)+' Thank you.'},
+  {key:'reminder',label:'Reminder to respond',build:c=>`Hi ${c.cgName}, this is a friendly reminder from Devoted Care about the shift with ${c.clName} in ${c.city} on ${c.dateStr}, ${c.startStr}-${c.endStr}. Please reply YES or NO when you get a chance.`+ctCb(c)+' Thank you.'},
 ];
 const TEXT_TPL_BY_KEY=Object.fromEntries(TEXT_TEMPLATES.map(t=>[t.key,t]));
 /* ONE recipient gets their real first name baked in, because the scheduler
@@ -5937,9 +6060,55 @@ function openCoverageTextFor(ids){
       if(state.textEpoch===ep && state.textPhase==='compose') renderCoverageTextModal();
     });
   }
+  ctLoadCare();
 }
 function textRecips(){ return (state.textIds||[]).map(id=>cgById(id)).filter(Boolean); }
-function setTextTemplate(k){ const ids=state.textIds||[]; state.textTemplate=k; state.textDraft=buildCoverageText(ids[0],k,ids.length>1); renderCoverageTextModal(); }
+function setTextTemplate(k){ const ids=state.textIds||[]; state.textTemplate=k; state.textDraft=buildCoverageText(ids[0],k,ids.length>1); renderCoverageTextModal(); ctLoadCare(); }
+/* Only the templates that actually carry a care-needs line pay for one, and
+   only once per client per session. Re-renders when it lands, and rebuilds
+   the draft UNLESS the scheduler has already edited it - their words win. */
+function ctCareLineTemplates(){ return ['weekend']; }
+/* Is the care-needs line settled, one way or another? Only 'still coming'
+   blocks Send. A client with nothing recorded, or a line that was written and
+   discarded, are FINISHED answers - the message is correct without the
+   section and ctCareWarn() explains it, so the desk is not stuck.
+
+   'idle' counts as not-ready on purpose: it is the split second between the
+   modal rendering and ctLoadCare() marking the fetch 'loading', and a Send
+   button that is briefly live in that window is exactly when a fast click
+   would go out without the care needs. */
+function ctCareReady(){
+  if(ctCareLineTemplates().indexOf(state.textTemplate)<0) return true;
+  const q=state.coverageQuery||{};
+  const cl=q.clientId?clById(q.clientId):null;
+  if(!cl || cl.axisId==null) return true;      /* nothing to wait for */
+  const st=CARE.status(cl.axisId);
+  return st==='ready' || st==='none' || st==='error';
+}
+function ctLoadCare(){
+  if(ctCareLineTemplates().indexOf(state.textTemplate)<0) return;
+  const q=state.coverageQuery||{};
+  const cl=q.clientId?clById(q.clientId):null;
+  if(!cl || cl.axisId==null) return;
+  if(CARE.status(cl.axisId)!=='idle' && CARE.status(cl.axisId)!=='loading'){ return; }
+  const ep=state.textEpoch, ids=state.textIds||[];
+  CARE.load(cl.axisId).then(function(){
+    if(state.textEpoch!==ep || state.textPhase!=='compose') return;
+    const gen=buildCoverageText(ids[0],state.textTemplate,ids.length>1);
+    /* only replace a draft nobody has touched */
+    const untouched=(state.textDraft||'')===buildCoverageTextWithout(ids[0],state.textTemplate,ids.length>1);
+    if(untouched) state.textDraft=gen;
+    renderCoverageTextModal();
+  });
+}
+/* What the draft looked like BEFORE the care line arrived - the comparison
+   that tells an untouched draft from an edited one. */
+function buildCoverageTextWithout(cgId,key,multi){
+  const c=coverageTextCtx(cgId);
+  if(multi) c.cgName='{name}';
+  c.careLine=null;
+  return (TEXT_TPL_BY_KEY[key]||TEXT_TEMPLATES[0]).build(c);
+}
 function ctCount(){ const a=document.getElementById('covTextArea'),c=document.getElementById('ctCount'); if(a&&c) c.textContent=a.value.length+' characters'; }
 /* Changing the line can invalidate the chosen sender: Scheduling carries
    all nine members and Recruitment carries two, so "Send as" is re-derived
@@ -6073,6 +6242,23 @@ function covTextDrop(id){
   }
   renderCoverageTextModal();
 }
+/* The care-needs line has four states and the scheduler is told which.
+   "Concierge holds nothing" and "a line was written and discarded" are
+   different facts, and neither is allowed to become invented text. */
+function ctCareWarn(){
+  if(ctCareLineTemplates().indexOf(state.textTemplate)<0) return '';
+  const q=state.coverageQuery||{};
+  const cl=q.clientId?clById(q.clientId):null;
+  if(!cl) return '';
+  if(cl.axisId==null)
+    return '<div class="ct-err soft">'+ic('alerts',13)+' This client has no AxisCare id, so care needs cannot be looked up. The message goes out without them.</div>';
+  const st=CARE.status(cl.axisId), e=CARE.get(cl.axisId);
+  if(st==='idle'||st==='loading')
+    return '<div class="ct-lines loading">'+ic('clock',13)+' Reading '+escText(shortClientName(cl.name))+'’s care needs…</div>';
+  if(st==='ready') return '';
+  return '<div class="ct-err soft">'+ic('alerts',13)+' No care needs are shown: '+
+    escText(e.note||'nothing was returned')+' The message is still correct without them — add anything the caregiver should know before you send.</div>';
+}
 function ctResultRows(){
   const rows=(state.textResults||[]).map(function(r){
     const good=!!r.ok;
@@ -6125,8 +6311,10 @@ function renderCoverageTextModal(){
   const multiNote=cgs.length>1
     ? '<div class="ct-hint blk">{name} is replaced with each caregiver’s first name as the message goes out.</div>'
     : '';
-  const sendLabel=sending?'Sending…':(cgs.length>1?'Send to '+cgs.length:'Send');
-  const canSend=ready && !sending && cgs.some(c=>c.phone);
+  const sendLabel=sending?'Sending…'
+    :(!ctCareReady()?'Reading care needs…'
+    :(cgs.length>1?'Send to '+cgs.length:'Send'));
+  const canSend=ready && !sending && cgs.some(c=>c.phone) && ctCareReady();
   const foot='<div class="ct-foot">'+
     '<span class="ct-sp"></span>'+
     '<button class="btn pri" onclick="covSendText()"'+(canSend?'':' disabled')+'>'+ic('send',13)+' '+sendLabel+'</button>'+
@@ -6145,10 +6333,10 @@ function renderCoverageTextModal(){
        with it. The textarea carries extra bottom padding so a long message
        scrolls above the number rather than under it. */
     '<div class="ct-areawrap">'+
-      '<textarea class="ein ct-area" id="covTextArea" rows="7" '+(sending?'disabled ':'')+'oninput="state.textDraft=this.value;ctCount()">'+gEsc(msg)+'</textarea>'+
+      '<textarea class="ein ct-area" id="covTextArea" rows="9" '+(sending?'disabled ':'')+'oninput="state.textDraft=this.value;ctCount()">'+gEsc(msg)+'</textarea>'+
       '<span class="ct-count" id="ctCount">'+msg.length+' characters</span>'+
     '</div>'+
-    multiNote+warn+noPhoneWarn+
+    ctCareWarn()+multiNote+warn+noPhoneWarn+
     foot+
   '</div>';
 }
