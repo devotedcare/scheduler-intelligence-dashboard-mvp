@@ -12766,6 +12766,7 @@ function workPrefsBody(c){
         ${row('Smoking home', yn('smokingHome'))}
         ${row('Pets in home', yn('pets'))}
         ${row('Overnight', yn('overnight'))}
+        ${row('CNA', yn('cna'))}
         ${row('English proficiency', c.englishProficiency ? esc(ENGLISH_ALIAS[c.englishProficiency]||c.englishProficiency) : 'Not recorded')}
       </div>
       ${tagsHtml}`;
@@ -12798,7 +12799,7 @@ const WP_YN=[['','Not recorded'],['yes','Yes'],['no','No']];
    either: "will take a bedbound case" is not evidence of having done one,
    and asserting experience nobody recorded is the one thing the split
    exists to prevent. */
-const WP_TRI=['smokingHome','pets','overnight'];
+const WP_TRI=['smokingHome','pets','overnight','cna'];
 function openWorkPrefsEdit(id){
   cgSnapStart(id);
   const c=cgById(id); if(!c) return;
@@ -12857,6 +12858,7 @@ function renderWpModal(){
       ${sel('smokingHome','Smoking home',WP_YN)}
       ${sel('pets','Pets in home',WP_YN)}
       ${sel('overnight','Overnight',WP_YN)}
+      ${sel('cna','CNA',WP_YN)}
       ${sel('english','English proficiency',[['','Not recorded']].concat(
         WP_ENGLISH.map(x=>[x,x]),
         /* a stored value outside the four stays pickable rather than being
