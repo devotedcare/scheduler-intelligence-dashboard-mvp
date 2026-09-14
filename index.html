@@ -5542,6 +5542,45 @@ function openFindCoverage(shiftId){ seedQueryFromShift(shiftId);
                                      function(){ try{ render(); }catch(e){} }); } }catch(e){}
   state.coverageQuery.mode='manual'; state.coverageQuery.locked=true; state.coverageContext='shift'; state.covDetails=false; state.dispCalling=null; state.expandedOpen=false; go('coverage'); }
 
+/* A client's name as it may appear in a MESSAGE THAT LEAVES THE BUILDING.
+   Given name in full, surname reduced to an initial: "Brenda Janowski"
+   becomes "Brenda J." Mitch's call, 2026-09-14 — a caregiver being offered
+   a shift does not need the client's full legal name, and a text message is
+   forwarded, screenshotted and read on a lock screen.
+
+   THE GIVEN NAME IS KEPT WHOLE, not cut to one word. "Mary Lou Brown" is
+   "Mary Lou B." and "Helen Jean Kelly" is "Helen Jean K." — those are what
+   the office and the caregiver both call them, and trimming to "Mary B."
+   renames somebody rather than shortening them. Same reason "Duane & Lynne
+   Georgeson" stays "Duane & Lynne G.": it is a couple, and dropping half of
+   it would be wrong rather than brief.
+
+   A SUFFIX IS NOT A SURNAME. AxisCare stores "Calvin George" / "Miller Jr",
+   which joins to "Calvin George Miller Jr" — so taking the last word gives
+   "Calvin George J.", initialling the Jr. The suffix is stripped first.
+   mapClient() keeps only the joined `name`, not firstName/lastName, which
+   is why this works on the string rather than the fields; adding fields to
+   the mapper would change the shape of a patchOnly CLOUD slice for a
+   cosmetic gain.
+
+   Verified against all 21 active clients on this account.
+
+   Claude: this is for OUTBOUND TEXT ONLY. The activity log, attendance
+   records, the coverage board and every screen the desk reads keep the full
+   name — a scheduler needs to know exactly who the shift is for. */
+function shortClientName(name){
+  var s = String(name || '').replace(/\s+/g, ' ').trim();
+  if(!s) return '';
+  /* Trailing generational suffixes, with or without the point. */
+  var parts = s.split(' ');
+  while(parts.length > 2 && /^(jr|sr|ii|iii|iv|v)\.?$/i.test(parts[parts.length - 1])) parts.pop();
+  if(parts.length < 2) return parts.join(' ');          /* one name only - nothing to initial */
+  var sur = parts.pop();
+  var initial = sur.replace(/[^A-Za-z]/g, '').charAt(0);
+  if(!initial) return parts.join(' ');                  /* a surname with no letters in it */
+  return parts.join(' ') + ' ' + initial.toUpperCase() + '.';
+}
+
 /* ===================== AI OPEN-SHIFT AUTO-OFFER ===================== */
 function shiftById(id){ return state.shifts.find(x=>x.id===id); }
 function defaultOfferTemplates(){ return [
@@ -5552,7 +5591,7 @@ function defaultOfferTemplates(){ return [
   {id:'ot_bon', name:'Bonus Shift', isDefault:false, body:'Devoted Care: Bonus shift for {client} in {city} on {date} from {time} \u2014 extra pay for this shift. Reply YES if interested.'},
   {id:'ot_new', name:'New Client Introduction', isDefault:false, body:'Devoted Care: New client opportunity \u2014 {client} in {city}, {date} from {time}. A great fit if you want steady hours. Reply YES to learn more.'}
 ]; }
-function offerCtx(s){ const cl=clById(s.clientId); return {client:cl.name, city:cl.city, date:s.start.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}), time:fmtTime(s.start)+'\u2013'+fmtTime(s.end)}; }
+function offerCtx(s){ const cl=clById(s.clientId); return {client:shortClientName(cl.name), city:cl.city, date:s.start.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}), time:fmtTime(s.start)+'\u2013'+fmtTime(s.end)}; }
 function offerFill(body,s){ const c=offerCtx(s); return (body||'').replace(/\{client\}/g,c.client).replace(/\{city\}/g,c.city).replace(/\{date\}/g,c.date).replace(/\{time\}/g,c.time); }
 function autoOfferTiers(shiftId){
   const s=shiftById(shiftId); const r=rankCaregivers(s); const best=[],possible=[],donot=r.excluded.slice();
@@ -5815,7 +5854,7 @@ function coverageTextCtx(cgId){
   const validDate=(startD instanceof Date)&&!isNaN(startD);
   const validEnd=(endD instanceof Date)&&!isNaN(endD);
   const cl=q.clientId?clById(q.clientId):null; const overnight=(q.end<=q.start)||(q.start>=22||q.end<=6);
-  return { cgName: cg?cg.name.split(' ')[0]:'there', clName: cl?cl.name:'your client', city: q.city||(cl&&cl.city)||'your area',
+  return { cgName: cg?cg.name.split(' ')[0]:'there', clName: cl?shortClientName(cl.name):'your client', city: q.city||(cl&&cl.city)||'your area',
     dateStr: validDate?startD.toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric'}):'the scheduled date',
     startStr: validDate?fmtTime(startD):'the start time', endStr: validEnd?fmtTime(endD):'the end time',
     reqs: coverageReqs(q, overnight), phone: SCHED_PHONE };
@@ -11394,6 +11433,21 @@ function prefVal(c,k){
     if(cgTag(c,'NOVRN')) return true;
     return null;
   }
+  if(k==='cna'){
+    /* CNA — "CNA caregiver with certification" — is a tag somebody recorded
+       in AxisCare, so it is a plain YES, exactly as OWP is read for pets and
+       NOVRN for overnight above. Four active caregivers carry it (Erlinda
+       Smith, Mary Joy Barrios, Wilma Escolano, Terry Consuelo Queyquep) and
+       without this they would be chased for an answer already on file the
+       moment CNA joined CG_REQUIRED.
+
+       Silence is still silence: no tag returns null, never false — nobody is
+       recorded as NOT a CNA on the strength of a missing tag. And an explicit
+       answer wins outright, because ops.prefs.cna is checked at the top of
+       this function, so a scheduler's recorded No is never overruled. */
+    if(cgTag(c,'CNA')) return true;
+    return null;
+  }
   if(k==='liveIn')      return (c.ops.shiftPrefs && c.ops.shiftPrefs.liveIn) ? true : null;
   return null;
 }
@@ -14137,6 +14191,7 @@ const DV_PREF_FIELDS = [
   { k:'pets',         label:'Pets in home',        re:/\bpets?\b|\bdogs?\b|\bcats?\b/ },
   { k:'smokingHome',  label:'Smoking home',        re:/\bsmok\w*/ },
   { k:'overnight',    label:'Overnight work',      re:/\bovernights?\b|\bnight shifts?\b/ },
+  { k:'cna',          label:'CNA',                 re:/\bcnas?\b|\bcertified nursing assistants?\b/ },
   { k:'driver',       label:'Driving',             re:/\bdriv\w*|\bdriver'?s licen\w*/ },
   { k:'ownVehicle',   label:'Has own vehicle',     re:/\bown (a )?(car|vehicle)\b|\bhas a car\b/ },
   { k:'canTransport', label:'Can drive clients',   re:/\b(drive|transport|take)\s+clients?\b|\berrands?\b/ }
@@ -14171,10 +14226,17 @@ function dactPrefProposal(cg, k, label, val){
     verb:'Approve and save',
     note:'Writes to Work Preferences on the caregiver profile. Skills & Experience is untouched — willingness is not evidence of experience.',
     build:function(){
-      const c = dvLive(id), before = (c.ops.prefs || {})[k];
+      const c = dvLive(id);
+      const typed = (c.ops.prefs || {})[k];
+      /* prefVal, not ops.prefs — it is what every screen reads, and for
+         pets, overnight and cna it can answer from an AxisCare class tag
+         when nobody has typed anything. */
+      let eff = null; try{ eff = prefVal(c, k); }catch(e){ eff = typed; }
+      const fromTag = (typed === undefined || typed === null) && (eff === true || eff === false);
+      const now = eff === true ? 'Yes' : eff === false ? 'No' : 'not recorded';
       return { targets:[id, k, String(val)],
-        lines:[{ main:escText(label), meta:escText((val ? 'Yes' : 'No') + ' · currently ' +
-          (before === true ? 'Yes' : before === false ? 'No' : 'not recorded')) }] };
+        lines:[{ main:escText(label), meta:escText((val ? 'Yes' : 'No') + ' · currently ' + now +
+          (fromTag ? ' (from the AxisCare tag)' : '')) }] };
     },
     run:function(){
       const c = dvLive(id);
@@ -14439,7 +14501,7 @@ function dactCommand(raw){
 
   /* -- everything below needs a caregiver ------------------------------ */
   if(!hit.c){
-    const wantsCg = /\bavailab|\bunavailab|\bvacation|\bsick\b|\bschool\b|\bchild ?care|\bappointment|\bpets?\b|\bsmok|\bovernight|\bmiles?\b|\bdriv/.test(t);
+    const wantsCg = /\bavailab|\bunavailab|\bvacation|\bsick\b|\bschool\b|\bchild ?care|\bappointment|\bpets?\b|\bsmok|\bovernight|\bmiles?\b|\bdriv|\bcnas?\b|\bcertified nursing assistant/.test(t);
     if(!wantsCg) return null;
     return dvWhoAnswer(hit, 'record it');
   }
@@ -15367,7 +15429,7 @@ const CG_WATCH={
   'Personality':             c=>cgChips(c,'personality').join(','),
   'Skills & experience':     c=>cgChips(c,'skills').join(','),
   'Hobbies & interests':     c=>cgChips(c,'hobbies').join(','),
-  'Client & assignment preferences': c=>['clientGender','smokingHome','pets','stairs','transfers','overnight','liveIn']
+  'Client & assignment preferences': c=>['clientGender','smokingHome','pets','stairs','transfers','overnight','liveIn','cna']
                                         .map(k=>String(prefVal(c,k))).join('|'),
   'Client blocks':           c=>(c.ops.clientRestr||[]).map(r=>r.client+':'+(r.level||'hard')).join(','),
   'Assignment restrictions': c=>(c.restrictions||[]).join(','),
@@ -15468,6 +15530,13 @@ const CG_REQUIRED=[
   {label:'Smoking home preference', ok:c=>prefAnswered(c,'smokingHome')},
   {label:'Pets in home preference', ok:c=>prefAnswered(c,'pets')},
   {label:'Overnight',                 ok:c=>prefAnswered(c,'overnight')},
+  /* Added 2026-09-14. The CNA field was added to WP_TRI — which is what the
+     editor saves and reads — and that is genuinely all the EDITOR needs. But
+     CG_REQUIRED is a separate hand-written list, so Needs Update went on not
+     asking, and a field nobody is ever chased for is a field that stays
+     blank. If a tri-state Work Preference is worth adding, it belongs here
+     too. */
+  {label:'CNA',                     ok:c=>prefAnswered(c,'cna')},
   {label:'English proficiency',      ok:c=>hasVal(c.englishProficiency)},
   {label:'Caregiving experience',   ok:c=>hasVal(c.ops.experience)},
   {label:'Skills & experience',     ok:c=>cgChips(c,'skills').length>0},

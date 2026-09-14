@@ -1395,6 +1395,80 @@ both sides, and `CITY_FIX` gained `Westlake`, `Westlake Vlg` and
 for. A caregiver who picked *Morning* has not volunteered for an 8a–8p shift
 just because it starts in the morning.
 
+### Adding a Work Preference touches SEVEN lists, not one
+
+**Claude: `WP_TRI` is not the list. It is one of seven, and adding a field to
+it alone gets you a control that saves, displays, and is then invisible to
+every screen that is supposed to chase it.**
+
+Learned on 2026-09-14. A **CNA** Yes/No field was added to Work Preferences,
+correctly, by adding `'cna'` to `WP_TRI` — whose commit message reasonably
+concluded *"picked up automatically by the existing generic read/save logic
+— no other handling needed."* That is true of the **editor**. It is not true
+of anything downstream, because none of the other lists are derived from
+`WP_TRI`; they are all written by hand. Mitch reported it the obvious way:
+*"the newly added CNA is not appearing for every Caregiver in Needs Update."*
+
+| # | Where | What it drives | Derived from `WP_TRI`? |
+|---|---|---|---|
+| 1 | `WP_TRI` | what the editor saves and reads back | — |
+| 2 | the read rows (`row('CNA', yn('cna'))`) | the Work Preferences card | no |
+| 3 | the edit selects (`sel('cna', …)`) | the Work Preferences modal | no |
+| 4 | **`CG_REQUIRED`** | **Needs Update** — "Missing profile information" | **no** |
+| 5 | **`CG_WATCH`** | **Recent Updates** — the change audit | **no** |
+| 6 | **`prefVal()`** | the AxisCare class-tag fallback | **no** |
+| 7 | **`DV_PREF_FIELDS`** (+ the `wantsCg` regex) | recording it through Ask Devi | **no** |
+
+Four of the seven were missed, and 4, 5 and 7 are each a separate visible
+failure: the desk is never prompted for the field, answering it leaves no
+audit entry, and Devi cannot record it.
+
+#### 6 is the one that has to land in the SAME change as 4
+
+`CG_REQUIRED` and `prefVal()` are a pair. Adding a field to `CG_REQUIRED`
+without a `prefVal` branch chases **everybody**, including the caregivers
+AxisCare already answers for. On CNA that was **4 active caregivers** — Erlinda
+Smith, Mary Joy Barrios, Wilma Escolano, Terry Consuelo Queyquep — who carry
+the `CNA` class tag and would have been rung about a certification already on
+file.
+
+The rule is the one this file states everywhere else: **a tag is a Yes;
+silence is silence.** `cgTag(c,'CNA')` returns `true`; no tag returns `null`,
+never `false`; and `ops.prefs.cna` is checked first, so a scheduler's typed
+No is never overruled by the tag. Same shape `OWP` has for pets and `NOVRN`
+for overnight.
+
+> **Not every field has a tag**, and inventing one is worse than leaving the
+> branch out. Check the class-tag table under *Caregiver `classes[]`* first:
+> if AxisCare records the fact, seed from it; if it does not, `prefVal`
+> correctly falls through to `null` and the desk is asked.
+
+#### The approval card shows the EFFECTIVE value, not the stored one
+
+Fixed in the same pass. `dactPrefProposal` read `ops.prefs[k]` directly, so a
+caregiver whose answer comes from a class tag was described as *"currently
+not recorded"* while their profile plainly read **Yes**. Telling somebody
+they are filling a blank, at the moment they click the button that writes, is
+wrong when they are actually overwriting a recorded answer. It now reads
+through `prefVal()` and says *"(from the AxisCare tag)"* when that is where
+the value came from. This affected pets and overnight exactly as much as CNA,
+so it was fixed for all three rather than special-cased.
+
+#### Devi's grammar is narrow on purpose — that is not a bug to "fix"
+
+`"record that Maria Lopez does not drive"` prepares a proposal.
+`"Maria Lopez does not drive"` does **not** — it is read as a question about
+her and falls through to her profile. That is `dactCommand()` requiring an
+opening verb or a reporting verb, and it is the guard that keeps read
+questions out of the write path. See *The instruction grammar is deliberately
+narrow*.
+
+One thing does have to be added alongside `DV_PREF_FIELDS`: the field's words
+belong in the **`wantsCg`** regex a few lines above the loop. Without that, an
+instruction naming a caregiver Devi cannot resolve — a typo — returns `null`
+and Devi says **nothing at all**, instead of *"I could not find that
+caregiver."*
+
 ### "Availability missing" counts EVERY status, not just Open
 
 Needs Update's *Availability missing* answers one question: **has anybody told
