@@ -33,21 +33,29 @@
 // Mitch: "Do NOT include medications" — an absolute rule, whatever happens.
 // A prompt instruction alone would be a request. So:
 //
-//   1. Only whitelisted fields are read at all. Measured across all 18 active
-//      clients on 2026-09-14: mobility, personal, adl, transferAssist,
-//      ambulation, standLong and goals contain ZERO drug names or dosages.
-//      medManage, routineAM, routinePM, routineDay, feeding and `other` all
-//      do, and are never read.
-//   2. `safety` is read ONLY if it passes the medication filter for that
-//      client. It carries real scope boundaries ("do not do wound packing")
-//      and leaks a drug name for 1 of 18, so it is included per-client rather
-//      than dropped for everyone.
-//   3. The OUTPUT is filtered too. If a drug name appears in the generated
-//      line the line is discarded, not sent — belt and braces, because the
-//      model could in principle infer one.
+//   1. A NARROW SET OF FIELDS is read: mobility, personal, adl,
+//      transferAssist, ambulation, standLong, safety, and the structured
+//      fallRisk / cognitive / hospice columns. medManage, medInstr,
+//      routineAM, routinePM, routineDay, feeding and `other` are never read
+//      at all - every one of them contains drug names on this account.
+//   2. EVERY field that IS read is filtered first, and a field that trips the
+//      filter is dropped on its own. So a drug name in `personal` costs the
+//      personal-care detail and keeps mobility and fall risk, rather than
+//      losing the whole line.
+//   3. The OUTPUT is filtered by the same detector, and then read by a second
+//      model asked one question: does this mention a medication? A YES, an
+//      unparseable answer, or a failed check all discard the line.
 //
-// The model therefore never sees a medication, and could not emit one
-// unnoticed if it did.
+// WHAT THIS DOES AND DOES NOT GUARANTEE. Layers 1 and 2 stop what is recorded
+// today; layer 3 stops what a pattern cannot describe. None of it is a proof.
+// An earlier version of this comment claimed "the model therefore never sees
+// a medication, and could not emit one unnoticed if it did" - that was FALSE
+// when it was written. The detector behind it was a 25-name denylist that
+// missed 48 of 51 realistic medication strings, and the field whitelist it
+// relied on was never applied to most of the fields. A confident sentence in
+// a safety comment is worth nothing without the measurement behind it; the
+// measurement now lives in the test harness and should be re-run when this
+// detector is touched.
 //
 // ── SECRETS (Supabase project secrets) ──────────────────────────────────────
 //   ANTHROPIC_API_KEY          shared with devi-agent
@@ -94,13 +102,74 @@ const CONDITIONAL_FIELDS = ["safety"];
 /* Structured columns beside careNeeds. Not free text, so nothing to leak. */
 const SAFE_COLUMNS = ["fallRisk", "cognitive", "hospice"];
 
-/* Deliberately broad. A false positive costs a scheduler one manual edit; a
-   false negative puts a drug name on a caregiver's phone. */
-const MED_RE = new RegExp(
-  "\\b(mg|mcg|ml|dosage|dose|dosing|tablet|capsule|bid|tid|qid|prn|po|" +
-  "insulin|warfarin|eliquis|coumadin|lasix|bumex|diltiazem|metoprolol|lisinopril|" +
-  "gabapentin|oxycodone|hydrocodone|tylenol|acetaminophen|ibuprofen|aspirin|" +
-  "statin|metformin|prednisone|furosemide|glucose|medication|meds)\\b", "i");
+/* ── DETECTING A MEDICATION ─────────────────────────────────────────────
+   Rebuilt 2026-09-14 after an adversarial review, and the rebuild matters
+   more than the original: the first version was a 25-name denylist and it
+   MISSED 48 OF 51 realistic home-care medication strings. Measured, not
+   estimated. Two of its own entries could never fire — `\bmg\b` cannot match
+   "10mg" because there is no word boundary between a digit and a letter, and
+   `\bstatin\b` cannot match "atorvastatin". It caught "10 mg" and nothing
+   else people actually type.
+
+   A LIST OF DRUG NAMES CANNOT WORK. The name space is open-ended and
+   commercial; any list is out of date the week it is written. So this
+   detects the parts of the space that ARE closed, and a model handles the
+   rest (see medLooksClinical below):
+
+     1. DOSE AMOUNTS - a digit followed by a unit, space optional. This is
+        the single highest-signal pattern and the original got it wrong.
+     2. SIG ABBREVIATIONS - bid, tid, qhs, q4h, prn, po. A closed set.
+     3. FORMS, ROUTES AND DEVICES - patch, inhaler, nebuliser, oxygen,
+        suppository, ointment, eye drops, syringe, sliding scale, comfort
+        kit. CLOSED, and the realistic leak: the prompt asks for safety
+        precautions and personal care, so "apply barrier cream after each
+        episode" and "oxygen at 2L, do not adjust" are what a model would
+        faithfully carry across. Every one of those passed the old regex.
+     4. DRUG-NAME SUFFIX FAMILIES - -statin, -azepam, -pril, -sartan, -olol,
+        -dipine, -prazole, -xaban, -codone. These are how generic names are
+        constructed, so they catch drugs no list contains.
+     5. A NAMED LIST, last and least, for the common ones that fit no family.
+
+   `iv` is deliberately NOT in the sig list: case-insensitively it matches the
+   "IV" in "Calvin Miller IV", and a client's own name must not trip this. */
+const MED_RE = new RegExp([
+  /* 1. dose amounts - "10mg", "10 mg", "0.5 ml", "2 units" */
+  "\\d\\s*(mg|mcg|ug|ml|cc|gram|grams|g|unit|units|iu|meq|tsp|tbsp)\\b",
+  /* 2. sig abbreviations */
+  "\\b(bid|tid|qid|qd|qod|qhs|qam|qpm|q\\d+h|prn|po|sl|im|subq|sq|npo)\\b",
+  /* 3. forms, routes, devices - closed, and the realistic leak */
+  "\\b(tablets?|capsules?|pills?|pillbox|pill box|blister pack|suppositor\\w*|" +
+  "inhalers?|nebuli[sz]\\w*|oxygen|patch|patches|transdermal|sublingual|" +
+  "subcutaneous|intravenous|topical|injections?|injectable|syringes?|vials?|lozenges?|" +
+  "troche|ointments?|eye ?drops|ear ?drops|nasal spray|syrup|elixir|" +
+  "sliding scale|comfort kit|medication administration record)\\b",
+  /* the standalone acronym, case-sensitive so "Mar" in a name is safe */
+  "\\bMAR\\b",
+  /* 4. explicit medication words */
+  "\\b(medication\\w*|medicine\\w*|meds|drugs?|prescri\\w+|pharmac\\w+|dosages?|" +
+  "dosing|administer\\w*|refill\\w*)\\b",
+  /* 5. generic-name suffix families */
+  /* {2,} not {3,}: losartan is lo+sartan, and it is the commonest ARB on this
+     roster. [aeiou]lol not olol: only metoprolol and atenolol actually end
+     "olol" - carvedilol ends "ilol" and labetalol "alol", so the literal
+     suffix was catching about a third of the beta blockers. */
+  "\\w{2,}(statins?|azepam|azolam|zolam|pril|sartan|[aeiou]lol|dipine|prazole|tidine|" +
+  "cillin|mycin|oxacin|floxacin|triptan|codone|morphone|fentanyl|fentanil|" +
+  "barbital|phylline|terol|sone|olone|parin|xaban|gliptin|glutide|semide|" +
+  "thiazide|caine|profen|dronate)\\b",
+  /* 6. the common names that fit no family */
+  "\\b(insulin|warfarin|coumadin|eliquis|xarelto|plavix|aspirin|tylenol|" +
+  "acetaminophen|ibuprofen|morphine|dilaudid|ativan|xanax|valium|seroquel|" +
+  "haldol|haloperidol|lasix|bumex|digoxin|lithium|synthroid|levothyroxine|" +
+  "metformin|jardiance|keppra|aricept|donepezil|memantine|namenda|flomax|" +
+  "oxybutynin|senna|colace|miralax|dulcolax|nitroglycerin|albuterol|" +
+  "lantus|humalog|heparin|lovenox|zoloft|lexapro|prozac|trazodone|" +
+  "tramadol|gabapentin|lyrica|pregabalin|atropine|scopolamine|glycopyrrolate|" +
+  "glucose)\\b",
+].join("|"));
+const MED_FLAGS = "i";
+const MED = () => new RegExp(MED_RE.source, MED_FLAGS);
+const hasMed = (s: string) => MED().test(String(s || ""));
 
 // --- CORS (same shape as devi-agent and quo) ---------------------------------
 function normOrigin(s: string): string { return s.trim().replace(/\/+$/, ""); }
@@ -178,21 +247,28 @@ function gatherFacts(d: Record<string, unknown>) {
   const facts: Record<string, string> = {};
   const skipped: string[] = [];
 
-  for (const f of SAFE_FIELDS) {
-    const v = String(cn[f] ?? "").trim();
-    if (v) facts[f] = v;
-  }
-  for (const f of CONDITIONAL_FIELDS) {
+  /* EVERY FIELD IS FILTERED. The first version exempted SAFE_FIELDS on the
+     strength of one measurement - "zero drug names across 18 clients on
+     2026-09-14" - which is a fact about a Tuesday, not a property of the
+     system. The moment a scheduler types "unsteady in the hour after her
+     Lasix" into Concierge's personal-care box, an unfiltered field hands it
+     straight to the model, and the header's claim that the model never sees
+     a medication becomes false with no code having changed.
+
+     Filtering is PER FIELD, not per client: a drug name in the personal field drops
+     that field alone and keeps mobility and fall risk, so the caregiver still gets
+     the line that matters instead of nothing at all. */
+  for (const f of SAFE_FIELDS.concat(CONDITIONAL_FIELDS)) {
     const v = String(cn[f] ?? "").trim();
     if (!v) continue;
-    if (MED_RE.test(v)) { skipped.push(f); continue; }   // leaks a drug name for this client
+    if (hasMed(v)) { skipped.push(f); continue; }
     facts[f] = v;
   }
   for (const c of SAFE_COLUMNS) {
     const v = d[c];
     if (v == null || v === "") continue;
     const s = typeof v === "string" ? v : JSON.stringify(v);
-    if (MED_RE.test(s)) { skipped.push(c); continue; }
+    if (hasMed(s)) { skipped.push(c); continue; }
     facts[c] = s;
   }
   return { facts, skipped };
@@ -288,6 +364,52 @@ async function summarise(facts: Record<string, string>, nudge?: string) {
   return text;
 }
 
+/* THE BACKSTOP A REGEX CANNOT BE.
+   Dose formats, sig abbreviations, forms and suffix families are closed sets
+   and MED_RE handles them. BRAND NAMES ARE NOT: Xarelto, Seroquel, Jardiance
+   and whatever launches next month match no pattern and appear on no list
+   that stays current. So the finished line is also read by a model, asked one
+   question, and discarded on a YES.
+
+   A small fast model, because the question is easy and this sits on a path
+   that already takes several seconds. If the check itself fails - timeout,
+   outage, anything - the line is DISCARDED, not passed: an unverifiable line
+   is treated exactly like a failed one. */
+const CHECK_MODEL = (Deno.env.get("CARE_CHECK_MODEL") ?? "claude-haiku-4-5-20251001").trim();
+
+async function mentionsMedication(line: string): Promise<{ hit: boolean; checked: boolean }> {
+  const body = {
+    model: CHECK_MODEL,
+    max_tokens: 16,
+    system: "You check one sentence for a home-care agency. Answer with exactly one word, YES or NO, " +
+      "and nothing else.\n\nAnswer YES if the sentence names or refers to ANY medication, drug " +
+      "(brand or generic), supplement, dose, dosage, medication schedule, medication task, or a " +
+      "route or device for giving one - including oxygen, patches, inhalers, nebulisers, eye drops, " +
+      "suppositories, creams and ointments applied as treatment, injections, and phrases like " +
+      "'give 2 units', 'sliding scale' or 'comfort kit'.\n\nAnswer NO if it only describes " +
+      "mobility, transfers, bathing, dressing, toileting, continence care, repositioning, " +
+      "supervision, cognition, behaviour or fall risk.",
+    messages: [{ role: "user", content: line }],
+  };
+  try {
+    const r = await fetch(API, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-api-key": KEY, "anthropic-version": ANTHROPIC_VERSION },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!r.ok) return { hit: true, checked: false };
+    const data = await r.json().catch(() => null) as Record<string, unknown> | null;
+    const parts = (data?.content as Array<{ type: string; text?: string }>) || [];
+    const said = parts.filter((p) => p.type === "text").map((p) => p.text || "").join("").trim().toUpperCase();
+    if (said.startsWith("NO")) return { hit: false, checked: true };
+    if (said.startsWith("YES")) return { hit: true, checked: true };
+    return { hit: true, checked: false };            /* unparseable - refuse */
+  } catch {
+    return { hit: true, checked: false };            /* unverifiable - refuse */
+  }
+}
+
 /* Everything that must be true of the line before a caregiver can see it. */
 function vet(line: string): { ok: boolean; line: string; why?: string } {
   let s = String(line || "").trim();
@@ -310,7 +432,7 @@ function vet(line: string): { ok: boolean; line: string; why?: string } {
   /* THE ABSOLUTE RULE. Input whitelisting should make this unreachable; it is
      here because "should" is not good enough when the failure lands on a
      caregiver's phone. */
-  if (MED_RE.test(s)) {
+  if (hasMed(s)) {
     return { ok: false, line: "", why: "The generated line mentioned medication, so it was discarded." };
   }
   if (s.length > MAX_LINE) {
@@ -398,8 +520,21 @@ Deno.serve(async (req) => {
   if (!v.ok) {
     return json(cors, 200, { ok: true, line: null, state: "rejected", srcHash: hash, skipped, reason: v.why });
   }
+
+  /* LAST GATE. Everything above is pattern matching; this is the only step
+     that can recognise a brand name nobody listed. */
+  const mc = await mentionsMedication(v.line);
+  if (mc.hit) {
+    return json(cors, 200, {
+      ok: true, line: null, state: "rejected", srcHash: hash, skipped,
+      reason: mc.checked
+        ? "The generated line referred to medication, so it was discarded."
+        : "The line could not be checked for medication, so it was not used.",
+    });
+  }
+
   return json(cors, 200, {
     ok: true, line: v.line, state: "ready", srcHash: hash,
-    fields: Object.keys(facts), skipped,
+    fields: Object.keys(facts), skipped, medChecked: true,
   });
 });
