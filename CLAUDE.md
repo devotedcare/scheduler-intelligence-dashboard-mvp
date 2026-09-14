@@ -2051,11 +2051,14 @@ returns the token itself.
 
 ---
 
-## Quo — the phone system. Read-only, and the Communication Logs card reads it
+## Quo — the phone system. Reads the Communication Logs, and sends texts
 
-Added 2026-09-11. The proxy went in as plumbing with no reader, the same stage
-AxisCare went through; the **Communication Logs** card on the Caregiver
-Overview was built on it the same day and is its only consumer. See
+Added 2026-09-11 as read-only plumbing with no reader, the same stage AxisCare
+went through. The **Communication Logs** card on the Caregiver Overview was
+built on it the same day, and on **2026-09-14** it gained the one thing it
+could not do: sending a text, from Find Coverage. Two consumers now — see
+*Read-only — except `action=send`* and *Texting a caregiver from Find
+Coverage*. See
 *Communication Logs* below.
 
 Quo was called **OpenPhone** until it rebranded in 2026. Every older doc, SDK,
@@ -2106,7 +2109,21 @@ key — `supabase login`, or `SUPABASE_ACCESS_TOKEN`, which `.env` carries and
 `.env.example` documents. An expired one fails late and confusingly: the
 upload starts, then `unexpected deploy status 401: Unauthorized`.
 
-Deployed and verified live on 2026-09-11.
+Deployed and verified live on 2026-09-11, and again on **2026-09-14** with the
+send path. That second deploy was checked against the DEPLOYED function rather
+than a local build — 22 probes, every one of them designed to be refused (an
+off-roster number, a spoofed sending line, an empty message, 27 recipients, an
+over-long body, a send over GET, a POST to a non-send action, PUT/PATCH/DELETE,
+and a test-mode destination that is not one of our own lines). All refused, and
+no text was sent to anybody.
+
+> **The access token expires.** Deploying needs a personal access token
+> (`sbp_…`), and the one in `.env` has now gone stale twice. It fails on *any*
+> CLI call, so `npx supabase projects list` is the one-second way to tell a dead
+> token from a broken deploy — an expired one otherwise fails late and
+> confusingly, with the upload starting and then `unexpected deploy status 401`.
+> Only Mitch can mint a replacement (Supabase dashboard → Account → Access
+> Tokens).
 
 > **The "not deployed" message had to be fixed to say so.** Supabase answers a
 > missing function with perfectly valid JSON — `{"code":"NOT_FOUND","message":
@@ -2120,7 +2137,7 @@ Deployed and verified live on 2026-09-11.
 This is worth knowing before diagnosing anything: **a Quo fix can look
 deployed and not be.** Netlify going green says nothing about this function.
 
-### Read-only, and that is the whole security argument
+### Read-only — EXCEPT `action=send`, added 2026-09-14
 
 AxisCare's API is a read API — if its token leaked, a stranger could read.
 **Quo's API can act.** Roughly half its ~45 endpoints mutate:
@@ -2135,28 +2152,186 @@ PATCH  /v1/contacts/{id}          a destructive REPLACE, not a merge — omitted
 POST   /v1/tasks/{id}/complete    and a dozen more state changes
 ```
 
-So the **method gate** in `supabase/functions/quo/index.ts` is the security
-boundary of the file: the handler accepts GET, and the upstream call is GET.
-There is no reachable code path that sends a message. The path allowlist sits
-behind that as defence in depth, not as the primary lock.
+Until 2026-09-14 the **method gate** was the whole security argument of
+`supabase/functions/quo/index.ts`: GET in, GET out, no reachable path to a
+mutation. That is no longer literally true, and the honest statement is
+narrower:
 
-**Claude: do not add a POST branch, a `method` parameter, or a send action** —
-not even "so the dashboard can text a caregiver about an open shift". That is
-a real thing the desk will want and it is **not a code decision**. It is a PHI
-decision and a billing decision, and this file already records it as Carlo's
-under *Devi actions*: there is deliberately no SMS channel in this dashboard.
-Wiring one starts with that conversation.
+> The proxy accepts **GET, plus POST for exactly one action — `send`** — and
+> `send` is the only mutation it can perform. It still cannot delete a
+> contact, patch a contact, complete a task or mark a conversation read, and
+> no parameter makes it able to.
 
-Verified 2026-09-11, 36 tests against the real handler, 8 of them live: every
-non-GET verb is refused 405, the preflight advertises `GET, OPTIONS` only, and
-`GET /v1/messages` reaches Quo as a read and never a send.
+**This section used to say "Claude: do not add a POST branch… wiring one
+starts with that conversation." That conversation happened.** Mitch asked for
+texting from Find Coverage on 2026-09-14, the guards below were described and
+agreed *before* any code was written, and the backstop he named is real: the
+API key can be deleted in Quo at any moment, which stops everything instantly.
+
+It is worth being precise about what was decided, because the next request
+will be the second mutation and that is **a new decision, not a precedent**:
+
+- what was agreed is *sending a text to a caregiver already on the roster*
+- the four guards are the terms it was agreed on, not implementation detail
+- nothing about PHI, the missing login, or the billing exposure changed; they
+  were weighed and accepted for this one capability
+
+#### The four guards, and which ones actually matter
+
+The dashboard has **no login**, the function is deployed `--no-verify-jwt`, and
+CORS is enforced by browsers and does nothing against `curl`. So anyone who
+learns the URL can reach this endpoint. Two of the four guards are real
+protection and two are blast-radius limits:
+
+| | Guard | What it buys |
+|---|---|---|
+| **1** | **The destination must be on the active AxisCare roster** | The one that matters. Turns "a stranger can text anyone on earth from the agency's number" into "a stranger could annoy our own caregivers". |
+| **2** | **`from` must be one of our real Quo lines**, matched against live `/v1/phone-numbers` | The browser picks *which* line; it cannot invent one and cannot spoof a number the agency does not own. |
+| 3 | A hard hourly cap (`SEND_HOURLY_CAP`, 200) | Per isolate, so a brake rather than a guarantee — the same honest limit `devi-agent`'s rate limiter has. Bounds the worst case. |
+| 4 | `SEND_MAX_RECIPIENTS` 25, `SEND_MAX_CHARS` 1600 | One request cannot become a bulk campaign. |
+
+**Guard 1 fails CLOSED and must stay that way.** If the roster cannot be read,
+or comes back empty, or comes back *truncated*, the send is refused and
+nothing is cached. An incomplete allowlist refuses caregivers who really are
+on the roster — annoying, and the safe direction; caching one would make that
+wrongness last ten minutes instead of one request.
+
+> **The roster is read through the app's own PUBLIC Netlify AxisCare proxy**
+> (`QUO_ROSTER_URL`), not through a second copy of the AxisCare token. That
+> endpoint is already world-readable, which is exactly why it can be used here
+> without duplicating a secret into Supabase. If `QUO_ROSTER_URL` is unset,
+> **sending is refused entirely** — the safe path is the default, not a
+> fallback.
+
+Measured against the live account 2026-09-14: **1 request, 1.45s, 183 active
+caregivers, 188 distinct E.164 numbers, and every active caregiver has at
+least one usable number.** All three of `mobilePhone`, `homePhone` and
+`otherPhone` are collected, because `c.phone` in the browser collapses to
+`mobilePhone || homePhone || otherPhone` and the scheduler may well be texting
+the one AxisCare lists second.
+
+> **`nextPage` is a FULL URL, not a bare id.** AxisCare answers
+> `https://7060.axiscare.com/api/caregivers?statuses=Active&startAfterId=37&limit=3`,
+> so passing it straight back as `startAfterId` reads page one forever — and
+> the proxy would then have "verified" the whole roster against its first 200
+> names. `index.html` carries `axPageCursor` for exactly this reason, with a
+> comment recording that it already truncated the roster once. `rosterCursor()`
+> in the Edge Function is the same rule. This was written wrong first and
+> caught by testing against the live proxy rather than by reading.
+
+#### Four things an adversarial review found, all now guarded
+
+Reviewed 2026-09-14, before the first deploy, by a fan-out of reviewers whose
+findings were each put to a separate verifier trying to refute them. 28 raised,
+12 survived. The four worth knowing about:
+
+- **A recipient's NAME could inflate the message past every length check.**
+  `personalise()` used `String.replace` with a **string** replacement, and a
+  string replacement honours `$&`, `` $` `` and `$'` as substitution patterns —
+  `$'` re-inserts everything *after* the match. Measured on this function: a
+  1,524-character template (under the 1,600 limit) plus a 10,000-character name
+  of repeated `$'` produced a **7.5 million character** body, roughly 49,000
+  billable SMS segments, from one request that passed every guard.
+
+  Three fixes, and all three are needed. The replacement is now a **function**
+  (never scanned for `$` patterns), the first name is **capped at 40
+  characters**, and the length is **re-measured after substitution** — the
+  original check ran on the template, which is not the string that gets sent.
+
+  > It also misfired with no attacker at all: a caregiver whose first name
+  > contained a `$` would have had their own message quietly mangled.
+  > `personalise("Hi {name}, shift open.", "Jo$'seph")` returned
+  > *"Hi Jo, shift open.seph, shift open."*
+
+- **A tick could outlive the shift it was made on.** `covSelBar()` *counted*
+  the ticks in the queue on screen, while the button *opened* on every tick in
+  the tab. Tick four caregivers for Brenda Janowski, move to Ziad Niazi, tick
+  one more, and the bar read **Text 1** while the composer opened with **five**
+  — and the draft is built from the *current* query, so four people would have
+  received a real, irreversible text about a client, date and time they were
+  never considered for.
+
+  Closed at both doors: the bar now derives **one** list and hands it to the
+  button (`openCoverageTextSel(ids)` takes the list rather than re-deriving
+  it), and `seedQueryFromShift()` clears `state.covSel` whenever the shift
+  changes. **Claude: do not "simplify" the button back to a no-argument call.**
+  A label that disagrees with what the button does is how the wrong person gets
+  texted.
+
+  > The same root cause caught anyone already rung: the queue drops contacted
+  > caregivers, but their tick stayed in `state.covSel`, so a bulk send reached
+  > people with no row on screen to show it.
+
+- **The rate limiter never drained.** It pushed the timestamp *before*
+  comparing, so a caller who kept hammering after a 429 kept topping the window
+  up — one burst latched the proxy shut for a full hour, and a client that
+  retries on 429 (the natural thing to write) held itself out indefinitely.
+  Only an **allowed** request is counted now.
+
+  `RATE_MAX` also moved **120 → 720**, because 120 was arithmetic nobody had
+  done: one Communication Logs card is 24 requests, so the old ceiling was
+  **five caregiver profiles an hour** per scheduler, and the failure surfaced
+  as an unexplained error on the card. This is not the control on sending —
+  `SEND_HOURLY_CAP` and the roster allowlist are.
+
+- **A stuck roster cursor was recorded as a complete read.** If AxisCare kept
+  claiming a next page while returning nothing new, the sweep called the roster
+  complete and cached a partial allowlist for ten minutes. `index.html`'s
+  `fetchClients` treats a stuck cursor as "done", which is right for a list and
+  wrong here: this one decides **who may be texted**. It now refuses.
+
+Smaller ones from the same pass: an empty `/v1/phone-numbers` result is no
+longer cached for ten minutes (it would disable sending with an empty
+dropdown); a failed *send* gets send-specific advice instead of the read
+routes' *"maxResults is REQUIRED"* hint, which was advice about a call nobody
+made attached to a message that never arrived; removing recipients down to one
+rebuilds the draft so no literal `{name}` is left on screen, **unless the
+scheduler has edited it**, in which case their words stand.
+
+#### Test mode is STRICTER here than in the old app
+
+The old Scheduling app let a scheduler type any number as the test
+destination. This one requires it to be **one of the agency's own Quo lines**
+— otherwise "test mode" is just an unrestricted send-to-anywhere with a
+friendlier label. A line may not text itself, and **the roster check still
+reads the caregiver's number, never the test destination**, so test mode
+cannot be used to reach somebody off-roster.
+
+#### A send is never retried
+
+`callQuo()` retries a 429 and a 5xx, which is right for a read and wrong for a
+send: a request that timed out or 502'd **may well have reached Quo**, and
+retrying it texts the caregiver twice. `sendOne()` therefore deliberately does
+not use `callQuo` — one attempt, and the per-recipient result says honestly
+that it is unknown ("this one may or may not have been sent").
+
+For the same reason the endpoint answers **200 with per-recipient verdicts**
+even when some failed, rather than a 4xx/5xx for the batch. A partial send is
+a normal outcome the scheduler has to *see*; a status code that invites a
+blind retry would text the people who already got it a second time.
+
+#### `to` carries exactly one number, always
+
+Quo accepts `to` as an array, and a multi-element array creates a **group
+thread where every caregiver sees every other caregiver's number**. That is a
+different feature and nobody asked for it. The Edge Function loops and POSTs
+once per recipient, so ticking six caregivers sends six private messages.
+
+Verified 2026-09-14: **78 tests against the real handler**, Quo and AxisCare
+both stubbed so nothing was sent and nothing was billed. Every non-GET verb
+except `POST ?action=send` is refused 405; `send` over GET is refused (a GET
+lands in browser history, a prefetch and a crawler queue, and none of those may
+cost money); an off-roster number, an unreachable roster, an empty roster and a
+truncated roster all refuse; test mode cannot reach an off-roster number; and a
+5xx send is attempted exactly once.
 
 ### The key has no scopes
 
 One key does everything — the same value that lists messages can send them and
 delete contacts. There is no read-only key to issue instead. That is precisely
 why the boundary has to live in our code rather than in the credential, and
-why the GET-only gate is not a detail to tidy away later.
+why the gate has to be narrow and explicit. It is now "GET, plus `send`",
+and that list is the whole boundary — see above.
 
 Generated in Quo under **workspace settings → API**. Needs workspace Owner or
 Admin rights, and the key *name* may not contain spaces.
@@ -2278,6 +2453,7 @@ last is shared with `devi-agent` and already exists.
 | `QUO_API_KEY` | **yes** | — |
 | `QUO_API_BASE` | no | `https://api.quo.com` — no trailing slash, and **no `/v1`**; every allowlisted path already starts `/v1/`, and doubling it gives `/v1/v1/…` and a 404 |
 | `QUO_ALLOWED_PATHS` | no | the built-in read-only list |
+| `QUO_ROSTER_URL` | **for texting** | unset — and **sending is refused while it is unset**. Point it at the app's own public Netlify AxisCare proxy: `https://<site>.netlify.app/.netlify/functions/axiscare` (no trailing slash, no query string). It needs no AxisCare token of its own because that endpoint is already public |
 | `QUO_SHARED_SECRET` | no | unset |
 | `ALLOWED_ORIGIN` | — | **reused from `devi-agent`**, not a new variable |
 
@@ -2289,7 +2465,13 @@ endpoint is reachable by anyone who knows the URL. But the dashboard has no
 login, so any secret the *browser* would have to send would ship in
 `config.js` and be public too. It is real protection only for a
 server-to-server caller. It is supported, and it is not a substitute for the
-read-only gate.
+method gate or, on the send path, for the roster allowlist.
+
+> **Since 2026-09-14 this endpoint can spend money**, which raises the stakes
+> on the paragraph above without changing a word of it. The answer is not a
+> browser secret (there is nowhere to keep one); it is that a send can only
+> reach a number already on the active AxisCare roster, and that the API key
+> can be deleted in Quo at any moment.
 
 What this endpoint reads back — message bodies, call transcripts, client
 contact details — is **materially more sensitive than the roster**. That is
@@ -2733,6 +2915,125 @@ text position. Message bodies are arbitrary text typed by real people and land
 in `innerHTML`. This is the same trap the Devi reply path hit; see *Three traps*
 under Ask Devi.
 
+### Texting a caregiver from Find Coverage
+
+Added 2026-09-14. The Text button on a Find Coverage row now **sends**, through
+Quo, from an agency line. It used to be an `sms:` deep link that opened the
+scheduler's own phone app with the message pre-filled, and the only thing that
+actually worked was Copy.
+
+`QUOSEND` resolves who and which line; `renderCoverageTextModal` draws; the
+Edge Function does everything that matters. See *Read-only — except
+`action=send`* above for the guards.
+
+#### The scheduler picker maps to Quo BY EMAIL
+
+`state.onShift` holds a short name from `SCHED_PEOPLE`. Quo holds nine
+workspace members under different ones. The map is by **email**:
+
+| Picker | Quo member | Email |
+|---|---|---|
+| Mitch | Marivic Diswe | `services@devoted.care` |
+| Sean | Sean Diswe | `sean@devoted.care` |
+| Carlo | Jan Carlo Cardama | `jcmcardama@gmail.com` |
+| Mae | Ruffa Mae Golingho | `maegolingho@gmail.com` |
+| Jen | Jenn | `jendevotedcare@gmail.com` |
+| Angelica | Angel Lano | `angelicalano24@gmail.com` |
+| Patty | Patty Solis | `hrdevotedcare@gmail.com` |
+| Tine | Kristine Opalda | `schedulingdevotedcare@gmail.com` |
+
+Mitch confirmed the first and last by hand ("Marivic is Mitch, Tine is
+Kristine"); the rest are the same person under a shorter name.
+
+**Not by name**, because the two lists genuinely disagree and always will —
+and Quo records Jen as `"Jenn "`, with a trailing space. **Not by Quo user
+id**, because an id is opaque: nobody reviewing the file can tell whether
+`USpODQ2ABD` is still Marivic, and a member removed and re-added gets a new
+one. An email is stable and checkable by eye against the Quo member list.
+
+`QUOSEND.who()` prints the resolved mapping from the console, which is the
+only way to check it without reading the source.
+
+**A name with no mapping is not an error.** It sends with no `userId`, Quo
+applies its own default, and the caregiver sees the same line number either
+way — attribution is internal to Quo. Guessing a colleague would be worse.
+
+#### Send as depends on Send from, and is re-derived when the line changes
+
+Quo requires the sender to be a **member of the line being sent from**, and
+the lines differ sharply — Scheduling Department carries all nine members,
+Recruitment carries two (Patty and Tine). So changing the line re-derives the
+sender rather than keeping it. Silently sending as somebody who is not on the
+new line would have Quo reject it for a reason the screen never mentioned.
+
+When the person on shift is not on the chosen line, the modal says so in a
+sentence rather than quietly picking somebody else, and *"Quo's default
+sender"* is an explicit option rather than a hidden fallback.
+
+#### One recipient reads their own name; several read `{name}`
+
+The templates greet by first name. With one recipient that first name is baked
+in, because the scheduler should read the exact words that will arrive. With
+**several**, the draft carries the literal token `{name}` and the Edge
+Function replaces it per recipient as each message goes out.
+
+> Without that, a batch built from the first ticked caregiver greets
+> **everyone** by that one person's name — Maria Lopez receiving *"Hi Edna,
+> this is Devoted Care"*. Worse than no greeting, and exactly what the desk
+> would be blamed for. It was written wrong first and caught by the browser
+> test, not by reading. `buildCoverageText(cgId, key, multi)` takes the flag,
+> and **both** call sites pass it.
+
+`personalise()` runs server-side and deletes every **other** `{token}` rather
+than transmitting it: a literal `{client}` arriving on a caregiver's phone is
+worse than a gap.
+
+#### The checkboxes, and what they are not
+
+Every row in *Call in this order* has a tick box, and a bar above the list
+offers **Text N**. Ticking several sends each of them their **own private
+message** — it is explicitly **not** a Quo group thread, which would show every
+caregiver every other caregiver's number. Mitch asked for the checkboxes and
+said group texting was not wanted yet; individual multi-send is what the
+checkboxes do, and the modal says so on screen.
+
+A caregiver with no phone number gets **no checkbox at all**, because a tick
+that cannot become a text is a promise the screen does not keep.
+
+**`state.covSel` is per-browser and must never go into `SLICES`** — the same
+rule as `state.openSel` beside it, and for the sharper of the two reasons:
+anything in `SLICES` is diffed into the shared overlay and applied to the other
+desks on their next 20-second poll, so Mae's ticks would appear under Jen's
+cursor mid-sentence and Jen's would replace Mae's. That is the failure
+`state.onShift` had before it moved to `localStorage`. It is not in
+`localStorage` either: a selection should not outlive the tab.
+
+After a send, **only the recipients who actually received it are unticked**. A
+failure stays ticked so the retry is one click rather than a hunt back through
+the list.
+
+#### Nothing is written to `state.contactLog`
+
+A sent text does **not** create a contact-log entry, and that is deliberate
+rather than an omission. `renderCoverageCommand()` drops anybody in the contact
+log out of the calling queue, so logging a text would make the caregiver
+disappear from the list the moment the message went out — before they have had
+a chance to reply. The record exists where it belongs: **sent texts appear on
+that caregiver's Communication Logs card**, live from Quo, which is what that
+card was built for.
+
+#### The Assign button is gone from Find Coverage
+
+Removed 2026-09-14 at Mitch's request: it had no working behaviour behind it on
+this screen. `dispAccept` and `assignShift` are **untouched** and still reached
+from the Today board, the Auto-offer modal and the quick-contact modal — the
+coverage row was one of five call sites, not the only one, so nothing about
+assigning a shift changed anywhere else.
+
+`covCandRow()` went with it. That function had been **dead since the coverage
+rewrite** — zero callers, and it carried the only `multi` parameter left in the
+coverage screens.
+
 ### The browser module
 
 `Quo` in `index.html`, deliberately a near-clone of `AxisCare` so the mental
@@ -2745,7 +3046,14 @@ await Quo.ping()        // does the key actually work, end to end
 await Quo.inboxes()     // all twelve phone numbers
 await Quo.users()       // the nine workspace members
 await Quo.get('/v1/conversations', { maxResults: 10 })
+await Quo.lines()      // the lines WITH each line's members inline
+await Quo.send({ from, userId, content, to:[{id,name,phone}] })
 ```
+
+`Quo.send` is the only write path in the module, and it is deliberately not a
+generic `post(method, path)`: a helper that could post anything would invite a
+second mutation to be added without re-opening the decision that allowed the
+first.
 
 Query params go through the `q_` prefix, same convention as the AxisCare
 proxy. Quo wraps list results in `data`, so a raw `get()` reads
@@ -2893,12 +3201,24 @@ page.
 | Record availability for given dates | `devAvailWrite()` → `carveSegs()` → `AVAIL.saveDays()` |
 | Record a work preference / travel distance | `devSetPref()` → `ops.prefs` + its mirrors |
 
-**What is deliberately prepare-only:** caregiver and family messages. There is
-no SMS or email channel in this dashboard and the AxisCare proxy forwards GET
-only, so a message leaves here by being copied out. Devi drafts the wording and
-offers to save it as a handoff note or a task; it says `DEVI_NO_WRITE` and does
-not pretend otherwise. **Do not "fix" this by adding a send.** That is a vendor,
-a secret and a PHI decision, and it is Carlo's.
+**What is deliberately prepare-only:** caregiver and family messages. Devi
+drafts the wording and offers to save it as a handoff note or a task; it says
+`DEVI_NO_WRITE` and does not pretend otherwise.
+
+> **This changed shape on 2026-09-14 and the distinction now matters more, not
+> less.** There IS an SMS channel in the dashboard — Find Coverage texts
+> caregivers through Quo (see *Texting a caregiver from Find Coverage*). So the
+> old reason ("there is no vendor and no secret") has gone, and the reason that
+> remains is the stronger one: **Devi has no tools.** Nothing the model writes
+> may reach a record, and a send is the most irreversible write in the app —
+> a text cannot be unsent, it costs money, and it lands on a real person's
+> phone. Every text this app sends is composed by a person, in a modal, with a
+> named recipient list in front of them, and sent by them clicking Send.
+>
+> **Claude: do not wire Devi to `Quo.send`.** Handing a tool-less model its
+> first tool, and making that tool an irreversible outbound message, is not a
+> plumbing change. It is Carlo's, and it re-opens the whole safety argument
+> under *What Devi can and cannot do*.
 
 #### The warning that can actually be false
 
