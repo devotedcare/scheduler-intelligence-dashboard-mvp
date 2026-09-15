@@ -2319,12 +2319,6 @@ body.ai-white .main{display:flex;flex-direction:column;min-height:100vh}
 .cgp{display:flex;flex-direction:column;min-width:0}
 .cgp-t svg{color:var(--ink-faint)}
 .cgp-list{display:flex;flex-direction:column}
-/* Fixed height with its own scrollbar, so a long history never stretches
-   the row its panel sits in. overflow-y is spelled out: setting only
-   overflow-y leaves the other axis computed as auto and draws a phantom
-   horizontal scrollbar. */
-.cgp-scroll{height:232px;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column}
-.cgp-scroll.tall{height:auto;max-height:56vh}
 .cgp-row{display:flex;align-items:baseline;gap:10px;padding:8px 2px;border-bottom:1px solid var(--line);font-size:13px;color:var(--ink);min-width:0}
 .cgp-row:last-child{border-bottom:none}
 .cgp-tx{flex:1;min-width:0;overflow-wrap:anywhere}
@@ -2537,9 +2531,8 @@ body.ai-white .main{display:flex;flex-direction:column;min-height:100vh}
 .rt-ot b{font-weight:800;color:var(--ink)}
 .lab-opt{margin-left:6px;font-size:10.5px;font-weight:700;text-transform:none;letter-spacing:0;color:var(--ink-faint)}
 .cgf-ri-stars{margin-top:3px;line-height:1}
-/* background-COLOR, not the shorthand: .fb-type carries the chevron as a
-   background-image and the shorthand would clear it. */
-.fb-type.pos{background-color:#EAF5F0;color:#1E7A5C;border-color:#CDE7DD}
+/* Concern and Complaint only. Client Feedback carries no type, so the green
+   Positive Feedback label went with it. */
 .fb-type.con{background-color:#FAF2EA;color:#97572E;border-color:#EEDECB}
 .fb-type.cmp{background-color:#FBECEA;color:#A33227;border-color:#EFCFC9}
 .cgp-toprow{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%}
@@ -2580,12 +2573,10 @@ body.ai-white .main{display:flex;flex-direction:column;min-height:100vh}
 /* No fade over the cut. Everything on a card is full opacity; where the body
    is longer than the card it is simply clipped, and View Details is what says
    there is more. */
-/* The Overview panels scrolled inside themselves (.cgp-scroll 232px,
-   .cgp-list 240px). Inside a fixed-height card the clip and View Details do
-   that job, and a scrollbar inside a clipped card is two scrollers arguing —
-   so the list runs its natural length and the card decides what shows.
-   .cgp-scroll.tall, which the popup uses, is untouched. */
-.pfx-body .cgp-scroll{height:auto;overflow:visible}
+/* The Overview panels used to scroll inside themselves. Inside a
+   fixed-height card the clip and View Details do that job, and a scrollbar
+   inside a clipped card is two scrollers arguing — so the list runs its
+   natural length and the card decides what shows. */
 .pfx-body .cgp-list{max-height:none;overflow:visible}
 .pfx-more{flex:0 0 auto;margin-top:8px;padding-top:8px;border-top:1px solid var(--line);text-align:right}
 /* In the popup the same body runs to whatever length it needs. */
@@ -2796,7 +2787,7 @@ const state = {
   contactLog:{},
   handoff:{opener:[], closer:[]},
   updates:[],
-  cgConcerns:[], cgUpdates:[], cgNotes:[], cgRatings:[], cgProfiles:[], schedChanges:[], cgChanges:[],
+  cgConcerns:[], cgNotes:[], cgRatings:[], cgProfiles:[], schedChanges:[], cgChanges:[],
   aiSugOpen:false,   /* Ask Devi: suggested questions start collapsed */
   updEdit:null,          /* id being edited, or 'new' while composing */
   view:'avail',
@@ -11097,13 +11088,16 @@ function cgAbout(c){
   /* 4 — what to watch */
   const watch=[];
   const fb=(typeof cgConcernsFor==='function')?cgConcernsFor(c.id):[];
-  const nOf=t=>fb.filter(f=>f.type===t).length;
-  const pos=nOf('Positive Feedback'), con=nOf('Concern'), cmp=nOf('Complaint');
+  /* Client Feedback has no type, so it is counted as notes; only the Client
+     Complaint card splits into Concern and Complaint. fbKind() decides. */
+  const fbN=fb.filter(f=>fbKind(f)==='feedback').length;
+  const nOf=t=>fb.filter(f=>fbKind(f)==='complaint' && f.type===t).length;
+  const con=nOf('Concern'), cmp=nOf('Complaint');
   const fbBits=[];
-  if(pos) fbBits.push(pos+' positive');
+  if(fbN) fbBits.push(fbN+' feedback note'+(fbN===1?'':'s'));
   if(con) fbBits.push(con+' concern'+(con===1?'':'s'));
   if(cmp) fbBits.push(cmp+' complaint'+(cmp===1?'':'s'));
-  if(fbBits.length) watch.push('client feedback records '+aboutList(fbBits));
+  if(fbBits.length) watch.push(aboutList(fbBits)+' from clients');
   const blocks=(ops.clientRestr||[]).length;
   if(blocks) watch.push('must not be assigned to '+blocks+' client'+(blocks===1?'':'s'));
   const restr=(c.restrictions||[]).slice(0,2).map(r=>String(r).replace(/\.$/,'').toLowerCase());
@@ -11514,7 +11508,7 @@ function cmFit(){
 
     /* THE FOOTER RULE COMES OFF, FOR THIS CARD ONLY.
        .pfx-more carries a border-top so "View Details" is separated from the
-       body, which is right on Notes, Concerns and Updates — they run text
+       body, which is right on Notes and the two client cards — they run text
        straight into the footer. This card already ends in its own row
        separators and sits just above the card's own bottom edge, so the rule
        made two hairlines a few pixels apart. Done here rather than in CSS
@@ -11831,9 +11825,9 @@ function empSave(){
 /* =========================================================
    CAREGIVER OVERVIEW  —  the four panels under the calendar
    ---------------------------------------------------------
-   Notes read from the caregiver_day_notes table (NOTES). Concerns and
-   Updates are the desk's own records and are tracked CLOUD slices, so
-   all three schedulers see the same list.
+   Notes, Client Feedback and Client Complaint are the desk's own records
+   and are tracked CLOUD slices, so all three schedulers see the same list.
+   Client Feedback and Client Complaint share ONE slice — see fbKind().
 
    Communication Logs is the odd one out: it is neither the desk's work
    nor stored anywhere in this app. It is read live from Quo on every
@@ -11849,11 +11843,11 @@ function cgDateTime(v){
        + ' · ' + d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
 }
 /* ---- Editing a single entry -----------------------------------------
-   Notes, Client Feedback & Concerns and Updates all hold one record per
-   entry in their own state slice, so edit and delete are the same two
-   operations three times over. One helper draws the controls and one pair
-   of handlers does the work, so the three sections cannot behave
-   differently from each other.
+   Notes, Client Feedback and Client Complaint all hold one record per entry
+   in a state slice (the two client cards share cgConcerns), so edit and
+   delete are the same two operations everywhere. One helper draws the
+   controls and one pair of handlers does the work, so the three cards
+   cannot behave differently from each other.
 
    Communication Logs is deliberately absent, and more firmly than the Call
    Log it replaced ever was. That card was DERIVED from state.contactLog —
@@ -11863,8 +11857,7 @@ function cgDateTime(v){
    only so there is nothing to write them back through. */
 const CG_ENTRY={
   note:  {slice:'cgNotes',    open:'openCgNoteEdit',    gone:'Note deleted'},
-  fb:    {slice:'cgConcerns', open:'openCgConcernEdit', gone:'Entry deleted'},
-  update:{slice:'cgUpdates',  open:'openCgUpdateEdit',  gone:'Update deleted'}
+  fb:    {slice:'cgConcerns', open:'openCgFbEdit',      gone:'Entry deleted'}
 };
 /* Pencil and bin, swapping to an in-place Delete / Keep once the bin is
    pressed — asked on the row rather than through a browser dialog, which
@@ -11911,8 +11904,8 @@ function cgPanelShell(all, o){
   if(all) return `<div class="ws-card cgp">${head}${o.body}</div>`;
   /* The count is the whole list, not "how many more than the preview" — the
      card clips by height now, not by a slice, so the old comparison against
-     a per-panel cap said "(6)" on Notes and nothing on Updates purely
-     because their caps differed. */
+     a per-panel cap said "(6)" on one card and nothing on its neighbour
+     purely because their caps differed. */
   const n=o.total?' ('+o.total+')':'';
   return `<div class="ws-card cgp pfx">${head}
     <div class="pfx-body">${o.body}</div>
@@ -11929,7 +11922,7 @@ function cgPanelShell(all, o){
    list. They are separate things: a calendar note is about that date, this
    is free-form scheduling and matching knowledge about the caregiver.
 
-   Its own record store, tracked like cgConcerns and cgUpdates so all three
+   Its own record store, tracked like cgConcerns so all three
    schedulers see the same notes. Nothing is copied or synced either way —
    the two never read each other. */
 /* Newest first. Two notes typed in the same second tie on `at`, so
@@ -12006,91 +11999,129 @@ function cgNoteSave(){
   toast(n.noteId?'Note saved':'Note added');
 }
 
-/* ---- Client Feedback & Concerns ------------------------------------ */
+/* ---- Client Feedback & Client Complaint ----------------------------
+   TWO CARDS, ONE STORE. Both read and write state.cgConcerns. Splitting it
+   into two slices would have meant migrating the shared overlay and having
+   every open tab refresh at the same moment, for nothing the desk would see
+   — so each entry says which card it belongs on, and fbKind() is the only
+   place that decides.
+
+   Split on 2026-09-15 at Mitch's request. Until then one card held Positive
+   Feedback, Concern and Complaint side by side. */
 function cgConcernsFor(id){
   return (state.cgConcerns||[]).map((f,i)=>Object.assign({_i:i},f))
     .filter(x=>x.cgId===id).sort(feedCmp);
 }
-/* What an entry IS — not how far along it is. Positive feedback belongs in
-   the same history as a complaint, so the section needs a kind, and the
-   warning triangle had to go: it is wrong above a compliment. */
-const FB_TYPES=['Positive Feedback','Concern','Complaint'];
-const FB_CLASS={'Positive Feedback':'pos','Concern':'con','Complaint':'cmp'};
-/* The type is whatever a scheduler chose, and nothing else. It is never
-   read off the words in the entry: only the person who took the call knows
-   whether "family mentioned she was asleep" is a complaint or a note about
-   a client who naps. An entry recorded before this field existed has no
-   type until somebody sets one. */
-function fbType(f){ return FB_TYPES.indexOf(f.type)>=0 ? f.type : ''; }
-function cgConcernsPanel(c, all){
-  const list=cgConcernsFor(c.id), shown=all?list:list.slice(0,20);
-  /* No status, and nothing to resolve or reopen. This is a record of what
-     clients and families said about the caregiver — part of their history,
-     not a queue of tickets to work through. */
+/* The Complaint card's type is whatever a scheduler chose, and nothing
+   else. It is never read off the words in the entry: only the person who
+   took the call knows whether "family mentioned she was asleep" is a
+   concern or a complaint. Client Feedback has no type — it is a note. */
+const CMP_TYPES=['Concern','Complaint'];
+const CMP_CLASS={'Concern':'con','Complaint':'cmp'};
+function cmpType(f){ return CMP_TYPES.indexOf(f.type)>=0 ? f.type : ''; }
+/* Which card an entry sits on. A saved `kind` wins. An entry recorded
+   before the split has none, so it goes where its old type puts it: Concern
+   or Complaint on Client Complaint; Positive Feedback, or no type at all,
+   on Client Feedback. */
+function fbKind(f){
+  if(f.kind==='feedback' || f.kind==='complaint') return f.kind;
+  return cmpType(f) ? 'complaint' : 'feedback';
+}
+function cgFeedbackFor(id){ return cgConcernsFor(id).filter(f=>fbKind(f)==='feedback'); }
+function cgComplaintsFor(id){ return cgConcernsFor(id).filter(f=>fbKind(f)==='complaint'); }
+
+/* No status on either card, and nothing to resolve or reopen. This is a
+   record of what clients and families said about the caregiver — part of
+   their history, not a queue of tickets to work through.
+
+   Entry text goes through escText(), not esc(): esc() is an attribute
+   escaper and does nothing about a "<" typed into a note. */
+/* Client Feedback reads exactly like Notes: when, then the note. */
+function cgFeedbackPanel(c, all){
+  const list=cgFeedbackFor(c.id), shown=all?list:list.slice(0,20);
   const body = shown.length
-    ? `<div class="cgp-list">${shown.map(f=>{ const t=fbType(f);
-        /* Type reads as a label above the note, not a control. It is chosen
-           once, in the form; an entry recorded before the field existed
-           simply has none rather than showing an empty picker. */
+    ? `<div class="cgp-list">${shown.map(f=>`<div class="cgp-row cgp-stack">
+         <span class="cgp-toprow"><span class="cgp-when">${esc(cgDateTime(f.at))}</span>${cgEntryActs('fb',f.id)}</span>
+         <span class="cgp-tx">${escText(f.text||'')}</span>
+       </div>`).join('')}</div>`
+    : `<div class="ws-none">No client feedback recorded.</div>`;
+  return cgPanelShell(all, {title:'Client Feedback', icon:'heart', tint:'h-prefs2', body:body,
+    btn:`<button class="btn xs" onclick="openCgFb('${c.id}','feedback')">+ Add Feedback</button>`,
+    onAll:"openCgAll('"+c.id+"','feedback')", total:list.length});
+}
+/* Client Complaint leads with the type, so a Concern and a Complaint can be
+   told apart at a glance. */
+function cgComplaintsPanel(c, all){
+  const list=cgComplaintsFor(c.id), shown=all?list:list.slice(0,20);
+  const body = shown.length
+    ? `<div class="cgp-list">${shown.map(f=>{ const t=cmpType(f);
         return `<div class="cgp-row cgp-stack">
-         <span class="cgp-toprow">${t?`<span class="fb-type ${FB_CLASS[t]}">${t}</span>`:'<span></span>'}${cgEntryActs('fb',f.id)}</span>
-         <span class="cgp-tx">${esc(f.text||'')}</span>
+         <span class="cgp-toprow">${t?`<span class="fb-type ${CMP_CLASS[t]}">${t}</span>`:'<span></span>'}${cgEntryActs('fb',f.id)}</span>
+         <span class="cgp-tx">${escText(f.text||'')}</span>
          <span class="cgp-when">${esc(cgDateTime(f.at))}</span>
        </div>`; }).join('')}</div>`
-    : `<div class="ws-none">No client feedback or concerns recorded.</div>`;
-  return cgPanelShell(all, {title:'Client Feedback &amp; Concerns', icon:'', tint:'h-rules', body:body,
-    btn:`<button class="btn xs" onclick="openCgConcern('${c.id}')">+ Add Complaint / Concern</button>`,
-    onAll:"openCgAll('"+c.id+"','concerns')", total:list.length});
+    : `<div class="ws-none">No client concerns or complaints recorded.</div>`;
+  return cgPanelShell(all, {title:'Client Complaint', icon:'flag', tint:'h-rules', body:body,
+    btn:`<button class="btn xs" onclick="openCgFb('${c.id}','complaint')">+ Add Complaint</button>`,
+    onAll:"openCgAll('"+c.id+"','complaints')", total:list.length});
 }
-function openCgConcern(id){
-  /* No default: the scheduler picks, or nothing is filed. */
-  state.cgFb={id:id, fbId:null, text:'', type:''};
+/* One composer for both cards; `kind` decides whether it asks for a type. */
+function openCgFb(id, kind){
+  /* No default type: the scheduler picks Concern or Complaint, or nothing
+     is filed. */
+  state.cgFb={id:id, fbId:null, kind:kind==='complaint'?'complaint':'feedback', text:'', type:''};
   state.cgEntryDel=null;
-  renderCgConcernModal(); mbg.classList.add('show');
+  renderCgFbModal(); mbg.classList.add('show');
 }
-/* Same form, opened on one existing entry — including its type, so an entry
-   filed before the type field existed can be given one here. */
-function openCgConcernEdit(fbId){
+/* The same composer, opened on one existing entry, on the card it sits on. */
+function openCgFbEdit(fbId){
   const f=(state.cgConcerns||[]).find(x=>x.id===fbId); if(!f) return;
-  state.cgFb={id:f.cgId, fbId:fbId, text:f.text||'', type:fbType(f)};
+  state.cgFb={id:f.cgId, fbId:fbId, kind:fbKind(f), text:f.text||'', type:cmpType(f)};
   state.cgEntryDel=null;
-  renderCgConcernModal(); mbg.classList.add('show');
+  renderCgFbModal(); mbg.classList.add('show');
 }
-function cgFbSet(f,v){ if(state.cgFb) state.cgFb[f]=v; if(f==='type') renderCgConcernModal(); }
+function cgFbSet(f,v){ if(state.cgFb) state.cgFb[f]=v; if(f==='type') renderCgFbModal(); }
 function cgFbCancel(){ state.cgFb=null; closeModal(); }
-function renderCgConcernModal(){
+function renderCgFbModal(){
   const f=state.cgFb; if(!f) return;
-  const c=cgById(f.id);
-  mEl.innerHTML=`<div class="mh"><span class="mt">${f.fbId?'Edit Feedback or Concern':'Client Feedback or Concern'} — ${esc(c?c.name:'')}</span>
+  const c=cgById(f.id), cmp=f.kind==='complaint';
+  mEl.innerHTML=`<div class="mh"><span class="mt">${f.fbId?'Edit':'Add'} Client ${cmp?'Complaint':'Feedback'} — ${esc(c?c.name:'')}</span>
       <button class="mc" onclick="cgFbCancel()">×</button></div>
     <div class="mb">
-      <div class="dp-lab">Type</div>
-      <div class="dp-segs">${FB_TYPES.map(function(t,i){
-        return `<button type="button" class="dp-seg${f.type===t?' on':''}" onclick="cgFbSet('type',FB_TYPES[${i}])">${t}</button>`;
+      ${cmp?`<div class="dp-lab">Type</div>
+      <div class="dp-segs">${CMP_TYPES.map(function(t,i){
+        return `<button type="button" class="dp-seg${f.type===t?' on':''}" onclick="cgFbSet('type',CMP_TYPES[${i}])">${t}</button>`;
       }).join('')}</div>
-      <div class="dp-lab" style="margin-top:14px">Notes</div>
-      <textarea class="ein acr-ta" maxlength="1000" placeholder="e.g. Family says the caregiver is patient and communicates well."
-        oninput="cgFbSet('text',this.value)">${esc(f.text||'')}</textarea>
+      <div class="dp-lab" style="margin-top:14px">Notes</div>`:`<div class="dp-lab">Notes</div>`}
+      <textarea class="ein acr-ta" maxlength="1000" placeholder="${cmp?'e.g. Family says the caregiver arrived late twice this week.':'e.g. Family says the caregiver is patient and communicates well.'}"
+        oninput="cgFbSet('text',this.value)">${escText(f.text||'')}</textarea>
       <div class="upd-acts"><button class="btn" onclick="cgFbCancel()">Cancel</button>
         <button class="btn pri" onclick="cgFbSave()">${ic('check',13)} Save</button></div>
     </div>`;
 }
 function cgFbSave(){
   const f=state.cgFb; if(!f) return;
-  const text=String(f.text||'').trim();
-  if(FB_TYPES.indexOf(f.type)<0){ toast('Choose a type first'); return; }
+  const cmp=f.kind==='complaint', text=String(f.text||'').trim();
+  if(cmp && CMP_TYPES.indexOf(f.type)<0){ toast('Choose Concern or Complaint first'); return; }
   if(!text){ toast('Add the notes first'); return; }
   if(f.fbId){
     const ex=(state.cgConcerns||[]).find(x=>x.id===f.fbId);
-    if(ex){ ex.text=text; ex.type=f.type; ex.editedBy=state.onShift; ex.editedAt=new Date().toISOString(); }
+    if(ex){
+      ex.kind=f.kind; ex.text=text;
+      /* Feedback carries no type. An entry filed as Positive Feedback before
+         the split drops that label the first time it is saved here. */
+      if(cmp) ex.type=f.type; else delete ex.type;
+      ex.editedBy=state.onShift; ex.editedAt=new Date().toISOString();
+    }
   } else {
-    state.cgConcerns=(state.cgConcerns||[]).concat([{ id:cgUid('fb'), cgId:f.id, text:text,
-      type:f.type,
-      at:new Date().toISOString(), by:state.onShift }]);
+    const rec={ id:cgUid('fb'), cgId:f.id, kind:f.kind, text:text,
+      at:new Date().toISOString(), by:state.onShift };
+    if(cmp) rec.type=f.type;
+    state.cgConcerns=(state.cgConcerns||[]).concat([rec]);
   }
   state.cgFb=null; closeModal(); cgEntryRepaint();
   try{ CLOUD.save(); }catch(e){}
-  toast(f.fbId?'Feedback saved':'Feedback recorded');
+  toast(cmp ? (f.fbId?'Complaint saved':'Complaint recorded') : (f.fbId?'Feedback saved':'Feedback recorded'));
 }
 
 /* ---- Communication Logs --------------------------------------------
@@ -12380,95 +12411,6 @@ function cgCommsPanel(c, all){
     '</div>', list.length);
 }
 
-/* ---- Updates -------------------------------------------------------
-   This caregiver's own activity, built from what the app actually
-   records: availability verification events and the last profile edit,
-   plus anything a scheduler has posted against them. Training,
-   certificates and performance reviews are not recorded anywhere in this
-   app or in AxisCare, so none are shown. */
-const VERIFY_TEXT={verified:'Availability verified', noresponse:'No response to availability check',
-  reminder:'Availability reminder sent'};
-/* System-generated entries — "Profile updated by …" and "Availability
-   verified by …" — are OFF. That tracking is not in use yet, so the feed was
-   showing bookkeeping nobody had asked for. The panel stays; flip this to
-   true to bring the derived entries back, nothing else changes. */
-const CG_UPDATES_SYSTEM = false;
-function cgUpdatesFor(c){
-  /* The id rides along: only a posted update has one, and only a posted
-     update can be edited or deleted. A derived entry (when
-     CG_UPDATES_SYSTEM is on) has no id and gets no pencil or trash — it is
-     not the desk's to change. */
-  /* _i is the insertion index, feedCmp's last tiebreak: two updates posted in
-     the same second tie on `at`, and without it the earlier one sorts on top
-     of the later. */
-  const out=(state.cgUpdates||[]).map((u,i)=>({u:u,i:i})).filter(x=>x.u.cgId===c.id)
-    .map(x=>({id:x.u.id, at:x.u.at, text:x.u.text, by:x.u.by, created:x.u.created, _i:x.i}));
-  if(CG_UPDATES_SYSTEM){
-    (c.ops.verifyHistory||[]).forEach(function(v){
-      out.push({at:v.date, text:VERIFY_TEXT[v.result]||'Availability checked', by:v.by});
-    });
-    if(c.ops.lastUpdated) out.push({at:c.ops.lastUpdated, text:'Profile updated', by:c.ops.lastUpdatedBy});
-  }
-  return out.filter(x=>x.at).sort(feedCmp);
-}
-function cgUpdatesPanel(c, all){
-  const list=cgUpdatesFor(c), shown=all?list:list.slice(0,20);
-  const body = shown.length
-    ? `<div class="cgp-scroll${all?' tall':''}">${shown.map(function(u){
-        return `<div class="cgp-row cgp-stack">
-         <span class="cgp-toprow"><span class="cgp-when">${esc(cgDateTime(u.at))}</span>${cgEntryActs('update',u.id)}</span>
-         <span class="cgp-tx">${esc(u.text)}</span>
-       </div>`; }).join('')}</div>`
-    : `<div class="ws-none">No updates recorded for this caregiver yet.</div>`;
-  return cgPanelShell(all, {title:'Updates', icon:'refresh', tint:'h-prefs2', body:body,
-    btn:`<button class="btn xs" onclick="openCgUpdate('${c.id}')">+ Add Update</button>`,
-    onAll:"openCgAll('"+c.id+"','updates')", total:list.length});
-}
-/* The form is a popup, like the note and feedback composers — an update is
-   typed occasionally, and a box standing open above the list pushes it down
-   for everyone only reading. */
-function openCgUpdate(cgId,id){
-  const ex = id ? (state.cgUpdates||[]).find(x=>x.id===id) : null;
-  state.cgUpd={cgId:cgId, id:id||null, text:ex?ex.text:''};
-  state.cgEntryDel=null;
-  renderCgUpdModal(); mbg.classList.add('show');
-}
-/* The shared edit control addresses an entry by its own id, so this looks
-   the caregiver up from the record rather than being handed both. */
-function openCgUpdateEdit(id){
-  const ex=(state.cgUpdates||[]).find(x=>x.id===id); if(!ex) return;
-  openCgUpdate(ex.cgId, id);
-}
-function cgUpdDraft(v){ if(state.cgUpd) state.cgUpd.text=v; }
-function cgUpdCancel(){ state.cgUpd=null; closeModal(); }
-function renderCgUpdModal(){
-  const u=state.cgUpd; if(!u) return;
-  const c=cgById(u.cgId);
-  mEl.innerHTML=`<div class="mh"><span class="mt">${u.id?'Edit Update':'Add Update'} — ${esc(c?c.name:'')}</span>
-      <button class="mc" onclick="cgUpdCancel()">×</button></div>
-    <div class="mb">
-      <div class="dp-lab">Update</div>
-      <textarea class="ein acr-ta" maxlength="1000" placeholder="e.g. Completed annual skills review."
-        oninput="cgUpdDraft(this.value)">${esc(u.text||'')}</textarea>
-      <div class="upd-acts"><button class="btn" onclick="cgUpdCancel()">Cancel</button>
-        <button class="btn pri" onclick="cgUpdSave()">${ic('check',13)} Save</button></div>
-    </div>`;
-}
-function cgUpdSave(){
-  const u=state.cgUpd; if(!u) return;
-  const text=String(u.text||'').trim();
-  if(!text){ toast('Type the update first'); return; }
-  if(u.id){
-    const ex=(state.cgUpdates||[]).find(x=>x.id===u.id);
-    if(ex){ ex.text=text; ex.editedBy=state.onShift; ex.editedAt=new Date().toISOString(); }
-  } else {
-    state.cgUpdates=(state.cgUpdates||[]).concat([{ id:cgUid('up'), cgId:u.cgId, text:text,
-      at:new Date().toISOString(), by:state.onShift }]);
-  }
-  state.cgUpd=null; closeModal(); cgEntryRepaint();
-  try{ CLOUD.save(); }catch(e){}
-  toast(u.id?'Update saved':'Update added');
-}
 
 /* View All opens the same panel with no cap, rather than a second layout
    that could drift from the one on the page. */
@@ -12484,8 +12426,8 @@ function cgAllClose(){ state.cgAll=null; closeModal(); }
 function renderCgAllModal(){
   const a=state.cgAll; if(!a) return;
   const c=cgById(a.id); if(!c) return cgAllClose();
-  const T={notes:['Notes',cgNotesPanel], concerns:['Client Feedback & Concerns',cgConcernsPanel],
-           comms:['Communication Logs',cgCommsPanel], updates:['Updates',cgUpdatesPanel]}[a.which];
+  const T={comms:['Communication Logs',cgCommsPanel], notes:['Notes',cgNotesPanel],
+           feedback:['Client Feedback',cgFeedbackPanel], complaints:['Client Complaint',cgComplaintsPanel]}[a.which];
   if(!T) return cgAllClose();
   /* Re-asserted here, not only in openCgAll: this runs again on every cmPick,
      and the wide-modal class must survive a re-render. Adding a class that is
@@ -12788,7 +12730,8 @@ function viewCaregiverWorkspace(c){
 
   /* Reliability concern requires something a person RECORDED about this
      caregiver's reliability: a rating of Needs Improvement or High Concern
-     with its reason, a complaint logged in Client Feedback, or a flag
+     with its reason, an entry typed Complaint on the Client Complaint card
+     (a Concern does not raise it — Mitch's call, 2026-09-15), or a flag
      somebody wrote. Attendance data on its own never raises it — a
      caregiver with two logged late arrivals has an attendance record, not
      a documented reliability problem, and the badge is what a scheduler
@@ -12803,7 +12746,7 @@ function viewCaregiverWorkspace(c){
   const _rt=(typeof cgRating==='function')?cgRating(c):null;
   if(_rt && _rt.stars<=2){ relRaised=true;
     relBits.push('rated '+_rt.stars+' of 5'+(_rt.reason?' — “'+_rt.reason.replace(/\.$/,'')+'”':'')); }
-  const _cmp=((typeof cgConcernsFor==='function')?cgConcernsFor(c.id):[]).filter(f=>f.type==='Complaint').length;
+  const _cmp=((typeof cgConcernsFor==='function')?cgConcernsFor(c.id):[]).filter(f=>fbKind(f)==='complaint' && f.type==='Complaint').length;
   if(_cmp){ relRaised=true; relBits.push(_cmp+' complaint'+(_cmp===1?'':'s')+' on file'); }
   const _relFlag=(ops.flags||[]).filter(f=>/reliability|performance/i.test(f));
   if(_relFlag.length){
@@ -12845,10 +12788,10 @@ function viewCaregiverWorkspace(c){
     <div class="ws-card span2"><div class="ws-h ws-h-flex h-tint h-style"><span class="ws-h-ic">${ic('calendar',15)}<span>Availability Calendar</span></span>
       <button class="btn sm" onclick="openCgFullCal('${c.id}')">View Full Calendar</button></div>${cgCalendar(c)}</div>
     <div class="ws-grid ws-prof">
-      ${cgNotesPanel(c,false)}
-      ${cgConcernsPanel(c,false)}
       ${cgCommsPanel(c,false)}
-      ${cgUpdatesPanel(c,false)}
+      ${cgNotesPanel(c,false)}
+      ${cgFeedbackPanel(c,false)}
+      ${cgComplaintsPanel(c,false)}
     </div>`;
 
   /* TWO COLUMNS. Every section was full width with three or four fields in
@@ -18879,7 +18822,6 @@ const CLOUD = (function(){
        one row per entry, keyed by id, so two schedulers writing different
        entries never collide. */
     { path:'cgConcerns',        key:'id' },
-    { path:'cgUpdates',         key:'id' },
     { path:'cgNotes',           key:'id' },
     /* One row per caregiver, keyed by their id. NOT on c.ops: the caregivers
        slice is patchOnly, so a change there is only saved when that exact

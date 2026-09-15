@@ -2751,7 +2751,7 @@ screen** while looking correct in the source. Measured in Chromium: plain 460,
 moves.
 
 > **Do not "clean this up" by deleting the bare rule.** It would resize every
-> wide modal in the app at once — Notes, Concerns, Updates, the form studio,
+> wide modal in the app at once — Notes, Client Feedback, Client Complaint, the form studio,
 > the history sheets — which is a far bigger change than any one card should
 > make. If the 680 is wrong, that is its own decision, taken deliberately and
 > looked at everywhere.
@@ -2887,7 +2887,7 @@ and a slice would share it with the other two schedulers on the next poll.
 "When did we last reach them" is the question the Overview is actually being
 asked; the exact stamp is still on every row. The card clips at 260px like its
 neighbours and `pfxFit()` raises *View Details* — no scrollbar inside the card,
-so it stays consistent with Notes, Concerns and Updates.
+so it stays consistent with Notes, Client Feedback and Client Complaint.
 
 #### Three layout rules that each fixed a reported wart (2026-09-11)
 
@@ -2927,7 +2927,8 @@ card.
 
 - **`.pfx-more` loses its `border-top` on this card, and only this card.**
   That rule separates *View Details* from the body, which is right on Notes,
-  Concerns and Updates — they run text straight into the footer. This card
+  Client Feedback and Client Complaint — they run text straight into the
+  footer. This card
   already ends in its own row separators and sits just above the card's own
   bottom edge, so the rule read as two hairlines a few pixels apart.
 
@@ -3108,6 +3109,214 @@ assigning a shift changed anywhere else.
 rewrite** — zero callers, and it carried the only `multi` parameter left in the
 coverage screens.
 
+#### A client's name in an outbound text is the GIVEN NAME ONLY
+
+`shortClientName()` — "Brenda Janowski" becomes **"Brenda"**. Mitch's call,
+2026-09-14. A caregiver being offered a shift does not need the client's legal
+name, and a text is forwarded, screenshotted and read on a lock screen.
+
+It went in that morning as "Brenda J." and lost the initial the same day,
+across **every** template. Do not reinstate it for one and not the others:
+the point is that a caregiver sees the same form of a name wherever it reaches
+them.
+
+**The given name is kept whole.** "Mary Lou Brown" is *Mary Lou*, "Helen Jean
+Kelly" is *Helen Jean*, and "Duane & Lynne Georgeson" is *Duane & Lynne* — a
+couple, so dropping half would be wrong rather than brief. Trimming to one
+word renames somebody instead of shortening them.
+
+**A suffix is not a surname.** AxisCare stores `"Calvin George"` / `"Miller
+Jr"`, which joins to "Calvin George Miller Jr" — take the last word off and
+you keep *Miller*, the very thing this exists to remove. The suffix is
+stripped first. Verified against all 21 active clients.
+
+`mapClient()` keeps only the joined `name`, not firstName/lastName, which is
+why this works on the string. Adding fields to the mapper would change the
+shape of a patchOnly CLOUD slice for a cosmetic gain.
+
+**Outbound only.** The activity log, attendance records, the coverage board
+and every screen the desk reads keep the full name — a scheduler needs to know
+exactly whose shift it is.
+
+#### ONE non-GSM-7 character doubles what a message costs to send
+
+Measured 2026-09-14. An SMS is GSM-7 until it contains a character outside
+that set — an **en dash, em dash, curly quote or ellipsis** — at which point
+the whole message becomes UCS-2 and a concatenated segment drops from **153
+characters to 67**.
+
+**12 of the 14 outbound templates were paying that, for a single en dash in
+the time range.** One send of each cost **45 segments; with plain ASCII it is
+25.** Same words, 44% cheaper, on every message the desk ever sends.
+
+Use `-`, `'` and `...`. They read identically on a phone. There is a note
+above `TEXT_TEMPLATES` and a regression test that renders every template and
+asserts it stays GSM-7.
+
+### The care-needs line — `care-brief`
+
+Added 2026-09-14. The **Weekend availability** template carries one line
+describing what the caregiver would be taking on, so they know before they say
+yes. Mitch wrote the structure and the rules; only the shift details and the
+care needs change.
+
+```
+Hi Maria, are you available for weekend coverage with Brenda?
+
+Saturday, 8:00 AM-8:00 PM - Camarillo
+
+Care needs: Wheelchair dependent, hands-on for all transfers, help with
+toileting, bathing and dressing, reposition every 2 hours, high fall risk.
+
+Please reply YES if you're available and comfortable with these care needs.
+Thank you.
+```
+
+Four blocks separated by blank lines. When there is no care-needs line the
+block is **dropped entirely** so the blanks close up, rather than leaving a gap
+where the care needs should have been.
+
+#### The data is CONCIERGE'S, and AxisCare has none of it
+
+**Claude: do not go looking for care needs in AxisCare.** There are none.
+`triageLevel` and `priorityNote` are null on this account, client `classes[]`
+are payment type only, and `/api/adls` returns the global CATALOGUE of ADL
+types — its `clientIds` filter is silently ignored, the same trap as
+`caregiverIds`.
+
+Client Concierge holds it, in `concierge_records.data.careNeeds` plus the
+`fallRisk` / `cognitive` / `hospice` columns. **18 of 18 active clients** have
+usable content there.
+
+> Concierge also has a `caregiverBrief` written by its own agent, and copying
+> that was the first plan — one source of truth, one AI. It was abandoned on
+> measurement: `caregiverBrief` exists for **1 of 18** clients, and its
+> `shift.must_know` is five full sentences (~600 characters) rather than a
+> line. Summarising here works today; copying would have needed somebody to
+> run 17 more briefs first.
+
+#### The function fetches its own data — that is the PHI design
+
+`supabase/functions/care-brief/index.ts` reads Concierge **itself** and returns
+only the finished sentence. The obvious design — browser reads the record,
+posts it up to be summarised — would make every client's mobility, continence
+and cognition readable by anyone with the site URL, because there is no login.
+
+**The raw clinical record never reaches the browser and is never stored in the
+Scheduling database.** There is no `fields` parameter either: a caller passes a
+client id and gets a sentence. Mitch confirmed on 2026-09-14 that the Anthropic
+key has PHI handling in place.
+
+#### "Do NOT include medications" — an absolute rule, and how it is actually held
+
+Three layers, because a prompt instruction alone is a request:
+
+1. **A narrow set of fields is read.** `mobility`, `personal`, `adl`,
+   `transferAssist`, `ambulation`, `standLong`, `safety`, and the structured
+   `fallRisk` / `cognitive` / `hospice` columns. `medManage`, `medInstr`,
+   `routineAM`, `routinePM`, `routineDay`, `feeding` and `other` are **never
+   read** — every one of them holds drug names on this account.
+2. **Every field read is filtered, per SENTENCE.** A medication sentence is
+   dropped and the rest of the field kept.
+3. **The output is filtered by the same detector, then read by a second
+   model** asked one question. A YES, an unparseable answer, or a failed check
+   all discard the line.
+
+> **`skipped` in the response says exactly what was held back** —
+> `["personal (1 sentence)", "cognitive"]` — so a scheduler can see that
+> something was removed rather than wondering why a line reads thin.
+
+##### What an adversarial review found, and why the detector looks the way it does
+
+**The first version was a 25-name denylist and it missed 48 of 51 realistic
+home-care medication strings.** Measured, not estimated. Two of its own entries
+could never fire: `\bmg\b` cannot match `"10mg"` — there is no word boundary
+between a digit and a letter, so it only caught `"10 mg"` — and `\bstatin\b`
+cannot match `atorvastatin`. Xarelto, Seroquel, morphine, Ativan, oxygen,
+patches, inhalers, eye drops and barrier cream all sailed through. **And
+`SAFE_FIELDS` had no filter at all**, exempted on the strength of one
+measurement of 18 records on one Tuesday.
+
+**A LIST OF DRUG NAMES CANNOT WORK.** The name space is open-ended and
+commercial. So the regex now covers only the parts that are **closed** —
+dose amounts with or without a space, sig abbreviations, forms/routes/devices,
+and generic-name **suffix families** (`-statin`, `-sartan`, `-xaban`,
+`[aeiou]lol`, `-prazole`) — and the model handles the rest. That took it from
+**94% missed to 8%**, with zero false positives on real care text.
+
+Two suffix details worth keeping: `{2,}` not `{3,}`, because *losartan* is
+lo+sartan; and `[aeiou]lol` not `olol`, because only metoprolol and atenolol
+actually end "olol" — *carvedilol* ends "ilol".
+
+`iv` is deliberately **not** in the sig list: case-insensitively it matches the
+"IV" in *Calvin Miller IV*, and a client's own name must not trip this.
+
+##### The checker runs at temperature 0, and knows equipment is not medication
+
+Both from one client. **Duane & Lynne Georgeson (331)** lost their line about
+one run in three, and diagnosing it took six generations put to the checker:
+
+- it called **"Velcro compression wraps"** and **"soft neck brace"**
+  medication — a garment and an orthotic, neither a substance anyone is given.
+  The prompt now lists explicit negatives.
+- the **same sentence** got YES three times and NO twice. A client keeping or
+  losing their care line on a coin flip is worse than either answer, because
+  nobody can reproduce it. It is a yes/no classifier, so **`temperature: 0`**.
+
+The same client exposed the gap that made filtering per-sentence necessary.
+Their `personal` field reads *"Assist with dressing. Velcro compression wraps.
+Changing briefs about 2-5x daily. Wipe his eyes after glaucoma drops. Soft neck
+brace at times."* — one medication sentence among four things a caregiver needs.
+Dropping the field lost all five and left the line reading *"walker, stand-by
+assist, high fall risk"* for a client whose briefs need changing five times a
+day. **"glaucoma drops" also had to be added** to the pattern, which only knew
+`eye drops`; a bare `\bdrops\b` would fire on "he drops things", so the
+qualifiers are listed instead.
+
+#### Two prompt rules that are not style
+
+- **`max_tokens` includes thinking**, and 1024 was not enough over a care
+  record of several thousand characters: **4 of 18 clients returned empty and
+  3 more were cut off mid-sentence.** 4096 fixed it. Same trap CLAUDE.md
+  records on `devi-agent`, arriving at a different scale.
+- **No umbrella terms.** Asked for a shorter line, the model wrote *"full
+  personal care at bedside"* instead of naming toileting and bathing. A
+  caregiver cannot decide whether they can take a shift from a category name.
+  `personal care`, `ADLs`, `full care` and `assistance as needed` are
+  forbidden, and a test asserts none appear.
+
+`TARGET_LINE` (170) and `MAX_LINE` (200) are deliberately different: asking for
+the number you will enforce leaves no room to finish a sentence, and the first
+run produced a line ending *"...stay in"*.
+
+#### Send is disabled until the line has generated
+
+Sending a weekend offer with the Care needs section still missing is the one
+mistake this feature exists to prevent — the caregiver would be asked to
+confirm they are "comfortable with these care needs" without having been shown
+any. The button reads *"Reading care needs…"* while it waits.
+
+**Only "still coming" blocks Send.** Nothing recorded, or a line written and
+discarded, are *finished* answers: the message is correct without the section
+and `ctCareWarn()` explains which of the three happened, so the desk is never
+stuck. Other templates never wait.
+
+`CARE` caches per client per session. An edited draft is **never** overwritten
+when the line lands — `buildCoverageTextWithout()` is what tells an untouched
+draft from the scheduler's own words.
+
+#### `.q-b` must set font-family and line-height
+
+Reported by Mitch: *"the Call button is bigger than the Text button."*
+Measured — **Call 28.09px, Text 24px**. A `<button>` inherits neither
+`font-family` nor `line-height`, so the Text BUTTON rendered in **Arial at
+line-height:normal** beside the Call ANCHOR in **Inter at 16.1px**. Same class,
+same padding, two typefaces.
+
+`.q-b` now pins both. `1.4` is exactly what the anchor already computed
+(11.5 × 1.4 = 16.1), so buttons grow to match and nothing else moves. It is a
+shared class, so this also squares up Skip, Decline, No answer and Callback.
+
 ### The browser module
 
 `Quo` in `index.html`, deliberately a near-clone of `AxisCare` so the mental
@@ -3122,6 +3331,7 @@ await Quo.users()       // the nine workspace members
 await Quo.get('/v1/conversations', { maxResults: 10 })
 await Quo.lines()      // the lines WITH each line's members inline
 await Quo.send({ from, userId, content, to:[{id,name,phone}] })
+await CARE.load(342)   // the care-needs line for one client, via care-brief
 ```
 
 `Quo.send` is the only write path in the module, and it is deliberately not a
@@ -3148,6 +3358,87 @@ CGCOMMS.info('a731')         // { e164, entries, calls, msgs, lines, requests, m
 CGCOMMS.toE164('805-555-0123')
 CGCOMMS.retry('a731')        // drop the cache and sweep again
 ```
+
+## The Caregiver Overview — four cards
+
+Rearranged 2026-09-15 at Mitch's request. Under the calendar:
+
+```
+Communication Logs     Notes
+Client Feedback        Client Complaint
+```
+
+The Updates card is gone, and the old combined **Client Feedback & Concerns**
+card is now two.
+
+### Client Feedback and Client Complaint are ONE store
+
+Both cards read and write `state.cgConcerns`, the slice the combined card
+used. **There was no backend change.** Entries live in the `scheduler_state`
+overlay JSON like every other desk record, so the split is `index.html` only.
+
+Two slices was the alternative, and it costs more than it looks. A new slice
+path means the shared overlay has to be migrated and every open tab refreshed
+at the same moment, or a tab still running the old code writes the entries
+back under the old path (see *A deploy does not reach an open tab*).
+
+`fbKind(f)` is the only place that decides which card an entry sits on:
+
+| Entry | Card |
+|---|---|
+| `kind: 'feedback'` or `kind: 'complaint'` | that card. A saved kind always wins |
+| no kind, `type` Concern or Complaint | Client Complaint |
+| no kind, `type` Positive Feedback, or no type | Client Feedback |
+
+New entries are saved with `kind`. **Client Feedback has no type**: it is a
+note, and saving an old entry there drops its `Positive Feedback` label.
+**Client Complaint requires Concern or Complaint**, with nothing pre-selected,
+and the type picker comes before Notes.
+
+**Claude: do not bring back a Positive Feedback type, and never infer a type
+from the words.** Only the person who took the call knows whether an entry is
+a concern or a complaint.
+
+Entry text on both cards goes through `escText()`. The Notes card beside them
+still uses `esc()` in its text position, which does nothing about a `<` typed
+into a note. That is the trap described under *Three traps*, and it was left
+alone here because it is outside this change.
+
+### The Reliability concern badge counts Complaint, not Concern
+
+Mitch's call, 2026-09-15. An entry typed **Complaint** raises the red
+*Reliability concern* badge on the Overview; a **Concern** does not. The filter
+is `fbKind(f)==='complaint' && f.type==='Complaint'`. The persona summary
+counts all three kinds of entry, so a Concern is still mentioned there.
+
+### The Updates card is gone
+
+Removed along with its composer, `state.cgUpdates`, its `SLICES` entry and the
+`.cgp-scroll` CSS that only it used. The slice held **0 records** when it went,
+so nothing was lost, and any `cgUpdates` key left in an old overlay is inert.
+
+`{ path:'updates' }` in `SLICES` is **a different feature**: Operations
+Updates, which Devi posts internal scheduling notes to. It is untouched.
+
+### The live data on the day of the split
+
+Three entries. Mae's complaint about Mireya Sanchez (`a874`) had been saved
+twice on 2026-08-29: once before the type field existed, so untyped and bound
+for Client Feedback, and again typed Complaint with the date pasted onto the
+end of the text. With Mitch's approval the untyped copy was deleted and the
+pasted date trimmed. Jen's note about Don (`a1256`, filed as Positive
+Feedback) moved to Client Feedback.
+
+> **Editing a shared record takes a PATCH, not just a corrected add.** On a
+> slice like `cgConcerns`, `applyOverlay()` skips any add whose id the tab
+> already holds, so a rewritten add never reaches an open tab, and that tab
+> pushes the old copy back on its next save. The fix therefore went out as
+> the corrected add, a `dels` entry for the duplicate, **and** a `patches`
+> entry carrying the trimmed text, which `applyOverlay()` does apply to a
+> record already held. No tab re-emits a del or a patch on a slice with no
+> baseline records, so both cleared themselves: rev 6374 carried them, and
+> Mae's open tab applied them and saved rev 6375 two minutes later with the
+> entry correct and both gone.
 
 ## Ask Devi — the local router first, Claude for the rest
 

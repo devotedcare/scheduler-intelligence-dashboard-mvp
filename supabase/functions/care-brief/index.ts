@@ -141,7 +141,11 @@ const MED_RE = new RegExp([
   "\\b(tablets?|capsules?|pills?|pillbox|pill box|blister pack|suppositor\\w*|" +
   "inhalers?|nebuli[sz]\\w*|oxygen|patch|patches|transdermal|sublingual|" +
   "subcutaneous|intravenous|topical|injections?|injectable|syringes?|vials?|lozenges?|" +
-  "troche|ointments?|eye ?drops|ear ?drops|nasal spray|syrup|elixir|" +
+  "troche|ointments?|nasal spray|syrup|elixir|" +
+  /* "glaucoma drops" is a medication and was passing: the pattern only knew
+     "eye drops". A bare \bdrops\b would fire on "he drops things", so the
+     qualifiers are listed instead. */
+  "(eye|ear|nasal|glaucoma|antibiotic|steroid|lubricating|prescription|medicated)\\s*drops|" +
   "sliding scale|comfort kit|medication administration record)\\b",
   /* the standalone acronym, case-sensitive so "Mar" in a name is safe */
   "\\bMAR\\b",
@@ -170,6 +174,34 @@ const MED_RE = new RegExp([
 const MED_FLAGS = "i";
 const MED = () => new RegExp(MED_RE.source, MED_FLAGS);
 const hasMed = (s: string) => MED().test(String(s || ""));
+
+/* FILTER BY SENTENCE, NOT BY FIELD.
+   Dropping a whole field over one word is correct but blunt, and it was
+   costing real care detail. Duane Georgeson's personal-care field reads:
+
+     "Assist with dressing. Velcro compression wraps. Changing briefs about
+      2-5x daily. Wipe his eyes after glaucoma drops. Soft neck brace at
+      times."
+
+   One sentence of that is a medication and four are exactly what a caregiver
+   needs before accepting a shift. Dropping the field lost all five and left
+   the line reading "walker, stand-by assist, high fall risk" for a client who
+   needs briefs changed five times a day.
+
+   So the offending SENTENCE goes and the rest stays. If nothing survives, the
+   field is dropped as before - the rule is unchanged, only the granularity. */
+function stripMedSentences(text: string): { kept: string; dropped: number } {
+  const parts = String(text || "").split(/(?<=[.!?])\s+|\n+/);
+  const keep: string[] = [];
+  let dropped = 0;
+  for (const p of parts) {
+    const s = p.trim();
+    if (!s) continue;
+    if (hasMed(s)) { dropped++; continue; }
+    keep.push(s);
+  }
+  return { kept: keep.join(" ").trim(), dropped };
+}
 
 // --- CORS (same shape as devi-agent and quo) ---------------------------------
 function normOrigin(s: string): string { return s.trim().replace(/\/+$/, ""); }
@@ -261,8 +293,10 @@ function gatherFacts(d: Record<string, unknown>) {
   for (const f of SAFE_FIELDS.concat(CONDITIONAL_FIELDS)) {
     const v = String(cn[f] ?? "").trim();
     if (!v) continue;
-    if (hasMed(v)) { skipped.push(f); continue; }
-    facts[f] = v;
+    const { kept, dropped } = stripMedSentences(v);
+    if (!kept) { skipped.push(f); continue; }          /* nothing survived */
+    if (dropped) skipped.push(f + " (" + dropped + " sentence" + (dropped === 1 ? "" : "s") + ")");
+    facts[f] = kept;
   }
   for (const c of SAFE_COLUMNS) {
     const v = d[c];
@@ -382,14 +416,32 @@ async function mentionsMedication(line: string): Promise<{ hit: boolean; checked
     model: CHECK_MODEL,
     max_tokens: 16,
     system: "You check one sentence for a home-care agency. Answer with exactly one word, YES or NO, " +
-      "and nothing else.\n\nAnswer YES if the sentence names or refers to ANY medication, drug " +
-      "(brand or generic), supplement, dose, dosage, medication schedule, medication task, or a " +
-      "route or device for giving one - including oxygen, patches, inhalers, nebulisers, eye drops, " +
-      "suppositories, creams and ointments applied as treatment, injections, and phrases like " +
-      "'give 2 units', 'sliding scale' or 'comfort kit'.\n\nAnswer NO if it only describes " +
-      "mobility, transfers, bathing, dressing, toileting, continence care, repositioning, " +
-      "supervision, cognition, behaviour or fall risk.",
+      "and nothing else.\n\n" +
+      "A MEDICATION is a substance given to or applied to the person. Answer YES if the sentence " +
+      "names or refers to any of these:\n" +
+      "- a drug or medicine by name, brand or generic\n" +
+      "- a dose, strength, frequency or medication schedule\n" +
+      "- giving, administering, reminding about, refilling or managing medication\n" +
+      "- a substance given as treatment: oxygen, medicated creams or ointments, eye, ear or " +
+      "glaucoma drops, medicated patches, inhalers, nebuliser solutions, suppositories, injections\n" +
+      "- phrases such as 'give 2 units', 'sliding scale' or 'comfort kit'\n\n" +
+      /* The negatives matter as much as the positives. Without them the
+         checker called "Velcro compression wraps" and "soft neck brace"
+         medication for one real client, four times in six - equipment a
+         person WEARS is not a substance they are GIVEN. */
+      "EQUIPMENT AND GARMENTS ARE NOT MEDICATION. Answer NO for anything worn, used or pushed " +
+      "that contains no medicine: compression wraps or stockings, braces, splints, slings, " +
+      "walkers, wheelchairs, canes, Hoyer lifts, briefs, pads, catheters, oxygen TUBING as " +
+      "equipment rather than the oxygen itself, hearing aids, glasses.\n\n" +
+      "Also answer NO if the sentence only describes mobility, transfers, bathing, dressing, " +
+      "toileting, continence care, repositioning, skin checks, supervision, cognition, behaviour " +
+      "or fall risk.",
     messages: [{ role: "user", content: line }],
+    /* TEMPERATURE 0. This is a yes/no classifier, not a writer. At the
+       default the SAME sentence came back YES three times and NO twice in
+       six tries, so a client kept their care line or lost it on a coin flip
+       - the worst kind of failure, because nobody can reproduce it. */
+    temperature: 0,
   };
   try {
     const r = await fetch(API, {
