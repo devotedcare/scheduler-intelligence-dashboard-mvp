@@ -2462,6 +2462,19 @@ body.ai-white .main{display:flex;flex-direction:column;min-height:100vh}
 .cm-bul li{font-size:13.5px;color:var(--ink);line-height:1.55;overflow-wrap:anywhere}
 .cm-next{margin-top:14px}
 
+/* "Summary by Devi" -- after the AI-summary blocks in Quo and the old app,
+   drawn in this theme: a quiet tinted card above the heading, the label in
+   brand steel blue with the spark glyph. Lighter than the outgoing bubble
+   blue (#E4EEF9) so it never reads as a message. */
+.cm-devi{background:#F4F7FB;border:1px solid #DCE5EF;border-radius:10px;
+  padding:10px 13px 11px;margin-bottom:14px}
+.cm-devi-h{display:flex;align-items:center;gap:5px;font-size:10.5px;font-weight:800;
+  letter-spacing:.5px;text-transform:uppercase;color:var(--brand);margin-bottom:5px}
+.cm-devi-h svg{flex:0 0 auto}
+.cm-devi-t{font-size:13.5px;line-height:1.55;color:var(--ink);overflow-wrap:anywhere}
+.cm-devi-soft{color:var(--ink-faint)}
+.cm-devi-btn{margin-left:6px;vertical-align:baseline}
+
 .cm-threadwrap{margin-top:16px}
 .cm-dlabel{font-size:10.5px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;
   color:var(--ink-faint);margin-bottom:9px}
@@ -12348,7 +12361,35 @@ function cmSummary(e){
     '</div>';
 }
 
-function cmDetail(e, cgName){
+/* "Summary by Devi" -- our own one-to-two sentence read of the conversation,
+   from supabase/functions/comms-summary. It sits ABOVE the heading, and
+   Quo's own call summary stays where it was below it so the two can be
+   compared (decided 2026-09-15). See the note inside CGCOMMS. */
+function cmDevi(e, cgId){
+  if(typeof CGCOMMS==='undefined' || !cgId) return '';
+  CGCOMMS.loadDevi(e, cgId);
+  const s=CGCOMMS.devi(e, cgId);
+  /* No box when there is nothing to read: an unanswered call, a call Quo has
+     no transcript for, or a conversation Quo no longer has. */
+  if(!s || s.status==='none' || s.status==='gone') return '';
+  const what=e.kind==='call'?'this call':'these messages';
+  const btn=function(label){
+    return ' <button type="button" class="btn xs cm-devi-btn" onclick="CGCOMMS.deviRetry(\''+
+      String(s.key).replace(/'/g,"\\'")+'\')">'+label+'</button>';
+  };
+  /* The model that wrote it is in the tooltip, so a summary can be traced
+     back when the model is being compared or switched. */
+  const h='<div class="cm-devi-h"'+(s.model?' title="Written by '+esc(s.model)+'"':'')+'>'+
+    ic('spark',12)+'<span>Summary by Devi</span></div>';
+  let body;
+  if(s.status==='loading') body='<div class="cm-devi-t cm-devi-soft">Devi is reading '+what+'\u2026</div>';
+  else if(s.status==='pending') body='<div class="cm-devi-t cm-devi-soft">Quo is still transcribing this call, so there is nothing for Devi to read yet.'+btn('Check again')+'</div>';
+  else if(s.status==='error') body='<div class="cm-devi-t cm-devi-soft">Devi couldn\u2019t summarise '+what+'. '+escText(s.error||'')+btn('Retry')+'</div>';
+  else body='<div class="cm-devi-t">'+escText(s.summary||'')+'</div>';
+  return '<div class="cm-devi">'+h+body+'</div>';
+}
+
+function cmDetail(e, cgName, cgId){
   const isCall=e.kind==='call';
   const who=(String(cgName||'').trim().split(/\s+/)[0])||'Caregiver';
 
@@ -12378,7 +12419,9 @@ function cmDetail(e, cgName){
 
   /* A call used to end here with nothing to read at all. Quo writes a summary
      for every one, so that is what fills the pane now. */
-  if(isCall) return head+cmSummary(e);
+  /* Summary by Devi goes above the heading, on calls and texts alike. */
+  const devi=cmDevi(e, cgId);
+  if(isCall) return devi+head+cmSummary(e);
 
   /* The thread, in full and with NO heading over it. "MESSAGES" labelled the
      only thing in the pane, which is a label that tells you nothing. */
@@ -12394,7 +12437,7 @@ function cmDetail(e, cgName){
       '<div class="cm-cap">'+cap+'</div></li>';
   }).join('');
 
-  return head+'<div class="cm-threadwrap"><ul class="cm-thread">'+msgs+'</ul></div>';
+  return devi+head+'<div class="cm-threadwrap"><ul class="cm-thread">'+msgs+'</ul></div>';
 }
 
 /* Which entry the modal is showing. Module-level and keyed by caregiver, NOT
@@ -12471,7 +12514,7 @@ function cgCommsPanel(c, all){
   return SHELL(warn+summary+
     '<div class="cm-split">'+
       '<div class="cm-rail">'+rail+'</div>'+
-      '<div class="cm-detail">'+cmDetail(cur, c.name)+'</div>'+
+      '<div class="cm-detail">'+cmDetail(cur, c.name, c.id)+'</div>'+
     '</div>', list.length);
 }
 
@@ -19954,9 +19997,10 @@ const CLOUD = (function(){
        it - see CLAUDE.md, "A deploy does not reach an open tab". */
     forceRefreshNotice: forceRefreshNotice,
     isStale: function(){ return staleBuild; },
-    /* Wipe everything anyone has entered and go back to pure demo data. */
+    /* Wipe everything anyone has entered, for EVERY scheduler. There has been
+       no demo data since the roster went live, so this is purely destructive. */
     reset: function(){
-      if(!window.confirm('Clear all saved scheduler work and reload with fresh demo data?')) return;
+      if(!window.confirm('Clear ALL saved scheduler work for the whole desk - every task, note, handoff and profile edit, for everyone - and reload? This cannot be undone.')) return;
       try{ localStorage.removeItem(LS_KEY); }catch(e){}
       CARRY = {};                       /* or the next save would put it all back */
       GONE = {};                        /* a reset starts clean; nothing is deleted */
@@ -20690,6 +20734,115 @@ var CGCOMMS = (function () {
       });
   }
 
+  /* "SUMMARY BY DEVI" -- OUR OWN READ OF ONE CONVERSATION.
+     ---------------------------------------------------------------------
+     One or two sentences above a call or a day of texts, written by Claude
+     through supabase/functions/comms-summary. Asked for 2026-09-15.
+
+     WRITTEN ONCE, NOT SWEPT. The function writes a summary the first time
+     anybody opens that conversation, saves it in public.comm_summaries, and
+     serves the saved one to every later open. A day of texts is rewritten
+     only when the day has gained a message, which is what the count and the
+     newest message id below are for.
+
+     ONLY IDS GO UP. The browser already holds the messages, and posting them
+     would be simpler -- and would let anyone with the site URL save invented
+     summaries and spend the Anthropic key on any text they liked. The
+     function reads the conversation from Quo itself.
+
+     The text key carries the caregiver's number because an entry id is only
+     <line>|<day>, which two caregivers texted on one line on one day share.
+
+     AN ERROR IS NEVER RETRIED AUTOMATICALLY. Landing re-renders the dialog,
+     and the render is what asks -- so a failure that retried itself would
+     loop, one request per render, for as long as the dialog stayed open.
+     Retry is a button. */
+  var devis = {}, devisP = {};
+
+  function deviUrl() {
+    var u = (window.SCHEDULER_CONFIG || {}).supabaseUrl;
+    return u ? String(u).replace(/\/+$/, '') + '/functions/v1/comms-summary' : '';
+  }
+
+  /* What to ask for, or null when there is nothing to summarise. An
+     unanswered call had no conversation, so it gets no box at all. */
+  function deviReq(e, cgId) {
+    if (!e) return null;
+    if (e.kind === 'call') {
+      if (!e.answered || !e.id) return null;
+      return { key: 'call:' + e.id, gen: '', body: { kind: 'call', callId: e.id } };
+    }
+    var r = byCg[cgId], e164 = r && r.e164;
+    var msgs = e.msgs || [], first = msgs[0], last = msgs[msgs.length - 1];
+    if (!e164 || !first || !first.lineId) return null;
+    var day = dayKey(first.at);
+    return {
+      key: 'text:' + first.lineId + '|' + day + '|' + e164,
+      gen: msgs.length + '|' + (last.id || ''),
+      body: { kind: 'text', lineId: first.lineId, day: day, phone: e164,
+              count: msgs.length, lastId: last.id || null }
+    };
+  }
+
+  function devi(e, cgId) {
+    var q = deviReq(e, cgId);
+    return q ? (devis[q.key] || null) : null;
+  }
+
+  function loadDevi(e, cgId) {
+    var q = deviReq(e, cgId);
+    if (!q || devisP[q.key]) return;
+    var s = devis[q.key];
+    /* Held, including an error, unless the day has since gained a message. */
+    if (s && s.gen === q.gen) return;
+    var base = deviUrl();
+    if (!base) {
+      devis[q.key] = { key: q.key, gen: q.gen, status: 'error',
+        error: 'This copy of the dashboard has no Supabase URL.' };
+      return;
+    }
+    devis[q.key] = { key: q.key, gen: q.gen, status: 'loading' };
+    devisP[q.key] = fetch(base, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify(q.body)
+    }).then(function (r) {
+      return r.json().catch(function () { return null; }).then(function (b) {
+        /* The gateway answers a missing FUNCTION with {code,message} and no
+           ok -- the same two-404s trap the Quo and CARE modules document. */
+        if (r.status === 404 && !(b && b.ok === false)) {
+          throw new Error('The comms-summary function is not deployed. Committing does not deploy it \u2014 ' +
+            'it needs: npx supabase functions deploy comms-summary --project-ref gdzgoyawavffjdjpjbfz --no-verify-jwt');
+        }
+        if (!r.ok || !b || !b.ok) throw new Error((b && (b.error || b.message)) || ('HTTP ' + r.status));
+        devis[q.key] = { key: q.key, gen: q.gen, status: b.state || 'none',
+          summary: b.summary || '', model: b.model || null, reason: b.reason || null };
+      });
+    }).then(null, function (err) {
+      /* An UNDEPLOYED function arrives here, not in the 404 branch above.
+         Measured 2026-09-15: the gateway answers the POST's CORS preflight
+         with a 404 whose access-control-allow-headers omits content-type, so
+         the browser blocks the request and throws a bare TypeError ("Failed
+         to fetch") before any body can be read. Say what it most likely is. */
+      var msg = (err && err.message) || String(err);
+      if (err && err.name === 'TypeError') {
+        msg = 'Could not reach the comms-summary function. It may not be deployed yet ' +
+          '(npx supabase functions deploy comms-summary --project-ref gdzgoyawavffjdjpjbfz --no-verify-jwt), ' +
+          'or the connection dropped.';
+      }
+      devis[q.key] = { key: q.key, gen: q.gen, status: 'error', error: msg };
+    }).then(function () {
+      delete devisP[q.key];
+      try { if (state.cgAll) renderCgAllModal(); } catch (x) {}
+    });
+  }
+
+  function deviRetry(key) {
+    if (devisP[key]) return;
+    delete devis[key];
+    try { if (state.cgAll) renderCgAllModal(); } catch (x) {}
+  }
+
   /* A bounded worker pool. Promise.all over 24 fetches would fire them all
      at once and take a wall of 429s; this keeps CONC in flight and no more.
      A job never rejects — a single line failing must not blank the card —
@@ -20899,8 +21052,9 @@ var CGCOMMS = (function () {
   return {
     load: load, status: status, info: info, entries: entries, retry: retry,
     toE164: toE164, stamp: stamp, summary: summary, loadSummary: loadSummary,
+    devi: devi, loadDevi: loadDevi, deviRetry: deviRetry,
     _reset: function () { byCg = {}; inFlight = {}; lines = null; linesP = null;
-      users = null; usersP = null; sums = {}; sumsP = {}; }
+      users = null; usersP = null; sums = {}; sumsP = {}; devis = {}; devisP = {}; }
   };
 })();
 
