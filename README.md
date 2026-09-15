@@ -12,12 +12,14 @@ dashboard is the layer on top that makes the day navigable.
 > every AxisCare field that actually exists, so nothing has to be guessed, and it
 > explains which parts need the lead developer.
 
-**Status: MVP.** Caregivers (184), clients (20) and open shifts are **live from
-AxisCare**. Sample data is cleared at boot — if a screen is empty, AxisCare had
-nothing or the fetch failed, and the banner says which. Care notes, medication
-lists and attendance have no AxisCare source yet.
+**Status: MVP, in use by the scheduling desk.** Caregivers, clients, open shifts,
+each caregiver's calendar and care notes are **live from AxisCare**, and calls
+and texts are live from Quo. There is no sample data — if a screen is empty,
+AxisCare had nothing or the fetch failed, and the banner says which. Medication
+lists cannot be fetched, and attendance has no source yet.
 Deployed for internal use, link-access only, no login.
-See [Security posture](#security-posture) before real client data is entered.
+See [Security posture](#security-posture) — its triggers for adding a login
+have been reached.
 
 ---
 
@@ -58,7 +60,28 @@ netlify/functions/axiscare.js  Server-side AxisCare proxy (keeps the token off
 netlify/functions/carenotes-sync.js
                                Scheduled sweep of caregiver shift notes into
                                Supabase. Chunked, resumable.
-supabase/schema.sql            Table + row-level security. Run once.
+netlify/functions/openshifts-sync.js
+                               Mirrors open shifts into public.open_shifts
+                               every 10 minutes.
+netlify/functions/openshifts-sync-now.js
+                               Unscheduled twin the browser nudges; a scheduled
+                               function cannot be called over HTTP.
+netlify/functions/availability-copy.js
+                               Hourly: re-carves availability around AxisCare
+                               visits, then copies last month's pattern forward.
+netlify/functions/matching-sync.js
+                               Hourly copy of Client Concierge's caregiver
+                               matches and client preferences.
+
+supabase/schema.sql            Every table, policy and trigger. Safe to re-run.
+supabase/open-shifts.sql       Section 8 of schema.sql on its own.
+supabase/comm-summaries.sql    Section 9 of schema.sql on its own.
+supabase/config.toml           Pins the project ref for the Supabase CLI.
+supabase/functions/            Edge Functions. A commit does NOT deploy these.
+  devi-agent/                  Ask Devi's Claude calls
+  quo/                         Quo proxy: reads calls and texts, sends texts
+  care-brief/                  The care-needs line in a shift-offer text
+  comms-summary/               Summary by Devi on Communication Logs
 
 .env.example                   The variable names you need. Not a real .env.
 CHANGELOG.md                   What changed, and why — including the
@@ -78,36 +101,29 @@ charting library.
 This matters more than the deploy steps, because it explains a decision that
 looks odd until you know why.
 
-**The seed data is deliberately not saved.**
+**What comes from AxisCare is deliberately not saved.**
 
-Caregivers, clients and shifts are demo records generated *relative to the
-moment the page loads*:
+Caregivers, clients and open shifts are fetched from AxisCare on every load. If
+we saved the whole state object to the database — the obvious approach, and the
+one the Finance dashboard uses — the saved copy would be replayed over the live
+one, and a shift filled in AxisCare an hour ago would still read as open.
 
-```js
-const NOW = new Date();
-function at(offsetHours){ /* ...NOW + offsetHours... */ }
-{ id:'s1', start: at(3.5), end: at(11.5), status:'open' }
-```
-
-The Today view is built on that: `fmtDay()` returns "Today" / "Tomorrow", and
-shifts sort by how many hours away they are. If we saved the whole state object
-to the database — the obvious approach, and the one the Finance dashboard uses —
-those timestamps would be frozen at the moment of the first save. Open the app
-tomorrow and "starting in 3 hours" would actually be yesterday afternoon. The
-dashboard's core promise quietly breaks.
+> The rule is older than the live data. It was built when those records were
+> demo data generated relative to the moment the page loaded, and a whole-state
+> save would have frozen their timestamps. The reason changed; the rule did not.
 
 **So we save an overlay instead: only what a human actually did.**
 
 | Bucket    | What goes in it                                            |
 |-----------|------------------------------------------------------------|
 | `adds`    | Records the user created — new tasks, handoff notes, guides |
-| `dels`    | Seed records the user removed                               |
-| `patches` | Field-level edits to seed records (task marked Done, caregiver note changed) |
+| `dels`    | Records the user deleted — on the desk's own lists a permanent tombstone (CLAUDE.md, 3g) |
+| `patches` | Field-level edits to records the page loaded (task marked Done, a caregiver's review cadence) |
 | `maps`    | Keyed stores the user wrote into — contact log, medication profiles, care-note overrides |
 | `scalars` | Small settings — who's on shift, message templates          |
 
-On every load the app regenerates the seed with fresh clocks, then replays the
-overlay on top. Demo timing stays live; real work is durable.
+On every load the app fetches fresh records, then replays the overlay on top.
+AxisCare stays current; the desk's work is durable.
 
 Two consequences worth knowing:
 
@@ -119,9 +135,10 @@ Two consequences worth knowing:
 
 ### What is fetched, and in what order
 
-`ROSTER.hydrate()` clears the sample records, then fetches **caregivers, clients
-and open shifts in parallel** — about 4 seconds, dominated by the visit scan that
-finds open shifts.
+`ROSTER.hydrate()` fetches **caregivers, clients and open shifts in parallel**.
+The roster paints as soon as caregivers and their profiles land (about 2s). Open
+shifts come from the `open_shifts` mirror (about 0.7s) and fall back to a live
+visit scan (about 9–10s) only when the mirror is cold.
 
 Three rules make that safe:
 
@@ -130,8 +147,8 @@ Three rules make that safe:
   That bug shipped 323KB to Supabase before a test caught it.
 - **A failed read shows nothing rather than something wrong.** If AxisCare is
   unreachable the dashboard is empty and says so, with a Retry. An implausibly
-  small roster is rejected rather than applied. Sample data can be restored
-  deliberately with `DEMO.on()`, never automatically.
+  small roster is rejected rather than applied. There is no sample data to fall
+  back to.
 - **`ROSTER.reconcile()` runs after every overlay is applied.** A saved overlay
   predates the roster swap and can reference caregivers who no longer exist.
 
@@ -142,7 +159,8 @@ placeholder number, because a real name beside an invented reliability score is
 how someone ends up staffing on fiction.
 
 Open shifts are derived, not fetched: a visit that is not removed, has no
-caregiver, and is scheduled in the future. AxisCare has no field for *when* a
+caregiver, and is scheduled in the future. `openshifts-sync` applies that rule
+for the whole desk and writes the answer to `public.open_shifts`. AxisCare has no field for *when* a
 shift became open, so "open for N days" cannot be shown.
 
 **Not everything loads at boot.** A caregiver's own calendar is fetched the
@@ -192,7 +210,7 @@ CLOUD.status()      // { state, rev, workspace, cloud }
 CLOUD.overlay()     // exactly what would be saved right now
 CLOUD.sync()        // force a pull
 CLOUD.save()        // force a push
-CLOUD.reset()       // wipe all saved work, back to clean demo data (asks first)
+CLOUD.reset()       // DESTRUCTIVE: wipes the whole desk's saved work - see Operating notes
 ```
 
 For a caregiver's calendar — `id` is the app id, e.g. `'a731'`:
@@ -291,11 +309,10 @@ Roughly five minutes.
 
 ## Setup part 3 — AxisCare
 
-**Connected and in use.** The proxy talks to AxisCare successfully, and the
-**caregiver roster is live** — 184 active people fetched on every load. Clients,
-shifts, care notes and medication lists are still sample data and are labelled
-as such in the UI. See [CLAUDE.md](CLAUDE.md) for what is live versus sample,
-and for why open shifts cannot simply be read from AxisCare.
+**Connected and in use.** Caregivers, clients, open shifts, each caregiver's
+calendar and care notes are all live from AxisCare; medication lists cannot be
+fetched (AxisCare answers 403). See [CLAUDE.md](CLAUDE.md), *What is live and
+what is sample*, and for how open shifts are derived from visits.
 
 **Why a proxy at all.** Two reasons, both hard blockers:
 
@@ -397,11 +414,15 @@ at any URL. Widen it deliberately:
 AXISCARE_ALLOWED_PATHS = /api/caregivers,/api/clients,/api/visits,/api/schedules
 ```
 
-### Why the dashboard still shows demo caregivers
+### How the roster was wired (history)
 
-**Deliberate, as of 2026-08-21.** The proxy works; the UI is simply not wired to
-it yet. Reviewed and left on demo data on purpose — the reasoning is below so
-the decision can be re-taken with the facts rather than re-researched.
+> **Historical — written 2026-08-21, before the roster went live on 2026-08-24.**
+> Kept because the "blocker" below is where the rule against invented figures
+> came from: fields AxisCare has no source for are `null` and read "Not
+> tracked". Counts here are from that day; CLAUDE.md has the current ones.
+
+On 2026-08-21 the proxy worked but the UI was deliberately not wired to it. The
+reasoning follows.
 
 #### The roster
 
@@ -454,6 +475,8 @@ built on visits rather than on caregiver records.
   are distinct values today. Normalise case and whitespace, and expect ~40% of
   active caregivers to live outside Ventura County (Canoga Park, Los Angeles,
   Lancaster, Lemoore…), so they are absent from the app's `CITY` distance map.
+  *Corrected 2026-09-08: it is 8 of the 104 schedulable caregivers, not ~40%;
+  `normCity()` cleans the strings before the map is consulted.*
 - **40% of active caregivers carry no `classes` tags at all**, so they yield no
   skills or availability. They should still appear in the roster with empty
   skills — hiding real staff would be worse than showing an incomplete profile.
@@ -498,9 +521,36 @@ All set in Netlify → Site configuration → Environment variables.
 | `AXISCARE_API_TOKEN` | for AxisCare | — | Server-side only. Never reaches the browser. |
 | `AXISCARE_API_VERSION` | no | `2023-10-01` | Sent as `X-AxisCare-Api-Version`. Required by AxisCare; a wrong value 400s *before* auth. |
 | `AXISCARE_ALLOWED_PATHS` | no | built-in list | Comma-separated path prefixes |
-| `SUPABASE_SERVICE_ROLE_KEY` | for care notes | — | **Server-side only.** Used by the care-notes sync to write to Supabase. Never sent to a browser. |
+| `SUPABASE_SERVICE_ROLE_KEY` | for the syncs | — | **Server-side only.** Used by `carenotes-sync`, `openshifts-sync`, `availability-copy` and `matching-sync` to write to Supabase. Never sent to a browser. |
+| `CONCIERGE_SUPABASE_URL` | for matching | — | The Client Concierge project, read by `matching-sync` |
+| `SUPABASE_ANON_KEY_CONCIERGE` | for matching | — | That project's anon key |
 
 Changing any of these requires a **redeploy** — they are read at build time.
+
+### Supabase Edge Function secrets
+
+A **separate store**: Supabase dashboard → Project Settings → Edge Functions →
+Secrets. Read by the four functions in `supabase/functions/`. Changing a secret
+needs no redeploy; changing a function does, and **a commit does not deploy
+one**:
+
+```
+npx supabase functions deploy <name> --project-ref gdzgoyawavffjdjpjbfz --no-verify-jwt
+```
+
+| Secret | Read by | Notes |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | devi-agent, care-brief, comms-summary | `.env` calls the same value `CLAUDE_API_KEY` |
+| `ALLOWED_ORIGIN` | all four | Browser origins allowed, comma-separated. Never `null` |
+| `QUO_API_KEY` | quo, comms-summary | The key has no scopes; see CLAUDE.md |
+| `QUO_ROSTER_URL` | quo, comms-summary | This site's public AxisCare proxy. Texting is refused while unset |
+| `QUO_API_BASE`, `QUO_ALLOWED_PATHS`, `QUO_SHARED_SECRET` | quo | optional |
+| `CONCIERGE_MODEL` | devi-agent, care-brief | `DEVI_MODEL` overrides it for Devi; also `DEVI_EFFORT`, `DEVI_MAX_TOKENS`, `DEVI_SHARED_SECRET` |
+| `CONCIERGE_SUPABASE_URL`, `CONCIERGE_ANON_KEY` | care-brief | Not `SUPABASE_ANON_KEY_CONCIERGE`: Supabase skips secrets named `SUPABASE_…` |
+| `CARE_MODEL`, `CARE_CHECK_MODEL` | care-brief | optional |
+| `COMMS_MODEL`, `COMMS_EFFORT` | comms-summary | optional; default `claude-haiku-4-5` and `low` |
+
+`SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are supplied by Supabase itself.
 
 > The Supabase **database password** is not in this table on purpose. It is only
 > for direct Postgres access; this dashboard uses the REST API with the anon key.
@@ -539,10 +589,13 @@ The function is re-read on every request, so edits to it take effect without a
 restart. Changes to `index.html` just need a refresh.
 
 > **Opening `index.html` straight from disk will not load AxisCare.** On
-> `file://` there is no server behind `/.netlify/functions/…`, so the browser
-> blocks the request and the app falls back to the demo roster. That is expected,
-> not a bug — the app says so in the console. The dashboard itself works fine
-> that way; only AxisCare and Supabase need the server.
+> `file://` there is no server behind `/.netlify/functions/…`, so the red banner
+> says the page was opened straight from disk and nothing is shown. That is
+> expected, not a bug.
+
+> **The dev server does not run the Supabase Edge Functions.** Ask Devi, Quo,
+> the care-needs line and Summary by Devi call the deployed ones, which answer a
+> local page only if `ALLOWED_ORIGIN` lists `http://localhost:8888`.
 
 ### Keep local testing out of the shared workspace
 
@@ -576,9 +629,13 @@ exists so neither is required.
 
 ## Operating notes
 
-**Resetting the demo data.** Console → `CLOUD.reset()`. Clears the shared
-overlay and reloads with clean seed data. It asks for confirmation. Do this
-before a demo so nobody sees last week's test entries.
+**`CLOUD.reset()` deletes the whole desk's work — do not run it on the live
+workspace.** It clears the shared overlay for every scheduler: tasks, handoff
+notes, caregiver notes, feedback and complaints, the contact log and every
+profile edit, then reloads. It asks once and cannot be undone. It used to be
+advice for clearing test entries before a demo, back when the records were demo
+data. Availability, day notes, care notes, open shifts, photos and Devi
+summaries live in their own tables and storage and are not touched.
 
 **Everyone shares one workspace.** All three schedulers write to the same row.
 That is intentional — it is a shared desk, not per-user data. To spin up an
@@ -670,7 +727,7 @@ Work down this list:
 The dashboard shows nothing rather than something stale or invented. The banner
 names the reason and offers **Retry**. Check
 `/.netlify/functions/axiscare?action=ping` — if that fails too it is the token or
-the proxy, not the app. Sample data is still available with `DEMO.on()`.
+the proxy, not the app. There is no sample data to fall back to.
 
 **A caregiver's calendar is empty.**
 Most likely correct: 126 of 184 active caregivers had no visits in the current
@@ -685,8 +742,16 @@ caregiver's visits. `CGVISITS` also drops any visit whose `caregiver.id` does
 not match, so this should not be reachable; if it happens, that guard is gone.
 
 **Everything is stale after a deploy.**
-Hard-refresh (Ctrl-F5). `index.html` and `config.js` are sent with
-no-cache headers, so this should be rare.
+Hard-refresh (Ctrl-Shift-R). A tab that was already open keeps running the old
+code — and keeps saving with it — until it is reloaded; it shows a red *Refresh
+needed* banner when it notices. See CLAUDE.md, *A deploy does not reach an open
+tab*.
+
+**A Supabase change "didn't deploy".**
+It probably didn't: a commit deploys `index.html` to Netlify and nothing in
+`supabase/functions/`. See [Supabase Edge Function secrets](#supabase-edge-function-secrets)
+for the command. A browser reports an undeployed function as "Failed to fetch",
+not as a 404.
 
 ---
 
@@ -703,8 +768,13 @@ oversight:
   workspace row, because without a login there is no authenticated role to grant
   them to. So: anyone with the site URL can read and modify the scheduler data.
 - Deletes are blocked at the database level. Nothing on the internet can drop
-  the row.
-- The AxisCare token is the one true secret, and it never leaves the server.
+  the row. (Caregiver photos are the exception: anyone with the link can
+  replace or delete one — CLAUDE.md, *Known and accepted*.)
+- The real secrets — the AxisCare token, the Quo and Anthropic keys and the
+  Supabase service-role key — live in Netlify variables or Supabase secrets and
+  never reach the browser.
+- **The Quo function can send texts** from agency lines, but only to numbers on
+  the active AxisCare roster. See CLAUDE.md, *Read-only — except `action=send`*.
 - **The AxisCare proxy has no caller authentication** — see below. This one is
   different in kind from the others, so it is written up separately.
 
@@ -734,6 +804,14 @@ trigger:
 - The site URL is shared beyond the immediate team, or linked anywhere
 - The dashboard starts rendering real AxisCare data (rather than demo data)
 - The app moves from development into day-to-day scheduling use
+
+> **Status, 2026-09-15 — recorded, not decided.** The dashboard renders live
+> AxisCare data and live Quo calls and texts, and the scheduling desk works from
+> it, so at least two of the triggers above have been reached. None of the steps
+> below has been taken. The ten-minute fix also no longer works as written: it
+> relied on no UI code calling the proxy, and the dashboard now calls it on every
+> load, so a shared secret would have to ship to the browser. This is Carlo's
+> call (CLAUDE.md, *Known and accepted*).
 
 **The fix, when that time comes** (about ten minutes): require a shared secret
 on the function — `?s=<secret>` read from a Netlify environment variable, the
@@ -775,18 +853,22 @@ Next, in the order that unblocks the most:
    Fetched with `/api/visits?caregiverIds=…` when the caregiver is opened —
    one month back to twelve forward, 2–4 requests.
 
-5. **Attendance and the "Not tracked" figures.** Punctuality, no-shows and
+5. **Caregiver communication — done.** The Communication Logs card reads every
+   agency line from Quo, Find Coverage texts caregivers through Quo, and
+   *Summary by Devi* puts one or two sentences on top of a call or a text day.
+
+6. **Attendance and the "Not tracked" figures.** Punctuality, no-shows and
    weekly hours are derivable from `clockIn` versus `scheduledStartDate` on
    visits already being fetched — the calendar fetch has the records in hand
    already. This would replace the "Not tracked" placeholders on the caregiver
    workspace. (Prior-client history is now covered by the calendar.)
 
-6. **Authentication** — required before real client data. See above.
-7. **Per-user identity** — replace the "on shift" dropdown with real accounts so
+7. **Authentication** — required before real client data. See above.
+8. **Per-user identity** — replace the "on shift" dropdown with real accounts so
    `updated_by` means something.
-8. **Supabase Realtime** — swap 20-second polling for live push, so two
+9. **Supabase Realtime** — swap 20-second polling for live push, so two
    schedulers see each other's changes instantly.
-9. **Write-back to AxisCare** — currently one-way by design. Assigning coverage
+10. **Write-back to AxisCare** — currently one-way by design. Assigning coverage
    in the dashboard would create the visit in AxisCare.
 
 ---

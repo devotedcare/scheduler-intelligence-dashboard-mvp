@@ -72,7 +72,7 @@ live within a couple of minutes. No local setup, no build step to run.
 These are not files in the repo, so they cannot be changed by committing:
 
 - **Netlify environment variables** — the AxisCare token, the Supabase keys
-- **Supabase** — the table, the row-level-security policies, anything in the database
+- **Supabase** — deciding what the tables, row-level-security policies and secrets should be. *Running* the deploy, the SQL or `secrets set` is Claude's (above)
 - **AxisCare admin** — the token itself, which endpoints the account may call
 - **Netlify build settings**, and reading Netlify or Supabase logs
 
@@ -103,6 +103,7 @@ layout or wording change, or anything already answered in this file.
 | **Open shifts** | **Mirrored** — derived by `openshifts-sync` into `public.open_shifts`, read from there. Falls back to the live scan when the mirror is cold |
 | **Caregiver calendar** | Live — each caregiver’s own scheduled client visits |
 | **Care notes** | Live — swept into Supabase on a schedule, read from there |
+| **Communication Logs** | Live — every agency line read from Quo when a profile is opened. *Summary by Devi* is written when a conversation is opened and saved in `public.comm_summaries` |
 | Medication lists | Cannot be fetched. AxisCare API limitation |
 | Attendance history | No AxisCare source. Derivable from visit clock-ins, not built |
 | Tasks, handoff notes, contact log | The dashboard's own records, entered by schedulers |
@@ -2157,8 +2158,9 @@ Nine users: five owners, two admins, two members.
 
 ### It lives in SUPABASE, not Netlify — and that has a cost
 
-Every other backend in this repo is a Netlify function. Quo is the second
-exception after `devi-agent`, and for the same reason: **the key is there.**
+The AxisCare-facing backends are Netlify functions. Quo is one of four Supabase
+Edge Functions — `devi-agent`, `quo`, `care-brief` and `comms-summary` — and it
+is there for the same reason as the others: **the key is there.**
 `QUO_API_KEY` was put in the Supabase project secrets, so the function that
 reads it has to be a Supabase Edge Function.
 
@@ -2677,8 +2679,19 @@ while "Ruffa" and "Marivic" vary and are what a scheduler scans for. Resolved
 through `/v1/users` — Quo stamps `userId` on anything the desk sent and leaves
 it null on an inbound message, so a row with no staff falls back to the
 caregiver's own first name, which correctly marks the entries **they** started.
-`answeredBy` and `initiatedBy` are null on every call measured here; `userId`
-is the only field that carries a person.
+**Corrected 2026-09-15 — `userId` may not be the person who took the call.**
+This used to say `answeredBy` and `initiatedBy` were null on every call measured
+and that `userId` was the only field carrying a person. Over 226 calls on the
+Scheduling, Recruitment and Client Support lines, `userId` is set on all of
+them and `initiatedBy` on none, but `answeredBy` is set on 65 — 60 of them a
+workspace member — and on **54 of those 60 it names somebody other than
+`userId`**. In 9 of the 20 transcripts that stamp speakers, the office person
+who spoke most was not `userId` either.
+
+So the rail's `userId || answeredBy || initiatedBy` very likely names the wrong
+member of staff on a real share of calls. *Summary by Devi* names who spoke
+instead. **The rail is unchanged**: which field it should trust is a decision,
+not a typo, and `answeredBy` is absent on most calls.
 
 The line name stays, quietly, in `--ink-faint` beside the name — "Recruitment"
 among a run of "Scheduling" is exactly what you want to catch.
@@ -2771,7 +2784,9 @@ and the full line name stays in the `title`.
 those eleven characters come straight out of the name. The detail pane still
 shows the full value under *Agency line*.
 
-The detail pane is **one heading, one quiet meta line, then the content.**
+The detail pane is **one heading, one quiet meta line, then the content** — with
+the *Summary by Devi* card above the heading on an answered call or a text day
+(see *Summary by Devi* below).
 
 > **The grey facts box is gone (2026-09-11).** It held direction, outcome,
 > duration, agency line and who handled it in a boxed `<dl>` — every one of
@@ -2989,6 +3004,183 @@ on file" would be a confident lie about a caregiver we learned nothing about.
 text position. Message bodies are arbitrary text typed by real people and land
 in `innerHTML`. This is the same trap the Devi reply path hit; see *Three traps*
 under Ask Devi.
+
+### Summary by Devi — one or two sentences on top of a conversation
+
+Added 2026-09-15. The Communication Logs dialog shows a short summary **above
+the heading** of whichever call or text day is open, labelled *Summary by
+Devi* so nobody mistakes it for Quo's. **Quo's own call summary stays exactly
+where it was, underneath**, so the two can be compared; that was the decision,
+not an oversight. The rail rows are unchanged.
+
+`supabase/functions/comms-summary` writes it with Claude. `CGCOMMS.loadDevi()`
+asks for it, `cmDevi()` draws it, and `cmDetail()` puts it above the heading.
+The model has **no tools**, the same argument as `devi-agent`: it reads a
+conversation and returns text, and the only thing that text reaches is its own
+summary row.
+
+#### Written once, when opened — never swept
+
+A summary is written the first time **anybody** opens that conversation and
+saved in `public.comm_summaries`. Every later open, by anybody, reads the saved
+row. A conversation nobody opens is never summarised.
+
+| | key | rewritten when |
+|---|---|---|
+| a call | `call:<callId>` | never, unless the model or prompt changes |
+| a day of texts | `text:<lineId>\|<YYYY-MM-DD>\|<+1…>` | the day gains a message |
+
+- **A text entry is one line's texts for one Pacific day**, so today's keeps
+  growing while people reply. Its row stores `source_count` and
+  `source_last_id`, and a mismatch regenerates it. **Quo's count decides, not
+  the browser's**: the sweep reads only 50 messages per line, so an older day
+  at that edge can show a different count with nothing having changed.
+- **The phone number is in the text key.** The dialog's own entry id is only
+  `<lineId>|<day>`, which two caregivers texted on one line on one day share.
+  Keying on that would show one caregiver the other's summary.
+- **An unanswered call gets no box and no request.** A call Quo has no
+  transcript for (404) gets no box either. A transcript still processing says
+  so and offers *Check again*.
+
+#### Only ids go up — the function reads Quo itself
+
+**Claude: do not "simplify" this into posting the messages from the browser.**
+The browser already holds them, and it would be less code. It would also let
+anyone with the site URL save invented summaries into the table and spend the
+Anthropic key on any text they liked, because there is no login. The browser
+sends `{kind:'call', callId}` or `{kind:'text', lineId, day, phone, count,
+lastId}` and nothing else. The function reads the conversation from Quo, so a
+summary can only describe a real conversation and spend is capped at one per
+conversation per model. A `GEN_HOURLY_CAP` of 400 model calls per isolate is
+the brake on top.
+
+`comm_summaries` has RLS on and **no policies at all**. Verified: the anon key
+gets `401` on both select and insert. Only the function touches it, with the
+service key. This is deliberately stricter than `care_notes`, which anon can
+read, because these rows describe conversation content.
+
+The caregiver's and the clients' names come from the roster through
+`QUO_ROSTER_URL`, the same public proxy `quo` uses for its send allowlist. **If
+that read fails, the summary is shown but not saved**, so the next open can name
+the caregiver rather than leaving "the caregiver" in the table forever.
+
+#### Contact details are redacted in code — a prompt rule did not hold
+
+The first prompt let a call summary run to three sentences, close by repeating
+its own last point, and carry an applicant's email address. Version 2 capped it
+at two sentences under 40 words and **told** the model to leave out contact
+details. It kept to the length on all four rows it rewrote, and **still wrote
+the email address into one of them.**
+
+So `redact()` replaces email addresses, phone numbers and links in the
+transcript and the messages with `[email address]`, `[phone number]` and
+`[link]` **before they leave the function**, and runs again over the output.
+That also means those details are never sent to Anthropic at all. Street
+addresses have no reliable pattern and are left to the prompt. **Claude: do not
+remove `redact()` on the grounds that the prompt already says it.** That is the
+exact reasoning it replaced.
+
+#### Office staff are named from who SPOKE, not from `call.userId`
+
+Measured 2026-09-15 on one call. Its `userId` was **Marivic** and its
+`answeredBy` was **Patty**, and every office turn in the transcript was stamped
+**Patty** (14 turns) or **Ruffa** (9). The first version passed `userId` as
+"office staff on the call" beside turns labelled Patty. Given two answers, the
+model named Marivic on two runs and Patty on the third. The details now list
+the staff whose `userId` is on transcript turns, most turns first, and fall back
+to `answeredBy` and then `userId`.
+
+> The rail row still names `userId || answeredBy || initiatedBy`, so this same
+> call's row reads **Marivic** while its summary says **Patty** — and a wider
+> sample says that disagreement is common. The measurement is under *The shape
+> is borrowed from the old Scheduling app*.
+
+`PROMPT_VERSION` is 4. Rows written under an earlier version are rewritten on
+their next open, and each of today's bumps was checked that way against the
+rows already saved.
+
+#### Switching the model needs no code change and no redeploy
+
+```
+npx supabase secrets set COMMS_MODEL=claude-sonnet-5 --project-ref gdzgoyawavffjdjpjbfz
+```
+
+The default is `claude-haiku-4-5`. `GET …/comms-summary?action=status` reports
+the model in force. Four details make the switch safe:
+
+- **Every row records `model` and `prompt_version`, and a row written by
+  anything else is rewritten on its next open.** That is what makes a switch
+  visible to the desk. Bumping `PROMPT_VERSION` after editing the prompt does
+  the same. Summaries are rewritten gradually as conversations are opened, not
+  all at once.
+- `COMMS_EFFORT` (default `low`) is sent to every model **except Haiku**, which
+  answers `400` to the effort parameter.
+- **No `temperature` is sent.** Sonnet 5 and Opus 5 reject it, so sending one
+  would make the first switch fail on every request.
+- **`max_tokens` is 4096, not something sized for two sentences.** It includes
+  thinking, which Sonnet 5 and Opus 5 do by default, and a small budget returns
+  HTTP 200 with an empty text block. That is the trap `care-brief` and
+  `devi-agent` both hit.
+
+The model that wrote a summary is in the tooltip on the *Summary by Devi*
+label, and every generation logs `[comms-summary] <model> in=… out=…` in the
+function logs.
+
+Measured 2026-09-15, with the function run locally against live Quo, Claude and
+the real table:
+
+| | Haiku 4.5 (default) | Sonnet 5 |
+|---|---|---|
+| tokens in / out, per summary | 750–1,440 / 28–74 | 1,251 / 63 (same call as Haiku's 885 / 29) |
+| cost per summary | about $0.001–0.002 | about $0.003 |
+| first summary, cold function | 7–9.5s | ~7s |
+| first summary, warm function | 2.1–2.6s | |
+| any later open (saved row) | 0.25–0.6s | |
+
+The cold 7–9.5s is mostly the roster read through Netlify. The three context reads
+start in parallel with the Quo reads (`context()`) and are cached for ten
+minutes, so only the first summary in a fresh isolate pays it.
+
+#### A deleted conversation's summary is removed only when noticed
+
+There is no background job; that was agreed on 2026-09-15. Checking every saved
+summary against Quo is exactly the sweep this design avoids, and the dialog's
+list comes live from Quo, so a deleted conversation's summary is never shown.
+The row is deleted when the function notices: Quo `404`s the call, or the day
+holds no messages. For calls that almost never happens, because a saved call is
+served without asking Quo. An orphaned call summary simply sits unread.
+
+#### An error is never retried by a render
+
+The summary landing re-renders the dialog, and the render is what asks for it.
+So a failure that retried itself would send one request per render for as long
+as the dialog stayed open. **An error or a *pending* state holds until somebody
+clicks Retry or Check again.** A day that gains a message still refreshes on its
+own, once, because its `gen` (count and last id) has changed.
+
+Nothing here goes into `state`. `devis` is a module cache inside `CGCOMMS`, for
+the same reason the rest of that module keeps its data there.
+
+#### Deploy the function BEFORE `index.html` goes live
+
+A commit does not deploy it. If `index.html` lands first, every answered call
+and every text day shows an error in the box until it is. **The browser only
+ever sees "Failed to fetch", never the 404.** Measured 2026-09-15: the gateway
+answers the POST's CORS preflight with a 404 whose
+`access-control-allow-headers` omits `content-type`, so the request is blocked
+before its body can be read. `loadDevi()` therefore turns a network
+`TypeError` into "Could not reach the comms-summary function. It may not be
+deployed yet…" with the deploy command.
+
+```
+npx supabase functions deploy comms-summary --project-ref gdzgoyawavffjdjpjbfz --no-verify-jwt
+```
+
+**Deployed 2026-09-15** and checked live from the Netlify origin.
+It needs no new secrets: `ANTHROPIC_API_KEY`, `QUO_API_KEY`, `QUO_ROSTER_URL`
+and `ALLOWED_ORIGIN` already exist on the project, and Supabase supplies the
+service key. The table is created (`supabase/comm-summaries.sql`, also section 9
+of `schema.sql`).
 
 ### Texting a caregiver from Find Coverage
 
@@ -3357,6 +3549,7 @@ CGCOMMS.status('a731')       // idle | loading | ready | error | nophone
 CGCOMMS.info('a731')         // { e164, entries, calls, msgs, lines, requests, ms, partial }
 CGCOMMS.toE164('805-555-0123')
 CGCOMMS.retry('a731')        // drop the cache and sweep again
+CGCOMMS.deviRetry('call:AC…') // drop one Summary by Devi from this session and ask again
 ```
 
 ## The Caregiver Overview — four cards
@@ -3714,7 +3907,8 @@ exists) and two rows for one person is not a question worth asking.
 
 ### The key lives in a Supabase Edge Function
 
-The first one in this repo — everything else is a Netlify function. It is there
+The first of the four in this repo — `quo`, `care-brief` and `comms-summary`
+followed; the AxisCare-facing backends are Netlify functions. It is there
 because the `ANTHROPIC_API_KEY` secret is there.
 
 | secret | note |
@@ -3725,8 +3919,9 @@ because the `ANTHROPIC_API_KEY` secret is there.
 | `DEVI_EFFORT` / `DEVI_MAX_TOKENS` / `DEVI_SHARED_SECRET` | optional |
 
 **A commit does not deploy it.** `index.html` auto-deploys to Netlify;
-`supabase/functions/` needs `supabase functions deploy devi-agent
---no-verify-jwt`. `deviAsk()` therefore falls back to the router's own answer
+`supabase/functions/` needs `npx supabase functions deploy devi-agent
+--project-ref gdzgoyawavffjdjpjbfz --no-verify-jwt` (the ref is not optional —
+see *It lives in SUPABASE*). `deviAsk()` therefore falls back to the router's own answer
 whenever the call fails, so an undeployed or broken function degrades to the
 old wording rather than showing "Failed to fetch".
 
@@ -3784,6 +3979,14 @@ is not the off switch here; `deviAsk()` degrades to the router's own answer when
 the call fails, so the local router keeps working with nothing leaving the
 browser.
 
+> **This file now says two different things, and only Carlo can say which is
+> current.** The paragraph above says the BAA question is open. *The care-needs
+> line — `care-brief`* records that Mitch confirmed on 2026-09-14 that the
+> Anthropic key has PHI handling in place. Since then `care-brief` (client care
+> needs) and `comms-summary` (call transcripts and text threads, with email
+> addresses, phone numbers and links redacted) send more of the same kind of
+> content to that key. Whichever statement is current, correct the other.
+
 **The router is what makes that tolerable.** `aiNeedsAvail`, `aiOpenAvail`,
 `aiLate`, `aiConflicts`, `aiMissingNotes` and `aiTodayFocus` answer the
 questions the desk asks daily from the tables directly — exact, instant, free,
@@ -3839,9 +4042,12 @@ side to implement.
 - **Editing `netlify/functions/axiscare.js` won't make a new field appear.** The
   proxy is deliberately generic and passes through whatever AxisCare returns. If
   a field isn't in the response, AxisCare doesn't have it.
-- **Supabase isn't involved in AxisCare at all.** Supabase stores the
-  scheduler's own work (tasks, handoff notes, care-note reviews). If an AxisCare
-  question seems to need a Supabase change, the approach is off.
+- **Supabase never talks to AxisCare.** It stores the scheduler's own work and
+  two mirrors of AxisCare data (`care_notes`, `open_shifts`), which Netlify
+  functions write. The Edge Functions reach the roster only through the public
+  Netlify proxy, and no Supabase secret is an AxisCare token. If an AxisCare
+  question seems to need a Supabase change, the approach is off — unless it is
+  one of those two mirrors.
 - **A blank field is usually empty data, not a bug.** Try a second record. One
   blank is usually genuinely empty; every record blank is usually a wrong key.
 
