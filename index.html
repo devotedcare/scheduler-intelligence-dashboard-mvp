@@ -2550,6 +2550,7 @@ body.ai-white .main{display:flex;flex-direction:column;min-height:100vh}
 .ws-h.h-prefs2{color:#7A4E8C;background:#F4EEF7;border-color:#E3D4EC}
 .ws-h.h-pers{color:#2A6899;background:#EDF3F8;border-color:#D7E4EF}
 .ws-h.h-skills{color:#1E7A5C;background:#EAF5F0;border-color:#D2E7DE}
+.ws-h.h-exp{color:#7A4E8C;background:#F4EEF7;border-color:#E3D4EC}
 .ws-h.h-lang{color:#97572E;background:#FAF2EA;border-color:#EEDECB}
 .ws-h.h-style{color:#1F6E70;background:#EAF4F4;border-color:#CFE5E5}
 /* One height for all nine profile cards. The body is clipped rather than
@@ -5627,9 +5628,15 @@ function aoRecipientsPanel(ao){
 function openAutoOffer(shiftId){
   if(!state.offerTemplates) state.offerTemplates=defaultOfferTemplates();
   const s=shiftById(shiftId); if(!s) return;
+  /* THERE MAY BE NO TEMPLATE AT ALL. The "keep at least one" guard only
+     counts this tab, so two schedulers deleting the last two at once leave
+     zero for everyone once both deletes propagate — and primeLazy() does not
+     reseed an empty array. Open anyway: the desk can type a message and save
+     it as a new template from inside this modal, which is the only place a
+     template can be created. Found in review. */
   const def=state.offerTemplates.find(t=>t.isDefault)||state.offerTemplates[0];
   const {best}=autoOfferTiers(shiftId);
-  state.autoOffer={shiftId, step:'review', templateId:def.id, message:offerFill(def.body,s), recipients:best.map(e=>e.cg.id), contacted:[], responses:{}, sentAt:null, token:0, showExpand:false};
+  state.autoOffer={shiftId, step:'review', templateId:def?def.id:null, message:def?offerFill(def.body,s):'', recipients:best.map(e=>e.cg.id), contacted:[], responses:{}, sentAt:null, token:0, showExpand:false};
   state.aoManage=false; renderAutoOffer(); mbg.classList.add('show');
 }
 function aoToggleRecipient(id){ const ao=state.autoOffer; const i=ao.recipients.indexOf(id); if(i>=0)ao.recipients.splice(i,1); else ao.recipients.push(id); renderAutoOffer(); }
@@ -5640,7 +5647,7 @@ function aoMsg(v){ if(state.autoOffer) state.autoOffer.message=v; var c=document
 function aoToggleManage(){ state.aoManage=!state.aoManage; renderAutoOffer(); }
 function aoSaveTemplate(){ const ao=state.autoOffer; const el=document.getElementById('aoTplName'); const name=((el&&el.value)||'').trim()||('Template '+(state.offerTemplates.length+1)); const id='ot'+Date.now(); state.offerTemplates.push({id,name,body:ao.message,isDefault:false}); ao.templateId=id; toast('Template \u201c'+name+'\u201d saved'); renderAutoOffer(); }
 function aoSetDefault(id){ state.offerTemplates.forEach(t=>t.isDefault=(t.id===id)); toast('Default template set'); renderAutoOffer(); }
-function aoDeleteTemplate(id){ if(state.offerTemplates.length<=1) return toast('Keep at least one template'); state.offerTemplates=state.offerTemplates.filter(t=>t.id!==id); const ao=state.autoOffer; if(ao.templateId===id){ const d=state.offerTemplates[0]; ao.templateId=d.id; ao.message=offerFill(d.body,shiftById(ao.shiftId)); } toast('Template deleted'); renderAutoOffer(); }
+function aoDeleteTemplate(id){ if(state.offerTemplates.length<=1) return toast('Keep at least one template'); cloudForget('offerTemplates', id); state.offerTemplates=state.offerTemplates.filter(t=>t.id!==id); const ao=state.autoOffer; if(ao.templateId===id){ const d=state.offerTemplates[0]; ao.templateId=d?d.id:null; if(d) ao.message=offerFill(d.body,shiftById(ao.shiftId)); } toast('Template deleted'); renderAutoOffer(); try{ CLOUD.save(); }catch(e){} }
 function aoSend(){ const ao=state.autoOffer; if(!ao||!ao.recipients.length) return toast('Select at least one caregiver to contact'); ao.sentAt=new Date(); ao.contacted=ao.recipients.slice(); ao.step='tracking'; ao.token=Date.now(); ao.showExpand=false; toast('Offer sent to '+ao.recipients.length+' caregiver'+(ao.recipients.length>1?'s':'')); renderAutoOffer(); aoSimReplies(ao.token); }
 function aoSimReplies(token){ const ao=state.autoOffer; const ids=ao.recipients.filter(id=>!ao.responses[id]); const plan=[]; if(ids[0])plan.push([1600,ids[0],'yes']); if(ids[1])plan.push([3200,ids[1],'no']); if(ids[2])plan.push([5200,ids[2],'yes']);
   plan.forEach(p=>setTimeout(()=>{ if(state.autoOffer&&state.autoOffer.token===token&&mbg.classList.contains('show')){ state.autoOffer.responses[p[1]]=p[2]; renderAutoOffer(); } }, p[0]));
@@ -10854,7 +10861,7 @@ function wsSection(title, body, span){ return `<div class="ws-card${span?' span2
 function editAvailability(id, mode){ cgSnapStart(id); state.cgAvailEdit=id; state.availMode=mode||null; state.cgEdit=null; state.cgStrengthEdit=null; render(); window.scrollTo(0,0); }
 function availSetMode(m){ state.availMode=m||null; render(); window.scrollTo(0,0); }
 function cancelAvailEdit(){ state.cgAvailEdit=null; render(); }
-/* ===== Matching information — Personality and Skills & Experience =====
+/* ===== Matching information — Personality, Skills and Experience =====
    Only what is ticked is shown. The full list lives in the picker. */
 /* Skills assessed before this list existed still show, where the old
    vocabulary meant the same thing — five names match outright and Companion
@@ -11061,9 +11068,12 @@ function cgAbout(c){
   else if(styles.length) bits.push(first+' is '+aboutList(styles)+'.');
 
   /* 2 — what they are strongest at */
-  /* Skills & Experience, which now carries the AxisCare tags through its
-     seed as well as anything typed — one list instead of three. */
-  const skills=cgChips(c,'skills').slice(0,3).map(function(t){ return t.toLowerCase(); });
+  /* Experience first, then Skills — the order the two read in when they were
+     one list, so the sentence did not change when the card split. Both carry
+     the AxisCare tags through their seed as well as anything typed. "Others"
+     says there is more without saying what, so it is never named here. */
+  const skills=cgChips(c,'experience').filter(function(t){ return t!=='Others'; })
+    .concat(cgChips(c,'skills')).slice(0,3).map(function(t){ return t.toLowerCase(); });
   const langs=(c.languages||[]).filter(l=>l!=='English');
   let s2='';
   if(skills.length) s2='Strongest experience is in '+aboutList(skills);
@@ -11166,14 +11176,23 @@ function cgHeaderCard(c){
 const CG_PERS_OPTS=['Warm','Friendly','Respectful','Patient','Calm','Confident','Reliable',
   'Compassionate','Empathetic','Positive','Mature','Adaptable','Organized','Detail-oriented',
   'Outgoing','Quiet / Reserved'];
-/* SKILLS & EXPERIENCE answers ONE question: does this caregiver know how to
-   do this? Whether they are willing to take a case of that kind is a
-   different question and lives in Work Preferences — "Dementia /
+/* SKILLS and EXPERIENCE answer ONE question between them: does this caregiver
+   know how to do this? Whether they are willing to take a case of that kind
+   is a different question and lives in Work Preferences — "Dementia /
    Alzheimer's care" here, "Dementia care" there. Nothing about whether a
-   caregiver is WILLING to take that kind of case belongs in this list. */
+   caregiver is WILLING to take that kind of case belongs in either list.
+
+   One card until 2026-09-15, split at Mitch's request: Skills is the
+   hands-on work, Experience is the conditions they have cared for. The
+   stored data did not move — see the `pair` note on CG_CHIP_FIELDS. */
+/* "Others" is how a caregiver whose experience is not one of the six named
+   conditions is ANSWERED. Experience is required in Needs Update, and
+   without it somebody with no dementia, Parkinson's or stroke history would
+   stay on that list with nothing they could honestly tick. The "Anything
+   else" line says what the other experience is. */
+const CG_EXP_OPTS=['Dementia / Alzheimer’s care','Parkinson’s care',
+  'Stroke care','Diabetes care','Hospice care','Post-hospital recovery','Others'];
 const CG_SKILL_GROUPS=[
-  {label:'Care Experience',     opts:['Dementia / Alzheimer’s care','Parkinson’s care',
-    'Stroke care','Diabetes care','Hospice care','Post-hospital recovery']},
   {label:'Mobility & Safety',   opts:['Transfer assistance','Gait belt','Hoyer lift','Bedbound care',
     'Repositioning','Fall prevention','Mobility assistance','Wheelchair assistance']},
   {label:'Personal Care',       opts:['Bathing assistance','Dressing assistance','Grooming / hygiene',
@@ -11185,10 +11204,11 @@ const CG_SKILL_GROUPS=[
    it, and the resume reads it. One source, so a group cannot drift out of
    the list it is drawn from. */
 const CG_SKILL_OPTS=CG_SKILL_GROUPS.reduce(function(a,g){ return a.concat(g.opts); },[]);
+
 const CG_HOBBY_OPTS=['Cooking','Gardening','Walking','Music','Reading','Pets','Crafts','Church / faith activities'];
 const CG_EXP_BANDS=['Less than 1 year','1–2 years','3–5 years','6–10 years','10+ years'];
 
-/* THREE sections, and every option lives in exactly one of them.
+/* FOUR sections, and every option lives in exactly one of them.
 
    Caregiver Style, Communication Style, Strengths and Types of Care
    Experience are gone. They overlapped each other and Personality so
@@ -11196,16 +11216,17 @@ const CG_EXP_BANDS=['Less than 1 year','1–2 years','3–5 years','6–10 years
    two, which made a caregiver look thoroughly assessed while saying the
    same thing four times — and made the resume repeat itself.
 
-   Personality is who they are, Skills & Experience is what they can do,
-   Hobbies is what they enjoy. No word appears in two of them. */
+   Personality is who they are, Skills is what they can do, Experience is
+   the conditions they have cared for, and Hobbies is what they enjoy. No
+   word appears in two of them. */
 const CG_CHIP_FIELDS={
   personality:{label:'Personality',               tint:'h-pers',   opts:CG_PERS_OPTS,
                none:'No personality traits recorded yet.', note:'Other',
                notePh:'e.g. Unflappable in a crisis',
                seed:function(c,p){ return (p.style||[]).concat(p.comms||[], (c.ops&&c.ops.personality)||[]); }},
-  skills:     {label:'Skills &amp; Experience',   tint:'h-skills', opts:CG_SKILL_OPTS,
-               groups:CG_SKILL_GROUPS,
-               none:'No skills or experience recorded yet.', note:'Anything else',
+  skills:     {label:'Skills',                    tint:'h-skills', opts:CG_SKILL_OPTS,
+               groups:CG_SKILL_GROUPS, pair:'experience',
+               none:'No skills recorded yet.', note:'Anything else',
                notePh:'e.g. Trach care',
                /* Skills, the retired care types and the retired strengths all
                   described what a caregiver can do, so a record built from any
@@ -11213,6 +11234,26 @@ const CG_CHIP_FIELDS={
                   AxisCare tags, which nobody typed and would otherwise vanish. */
                seed:function(c,p){ return (p.careTypes||[]).concat(p.strengths||[],
                  cgCareSkills(c), c.skills||[]); }},
+  /* TWO CARDS, AND UNTIL THE FIRST SAVE ONE STORED LIST. Every Care
+     Experience tick recorded before the split lives in p.skills (61 of the
+     68 profiles filled in on 2026-09-15). So with no p.experience stored yet
+     this reads p.skills, and with no p.skills either it reads exactly what
+     the Skills seed reads. cgChips keeps only this card's own options, so
+     the two cards never show the same tick.
+
+     No `pair` here. Saving Experience writes p.experience and nothing else:
+     Skills goes on reading its own list, or its live seed, exactly as it
+     did. Writing a copy of Skills from this card would freeze a seeded
+     Skills card against the AxisCare tags it follows — caught in review.
+
+     No groups either. A single heading reading "Care Experience" under a
+     card titled Experience tells the reader nothing, and made a ticked
+     Others read as "Care Experience: Others", so the options are flat. */
+  experience: {label:'Experience',                tint:'h-exp',    opts:CG_EXP_OPTS,
+               none:'No care experience recorded yet.', note:'Anything else',
+               notePh:'e.g. ALS, amputee care',
+               seed:function(c,p){ return Array.isArray(p.skills) ? p.skills
+                 : CG_CHIP_FIELDS.skills.seed(c,p); }},
   hobbies:    {label:'Hobbies &amp; Interests',   tint:'h-hob',    opts:CG_HOBBY_OPTS,
                none:'No hobbies or interests recorded yet.', note:'Other',
                notePh:'e.g. Knitting, birdwatching'}
@@ -11280,6 +11321,11 @@ const CG_CHIP_RENAME={
   }
 };
 
+/* Experience reads the same retired names Skills did when they were one
+   list. cgChips keeps only the names in each card's own options, so sharing
+   the map cannot put a skill on Experience or a condition on Skills. */
+CG_CHIP_RENAME.experience=CG_CHIP_RENAME.skills;
+
 function cgProf(c){
   if(!c) return {};
   return (state.cgProfiles||[]).find(x=>x.id===c.id) || {};
@@ -11346,7 +11392,7 @@ function chipToggle(i,on,el){
      renderChipModal(), which rewrites mEl.innerHTML — that destroys the
      scrolling .mb and builds a new one, so every tick threw the modal back
      to the top and the scheduler had to scroll down again to reach the next
-     option. Skills & Experience has four groups and twenty-four options, so
+     option. Skills has three groups and nineteen options, so
      it happened on nearly every click.
 
      Nothing else in this modal reads the selection: the checkbox is
@@ -11394,6 +11440,16 @@ function chipSave(){
   const f=CG_CHIP_FIELDS[p.key];
   const patch={}; patch[p.key]=f.opts.filter(t=>p.sel.indexOf(t)>=0);
   if(f.note) patch[p.key+'Note']=String(p.note||'').trim();
+  /* SAVING SKILLS WRITES EXPERIENCE'S TICKS TOO, THE FIRST TIME.
+     Skills and Experience were one stored list, p.skills, and Experience
+     reads its ticks out of it until it has a list of its own. Saving Skills
+     rewrites p.skills with Skills options only — so without this, the
+     Dementia / Hospice / Parkinson's ticks would vanish from Experience the
+     moment somebody saved Skills. cgChips() here still reads the record as
+     it stood before this save, so what is written is exactly what
+     Experience was showing. Only Skills carries `pair`, and once
+     p.experience exists this does nothing. */
+  if(f.pair && !Array.isArray(cgProf(c)[f.pair])) patch[f.pair]=cgChips(c,f.pair);
   cgProfSet(c, patch);
   cgSnapCommit(p.id);
   state.chipPick=null; closeModal(); render(); cgSaved(f.label.replace('&amp;','&')+' updated');
@@ -11412,8 +11468,8 @@ function chipSave(){
 const PFX_SECS = (function(){
   const m = {
     /* Every card in the two-column grid is in here, dense ones included, so
-       a row can never end up with one card taller than the other. Eight of
-       them: four even rows, nothing left over at the bottom. */
+       a row can never end up with one card taller than the other. Seven of
+       them: Work Preferences across the full width, then three even rows. */
     /* Every work preference is in this one card now, so it takes the full
        width of the grid and sizes to its content — the fixed heights exist
        to keep two cards in a row level, and this one has no partner. */
@@ -11427,7 +11483,7 @@ const PFX_SECS = (function(){
     rules:{title:'Client Blocks \u2014 Do Not Assign', tint:'h-rules', tall:true,
       edit:c=>`openAcrEdit('${c.id}')`, body:c=>clientBlocksBody(c)}
   };
-  /* The three chip sections differ only by which field they read. */
+  /* The four chip sections differ only by which field they read. */
   Object.keys(CG_CHIP_FIELDS).forEach(function(k){
     const f=CG_CHIP_FIELDS[k];
     m[k]={title:f.label, tint:f.tint, edit:c=>`openChipPick('${c.id}','${k}')`, body:c=>chipBody(c,k)};
@@ -11592,7 +11648,7 @@ function prefVal(c,k){
      derived from that same tag (100 with it, 50 without), so reading a low
      number as a refusal would invent one — and a wrong No would quietly
      drop somebody out of assignments. */
-  /* These rows are NOT seeded from Skills & Experience any more. The two
+  /* These rows are NOT seeded from Skills or Experience any more. The two
      sections now answer different questions — "knows how to use a Hoyer
      lift" is not "will take a bedbound case" — so reading one as the other
      was exactly the conflation the split exists to end. Unanswered means
@@ -11876,6 +11932,9 @@ function cgEntryDelAsk(kind,id){ state.cgEntryDel = id ? kind+':'+id : null; cgE
 /* Removes exactly the one record, by id, from its own slice. */
 function cgEntryDel(kind,id){
   const f=CG_ENTRY[kind]; if(!f) return;
+  /* Before the save: the tombstone is what stops another tab, or this tab's
+     own conflict retry, putting the entry back a second later. */
+  cloudForget(f.slice, id);
   state[f.slice]=(state[f.slice]||[]).filter(x=>x.id!==id);
   state.cgEntryDel=null; cgEntryRepaint();
   try{ CLOUD.save(); }catch(e){}
@@ -11989,7 +12048,12 @@ function cgNoteSave(){
     /* Only the one record. The note keeps the date it was written on — an
        edit is a correction, not a new note — and records who changed it. */
     const ex=(state.cgNotes||[]).find(x=>x.id===n.noteId);
-    if(ex){ ex.text=text; ex.editedBy=state.onShift; ex.editedAt=new Date().toISOString(); }
+    /* GONE, SO NOT SAVED. Another scheduler deleted this note while it was
+       open here. Deletes reach this tab now, so there is nothing to update and
+       the id is tombstoned — every tab would refuse it. "Note saved" would be a
+       lie, so say so and leave the editor open for the text to be copied. */
+    if(!ex){ toast('Another scheduler deleted this note, so this edit was not saved. Copy the text if you still need it.'); return; }
+    ex.text=text; ex.editedBy=state.onShift; ex.editedAt=new Date().toISOString();
   } else {
     state.cgNotes=(state.cgNotes||[]).concat([{ id:cgUid('cn'), cgId:c.id, text:text,
       at:new Date().toISOString(), by:state.onShift }]);
@@ -12106,13 +12170,13 @@ function cgFbSave(){
   if(!text){ toast('Add the notes first'); return; }
   if(f.fbId){
     const ex=(state.cgConcerns||[]).find(x=>x.id===f.fbId);
-    if(ex){
-      ex.kind=f.kind; ex.text=text;
-      /* Feedback carries no type. An entry filed as Positive Feedback before
-         the split drops that label the first time it is saved here. */
-      if(cmp) ex.type=f.type; else delete ex.type;
-      ex.editedBy=state.onShift; ex.editedAt=new Date().toISOString();
-    }
+    /* Deleted by another scheduler while it was open here — see cgNoteSave. */
+    if(!ex){ toast('Another scheduler deleted this entry, so this edit was not saved. Copy the text if you still need it.'); return; }
+    ex.kind=f.kind; ex.text=text;
+    /* Feedback carries no type. An entry filed as Positive Feedback before
+       the split drops that label the first time it is saved here. */
+    if(cmp) ex.type=f.type; else delete ex.type;
+    ex.editedBy=state.onShift; ex.editedAt=new Date().toISOString();
   } else {
     const rec={ id:cgUid('fb'), cgId:f.id, kind:f.kind, text:text,
       at:new Date().toISOString(), by:state.onShift };
@@ -12716,9 +12780,9 @@ function viewCaregiverWorkspace(c){
      weekly hours, language and travel all read together under Work
      Preferences now, so showing weekly hours twice was the only thing this
      block still did. Availability itself is the calendar above. */
-  /* Caregiver Strengths was the old shape of this section; Personality and
-     Skills & Experience replace it. ops.strengths is still stored and still
-     seeds the skills list — see cgCareSkills. */
+  /* Caregiver Strengths was the old shape of this section; Personality,
+     Skills and Experience replace it. ops.strengths is still stored and
+     still seeds both of those lists — see cgCareSkills. */
   // ===== Operational Alerts (concerns only) =====
   const alerts=[];
   if(availDue(c)) alerts.push({t:'Availability verification due',sev:'soon'});
@@ -12810,8 +12874,9 @@ function viewCaregiverWorkspace(c){
     ${pfxCard(c,'rules')}
 
     ${pfxCard(c,'skills')}
-    ${pfxCard(c,'personality')}
+    ${pfxCard(c,'experience')}
 
+    ${pfxCard(c,'personality')}
     ${pfxCard(c,'hobbies')}
   </div>`;
 
@@ -12965,7 +13030,7 @@ function workPrefsBody(c){
 const WP_YN=[['','Not recorded'],['yes','Yes'],['no','No']];
 /* WILLINGNESS ONLY. "Hoyer lift experience" used to sit here and does not
    any more: whether somebody knows how to work a Hoyer lift is a capability,
-   and capability is Skills & Experience's question — it is recorded there,
+   and capability is the Skills card's question — it is recorded there,
    under Mobility & Safety, and only there. The pairs that remain are two
    genuinely different questions about the same kind of case: "Bedbound care"
    is can they, "Bedbound client" is will they.
@@ -12974,8 +13039,9 @@ const WP_YN=[['','Not recorded'],['yes','Yes'],['no','No']];
    untouched; nothing reads it. */
 /* PREFERENCES ONLY. The six capability rows that used to sit here —
    transfers, bedbound, dementia, hospice, incontinence, errands — are gone:
-   each asked what a caregiver knows how to do, which is Skills &
-   Experience's question, and each now has an option there. What is left is
+   each asked what a caregiver knows how to do, which is a question for the
+   Skills and Experience cards, and each now has an option on one of them
+   (dementia and hospice on Experience, the rest on Skills). What is left is
    what a preference actually is: the shape of the shift, where they will
    travel, and what the home is like.
 
@@ -13095,7 +13161,7 @@ function wpSave(){
      and prefHourMatch() reads it for Overnight matching. */
   /* Written to the same field the Languages card edits, so the two agree. */
   c.englishProficiency = e.english || null;
-  /* Nothing here writes Skills & Experience. Willingness and capability are
+  /* Nothing here writes Skills or Experience. Willingness and capability are
      separate records now: answering "Dementia care" must not tick
      "Dementia / Alzheimer's care" on somebody who has never done it. */
 
@@ -14355,7 +14421,7 @@ function dactPrefProposal(cg, k, label, val){
     kind:'pref-set',
     title:'Record a work preference for ' + name,
     verb:'Approve and save',
-    note:'Writes to Work Preferences on the caregiver profile. Skills & Experience is untouched — willingness is not evidence of experience.',
+    note:'Writes to Work Preferences on the caregiver profile. Skills and Experience are untouched — willingness is not evidence of experience.',
     build:function(){
       const c = dvLive(id);
       const typed = (c.ops.prefs || {})[k];
@@ -14650,7 +14716,7 @@ function dactCommand(raw){
     const f = DV_PREF_FIELDS[i];
     if(f.re.test(t) && !dvParseDates(q).length)
       return dvSay('I can record that preference',
-        'Work Preferences answers "will they take this kind of case". Skills & Experience answers "can they do it" and is a separate record — I am not touching it.',
+        'Work Preferences answers "will they take this kind of case". Skills and Experience answer "can they do it" and are separate records — I am not touching them.',
         [dactPrefProposal(c, f.k, f.label, !neg)]);
   }
 
@@ -15558,7 +15624,11 @@ const CG_WATCH={
   'Languages':               c=>(c.languages||[]).join(','),
   'English proficiency':     c=>String(c.englishProficiency||''),
   'Personality':             c=>cgChips(c,'personality').join(','),
-  'Skills & experience':     c=>cgChips(c,'skills').join(','),
+  /* The "Anything else" line is watched on these two: it answers Needs
+     Update, so a note that clears that row must leave a Recent Update saying
+     who cleared it. Only the label is ever logged, never the text. */
+  'Skills':                  c=>cgChips(c,'skills').join(',')+'|'+cgChipNote(c,'skills'),
+  'Experience':              c=>cgChips(c,'experience').join(',')+'|'+cgChipNote(c,'experience'),
   'Hobbies & interests':     c=>cgChips(c,'hobbies').join(','),
   'Client & assignment preferences': c=>['clientGender','smokingHome','pets','stairs','transfers','overnight','liveIn','cna']
                                         .map(k=>String(prefVal(c,k))).join('|'),
@@ -15670,7 +15740,12 @@ const CG_REQUIRED=[
   {label:'CNA',                     ok:c=>prefAnswered(c,'cna')},
   {label:'English proficiency',      ok:c=>hasVal(c.englishProficiency)},
   {label:'Caregiving experience',   ok:c=>hasVal(c.ops.experience)},
-  {label:'Skills & experience',     ok:c=>cgChips(c,'skills').length>0},
+  /* Split 2026-09-15, and BOTH are required — Mitch's call. A tick or the
+     "Anything else" line answers either card: a field is missing only when
+     it genuinely holds nothing. "Others" on Experience is what lets a
+     caregiver with none of the six listed conditions be answered at all. */
+  {label:'Skills',                  ok:c=>cgChips(c,'skills').length>0 || !!cgChipNote(c,'skills').trim()},
+  {label:'Experience',              ok:c=>cgChips(c,'experience').length>0 || !!cgChipNote(c,'experience').trim()},
   /* "if applicable" — having no blocks is the normal case and is never a
      gap. What IS a gap is a block already on file with no reason or no
      enforcement level recorded, because that is the row that stops an
@@ -16277,58 +16352,65 @@ function gEsc(s){ return (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/<
 function gGid(){ return 'g'+Date.now()+Math.floor(Math.random()*1000); }
 function mkGuide(o){ return {id:o.id||gGid(), file:o.file||null, title:o.title, type:o.type||null, category:o.category, clientName:o.clientName||'', topic:o.topic||'', steps:o.steps||[], reminders:o.reminders||[], mistakes:o.mistakes||[], whenCall:o.whenCall||[], contact:o.contact!==false, createdBy:o.createdBy||'Office', createdAt:o.createdAt||new Date(), updatedAt:o.updatedAt||new Date()}; }
 
+/* BUILT-IN GUIDES HAVE FIXED IDS. They used to take gGid() — a new random id
+   on every page load, in every tab — so deleting one tombstoned an id that no
+   other tab and no later load ever held: the guide came straight back, and an
+   edit to one never reached anybody else either. 'gseed-' cannot collide
+   with gGid(), which is 'g' followed by digits. Never change or reuse one of
+   these ids: a deleted built-in guide stays deleted BY ITS ID. Found in the
+   2026-09-15 review of the delete tombstones. */
 if(!state.guides){ state.guides=[
-  mkGuide({title:'How to Contact the Office', category:'Office & Communication', topic:'Reach the right Devoted Care team fast.',
+  mkGuide({id:'gseed-how-to-contact-the-office', title:'How to Contact the Office', category:'Office & Communication', topic:'Reach the right Devoted Care team fast.',
     steps:['Save all office numbers in your phone.','Scheduling line: shifts, changes, running late.','Client Support line: care questions and concerns.','Billing line: pay and timesheet questions.','Always say your name and the client\u2019s name.'],
     reminders:['Call, don\u2019t text, when it\u2019s urgent.','Keep the numbers handy every shift.'],
     mistakes:['Texting only when it\u2019s time-sensitive.','Waiting until end of shift to report a problem.'],
     whenCall:['Any change in the client\u2019s condition.','You\u2019re unsure what to do.','Medical emergency \u2014 call 911 first, then the office.'], contact:true}),
-  mkGuide({title:'How to Complete Care Notes', category:'Care Notes', topic:'Clear, professional notes at the end of every shift.',
+  mkGuide({id:'gseed-how-to-complete-care-notes', title:'How to Complete Care Notes', category:'Care Notes', topic:'Clear, professional notes at the end of every shift.',
     steps:['Write your note before you clock out.','Add date, your name, and shift times.','List care given: bathing, meals, meds, activities.','Note mood, appetite, mobility, and any changes.','Stick to facts you saw \u2014 no opinions.'],
     reminders:['Be specific: \u201cate half of lunch.\u201d','If it\u2019s not documented, it didn\u2019t happen.'],
     mistakes:['Leaving notes blank or vague.','Copying yesterday\u2019s note.','Writing opinions instead of facts.'],
     whenCall:['You notice a new or worsening symptom.','Something happened you\u2019re unsure how to record.'], contact:false}),
-  mkGuide({title:'What To Do If a Client Is Agitated', category:'Dementia Care', topic:'Stay calm and help a confused or upset client.',
+  mkGuide({id:'gseed-what-to-do-if-a-client-is-agitated', title:'What To Do If a Client Is Agitated', category:'Dementia Care', topic:'Stay calm and help a confused or upset client.',
     steps:['Stay calm \u2014 soft voice, slow moves.','Give space; remove anything unsafe.','Don\u2019t argue. Reassure and redirect.','Lower noise and bright lights.','Offer comfort: music, a snack, a short walk.'],
     reminders:['Agitation has a cause: pain, hunger, tired, bathroom.','Approach from the front, at eye level.'],
     mistakes:['Arguing or correcting the client.','Grabbing or rushing them.','Raising your voice.'],
     whenCall:['Behavior keeps escalating.','The client or others are at risk.','Anyone is in danger \u2014 call 911.'], contact:true}),
-  mkGuide({title:'What To Do If a Client Falls', category:'Fall Prevention', topic:'Respond safely and report every fall.',
+  mkGuide({id:'gseed-what-to-do-if-a-client-falls', title:'What To Do If a Client Falls', category:'Fall Prevention', topic:'Respond safely and report every fall.',
     steps:['Stay calm \u2014 don\u2019t rush to lift them.','Check for injuries, pain, or bleeding.','Injured, unconscious, or unsure? Call 911.','Don\u2019t move them if injury is possible.','If safe, help them up slowly.','Report it and write an incident report.'],
     reminders:['Never lift alone if it\u2019s unsafe \u2014 get help.','Record what happened, where, and when.'],
     mistakes:['Lifting a hurt client right away.','Not reporting a \u201cminor\u201d fall.','Moving someone with a possible injury.'],
     whenCall:['Head injury, severe pain, or can\u2019t move \u2014 call 911.','Any fall \u2014 call the office the same day.'], contact:true}),
-  mkGuide({title:'Feeding Tube Care Reminders', category:'Feeding Tube Care', topic:'Safe daily habits for clients with a feeding tube.',
+  mkGuide({id:'gseed-feeding-tube-care-reminders', title:'Feeding Tube Care Reminders', category:'Feeding Tube Care', topic:'Safe daily habits for clients with a feeding tube.',
     steps:['Wash your hands before and after.','Keep client sitting up 30\u201345\u00b0 during and after feeding.','Check the tube is in its usual position.','Follow the care plan for formula and flushes.','Keep the skin around the site clean and dry.'],
     reminders:['Only do what\u2019s in the care plan and your training.','Keep all supplies clean.'],
     mistakes:['Feeding while the client lies flat.','Skipping water flushes.','Ignoring redness or leaking.'],
     whenCall:['Tube comes out or leaks.','Client chokes, vomits, or coughs a lot.','Trouble breathing \u2014 call 911.'], contact:true}),
-  mkGuide({title:'Repositioning Guide', category:'Repositioning', topic:'Prevent pressure sores with safe repositioning.',
+  mkGuide({id:'gseed-repositioning-guide', title:'Repositioning Guide', category:'Repositioning', topic:'Prevent pressure sores with safe repositioning.',
     steps:['Reposition every 2 hours (or per care plan).','Tell the client before you start.','Bend knees, keep your back straight.','Use a draw sheet \u2014 never drag.','Cushion pressure points with pillows.','Check hips, heels, and tailbone for redness.'],
     reminders:['Get help for heavier clients.','Leave the client centered and comfortable.'],
     mistakes:['Dragging the client across the bed.','Twisting your own back.','Skipping skin checks.'],
     whenCall:['New redness or broken skin.','The client has pain when moved.'], contact:false}),
-  mkGuide({title:'Running Late Procedure', category:'Agency Procedures', topic:'What to do when you\u2019ll arrive late.',
+  mkGuide({id:'gseed-running-late-procedure', title:'Running Late Procedure', category:'Agency Procedures', topic:'What to do when you\u2019ll arrive late.',
     steps:['Call Scheduling the moment you know.','Give your name, client, and new arrival time.','Call \u2014 don\u2019t just text.','Can\u2019t reach them? Leave a message, keep trying.','Drive safely \u2014 never rush.'],
     reminders:['The client may be alone and waiting.','Early notice lets us help them.'],
     mistakes:['Only texting that you\u2019re late.','Saying nothing and showing up late.','Speeding to make up time.'],
     whenCall:['You\u2019ll be more than a few minutes late.','You realize you can\u2019t make it at all.'], contact:true}),
-  mkGuide({title:'Call-Off Procedure', category:'Agency Procedures', topic:'The right way to call off a shift.',
+  mkGuide({id:'gseed-call-off-procedure', title:'Call-Off Procedure', category:'Agency Procedures', topic:'The right way to call off a shift.',
     steps:['Call Scheduling as early as possible.','Call \u2014 don\u2019t text.','Give name, client, shift date/time, and reason.','Give as much notice as you can.','Wait for confirmation we received it.'],
     reminders:['Your call-off triggers us finding coverage.','Follow up if you don\u2019t get confirmation.'],
     mistakes:['No-call / no-show.','Texting instead of calling.','Calling at the last minute with no reason.'],
     whenCall:['As soon as you know you can\u2019t work.','You can\u2019t reach Scheduling \u2014 keep trying, leave a message.'], contact:true}),
-  mkGuide({title:'Nutrition & Hydration Guide', category:'Nutrition & Hydration', topic:'Helping clients eat and drink enough every day.',
+  mkGuide({id:'gseed-nutrition-hydration-guide', title:'Nutrition & Hydration Guide', category:'Nutrition & Hydration', topic:'Helping clients eat and drink enough every day.',
     steps:['Offer small, frequent meals and snacks.','Serve favorite foods; make plates appealing.','Offer fluids every time you check in.','Sit with the client and encourage — don’t rush.','Record what and how much they actually ate and drank.','Watch for coughing or trouble swallowing.'],
     reminders:['Hydration matters as much as food.','Document amounts, not just “ate okay.”'],
     mistakes:['Leaving food without encouraging.','Not recording actual intake.','Ignoring repeated poor appetite.'],
     whenCall:['Client repeatedly refuses food or fluids.','Signs of dehydration: dry mouth, dizziness, dark urine.','Trouble swallowing or choking — call 911 if breathing is affected.'], contact:true}),
-  mkGuide({title:'Safe Transfer Guide', category:'Safe Transfers', topic:'Moving a client safely between bed, chair, and standing.',
+  mkGuide({id:'gseed-safe-transfer-guide', title:'Safe Transfer Guide', category:'Safe Transfers', topic:'Moving a client safely between bed, chair, and standing.',
     steps:['Explain the move; lock wheels and brakes first.','Use a gait belt if the care plan calls for one.','Keep the client close; bend your knees, not your back.','Move on a count of three — slow and steady.','Pivot — never twist your spine.','Make sure the client is steady before letting go.'],
     reminders:['Clear the path before you start.','Get help for heavy or unsteady clients.'],
     mistakes:['Pulling the client by the arms.','Twisting your back.','Rushing the transfer.'],
     whenCall:['A client nearly falls during a transfer.','You can’t safely move the client alone.','Any injury during a transfer — report it the same day.'], contact:true}),
-  mkGuide({title:'NPO (Nothing By Mouth)', category:'Nutrition & Hydration', topic:'Client asks for water, ice chips, food, candy, or gum while on an NPO (nothing by mouth) order.',
+  mkGuide({id:'gseed-npo-nothing-by-mouth', title:'NPO (Nothing By Mouth)', category:'Nutrition & Hydration', topic:'Client asks for water, ice chips, food, candy, or gum while on an NPO (nothing by mouth) order.',
     steps:['Stay calm and reassure the client.','Explain that the doctor has ordered nothing by mouth.','Provide mouth care as directed.','Apply lip moisturizer if needed.','Notify family if requests become frequent.'],
     reminders:['Suggested response: \u201cI know you\u2019re thirsty. The doctor has ordered nothing by mouth to keep you safe. Let me help make your mouth more comfortable instead.\u201d','Why it matters: giving food or liquids to an NPO client can cause choking, aspiration, or pneumonia.','If the care plan states the client is NPO, always follow the care plan and physician orders.'],
     mistakes:['Give water.','Give ice chips.','Give food.','Give candy or gum.','Give anything by mouth unless specifically ordered.'],
@@ -16696,7 +16778,13 @@ function saveAttEntry(id){
   const rec={cg, client:v('atClient'), date:date, type:v('atType'), note:v('atNote'),
     coverNeeded:need, coverStatus: need?v('atStatus'):'Not needed', coveredBy:v('atBy')};
   state.attendance=state.attendance||[];
-  if(id){ const i=state.attendance.findIndex(x=>x.id===id); if(i>=0) state.attendance[i]=Object.assign({id}, rec); toast('Attendance updated'); }
+  if(id){
+    const i=state.attendance.findIndex(x=>x.id===id);
+    /* Removed by another scheduler while this was open. The modal stays up so
+       nothing typed is thrown away, and nothing claims it was saved. */
+    if(i<0) return toast('Another scheduler removed this entry, so this edit was not saved');
+    state.attendance[i]=Object.assign({id}, rec); toast('Attendance updated');
+  }
   else { state.attendance.unshift(Object.assign({id:'at'+Date.now()}, rec)); toast('Attendance logged'); }
   /* Follow the entry to whichever month it is dated, so logging something
      for last month shows it rather than looking like it did not save. */
@@ -16704,8 +16792,13 @@ function saveAttEntry(id){
   closeModal(); render();
 }
 function delAttEntry(id){
+  /* Tombstone first, and save now rather than on render()'s debounce. This
+     delete used to travel only by omission, so any other open tab — or this
+     tab's own conflict retry — put the entry straight back. See cloudForget. */
+  cloudForget('attendance', id);
   state.attendance=(state.attendance||[]).filter(x=>x.id!==id);
   toast('Entry removed'); render();
+  try{ CLOUD.save(); }catch(e){}
 }
 function viewInfographics(){
   const list=(state.guides||[]).slice().sort((a,b)=>a.title.localeCompare(b.title));
@@ -16958,13 +17051,23 @@ function saveGuide(){
   const obj=guideDraftToObj();
   if(!obj.title) return toast('Enter a guide title');
   if(!obj.steps.length && !obj.reminders.length && !obj.mistakes.length && !obj.whenCall.length) return toast('Add at least one step, reminder, mistake, or call-the-office trigger');
-  if(state.guideEditId){ const i=state.guides.findIndex(x=>x.id===state.guideEditId); if(i>=0) state.guides[i]=obj; toast('Guide updated'); }
+  if(state.guideEditId){
+    const i=state.guides.findIndex(x=>x.id===state.guideEditId);
+    /* Deleted by another scheduler while it was open here. Its id is
+       tombstoned, so writing it back would be refused by every tab. Drop the
+       id instead: the draft stays on screen, and Save again files it as a NEW
+       guide under a fresh id. */
+    if(i<0){ state.guideEditId=null; render(); return toast('Another scheduler deleted this guide. Press Save again to keep your draft as a new guide.'); }
+    state.guides[i]=obj; toast('Guide updated');
+  }
   else { state.guides.unshift(obj); toast('Guide saved to library'); }
   state.guidesMode='library'; state.guideDraft=null; state.guideEditId=null; state.guideCreateStep=null;
   if(state.igReturn){ state.igReturn=false; state.view='infographics'; }
   render();
 }
-function deleteGuide(){ if(!state.guideEditId) return; state.guides=state.guides.filter(g=>g.id!==state.guideEditId); toast('Guide deleted'); state.guidesMode='library'; state.guideDraft=null; state.guideEditId=null; state.guideCreateStep=null; render(); }
+/* The tombstone is recorded BEFORE guideEditId is cleared on the same line —
+   read after it, the delete would name nobody and come back. See cloudForget. */
+function deleteGuide(){ if(!state.guideEditId) return; cloudForget('guides', state.guideEditId); state.guides=state.guides.filter(g=>g.id!==state.guideEditId); toast('Guide deleted'); state.guidesMode='library'; state.guideDraft=null; state.guideEditId=null; state.guideCreateStep=null; render(); try{ CLOUD.save(); }catch(e){} }
 function guideEditor(){
   const cs=state.guideCreateStep;
   if(cs==='choose') return guideCreateChooser();
@@ -18918,6 +19021,49 @@ const CLOUD = (function(){
      AxisCare did not return this load does not lose the desk's work.
      See buildOverlay(). */
   var CARRY = {};
+  /* DELETE TOMBSTONES. Ids a person deliberately removed, per slice.
+
+     A record the desk created is never in BASE — those slices start empty
+     and BASE is taken before the overlay is applied — so buildOverlay() can
+     never emit a del for one, and applyOverlay() adds any id it does not
+     hold. A deletion therefore travelled ONLY by omission, and nothing can
+     tell "deleted" from "not seen yet". Verified 2026-09-15 by running this
+     module in two simulated tabs: a delete came back (a) within ~250ms, when
+     the push hit a rev conflict and pull(true) re-added the record before
+     the retry pushed it back, and (b) 20-40s later, whenever any other open
+     tab still held it. That is the Notes / Client Feedback / Client
+     Complaint delete the desk saw reappear "after a second".
+
+     So a deliberate removal calls CLOUD.forget(path, id). The id is kept
+     here, emitted in `dels` on EVERY save, seeded from every del that
+     arrives, filtered out of state, and refused as an add. Tabs still on
+     the old code already honour `dels` on these slices, so they drop the
+     record on their next poll without a refresh.
+
+     Four rules, all load-bearing:
+     - ONLY FROM INTENT. Nothing here derives a tombstone from absence. A
+       record missing from state can be a short read or a rebuild (cgProfSet
+       filters and pushes the same id), and a tombstone is permanent.
+     - NEVER PRUNED. Every tab must emit the identical set or doSave()'s
+       lastBody guard (3d) never fires and idle tabs trade revisions forever.
+       Pruning by each tab's clock is exactly that. The ids are unique
+       (cgUid and friends are never reused) and short.
+     - KEYED, NON-patchOnly ARRAY SLICES ONLY — tombSlice(). patchOnly
+       slices refuse dels both ways (3c-2), and that must not change.
+     - COPIED STRINGS ONLY, never references into an overlay (see detach). */
+  var GONE = {};
+  function tombSlice(sl){ return !!(sl && sl.key && !sl.patchOnly && !sl.map && !sl.scalar); }
+  function goneSet(path){ return GONE[path] || (GONE[path] = {}); }
+  /* A record with no id reads as the string 'undefined' through idOf(), and
+     escalations have no id at all — every escalation is 'undefined'. So a
+     tombstone on 'undefined' (or 'null', or '') would silently delete EVERY
+     id-less record on that slice, for good, and refuse every future one.
+     Refused wherever a tombstone can be created or learned. */
+  function tombId(id){
+    if(id===null || id===undefined) return null;
+    var s=String(id);
+    return (s==='' || s==='undefined' || s==='null') ? null : s;
+  }
   var muted = false, saveTimer = null, pollTimer = null, booted = false;
   /* One write in flight at a time, and a record of whether this session is
      holding work the server has not confirmed. Both exist because of the
@@ -19105,6 +19251,18 @@ const CLOUD = (function(){
          again on the way in, so a row that already carries one repairs
          itself. */
       var dels = sl.patchOnly ? [] : Object.keys(base).filter(function(id){ return !seen[id]; });
+      /* EVERY SAVE CARRIES EVERY TOMBSTONE. The overlay is rebuilt whole,
+         so a del emitted once and then dropped would be gone after the next
+         save by any tab — and any tab that missed that one revision (hidden,
+         closed, mid-conflict) would put the record back. A tombstoned id is
+         never also sent as an add or a patch: the two would contradict. */
+      if(tombSlice(sl) && GONE[sl.path]){
+        var gone=GONE[sl.path], inDels={};
+        dels.forEach(function(id){ inDels[id]=1; });
+        Object.keys(gone).forEach(function(id){ if(!inDels[id]){ dels.push(id); inDels[id]=1; } });
+        adds=adds.filter(function(r){ return !gone[idOf(sl,r)]; });
+        Object.keys(patches).forEach(function(id){ if(gone[id]) delete patches[id]; });
+      }
       if(adds.length) o.adds[sl.path]=adds;
       if(dels.length) o.dels[sl.path]=dels;
       if(Object.keys(patches).length) o.patches[sl.path]=patches;
@@ -19137,6 +19295,15 @@ const CLOUD = (function(){
         console.warn('[cloud] ignored ' + dels.length + ' stray del(s) on ' + sl.path +
           ' - that slice comes from AxisCare and cannot be deleted by hand');
         dels=[];
+      }
+      /* A del arriving on a tombstone slice is remembered for good, and held
+         records are filtered by EVERY tombstone this browser knows, not just
+         the ones in this overlay — so the push() conflict path's pull(true),
+         and the local-cache replay at boot, cannot bring a deleted record
+         back either. */
+      if(tombSlice(sl)){
+        if(dels.length){ var gs=goneSet(sl.path); dels.forEach(function(d){ var t=tombId(d); if(t) gs[t]=1; }); }
+        if(GONE[sl.path]) dels=Object.keys(GONE[sl.path]);
       }
       if(dels.length){
         var dset={}; dels.forEach(function(d){ dset[d]=1; });
@@ -19176,6 +19343,10 @@ const CLOUD = (function(){
       }
       if(adds.length){
         var have={}; arr.forEach(function(r){ have[idOf(sl,r)]=1; });
+        /* A tombstoned id counts as held, so the loop below never re-adds it —
+           whether it arrives from an old tab, a stale cache, or the same
+           overlay that carries its del. */
+        if(tombSlice(sl) && GONE[sl.path]) Object.keys(GONE[sl.path]).forEach(function(id){ have[id]=1; });
         adds.forEach(function(r){
           var rr;
           try{ rr=revive(JSON.parse(JSON.stringify(r))); }catch(e){ return; }
@@ -19320,6 +19491,16 @@ const CLOUD = (function(){
     saveTimer=setTimeout(doSave, DEBOUNCE);
   }
   function doSave(){
+    /* NOT BEFORE finishBoot(). Until then BASE is null, so buildOverlay()
+       returns an EMPTY overlay — and saveLocal() below would overwrite the
+       local cache finishBoot() is about to replay, losing work that never
+       reached the row (the stale banner promises it is "kept on this device").
+       Only scheduleSave() checked `booted`; CLOUD.save() comes straight here,
+       and the guide library's Delete can be pressed before the roster lands.
+       Every legitimate caller runs after boot, so nothing else changes, and a
+       delete made before boot is not lost: its tombstone is already in GONE
+       and goes out with the first save after finishBoot. Found in review. */
+    if(!booted || !BASE) return;
     /* ONE WRITE AT A TIME. Two overlapping pushes both compute rev from the
        same serverRev, so the second fails the optimistic-concurrency check
        and lands in the conflict path — which used to destroy the edit (see
@@ -19747,6 +19928,24 @@ const CLOUD = (function(){
       finally{ muted=false; }
     },
     save:    function(){ clearTimeout(saveTimer); doSave(); },
+    /* RECORD A DELIBERATE DELETE. Call it wherever a person removes a record
+       from a keyed slice, alongside the code that takes it out of state and
+       before the save. Returns how many ids were recorded; a slice that does
+       not take tombstones (patchOnly, map, scalar, sig) records nothing and
+       says so, rather than silently leaving the delete to come back. */
+    forget:  function(path, ids){
+      var sl=null;
+      for(var i=0;i<SLICES.length;i++){ if(SLICES[i].path===path){ sl=SLICES[i]; break; } }
+      if(!tombSlice(sl)){ console.warn('[cloud] forget() ignored: ' + path + ' does not take tombstones'); return 0; }
+      var g=goneSet(path), n=0;
+      (Array.isArray(ids)?ids:[ids]).forEach(function(id){
+        var t=tombId(id);
+        if(!t){ console.warn('[cloud] forget() ignored an id-less record on ' + path + ' - a tombstone on it would delete every id-less record'); return; }
+        g[t]=1; n++;
+      });
+      return n;
+    },
+    isGone:  function(path, id){ return !!(GONE[path] && GONE[path][String(id)]); },
     sync:    function(){ return pull(true); },
     status:  function(){ return { state:statusState, msg:statusMsg, rev:serverRev, workspace:WORKSPACE, cloud:!!sb }; },
     overlay: buildOverlay,
@@ -19760,6 +19959,7 @@ const CLOUD = (function(){
       if(!window.confirm('Clear all saved scheduler work and reload with fresh demo data?')) return;
       try{ localStorage.removeItem(LS_KEY); }catch(e){}
       CARRY = {};                       /* or the next save would put it all back */
+      GONE = {};                        /* a reset starts clean; nothing is deleted */
       var empty={ v:1, adds:{}, dels:{}, patches:{}, maps:{}, scalars:{},
                   updatedAt:new Date().toISOString(), updatedBy:state.onShift||'' };
       if(sb){
@@ -19771,6 +19971,25 @@ const CLOUD = (function(){
     }
   };
 })();
+
+/* A DELIBERATE DELETE MUST SAY SO — see CLOUD's GONE store.
+
+   Call this wherever a PERSON removes a record from a keyed slice, next to
+   the code that takes it out of state and before the save. Without it the
+   delete travels only by omission, and any other open tab — or the push
+   conflict path a second later — puts the record straight back.
+
+   Do NOT call it for a record that is removed and re-added under the same id
+   (cgProfSet, cgRatings), or for anything removed by code rather than by a
+   person: a tombstone is permanent, and that record could never return.
+
+   Wrapped so a stub CLOUD in a unit test, or a CLOUD that failed to load,
+   leaves the delete in state exactly as before instead of throwing. */
+function cloudForget(path, ids){
+  try{ if(typeof CLOUD!=='undefined' && CLOUD && CLOUD.forget) return CLOUD.forget(path, ids); }
+  catch(e){ console.warn('[cloud] could not record the delete', e); }
+  return 0;
+}
 
 /* =========================================================
    AXISCARE ROSTER  —  fetch + map (STAGE 1)

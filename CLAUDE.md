@@ -3439,6 +3439,90 @@ Feedback) moved to Client Feedback.
 > baseline records, so both cleared themselves: rev 6374 carried them, and
 > Mae's open tab applied them and saved rev 6375 two minutes later with the
 > entry correct and both gone.
+>
+> **A del no longer behaves that way — see 3g under *Don't break these*.**
+> Since 2026-09-15 every del on these slices is learned as a permanent
+> tombstone and re-sent on every save, so it never clears itself. The
+> `patches` half of this recipe still works; a hand-written del now deletes
+> the record for good.
+
+## The Caregiver Profile — Skills and Experience
+
+Split 2026-09-15 at Mitch's request. The Profile grid reads:
+
+```
+Work Preferences                       (full width)
+Employment Summary     Client Blocks — Do Not Assign
+Skills                 Experience
+Personality            Hobbies & Interests
+```
+
+| Card | Options | Free text |
+|---|---|---|
+| **Skills** | Mobility & Safety, Personal Care, Daily Living Support — 19 options | Anything else (`skillsNote`) |
+| **Experience** | Dementia / Alzheimer’s, Parkinson’s, Stroke, Diabetes, Hospice, Post-hospital recovery, **Others** — listed flat | Anything else (`experienceNote`) |
+
+Experience has no group heading. These are the options that sat under *Care
+Experience* on the combined card, but a lone "Care Experience" heading under a
+card titled Experience told the reader nothing and made a ticked Others read
+as "Care Experience: Others" — the same redundancy the "MESSAGES" label on
+Communication Logs was removed for.
+
+**No backend change.** Both are fields on the caregiver's `cgProfiles` record
+in the `scheduler_state` overlay; Experience adds `experience` and
+`experienceNote`.
+
+### One stored list became two, and the first save must write both
+
+Until the split, every tick on either card lived in `cgProfiles[].skills`. On
+the day, **61 of the 68 filled-in profiles** held Care Experience ticks there.
+Nothing was migrated. Instead:
+
+- **Experience reads `p.skills`** until it has an `experience` list of its
+  own, and reads the same legacy seed Skills does when neither exists.
+  `cgChips()` keeps only each card's own options, so the two cards never
+  show the same tick. Both share `CG_CHIP_RENAME.skills`.
+- **The first Skills save also writes Experience's list** (`pair` on the
+  Skills field, applied in `chipSave()`). Once `p.experience` exists it does
+  nothing. **Only Skills carries `pair`.** An earlier version put it on
+  Experience too, so saving Experience froze a copy of a seeded Skills card
+  and it stopped following the AxisCare tags — caught in review and removed.
+
+**Claude: do not remove the `pair` write.** Saving Skills rewrites `p.skills`
+with Skills options only. Without it, every Dementia, Hospice and Parkinson's
+tick disappears from Experience the moment somebody saves Skills — on 61
+real caregivers. `skills-exp-test` and `skills-exp-ui-test` both pin it.
+
+> **One rollout race, accepted.** For up to a minute after this deploys (and
+> until a stale tab is reloaded), a tab still running the old code shows the
+> combined card. On a caregiver whose record the new code has already split,
+> a Care Experience tick added there lands in `p.skills`, where Experience no
+> longer looks, and the next Skills save drops it. It needs an old tab, a
+> caregiver who had no profile record before the split, and an edit inside
+> that window — so the desk hard refreshes after the deploy, as always.
+
+### Needs Update requires both — Mitch's call
+
+`CG_REQUIRED` has a **Skills** row and an **Experience** row, replacing
+*Skills & experience*. A tick or the "Anything else" line answers either one.
+
+**Others** exists because Experience is required. Without it a caregiver who
+has never cared for any of the six named conditions would stay on Needs
+Update with nothing they could honestly tick. On the day, 7 of the 68 stored
+profiles had skills but no Care Experience tick, so those caregivers now
+appear for Experience until somebody answers it.
+
+### What else reads them
+
+- **Recent Updates** logs *Skills updated* and *Experience updated* — including
+  when only the "Anything else" line changed, because that line now answers
+  Needs Update and a cleared row must say who cleared it. Entries written
+  before the split still read *Skills & experience updated*.
+- **The persona sentence** (`cgAbout`) reads Experience first, then Skills —
+  the order the combined list used — and never names "Others", which says
+  there is more without saying what.
+- **The resume does not read these cards.** It still reads `c.skills` (the
+  AxisCare class tags), so neither card, nor "Others", reaches a client.
 
 ## Ask Devi — the local router first, Claude for the rest
 
@@ -4020,6 +4104,148 @@ Storage, or “Clear site data”; a hard reload does **not** remove it.
 
     This composes with 3d — `lastBody` stops the needless writes, this stops
     the needless reads. Neither makes the other redundant.
+
+3g. **A person's delete must record a tombstone — `cloudForget()`.**
+
+    **Reported by the desk 2026-09-15:** a deleted Note, Client Feedback and
+    Client Complaint came back about a second later, and deleting them again
+    made them stay. Not a glitch.
+
+    On the keyed, non-`patchOnly` array slices (`cgNotes`, `cgConcerns`,
+    `attendance`, `guides`, `offerTemplates`, `tasks` and the rest), every
+    record the desk creates is **never in `BASE`** — those slices start empty
+    and `BASE` is taken before the overlay is applied. So `buildOverlay()`
+    never emitted a `del` for one: a delete travelled **only by omission**,
+    and `applyOverlay()` adds any id a tab does not hold. Measured by running
+    the real module in simulated tabs:
+
+    - **~250ms** — the delete's push hit a rev conflict (another tab had
+      saved), `push()`'s `pull(true)` re-added the record, and the retry
+      pushed it back. The retry left `serverRev` current, which is exactly
+      why the second delete stuck.
+    - **20–40s** — any other open tab still holding the record pushed it back
+      on its next save, and a background tab did it on focus.
+
+    **The fix is tombstones.** `CLOUD.forget(path, ids)` — reached through
+    the global `cloudForget()` — records the id in a module-level `GONE` store.
+    `buildOverlay()` emits **every** tombstone in `dels` on **every** save;
+    `applyOverlay()` learns every incoming del, filters held records by all of
+    `GONE`, and refuses any add whose id is in it. Tabs still on the old code
+    already honour `dels` on these slices, so they drop the record on their
+    next poll without a refresh.
+
+    **Wired at every place a person deletes a record from these slices** — an
+    audit of the whole file on 2026-09-15 found exactly four, and no archive
+    move or size cap anywhere:
+
+    | Delete | Slice | Function |
+    |---|---|---|
+    | Note, Client Feedback, Client Complaint | `cgNotes`, `cgConcerns` | `cgEntryDel` |
+    | Attendance row | `attendance` | `delAttEntry` |
+    | Guide / infographic | `guides` | `deleteGuide` (reads the id before it is cleared) |
+    | Auto-Offer template | `offerTemplates` | `aoDeleteTemplate` |
+
+    **Claude: a new delete button must call `cloudForget()`.** This is the
+    *seven lists* lesson again: miss it and that delete comes back, with no
+    error anywhere.
+
+    Six rules, all load-bearing:
+
+    - **Only from intent, never from absence.** A tombstone is permanent. Do
+      NOT call it where a record is removed and re-added under the same id —
+      `cgProfSet`, `ratingSave`, `saveAttEntry`, `saveGuide` — or the caregiver
+      becomes permanently unratable or unprofileable on every tab.
+    - **Never pruned.** Every tab must emit the identical set, or `lastBody`
+      (3d) never matches and idle tabs trade revisions forever. Pruning by
+      each tab's clock is exactly that. Ids are unique and short.
+    - **Keyed, non-`patchOnly` arrays only** (`tombSlice()`). `patchOnly`
+      slices still refuse dels both ways (3c-2); maps, scalars and `sig`
+      slices take none.
+    - **No id-less tombstones** (`tombId()`). Escalations have no id, so every
+      one reads as `'undefined'` — a tombstone on it would delete them all and
+      refuse every future one. `'undefined'`, `'null'` and `''` are refused
+      when recorded and when learned from an incoming del.
+    - **Code must never remove an in-`BASE` record from these slices.**
+      `applyOverlay()` learns every incoming del, including a base-diff del, so
+      such a removal becomes a permanent tombstone. System tasks (`sys_…`) are
+      in `BASE` with recurring ids — do not prune them that way.
+    - **A record deleted here needs a STABLE id.** The 11 built-in guides took
+      `gGid()`, a new random id on every load in every tab, so a delete could
+      never be matched and came straight back. They now carry fixed
+      `gseed-…` ids. Never change or reuse one. A future seed list that is
+      deletable needs the same.
+
+    #### Found in the adversarial review, and fixed before deploy
+
+    - **`doSave()` does nothing before `finishBoot()`.** `CLOUD.save()` never
+      checked `booted`; with `BASE` still null it built an EMPTY overlay and
+      `saveLocal()` wrote it over the local cache finishBoot was about to
+      replay — unpushed work gone. `deleteGuide` made that reachable from the
+      guide library during boot. Every legitimate save runs after boot, and a
+      tombstone recorded before boot goes out with the first save after it.
+    - **An edit to a record another scheduler just deleted says so.** Deletes
+      now reach an open editor's tab, so `cgNoteSave`, `cgFbSave`,
+      `saveAttEntry` and `saveGuide` found nothing and still toasted "saved".
+      They now say the entry was deleted and keep the editor open; a guide
+      draft can be saved again as a NEW guide.
+    - **Auto-Offer opens with zero templates.** The "keep at least one" guard
+      counts only this tab, so two schedulers deleting the last two leave
+      none anywhere — and `openAutoOffer` threw on `def.id`. It now opens with
+      an empty message so a new template can be saved from inside it.
+
+    #### What it does not cover — tell the desk
+
+    - **Edits** to an existing record can still be reverted by another tab's
+      stale copy. That is the planned follow-up (step 2) — likely by moving the
+      busiest slices into their own tables, the way availability already is.
+    - **Removing a sub-entry inside one record** — *Re-queue* in a shift's
+      contact log (`dispReopen`), *Remove* on a medication (`removeMed`), a
+      client block (`cbRemove`) — travels as a whole value, last writer wins.
+      A tombstone cannot address it.
+    - **Deletes made before this deployed** were never recorded. Delete again.
+    - **A misclick is permanent.** The attendance, guide and template deletes
+      have no confirm step (Notes and Feedback/Complaint do). The original id
+      cannot come back: removing the del from the shared row is undone by any
+      open tab within one poll, and by any browser whose local cache holds it
+      when it next opens. **To restore a mistaken delete, re-add a copy of the
+      record to `overlay.adds.<slice>` under a NEW id** and leave the del where
+      it is; every tab picks it up on its next poll.
+    - **A del written into the shared row by hand is a permanent tombstone.**
+      Never repair a record with a del plus a same-id add — use a `patches`
+      entry, or re-add it under a new id. (The 2026-09-15 cgConcerns repair
+      under *The Caregiver Overview* predates this rule.)
+
+    #### Deploying it — the old-tab exchange
+
+    An old-code tab cannot emit a tombstone, so once one exists the old tab
+    strips it from every row it writes, a new tab puts it back, and the two
+    trade full-overlay writes (~1.3MB each) until the old tab stops. The
+    stale-build guard normally stops it within ~60s — but NOT in a tab opened
+    before the guard existed (2026-09-07), nor one whose first `checkBuild()`
+    ran after the deploy landed. Measured with an unguarded old tab: 6 writes a
+    minute from each side, indefinitely. So for this deploy:
+
+    1. As soon as Netlify shows it live, **every desk browser reloads** — not
+       "check for the banner": an unguarded old tab shows no banner.
+    2. **Nobody deletes** a Note, Feedback/Complaint, attendance entry, guide
+       or template until everyone has reloaded.
+    3. If `rev` in `scheduler_state` climbs every ~10s with `updated_by`
+       alternating between two people while nobody is working, an old tab is
+       still open. Find it and reload it.
+
+    Before deploying, the live row was checked read-only (rev 6417): **no dels
+    on any slice**, so nothing already stored becomes an unexpected tombstone.
+
+    **Verified** by `tombstone-harness.js` in the session scratchpad, which
+    runs the real CLOUD module, state initialiser, delete and edit-save
+    functions from the working tree and from the committed snapshot in one vm
+    context per tab: **23 failures before the call sites were wired; 62
+    passes after the review fixes** — the conflict path, another open tab, a
+    hidden tab, three timing races, rapid deletes, a stale-cache boot, old and
+    new tabs during rollout (before and after the stale guard), all four real
+    delete buttons, id-less escalations, a save and a delete during boot, an
+    edit to a deleted record, templates racing to zero, and two idle tabs
+    making no writes.
 
 ### FIXED 2026-09-03: a re-hydrate no longer writes AxisCare data into the overlay
 
