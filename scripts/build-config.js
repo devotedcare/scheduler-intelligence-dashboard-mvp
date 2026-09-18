@@ -48,6 +48,18 @@ if (role === 'service_role') {
 } else if (role && role !== 'anon') {
   problems.push('SUPABASE_ANON_KEY carries an unexpected role "' + role + '". Expected "anon".');
 }
+/* The page reaches its data only through the app-gate Edge Function, which is
+   deployed with JWT verification ON and is sent this key as its bearer token.
+   A new-style publishable key (sb_publishable_...) is not a JWT, so the gateway
+   would turn every request away and the desk would sit on "The server refused
+   this page". */
+if (cfg.supabaseAnonKey && !role) {
+  problems.push('SUPABASE_ANON_KEY is not a JWT (legacy anon key). app-gate verifies a JWT, so every request would be refused - use the legacy anon key, or redeploy app-gate with --no-verify-jwt.');
+}
+/* app-gate only reaches scheduler_state and refuses any other table name. */
+if (cfg.table !== 'scheduler_state') {
+  problems.push('SCHEDULER_TABLE is "' + cfg.table + '". app-gate only reaches scheduler_state and will refuse every save - leave it unset.');
+}
 
 const banner =
 `/* GENERATED FILE — do not edit by hand.

@@ -73,11 +73,18 @@ netlify/functions/matching-sync.js
                                Hourly copy of Client Concierge's caregiver
                                matches and client preferences.
 
-supabase/schema.sql            Every table, policy and trigger. Safe to re-run.
+supabase/schema.sql            Every table, trigger and the lock. Safe to re-run:
+                               it keeps the tables locked (section 11 checks).
 supabase/open-shifts.sql       Section 8 of schema.sql on its own.
 supabase/comm-summaries.sql    Section 9 of schema.sql on its own.
+supabase/app-gate.sql          Section 10: the PIN throttle table and gate_check().
+supabase/app-gate-lock.sql     Section 11 on its own: drops every anon policy.
+                               Run ONLY once the PIN-gated index.html is live.
+supabase/app-gate-unlock.sql   Undoes the lock (re-opens every table to the anon key).
 supabase/config.toml           Pins the project ref for the Supabase CLI.
 supabase/functions/            Edge Functions. A commit does NOT deploy these.
+  app-gate/                    THE ONLY WAY THE PAGE REACHES SUPABASE: checks
+                               the desk PIN on every request, then reads/writes
   devi-agent/                  Ask Devi's Claude calls
   quo/                         Quo proxy: reads calls and texts, sends texts
   care-brief/                  The care-needs line in a shift-offer text
@@ -259,6 +266,17 @@ Roughly five minutes.
    > Take the **anon** key. The `service_role` key on the same page bypasses all
    > row-level security — it must never be given to a browser. `build-config.js`
    > will warn you if it detects one, but do not rely on that.
+
+5. **Deploy the PIN gate.** With keys in `config.js` the page opens on a PIN
+   screen and reads nothing until `app-gate` accepts a PIN, so it has to exist:
+
+   ```
+   npx supabase secrets set APP_PIN=<the desk PIN> --project-ref <ref>
+   npx supabase functions deploy app-gate --project-ref <ref>
+   ```
+
+   `schema.sql` already created its throttle table (section 10). Use at least
+   six digits: the throttle allows 8 guesses per network per 15 minutes.
 
 ---
 
@@ -513,9 +531,9 @@ All set in Netlify → Site configuration → Environment variables.
 | Variable | Required | Default | Notes |
 |---|---|---|---|
 | `SUPABASE_URL` | for sync | — | `https://<ref>.supabase.co`, no trailing slash |
-| `SUPABASE_ANON_KEY` | for sync | — | anon/publishable key — **never** `service_role` |
-| `SCHEDULER_WORKSPACE` | no | `devoted_care` | Change to run an isolated second copy |
-| `SCHEDULER_TABLE` | no | `scheduler_state` | |
+| `SUPABASE_ANON_KEY` | for sync | — | anon/publishable key — **never** `service_role`. It only gets requests past the gateway to `app-gate`; with no anon policies it reads and writes nothing itself |
+| `SCHEDULER_WORKSPACE` | no | `devoted_care` | Change to run an isolated second copy — and add the same name to `APP_WORKSPACES` on `app-gate`, or it is refused |
+| `SCHEDULER_TABLE` | no | `scheduler_state` | Leave it. `app-gate` only reaches `scheduler_state` and refuses any other |
 | `SCHEDULER_POLL_MS` | no | `20000` | Min 8000 |
 | `AXISCARE_SITE_URL` | for AxisCare | — | `https://7060.axiscare.com`. Server-side only. |
 | `AXISCARE_API_TOKEN` | for AxisCare | — | Server-side only. Never reaches the browser. |
@@ -530,18 +548,21 @@ Changing any of these requires a **redeploy** — they are read at build time.
 ### Supabase Edge Function secrets
 
 A **separate store**: Supabase dashboard → Project Settings → Edge Functions →
-Secrets. Read by the four functions in `supabase/functions/`. Changing a secret
-needs no redeploy; changing a function does, and **a commit does not deploy
-one**:
+Secrets. Read by the five functions in `supabase/functions/`. Changing a secret
+needs no redeploy (setting one restarts every function); changing a function
+does, and **a commit does not deploy one**:
 
 ```
 npx supabase functions deploy <name> --project-ref gdzgoyawavffjdjpjbfz --no-verify-jwt
+npx supabase functions deploy app-gate --project-ref gdzgoyawavffjdjpjbfz     # JWT check ON: no flag
 ```
 
 | Secret | Read by | Notes |
 |---|---|---|
+| `APP_PIN` | app-gate | **The desk PIN.** Unset = everyone refused. Changing it locks out every open tab on its next request — see CLAUDE.md, *The PIN gate* |
+| `APP_WORKSPACES` | app-gate | optional, comma list; default `devoted_care` |
 | `ANTHROPIC_API_KEY` | devi-agent, care-brief, comms-summary | `.env` calls the same value `CLAUDE_API_KEY` |
-| `ALLOWED_ORIGIN` | all four | Browser origins allowed, comma-separated. Never `null` |
+| `ALLOWED_ORIGIN` | all five | Browser origins allowed, comma-separated. Never `null`. `app-gate` allows no origin at all while it is unset |
 | `QUO_API_KEY` | quo, comms-summary | The key has no scopes; see CLAUDE.md |
 | `QUO_ROSTER_URL` | quo, comms-summary | This site's public AxisCare proxy. Texting is refused while unset |
 | `QUO_API_BASE`, `QUO_ALLOWED_PATHS`, `QUO_SHARED_SECRET` | quo | optional |
@@ -553,7 +574,8 @@ npx supabase functions deploy <name> --project-ref gdzgoyawavffjdjpjbfz --no-ver
 `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are supplied by Supabase itself.
 
 > The Supabase **database password** is not in this table on purpose. It is only
-> for direct Postgres access; this dashboard uses the REST API with the anon key.
+> for direct Postgres access; the dashboard reaches its data only through
+> `app-gate`.
 > Do not add it to Netlify.
 
 > Auth is always Bearer for AxisCare, so there is no auth-style switch.
@@ -659,11 +681,31 @@ search the log for `[build-config]`. It prints the workspace, table, and whether
 Supabase was configured. Fix the variable, then **Clear cache and deploy site**.
 
 **Pill says "Sync error" — hover it for the message.**
-- `new row violates row-level security policy` → the policies in
-  `supabase/schema.sql` section 2 weren't applied. Re-run that section.
+- `new row violates row-level security policy`, or data that reads as empty →
+  that browser is running a build from before the PIN gate and still calling
+  `/rest/v1` directly. **Hard refresh** (Ctrl+Shift+R). Do not add a policy back:
+  the tables have none on purpose.
 - `relation "public.scheduler_state" does not exist` → the schema was run
   against the wrong project. Check the URL in the variable matches the project.
 - `Invalid API key` → wrong key, or a stray space/newline when pasting.
+
+**The PIN screen says "Can't reach the server".**
+The page could not reach `app-gate`, so it stays locked — it never treats
+"unreachable" as "correct". In order: is `app-gate` deployed
+(`npx supabase functions list --project-ref gdzgoyawavffjdjpjbfz`)? Is this
+page's address in `ALLOWED_ORIGIN` (a local copy needs `http://localhost:8888`,
+a deploy preview is not listed)? Is the Supabase project paused?
+
+**"Too many wrong PINs".** Eight different wrong PINs came from this network in
+15 minutes, so it is locked out for 15. It clears itself; to clear it now,
+`delete from public.auth_throttle;` in the SQL editor.
+
+**"The server refused this page".** A 401/403 that was not a PIN answer — most
+often the anon key in `config.js` no longer matches the project (rotated keys).
+Hard refresh; if it persists, check `SUPABASE_ANON_KEY` in Netlify.
+
+**"The desk PIN is not set up".** `APP_PIN` is missing from the Supabase secrets,
+so `app-gate` refuses everyone (it fails closed).
 
 **Pill says "Offline" but the internet is fine.**
 Usually the Supabase project is paused — free-tier projects pause after a week
@@ -757,22 +799,38 @@ not as a 404.
 
 ## Security posture
 
-Stated plainly, because it is a deliberate MVP trade-off rather than an
+Stated plainly, because some of it is a deliberate MVP trade-off rather than an
 oversight:
 
-- **There is no login.** Anyone with the URL can open the dashboard.
-- **The Supabase anon key is public.** It ships in `config.js`, visible in
-  view-source. That is normal and expected for Supabase — protection comes from
-  row-level security policies, not key secrecy.
-- **Those policies currently allow anonymous read and write** to the one
-  workspace row, because without a login there is no authenticated role to grant
-  them to. So: anyone with the site URL can read and modify the scheduler data.
-- Deletes are blocked at the database level. Nothing on the internet can drop
-  the row. (Caregiver photos are the exception: anyone with the link can
-  replace or delete one — CLAUDE.md, *Known and accepted*.)
-- The real secrets — the AxisCare token, the Quo and Anthropic keys and the
-  Supabase service-role key — live in Netlify variables or Supabase secrets and
-  never reach the browser.
+- **The dashboard opens behind a desk PIN** (since 2026-09-18). It is not a
+  login — the desk shares one PIN — but it is the credential for every Supabase
+  read and write. The browser holds it for the tab and sends it with **every**
+  request to the `app-gate` Edge Function, which checks it against the
+  `APP_PIN` secret and only then works with the service-role key. There is no
+  session and no token, so **changing `APP_PIN` locks out every open tab on its
+  next request**, including one left open for days. See CLAUDE.md, *The PIN
+  gate*.
+- **The Supabase anon key is public, and no longer opens anything.** It still
+  ships in `config.js` — it gets a request past the Supabase gateway — but every
+  table has RLS on with no anon policy, so on its own it reads and writes
+  nothing. `app-gate` only relays the exact requests the page makes (a fixed list
+  of tables, methods and columns).
+- **Wrong PINs are throttled per network:** 8 *distinct* wrong PINs in 15 minutes
+  lock that IP out for 15 minutes, right PIN included. A tab still repeating an
+  old PIN after a change is not counted twice, so a PIN change does not lock the
+  office out. To clear a lockout: `delete from public.auth_throttle;`
+- **An empty copy cannot overwrite the board.** `app-gate` refuses to save an
+  overlay with no records over one that has them (only the deliberate
+  `CLOUD.reset()` may), and every save is compare-and-swap on `rev`.
+- **Caregiver photos stay on a public URL** — an `<img>` cannot send a PIN — but
+  uploading or removing one goes through `app-gate`.
+- The real secrets — the AxisCare token, the Quo and Anthropic keys, the
+  Supabase service-role key and `APP_PIN` — live in Netlify variables or
+  Supabase secrets and never reach the browser (the PIN is typed, not shipped).
+- **Not behind the PIN yet:** the AxisCare proxy (below) and the other four Edge
+  Functions (`quo`, `devi-agent`, `care-brief`, `comms-summary`) still answer
+  anyone with the URL, as before. The PIN protects the desk's own records in
+  Supabase; it does not yet protect what those endpoints serve.
 - **The Quo function can send texts** from agency lines, but only to numbers on
   the active AxisCare roster. See CLAUDE.md, *Read-only — except `action=send`*.
 - **The AxisCare proxy has no caller authentication** — see below. This one is
@@ -819,17 +877,19 @@ same pattern `WEBHOOK_SHARED_SECRET` uses on the Client Concierge dashboard.
 While no UI code calls the proxy, the secret never has to exist in the browser,
 which makes it a real control rather than a cosmetic one.
 
-This is acceptable while the app runs on **fictional demo data** for internal
-evaluation. It stops being acceptable the moment real caregiver names, client
-names, care notes or medication lists are entered — that is PHI, and an
-unauthenticated public URL is a disclosure.
+> **Since 2026-09-18 there is a better fix than a shared secret in the page.**
+> The desk PIN is exactly the credential this paragraph was missing: the proxy
+> could require it and check it against `app-gate` (or its own copy of
+> `APP_PIN`), so the page sends the PIN it already holds. That is Carlo's side —
+> `netlify/functions/axiscare.js` and a Netlify variable — and it is the natural
+> next step after the Supabase lock. The same goes for the other four Edge
+> Functions.
 
-**Before real data goes in**, do all three:
-
-1. Add Supabase email/password auth and a sign-in gate to the app.
-2. Run section 4 of `supabase/schema.sql` to revoke the anonymous policies.
-3. Turn on Netlify password protection or SSO as a second layer
-   *(requires a paid Netlify plan)*.
+What the PIN gate replaced: the old list here said to add Supabase auth and a
+sign-in gate, and to run section 4 of `supabase/schema.sql` to revoke the
+anonymous policies. The PIN gate did the revoking (`supabase/app-gate-lock.sql`,
+now also section 11 of `schema.sql`) without per-person logins. Netlify password
+protection or SSO *(paid plan)* remains available as a second layer.
 
 ---
 

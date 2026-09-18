@@ -87,29 +87,19 @@ on conflict (id) do nothing;
 -- --------------------------------------------------------------
 -- 8a. Open-shift security -- the same shape as care_notes.
 --
--- The dashboard READS with the anon key. Writing is deliberately NOT
--- granted: only the sync writes, with SUPABASE_SERVICE_ROLE_KEY,
--- which lives in a Netlify environment variable and never reaches a
--- browser. So a stranger with the site URL can read open shifts --
--- the exposure already accepted for the AxisCare proxy, written up
--- in README.md under "Security posture" -- but cannot forge a shift
--- or empty the coverage board.
+-- The dashboard reads these through the app-gate Edge Function, with
+-- the desk PIN - never with the anon key. Only the sync writes, with
+-- SUPABASE_SERVICE_ROLE_KEY, which lives in a Netlify environment
+-- variable and never reaches a browser.
 -- --------------------------------------------------------------
 alter table public.open_shifts      enable row level security;
 alter table public.open_shifts_sync enable row level security;
 
 drop policy if exists "anon read open shifts" on public.open_shifts;
-create policy "anon read open shifts"
-  on public.open_shifts for select
-  to anon, authenticated
-  using (true);
 
 drop policy if exists "anon read open shift sync" on public.open_shifts_sync;
-create policy "anon read open shift sync"
-  on public.open_shifts_sync for select
-  to anon, authenticated
-  using (true);
+-- No anon policy on either table: the browser reads both through app-gate
+-- (desk PIN). See CLAUDE.md, "The PIN gate".
 
--- No anon insert/update/delete on either table.
 
 notify pgrst, 'reload schema';

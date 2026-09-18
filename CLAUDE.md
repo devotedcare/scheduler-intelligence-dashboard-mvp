@@ -23,6 +23,10 @@ Charts are hand-drawn SVG. Everything is plain JavaScript in one `<script>` bloc
 AxisCare is the system of record for caregivers, clients and visits. This
 dashboard sits on top and makes the day navigable.
 
+It opens behind a **desk PIN**, and every Supabase read and write goes through
+the `app-gate` Edge Function, which checks that PIN on every request. See
+*The PIN gate* before touching any Supabase request.
+
 ---
 
 ## Working on this project — how to help
@@ -253,8 +257,10 @@ Visits with **no** care note are never stored, so they cannot be skipped and are
 re-checked every run. Keeping `DEFAULT_DAYS` short is what stops that mattering.
 
 **Needs Carlo:** the sync writes with `SUPABASE_SERVICE_ROLE_KEY`, a Netlify
-environment variable. Anon can only *read* `care_notes`, so a stranger with the
-site URL cannot forge or delete notes.
+environment variable. Since 2026-09-18 the anon key cannot even *read*
+`care_notes`: the browser reads it through `app-gate` with the desk PIN (see
+*The PIN gate*), so a stranger with the site URL can neither read nor forge
+notes.
 
 ---
 
@@ -2071,17 +2077,24 @@ that already went wrong once.
    reported “Photo removed” while the photo reappeared in the same frame.
    Read the body and accept only a not-found payload.
 
-### Writes are open to `anon`
+### Writes go through `app-gate` (since 2026-09-18)
 
-`storage.objects` carries INSERT / UPDATE / DELETE / SELECT policies for
-`anon`, scoped to `bucket_id = 'caregiver-photos'` and nothing else. Before
-2026-09-07 it had no write policies at all and the browser could not upload.
+From 2026-09-07 `storage.objects` carried INSERT / UPDATE / DELETE / SELECT
+policies for `anon` on this bucket — Mitch's call, for consistency with how
+the rest of the app wrote then (`anon` could write `scheduler_state`). That
+reason went away with the PIN gate: the rest of the app no longer writes with
+the anon key, so neither do photos. `CGPHOTO` uploads and removes through
+`GATE.fetch`, which `app-gate` turns into `photo.put` / `photo.del` with the
+service key, and the four anon policies are dropped by the lock.
 
-This was **Mitch’s explicit call**, for consistency with how the rest of the
-app already writes (no login, `anon` can write `scheduler_state`). It does
-mean anyone with the site URL can replace or delete a caregiver photo, which
-was not true before. Do not re-litigate it; do flag anything that widens it
-further. It is listed in *Known and accepted*.
+`app-gate` enforces rules 1, 3 and 4 above on the server as well: the key must
+be digits, and the bytes must start `FF D8 FF` (a JPEG) whatever content type
+the page claims. It still sends `x-upsert: true` and `cache-control:
+max-age=60` itself.
+
+**Reads are unchanged and still public.** The bucket stays public and the
+`<img>` URL carries no key — the public route does not consult the policies —
+because an image tag cannot send a PIN.
 
 ### A trap that cost a round of UI bugs
 
@@ -2158,9 +2171,10 @@ Nine users: five owners, two admins, two members.
 
 ### It lives in SUPABASE, not Netlify — and that has a cost
 
-The AxisCare-facing backends are Netlify functions. Quo is one of four Supabase
-Edge Functions — `devi-agent`, `quo`, `care-brief` and `comms-summary` — and it
-is there for the same reason as the others: **the key is there.**
+The AxisCare-facing backends are Netlify functions. Quo is one of five Supabase
+Edge Functions — `devi-agent`, `quo`, `care-brief`, `comms-summary` and, since
+2026-09-18, `app-gate` (see *The PIN gate*) — and it is there for the same
+reason as the others: **the key is there.**
 `QUO_API_KEY` was put in the Supabase project secrets, so the function that
 reads it has to be a Supabase Edge Function.
 
@@ -4005,25 +4019,190 @@ the answer comes from the same function the screen reads.
 produced a dash on every line and Devi correctly reporting that nobody has a
 city recorded.
 
+## The PIN gate — `app-gate` is the only way to Supabase
+
+Added 2026-09-18. **Claude: read this before touching any Supabase request.**
+
+The dashboard opens on a PIN screen. Every table read and write, and every
+photo upload or removal, is a POST to the `app-gate` Edge Function carrying the
+desk PIN. `app-gate` checks it against the `APP_PIN` secret on **every** request
+and only then does the work with the service-role key. The tables have RLS on
+and **no anon policies**, so the anon key in `config.js` reads and writes
+nothing by itself — it only gets a request past the Supabase gateway (`app-gate`
+is deployed with JWT verification **on**, unlike the other four functions).
+
+### The PIN is the credential, and it is sent every time
+
+On a sibling app a browser with an empty local store pushed it over the shared
+row and erased everything — 369 kB to 17 kB — with no way to tell which machine
+it was and no way to stop it, because the key in the page was all it needed. A
+PIN checked once at load would not have helped: that tab was already past the
+gate. So:
+
+- the PIN is kept in `sessionStorage` for that tab and **sent with every
+  request**. There is no session, no token and no "verified" flag;
+- **changing `APP_PIN` locks out every open tab on its next request** — the
+  20-second poll at the latest — including one left open for days.
+
+**Claude: do not replace this with a token, a cookie or a check at load.** A tab
+past such a check could never be cut off, which is the whole point.
+
+```
+npx supabase secrets set APP_PIN=<new pin> --project-ref gdzgoyawavffjdjpjbfz
+delete from public.auth_throttle;      -- in the SQL editor: clears every lockout
+```
+
+Setting any secret restarts every function in the project (their version
+numbers tick over; the code does not change). `APP_PIN` is also read per
+request, so nothing can hold an old value.
+
+> **A test PIN was set on 2026-09-18.** Change it before the desk relies on it,
+> and use at least six digits — see the throttle below. Never write the PIN into
+> this file or any other in the repo.
+
+### How the page reaches it — `GATE`, at the top of the script
+
+| | |
+|---|---|
+| `GATE.fetch(url, init)` | Drop-in for the old direct `fetch()` to `/rest/v1/…` and `/storage/v1/object/caregiver-photos/…`: same URL, same init. The answer is PostgREST's own status and body, relayed, so `r.ok`, `r.json()` and `r.status === 404` read exactly as before |
+| `GATE.call(action, payload)` | Everything else. CLOUD's `dbHead` / `dbLoad` / `dbSave` / `dbCreate` use `state.head` / `state.load` / `state.save` / `state.create`, and return the `{data, error}` shape supabase-js did — the page no longer loads supabase-js at all |
+| `GATE.start(fn)` | The last lines of the script. `CLOUD.boot()` and `AVNOTECLEAN.auto()` run inside it, **only once a PIN is accepted**: boot reads profiles, care notes and the open-shift mirror before its baseline snapshot |
+| `GATE.onUnlock(fn)` | Re-sync after a lock: CLOUD's `resume()`, and AVAIL and NOTES dropping reads that failed only because the tab was locked |
+
+The lock screen (`#pingate`) is the first thing in `<body>`, visible from the
+first paint. With **no Supabase config** there is no gate and the app runs
+locally exactly as before. `GATE.status()` in the console says what the tab is
+doing; it never returns the PIN.
+
+**A 401 or 403 from `app-gate` always means the PIN** (or the page's key). The
+tab forgets the PIN it sent, the lock screen comes back, and nothing syncs:
+`GATE.call` refuses without touching the network, and CLOUD's poll and saves go
+quiet. For that to stay true `app-gate` reports an upstream 401/403 as 502 and
+an upstream 429 as 503, and refuses a request it does not allow with **400 —
+never 401, 403 or 404** (NOTES and CGPHOTO read a 404 as "already gone").
+
+### Rules that each fixed something real
+
+- **Unlock is IN PLACE, never a reload.** The first version reloaded, and a
+  reload loses exactly what the lock interrupted: an open editor, a save refused
+  at the moment of the change, and — silently — a CLOUD *patch* whose push hit
+  the 401. `finishBoot()` seeds `lastSent` from the local cache, so the unpushed
+  edit counts as already agreed and the server's older copy overwrites it.
+  Caught in adversarial review; the page test now edits a caregiver's cadence to
+  Weekly over the server's Monthly, lets the PIN change refuse it mid-flight, and
+  checks Weekly lands after the unlock.
+- **429 is the network, not the PIN.** A tab that holds a PIN keeps it and
+  re-checks it when the lockout runs out. Only a 429 saying `locked` locks.
+- **An empty copy is refused — but the rev comes first.** `state.save` refuses
+  an overlay with no records over one that has them (`422 empty_refused`) unless
+  `force` is set, which only `CLOUD.reset()` sends. A fresh tab's first save,
+  900 ms after boot, is an empty overlay on rev 0; that must stay the harmless
+  conflict it always was, so a stale rev answers 409 before the emptiness is
+  looked at. The page maps 422 to the conflict path too, so a tab that somehow
+  holds nothing reads the board before it writes.
+- **`scheduler_state` is not reachable through the relay.** Its writes must pass
+  the empty-copy guard and the rev check, and a generic relay would go round
+  both.
+- **The relay is an allowlist of exactly the requests `index.html` makes** —
+  table, method and body columns (`ALLOW` in `supabase/functions/app-gate/index.ts`).
+  No embedded `select`; a PATCH or DELETE needs a filter; `caregiver_profile`
+  takes only `employment_status`; the `caregiver_availability` PATCH takes only
+  `{note: null}`. **A new Supabase request in `index.html` needs a line in
+  `ALLOW` too**, or it fails with `400 not_allowed`. That is the *seven lists*
+  lesson again, and here it is the point.
+- **The dashboard is `inert` while locked**, so nobody types into a hidden note
+  or presses a button they cannot see.
+- **A tab left on the lock screen through a deploy boots the NEW build.** The
+  first unlock compares the page's ETag with the one it loaded and reloads if it
+  moved; otherwise CLOUD's stale-build guard would take the new build as its
+  baseline and never notice. (CLOUD's own check still runs after boot.)
+- **Care-note text goes through `escText()`.** It is written by caregivers in
+  AxisCare — people outside the desk — and three places drew it with `esc()`,
+  which only escapes `"`. A note carrying markup ran as script in every tab that
+  opened the alert, and since the gate that script could read the PIN. Fixed in
+  the alert list, the alert detail and the related notes, with a page test.
+
+### The throttle — distinct wrong PINs, decided in one atomic call
+
+`public.auth_throttle` and `gate_check()` (`supabase/app-gate.sql`, section 10 of
+`schema.sql`). Eight **distinct** wrong PINs from one IP in 15 minutes lock that
+IP out for 15 minutes — a right PIN included, so a locked caller learns nothing.
+
+- **Distinct, not requests.** The desk shares one office IP, and a PIN change
+  makes every open tab fail several requests at once. Counting requests (the
+  reference design) locked the whole office out, including whoever typed the new
+  PIN. The stored keys are HMACs keyed with the service key.
+- **One SQL call decides, under the IP's row lock.** Reading the lock and
+  recording the failure as two calls let a burst of simultaneous guesses all pass
+  the read. Measured against the deployed function: 40 simultaneous guesses, the
+  right PIN among them — **8 compared, 32 answered 429**, the right PIN included.
+- **A right PIN does not clear earlier failures** (the reference did): the
+  desk's polls would reset the count for anybody else on that network three
+  times a minute. Failures age out with their window.
+- **The IP is `cf-connecting-ip`.** Measured 2026-09-18 with a throwaway echo
+  function: the edge *replaces* a forged `X-Forwarded-For` and refuses a forged
+  `cf-connecting-ip` (Cloudflare error 1000). `Forwarded` passes through
+  untouched and is never read. A request without `cf-connecting-ip` shares one
+  bucket. (The other four functions' comments say `X-Forwarded-For` is
+  caller-written; on this project's edge it is not.)
+
+### What it costs
+
+Every Supabase read now goes browser → Edge Function → PostgREST: measured
+0.6–1.6 s a request against ~0.2 s direct, and `state.load` of the 1.34 MB row
+1.5–4 s. The 20-second poll is one small `state.head`. Every request is one
+function invocation — well inside the Pro plan's included 2 M a month at the
+desk's volume.
+
+### The lock — deploy first, lock second
+
+1. `app-gate` deployed, `APP_PIN` set, throttle created — **done 2026-09-18**.
+2. The owner deploys `index.html` (commit → Netlify).
+3. Confirm the live site serves it: view-source contains `var GATE = (function`.
+4. **Every desk browser reloads.** A tab still on the old build reads `[]` once
+   the lock is on — Find Coverage would say nobody is available — so before
+   locking, check the Supabase API logs show **no anon `/rest/v1` traffic** for
+   ten minutes.
+5. Run `supabase/app-gate-lock.sql`. It is one transaction, and it refuses to
+   commit while any anon policy remains or any table has RLS off.
+6. Verify with the anon key: a read returns `[]`, a write 401.
+
+`supabase/app-gate-unlock.sql` reverses it exactly (generated from the
+pre-change backup of the policies). **Restoring a database backup rolls the lock
+back too** — re-run the lock after any restore. `schema.sql` is now safe to
+re-run: it creates no anon policy, and its section 11 fails loudly if one exists.
+
+### What the PIN does not cover — yet
+
+- **The AxisCare proxy** (`/.netlify/functions/axiscare`) and the other four
+  Edge Functions still answer anyone with the URL, exactly as before. The PIN is
+  the credential they were missing — the page already holds it — so putting them
+  behind it is the natural next step. The proxy is Carlo's (see *Who does what*).
+- **Caregiver photos are read from a public URL**: an `<img>` cannot send a PIN.
+- **The PIN sits in `sessionStorage`**, so any script injected into the page can
+  read it. Text from outside the desk must go through `escText()`, never
+  `esc()` — see *Three traps* under Ask Devi.
+
+---
+
 ## Known and accepted — don't re-flag these
 
 **Claude: these are deliberate decisions, already reviewed. Mentioning them once
 in context is fine; treating them as bugs to fix is not.**
 
-- **The dashboard has no login.** Anyone with the link can open it. Accepted for
+- **The dashboard has no per-person login.** Since 2026-09-18 it opens behind
+  one shared desk PIN (see *The PIN gate*), which is the credential for every
+  Supabase read and write. Per-person logins are still not built — accepted for
   an internal MVP.
 - **The AxisCare proxy does not check who is calling.** Someone with the site
   URL could pull real client data from it directly. Reviewed and accepted on
   2026-08-21 while the app is in development and the URL is known only to the
   team. It is written up in `README.md` under *Security posture*, with the
   trigger for revisiting it and the ten-minute fix.
-- **Anyone with the link can replace or delete a caregiver photo.**
-  `storage.objects` carries `anon` write policies scoped to the
-  `caregiver-photos` bucket, added 2026-09-07 so the desk could upload from
-  the profile page. Mitch chose this over a server-side route for
-  consistency with how the rest of the app writes, and because a Netlify
-  function would have put every photo change behind a deploy. Scoped to that
-  one bucket; nothing else in storage is open. See *Uploading and removing a
+- **Caregiver photos are readable by anyone with a photo URL.** The bucket is
+  public because an `<img>` cannot send a PIN. Replacing or deleting one used to
+  be open to anyone with the link too (anon write policies, 2026-09-07); since
+  the PIN gate those go through `app-gate`. See *Uploading and removing a
   photo*.
 
 None of these is an oversight, and none needs raising again unless the situation
@@ -4057,6 +4236,12 @@ side to implement.
 
 `index.html` is safe to edit freely, with the exceptions below. Full detail is
 in `README.md` under *How the data model works*.
+
+0. **`GATE` (top of the script) and `app-gate` are the only way to Supabase.**
+   No `fetch` to `/rest/v1` or `/storage/v1` anywhere else, no Supabase client
+   library, no anon policy on any table. A new Supabase request goes through
+   `GATE.fetch` **and** needs a line in `app-gate`'s `ALLOW`. The PIN is sent
+   on every request and is never replaced by a token. See *The PIN gate*.
 
 1. **The `CLOUD` persistence module** (the block headed `CLOUD PERSISTENCE`).
    This is what saves the scheduler's work and shares it between the three
@@ -4492,12 +4677,16 @@ Storage, or “Clear site data”; a hard reload does **not** remove it.
 > dels.shifts: 0`, verified stable over 80 seconds. **No residue was left to
 > strip.**
 
-> **Pausing Netlify does not stop this.** The browser writes straight to
-> Supabase with the anon key (`anon update scheduler state`); Netlify only
-> serves the HTML. Pausing it stops new page loads and does nothing about the
-> already-open tabs, which are the ones writing. Dropping the anon update
-> policy *would* stop the writes, but tabs still hold the bad records in memory
-> and re-add them the moment it is restored — it buys a window, not a fix.
+> **Pausing Netlify does not stop this.** Netlify only serves the HTML;
+> pausing it stops new page loads and does nothing about the already-open
+> tabs, which are the ones writing.
+>
+> **Since 2026-09-18 there is an off switch that does: change `APP_PIN`.**
+> Every open tab is refused on its next request and stops writing, whatever
+> it holds in memory, and nobody gets back in without the new PIN. It still
+> buys a window rather than a fix — a tab that holds bad records re-sends them
+> once unlocked — but it stops an unidentified browser on the spot, which
+> dropping the old anon policy never did cleanly. See *The PIN gate*.
 
 > **It will happen again to the next new client** until the fix below lands.
 > The tell is always the same: a shift that AxisCare says is filled keeps

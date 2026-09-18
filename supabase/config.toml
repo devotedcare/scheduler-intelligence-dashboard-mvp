@@ -17,6 +17,12 @@
 #   npx supabase functions deploy devi-agent    --project-ref gdzgoyawavffjdjpjbfz --no-verify-jwt
 #   npx supabase functions deploy care-brief    --project-ref gdzgoyawavffjdjpjbfz --no-verify-jwt
 #   npx supabase functions deploy comms-summary --project-ref gdzgoyawavffjdjpjbfz --no-verify-jwt
+#   npx supabase functions deploy app-gate      --project-ref gdzgoyawavffjdjpjbfz
+#
+# app-gate is the exception: NO --no-verify-jwt. The page sends the anon key
+# as its bearer token, so the gateway turns away anything that does not carry
+# even that before a PIN is looked at. It is pinned below as well, so a deploy
+# that forgets the rule still gets it right.
 #
 # `functions deploy` does NOT read project_id from this file — it wants
 # either a prior `supabase link` or an explicit --project-ref, and says
@@ -29,7 +35,7 @@
 # documents. An expired token fails late and confusingly: the upload
 # starts, then "unexpected deploy status 401: Unauthorized".
 #
-# --no-verify-jwt is REQUIRED for all four: the dashboard sends no JWT.
+# --no-verify-jwt is REQUIRED for the other four: the dashboard sends them no JWT.
 # Deploying without it returns 401 to every browser call.
 #
 # Secrets are NOT set from this file — they live in the Supabase dashboard
@@ -37,3 +43,6 @@
 # the names (QUO_API_KEY, ANTHROPIC_API_KEY, ALLOWED_ORIGIN, ...).
 
 project_id = "gdzgoyawavffjdjpjbfz"
+
+[functions.app-gate]
+verify_jwt = true

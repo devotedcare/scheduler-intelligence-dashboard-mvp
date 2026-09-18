@@ -36,8 +36,9 @@
      Hours worked IS available, but it is derived rather than a field:
      CGWORK sums visit durations from /api/visits. c.weekHrs stays null.
 
-  Safe to edit: anything in this file EXCEPT the CLOUD PERSISTENCE block near
-  the bottom and the CLOUD.boot() call on the last line. See CLAUDE.md.
+  Safe to edit: anything in this file EXCEPT the GATE block at the top of the
+  script, the CLOUD PERSISTENCE block near the bottom, and the GATE.start()
+  call on the last lines, which runs CLOUD.boot(). See CLAUDE.md.
   Backend (Netlify env vars, Supabase, the AxisCare token) is Carlo's side.
 -->
 <html lang="en">
@@ -49,9 +50,10 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <!-- Cloud sync. config.js is generated at deploy time from Netlify env vars (scripts/build-config.js).
-     If either of these fails to load, the app still runs — in local-only mode. -->
+     If it fails to load, the app still runs — in local-only mode. There is no
+     Supabase client library any more: every read and write goes through the
+     app-gate Edge Function with the desk PIN. See GATE at the top of the script. -->
 <script src="config.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   :root{
     /* Structural — navy + charcoal carry ALL chrome and hierarchy */
@@ -2653,8 +2655,53 @@ body.ai-white .main{display:flex;flex-direction:column;min-height:100vh}
 .cb-item .cb-client{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cb-item .btn{flex:0 0 auto;white-space:nowrap}
 .cb-mlvl{margin-bottom:14px}.cb-item.hard{border-left:4px solid var(--crit-solid)}.cb-item.soft{border-left:4px solid #E0A53E}.cb-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}.cb-client{font-size:14px;font-weight:750;color:var(--navy-900)}.cb-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px 18px}.cb-f{display:flex;flex-direction:column;gap:2px;min-width:0}.cb-f.span{grid-column:1 / -1}.cb-fl{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--ink-faint)}.cb-fv{font-size:13px;color:var(--ink);font-weight:600;line-height:1.4}@media(max-width:620px){.cb-grid{grid-template-columns:1fr}}.eb-notes{margin-top:6px;flex-basis:100%}.bw-alert{display:flex;align-items:flex-start;gap:12px;border-radius:var(--r);padding:13px 15px;margin-bottom:14px}.bw-alert.hard{background:#FBE9E7;border:1px solid #F1C7C1}.bw-alert.hard svg{color:var(--crit-solid)}.bw-alert.soft{background:#FFF4E0;border:1px solid #F0C475}.bw-alert.soft svg{color:#E0922E}.bw-alert svg{flex:0 0 auto;margin-top:1px}.bw-h{font-size:14.5px;font-weight:800;color:var(--navy-900);line-height:1.3}.bw-sub{font-size:12.5px;color:var(--ink-soft);margin-top:3px;line-height:1.45}.bw-detail{background:var(--panel-head);border:1px solid var(--line);border-radius:var(--r);padding:11px 14px;display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--ink);margin-bottom:14px}.bw-l{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--ink-faint);margin-right:8px}.bw-chk{display:flex;align-items:center;gap:9px;font-size:13px;font-weight:600;color:var(--navy-900);margin-bottom:12px}.bw-chk input{width:16px;height:16px;accent-color:var(--crit-solid)}.ds-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}.dst{font-size:13px;font-weight:700;border:1px solid var(--line);background:#fff;color:var(--ink-soft);border-radius:18px;padding:7px 15px;cursor:pointer}.dst:hover{border-color:var(--brand)}.dst.on{background:var(--brand);color:#fff;border-color:var(--brand)}.ds-datechips{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:9px;min-height:8px}.ds-datechip{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:700;color:var(--brand);background:#E8F0F5;border:1px solid #C5DBE8;border-radius:14px;padding:4px 6px 4px 12px}.ds-datechip button{border:none;background:none;color:var(--brand);font-size:15px;line-height:1;cursor:pointer;width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center}.ds-datechip button:hover{background:#fff;color:var(--crit-solid)}.ds-none{font-size:12.5px;color:var(--ink-faint);font-style:italic}.ds-addrow{display:flex;gap:8px;align-items:center}.ds-hint{font-size:11.5px;color:var(--ink-faint);margin-top:8px;font-style:italic}.ds-preview{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--ink-soft);background:var(--panel-head);border:1px solid var(--line);border-radius:var(--r);padding:9px 13px;margin:14px 0}.ds-preview svg{color:var(--brand);flex:0 0 auto}.ds-preview b{color:var(--navy-900)}.ds-preview.empty{color:var(--ink-faint)}.ds-resulthead{font-size:13px;font-weight:700;color:var(--ink-soft);margin:6px 0 12px}.ds-resulthead b{color:var(--navy-900)}.ds-row{border:1px solid var(--line);border-radius:var(--r);background:#fff;padding:13px 15px;margin-bottom:8px}.ds-rtop{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.ds-name{font-size:14.5px;font-weight:800;color:var(--navy-900)}.ds-badge{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;border-radius:20px;padding:2px 10px}.ds-badge svg{flex:0 0 auto}.ds-badge.ok{color:#1f7a4d;background:#E3F3EA;border:1px solid #BFE3CD}.ds-badge.part{color:#9A6B1A;background:#FFF4E0;border:1px solid #F0C475}.ds-meta{font-size:12px;color:var(--ink-faint);margin-top:4px}.ds-chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:9px}.ds-chip{font-size:11px;font-weight:700;border-radius:9px;padding:2px 8px;border:1px solid}.ds-chip.ok{color:#1f7a4d;background:#E9F6EF;border-color:#C7E6D4}.ds-chip.part{color:#9A6B1A;background:#FFF6E6;border-color:#F0D9AE}.ds-chip.no{color:#9aa3ad;background:var(--panel-head);border-color:var(--line);text-decoration:line-through}.ds-chip.conf{color:#C0271A;background:#FBE9E7;border-color:#F1C7C1}.ds-acts{margin-top:10px}.ds-enh{border:1px dashed var(--line-strong,var(--line));border-radius:var(--r);padding:12px 14px;background:var(--panel-head)}.ds-enh-tog{display:flex;align-items:center;gap:9px;font-size:13.5px;font-weight:700;color:var(--navy-900);cursor:pointer;flex-wrap:wrap}.ds-enh-tog input{width:16px;height:16px;accent-color:var(--brand)}.ds-controls{margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}.ds-note{font-size:11.5px;color:var(--ink-faint);margin-top:10px;font-style:italic}.ds-note.warn{color:#9A6B1A;background:#FCF6E2;border:1px solid #EAD9A0;border-radius:8px;padding:8px 12px;font-style:normal;font-weight:600;margin-bottom:10px}.avst{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:800;border-radius:20px;padding:4px 12px;border:1px solid}.avst-dot{width:9px;height:9px;border-radius:50%;flex:0 0 auto}.avst-verified{color:#1f7a4d;background:#E3F3EA;border-color:#BFE3CD}.avst-verified .avst-dot{background:#2E9E6A}.avst-needs{color:#9A6B1A;background:#FBF1CE;border-color:#EBDCA0}.avst-needs .avst-dot{background:#E0A53E}.avst-stale{color:#C2410C;background:#FBE6D4;border-color:#F2CDAE}.avst-stale .avst-dot{background:#DD7A33}.avst-unverified{color:#C0271A;background:#FBE0DC;border-color:#F1C7C1}.avst-unverified .avst-dot{background:#D24A3D}.vh-h{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-faint);margin:4px 0 8px;padding-top:14px;border-top:1px solid var(--line)}.vh-list{display:flex;flex-direction:column;margin-bottom:14px}.vh-row{display:flex;align-items:center;gap:11px;padding:7px 0;border-bottom:1px solid var(--line);font-size:13px}.vh-row:last-child{border-bottom:none}.vh-dot{width:9px;height:9px;border-radius:50%;flex:0 0 auto}.vh-dot.ok{background:#2E9E6A}.vh-dot.no{background:#D24A3D}.vh-date{font-weight:700;color:var(--navy-900);min-width:130px}.vh-by{color:var(--ink-soft)}.cglist-row .cglr-name{flex:1}.cgst{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:700;border-radius:11px;padding:2px 9px;border:1px solid;margin-left:auto;white-space:nowrap}.cgst-dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto}.cgst-verified{color:#1f7a4d;background:#E3F3EA;border-color:#BFE3CD}.cgst-verified .cgst-dot{background:#2E9E6A}.cgst-needs{color:#9A6B1A;background:#FBF1CE;border-color:#EBDCA0}.cgst-needs .cgst-dot{background:#E0A53E}.cgst-stale{color:#C2410C;background:#FBE6D4;border-color:#F2CDAE}.cgst-stale .cgst-dot{background:#DD7A33}.cgst-unverified{color:#C0271A;background:#FBE0DC;border-color:#F1C7C1}.cgst-unverified .cgst-dot{background:#D24A3D}.cg-fglabel{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-faint);margin-bottom:7px}.cgd-panel{background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:16px 18px;margin-bottom:16px}.cgd-h{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:12px}.cgd-title{font-size:15px;font-weight:800;color:var(--navy-900)}.cgd-count{font-size:12.5px;color:var(--ink-soft)}.cgd-count b{color:var(--navy-900);font-size:14px}.cgd-h .lnk{margin-left:auto}.cgd-search{width:100%;margin-bottom:14px}.cgd-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px 14px;margin-bottom:14px}.cgd-f{display:flex;flex-direction:column;gap:4px}.cgd-f label{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--ink-faint)}.cgd-f select{font-size:13px}@media(max-width:980px){.cgd-grid{grid-template-columns:repeat(2,1fr)}}.cgd-chipgroup{margin-bottom:12px}.cgd-cl{display:block;font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--ink-faint);margin-bottom:7px}.cgd-chips{display:flex;flex-wrap:wrap;gap:7px}.dchip{font-size:12.5px;font-weight:700;border:1px solid var(--line);background:#fff;color:var(--ink-soft);border-radius:16px;padding:5px 13px;cursor:pointer;user-select:none}.dchip:hover{border-color:var(--brand);color:var(--ink)}.dchip.on{background:var(--brand);color:#fff;border-color:var(--brand)}.cglist-row.dir .cgd-main{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0}.cgd-meta{font-size:12px;color:var(--ink-faint);font-weight:600}.cgtab-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px}@media(min-width:760px){.cgtab-grid{grid-template-columns:repeat(5,1fr)}}.cgtab{text-align:left;background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:13px 14px;cursor:pointer;display:flex;flex-direction:column;gap:3px;border-left:4px solid var(--ink-faint)}.cgtab:hover{border-color:var(--brand)}.cgtab.on{border-color:var(--brand);box-shadow:0 0 0 1px var(--brand) inset;background:#F5FAFD}.cgtab-n{font-size:24px;font-weight:800;color:var(--navy-900);line-height:1}.cgtab-l{font-size:11.5px;font-weight:700;color:var(--ink-soft);line-height:1.25}.cgtab.all{border-left-color:#2C5F7C}.cgtab.tab-available{border-left-color:#2E9E6A}.cgtab.tab-unavailable{border-left-color:#9aa3ad}.cgtab.tab-open{border-left-color:#3f86b5}.cgtab.tab-active{border-left-color:#2C5F7C}.cgtab.tab-noclient{border-left-color:#E0A53E}.cgtab.tab-needs{border-left-color:#E0A53E}.cgtab.tab-stale{border-left-color:#DD7A33}.cgtab.tab-unverified{border-left-color:#D24A3D}.cg-listhead{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px}.cg-listh-l{font-size:14px;font-weight:800;color:var(--navy-900)}.cg-listh-n{font-size:13px;font-weight:800;color:var(--ink-soft);background:var(--panel-head);border:1px solid var(--line);border-radius:11px;padding:1px 9px;margin-left:4px}.cg-listh-f{font-size:12px;font-weight:600;color:var(--ink-faint)}.cgd-sub{font-size:12px;color:var(--ink-faint)}.avst-current,.cgst-current{color:#1f7a4d;background:#E3F3EA;border-color:#BFE3CD}.avst-current .avst-dot,.cgst-current .cgst-dot{background:#2E9E6A}.avst-duesoon,.cgst-duesoon{color:#9A6B1A;background:#FBF1CE;border-color:#EBDCA0}.avst-duesoon .avst-dot,.cgst-duesoon .cgst-dot{background:#E0A53E}.avst-overdue,.cgst-overdue{color:#C2410C;background:#FBE6D4;border-color:#F2CDAE}.avst-overdue .avst-dot,.cgst-overdue .cgst-dot{background:#DD7A33}.cgtab.tab-overdue{border-left-color:#C2410C}.cgtab.tab-duesoon{border-left-color:#E0A53E}.av-cadrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:4px 0 14px;font-size:13px}.av-cadrow-l{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--ink-faint)}.av-cadrow select{font-size:13px}.vh-dot.rem{background:#3f86b5}.vt-wrap{margin:4px 0 14px}.vt-editor{background:var(--panel-head);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px}.vt-l{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--ink-faint);margin-bottom:7px}.vt-ta{width:100%;font-family:inherit;font-size:13px;line-height:1.5;resize:vertical}.vt-prev{font-size:12.5px;color:var(--ink);background:#fff;border:1px solid var(--line);border-left:3px solid var(--brand);border-radius:6px;padding:9px 12px;margin:9px 0;line-height:1.5}.vt-prev-l{display:block;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--ink-faint);margin-bottom:4px}.cal-blk.needs{background:#FCF3D6;border-color:#D9A300;color:#8A6400;border-left-style:dashed}.cal-loadrow b{font-weight:800}.cal-bsw.needs{background:#FCF3D6;border-color:#D9A300}.cal-cell.offday{background:#fff}.cal-needbanner{display:flex;align-items:center;gap:9px;background:#FCF6E2;border:1px solid #EAD9A0;border-left:3px solid #D9A300;border-radius:8px;padding:9px 13px;margin-bottom:12px;font-size:13px;color:#7A5800;font-weight:600}.cal-needbanner .cnb-dot{width:9px;height:9px;border-radius:50%;background:#D9A300;flex:0 0 auto}.aem-sub{font-size:13.5px;color:var(--ink-soft);margin:2px 0 14px}.aem-list{display:flex;flex-direction:column;gap:10px;max-width:680px}.aem-item{display:flex;align-items:center;gap:13px;width:100%;text-align:left;background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:16px 16px;cursor:pointer;color:var(--navy-900)}.aem-item:hover{border-color:var(--brand);box-shadow:0 0 0 1px var(--brand) inset;background:#F5FAFD}.aem-item>svg:first-child{color:var(--brand);flex:0 0 auto}.aem-tx{flex:1;display:flex;flex-direction:column;gap:3px}.aem-t{font-size:14.5px;font-weight:800}.aem-d{font-size:12.5px;color:var(--ink-soft);font-weight:500;line-height:1.4}.eb-head{display:none}.eb-row2{flex-wrap:wrap;gap:7px}.eb-row2 .eb-dur{max-width:140px}.eb-added{font-size:11.5px;color:var(--ink-faint);font-weight:600;width:100%}.cgd-section + .cgd-section{margin-top:16px;padding-top:16px;border-top:1px solid var(--line)}.cgd-section .cgd-search{margin-bottom:0}.vf{margin:6px 0 14px;border-top:1px solid var(--line);padding-top:14px}.vf-h{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-faint);margin-bottom:11px}.vf-steps{display:flex;align-items:center;gap:0;flex-wrap:wrap;margin-bottom:14px}.vf-step{display:flex;align-items:center;gap:6px;opacity:.5}.vf-step .vf-dot{width:11px;height:11px;border-radius:50%;background:#fff;border:2px solid var(--ink-faint)}.vf-sl{font-size:11.5px;font-weight:700;color:var(--ink-soft);white-space:nowrap}.vf-sep{flex:1;min-width:14px;height:2px;background:var(--line);margin:0 8px}.vf-step.done{opacity:1}.vf-step.done .vf-dot{background:#2E9E6A;border-color:#2E9E6A}.vf-step.active{opacity:1}.vf-step.active .vf-sl{font-weight:800;color:var(--navy-900)}.vf-step.active.info .vf-dot{background:#3f86b5;border-color:#3f86b5}.vf-step.active.warn .vf-dot{background:#E0A53E;border-color:#E0A53E}.vf-step.active.crit .vf-dot{background:#D24A3D;border-color:#D24A3D}.vf-rec{border:1px solid var(--line);border-left:4px solid var(--ink-faint);border-radius:10px;padding:13px 15px;background:#fff}.vf-rec.info{border-left-color:#3f86b5;background:#F3F9FC}.vf-rec.warn{border-left-color:#E0A53E;background:#FCF6E2}.vf-rec.crit{border-left-color:#D24A3D;background:#FCEDEA}.vf-rec.good{border-left-color:#2E9E6A;background:#EEF8F1}.vf-rec-l{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-faint)}.vf-rec-title{font-size:15px;font-weight:800;color:var(--navy-900);margin:3px 0 3px}.vf-rec-text{font-size:13px;color:var(--ink);line-height:1.5;margin-bottom:11px}.vf-actions{display:flex;flex-wrap:wrap;gap:8px}.vf-note{display:flex;align-items:flex-start;gap:6px;font-size:11.5px;color:var(--ink-faint);margin-top:10px;line-height:1.45}@media(max-width:680px){.vf-sep{display:none}.vf-steps{gap:8px 14px}}.pl-head{display:flex;align-items:center;justify-content:space-between;margin:6px 0 16px}.pl-title{font-size:21px;font-weight:800;color:var(--navy-900)}.pl-sub{font-size:13px;color:var(--ink-soft);margin-top:2px}.pl-card{background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:16px 18px;margin-bottom:14px}.pl-sech{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-faint)}.pl-rangerow{display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap;margin-top:10px}.pl-rangerow .cov-field{min-width:160px}.pl-presets{display:flex;gap:8px;margin-left:auto}.pl-listhead{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}.pl-selbar{font-size:12.5px}.pl-list{display:flex;flex-direction:column;gap:8px}.pl-row{display:flex;align-items:center;gap:14px;padding:12px 14px;border:1px solid var(--line);border-radius:10px;cursor:pointer;background:#fff}.pl-row:hover{border-color:var(--brand)}.pl-row.on{border-color:var(--brand);box-shadow:0 0 0 1px var(--brand) inset;background:#F5FAFD}.pl-row.filled{opacity:.62;cursor:default;background:var(--panel-head)}.pl-row.filled:hover{border-color:var(--line)}.pl-chk input{width:18px;height:18px;cursor:pointer}.pl-day{font-weight:700;color:var(--navy-900);min-width:200px;font-size:14px}.pl-time{font-size:13.5px;color:var(--ink-soft);font-weight:600}.pl-tag{margin-left:auto;font-size:11px;font-weight:800;border-radius:11px;padding:2px 10px;border:1px solid}.pl-tag.open{color:#1f7a4d;background:#E3F3EA;border-color:#BFE3CD}.pl-tag.covered{color:var(--ink-soft);background:#EEF1F4;border-color:var(--line)}.pl-footer{position:sticky;bottom:0;display:flex;align-items:center;justify-content:space-between;gap:14px;background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:13px 18px;box-shadow:0 -2px 10px rgba(20,40,60,.05)}.pl-count{font-size:14px;font-weight:800;color:var(--navy-900)}.btn.disabled{opacity:.5;cursor:not-allowed}.cov-searchpanel{background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:6px 16px 10px;margin-top:18px}.csp-h{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-faint);padding:12px 2px 8px;border-bottom:1px solid var(--line);margin-bottom:4px}.csp-hint{text-transform:none;letter-spacing:0;font-weight:600;color:var(--ink-faint);font-size:11.5px}.cov-searchpanel .flt-sec{border-bottom:1px solid var(--line)}.cov-searchpanel .flt-sec:last-child{border-bottom:none}.avc-na{font-size:12px;font-weight:700;color:inherit;opacity:.8}.cov-resulthead{font-size:15px;font-weight:700;color:var(--navy-900);padding:14px 2px 10px;margin-top:4px}.cov-resulthead .crh-n{font-size:20px;font-weight:800;color:var(--brand)}.cov-resulthead.zero .crh-n{color:var(--ink-faint)}.cov-resulthead .crh-sub{font-weight:600;color:var(--ink-soft);font-size:13px}.cov-sectitle{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-faint);padding:16px 2px 8px}.cov-resbar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 2px 8px}.cov-resbar .cov-sectitle{padding:0}.refine-btn.on{background:var(--brand);color:#fff;border-color:var(--brand)}.avail-bar .avc-num{font-size:30px;font-weight:800;color:var(--brand)}.open-card.oc2 .oc2-inner{padding:14px 16px;display:flex;flex-direction:column}.oc2-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.oc2-name{font-size:15.5px;font-weight:800;color:var(--navy-900);letter-spacing:-.1px}.oc2-sub{font-size:12.5px;color:var(--ink-soft);font-weight:600;margin-top:3px;font-variant-numeric:tabular-nums}.oc2-starts{font-size:20px;font-weight:800;letter-spacing:.2px;margin:12px 0 10px;line-height:1}.oc2-starts.prio-critical{color:var(--crit-solid)}.oc2-starts.prio-urgent{color:#C2410C}.oc2-starts.prio-upcoming{color:#9A7700}.oc2-starts.prio-future{color:var(--ink-soft)}.oc2-meta{display:flex;align-items:center;gap:18px;flex-wrap:wrap;font-size:12.5px;color:var(--ink-soft)}.oc2-m b{color:var(--navy-900);font-weight:700}.oc2-m.muted{color:var(--ink-faint);font-style:italic}.oc2-attbtn{background:none;border:none;color:var(--brand);font-size:12.5px;font-weight:700;cursor:pointer;padding:0}.oc2-attbtn:hover{text-decoration:underline}.oc2-attlist{display:flex;flex-direction:column;gap:5px;margin-top:9px;padding:10px 13px;background:var(--panel-head);border:1px solid var(--line);border-radius:8px;font-size:12.5px;color:var(--ink-soft)}.oc2-acts{display:flex;gap:8px;margin-top:13px}.oc2-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}.oc2-cols{display:flex;gap:20px;align-items:flex-start}.oc2-left{flex:1;min-width:0}.oc2-right{flex:0 0 auto;display:flex;flex-direction:column;align-items:flex-end;gap:7px;min-width:194px}.oc2-right .oc2-m{font-size:12.5px;color:var(--ink-soft)}.oc2-right .oc2-attbtn{margin-bottom:2px}.oc2-right .btn{width:100%;justify-content:center}@media(max-width:680px){.oc2-cols{flex-direction:column;gap:12px}.oc2-right{align-items:stretch;min-width:0}.oc2-right .oc2-m,.oc2-right .oc2-attbtn{align-self:flex-start}}.open-card.oc2 .oc2-inner{display:flex;flex-direction:row;align-items:center;gap:24px;padding:15px 18px}.oc2-urg{flex:0 0 124px;display:flex;flex-direction:column;gap:6px;align-items:flex-start;border-right:1px solid var(--line);padding-right:20px}.oc2-urg-lead{font-size:10px;font-weight:800;letter-spacing:.7px;color:var(--ink-faint);text-transform:uppercase}.oc2-urg-big{font-size:16px;font-weight:800;line-height:1.05;letter-spacing:-.2px;color:var(--navy-900)}.oc2-urg.prio-critical .oc2-urg-big{color:var(--crit-solid)}.oc2-urg.prio-urgent .oc2-urg-big{color:#C2410C}.oc2-urg.prio-upcoming .oc2-urg-big{color:#9A7700}.oc2-urg.prio-future .oc2-urg-big{color:var(--ink-soft)}.oc2-info{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:4px}.oc2-name{font-size:18px;font-weight:800;color:var(--navy-900);letter-spacing:-.2px}.oc2-sub{font-size:13px;color:var(--ink-soft);font-weight:600;font-variant-numeric:tabular-nums}.oc2-metarow{display:flex;align-items:center;gap:18px;flex-wrap:wrap;font-size:12.5px;color:var(--ink-soft);margin-top:2px}.oc2-m b{color:var(--navy-900);font-weight:700}.oc2-m.muted{color:var(--ink-faint);font-style:italic}.oc2-attbtn{background:none;border:none;color:var(--brand);font-size:12.5px;font-weight:700;cursor:pointer;padding:0}.oc2-attbtn:hover{text-decoration:underline}.oc2-act{flex:0 0 196px;display:flex;flex-direction:column;gap:8px}.oc2-act .btn{width:100%;justify-content:center}.open-card.oc2 .oc2-attlist{display:flex;flex-direction:column;gap:5px;margin:0 18px 14px;padding:11px 14px;background:var(--panel-head);border:1px solid var(--line);border-radius:10px;font-size:12.5px;color:var(--ink-soft)}@media(max-width:720px){.open-card.oc2 .oc2-inner{flex-wrap:wrap;gap:14px}.oc2-urg{flex:0 0 auto;border-right:none;border-bottom:1px solid var(--line);padding-right:0;padding-bottom:12px;width:100%;flex-direction:row;align-items:center;gap:12px}.oc2-info{flex:1 1 100%}.oc2-act{flex:1 1 100%;flex-direction:row}}/* ===== Open Shifts — grouped by client (compact) ===== */.rv-tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:14px}@media(max-width:820px){.rv-tiles{grid-template-columns:repeat(2,1fr)}}.cov-back{margin:0 0 11px}.osg-list{margin-top:2px}.osg-tbl .c-day{width:170px}.osg-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;margin-bottom:11px}.osg-head{display:flex;align-items:center;gap:10px;padding:10px 13px;flex-wrap:wrap}.osg-chev{background:none;border:none;cursor:pointer;color:var(--ink-faint);padding:1px;display:flex;align-items:center;border-radius:var(--r)}.osg-chev:hover{color:var(--ink)}.osg-chev .ico{width:17px;height:17px;color:currentColor;transition:transform .12s}.osg-chev.closed .ico{transform:rotate(-90deg)}.osg-name{font-size:15.5px;font-weight:800;color:var(--ink);letter-spacing:-.2px}.osg-city{font-size:12.5px;color:var(--ink-soft);font-weight:600}.osg-sp{flex:1 1 auto}.osg-tw{overflow-x:auto}.osg-tbl{width:100%;border-collapse:collapse;table-layout:fixed;min-width:360px}.osg-tbl tr:first-child td{border-top:1px solid var(--line)}.osg-tbl td{padding:8px 10px;border-bottom:1px solid var(--line-soft);font-size:13px;color:var(--ink);font-weight:600;vertical-align:middle}.osg-tbl tr:last-child td{border-bottom:none}.osg-tbl tr.sel td{background:#EEF4F8}.osg-tbl .c-cb{width:42px;text-align:center;padding-left:12px;padding-right:0}.osg-cbx{width:15px;height:15px;accent-color:var(--brand);cursor:pointer;margin:0;vertical-align:middle}.osg-day{font-weight:700;color:var(--ink)}</style>
+<style>
+/* ===== The PIN gate (see GATE at the top of the script) =====
+   Visible from the first paint: .pingate is display:flex until GATE hides it,
+   so the app can never flash up behind it. Opaque on purpose - after a lock
+   the live dashboard is still in the page underneath. */
+.pingate{position:fixed;inset:0;z-index:50000;display:flex;align-items:center;justify-content:center;padding:16px;background:var(--sidebar);overflow:auto}
+.pg-card{box-sizing:border-box;width:100%;max-width:360px;background:var(--surface);border-radius:10px;border-top:3px solid var(--brand);box-shadow:0 18px 50px rgba(0,0,0,.32);padding:24px 24px 20px;display:flex;flex-direction:column;gap:8px;font-family:'Inter',system-ui,sans-serif;color:var(--ink)}
+.pg-brand{font-size:11px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:var(--ink-faint)}
+.pg-title{font-size:19px;font-weight:800;line-height:1.25;color:var(--navy-900);margin:0}
+.pg-msg{font-size:13px;line-height:1.45;color:var(--ink-soft);margin:0 0 6px;min-height:19px}
+.pg-msg.err{color:var(--crit-tx)}
+.pg-lab{font-size:11px;font-weight:700;letter-spacing:.3px;text-transform:uppercase;color:var(--ink-soft)}
+.pg-pin{box-sizing:border-box;width:100%;font-family:inherit;font-size:22px;line-height:1.3;letter-spacing:6px;text-align:center;padding:9px 12px;border:1px solid var(--line-strong);border-radius:6px;background:#fff;color:var(--ink)}
+.pg-pin:focus{outline:none;border-color:var(--brand);box-shadow:0 0 0 3px rgba(44,95,124,.2)}
+.pg-pin:disabled{background:var(--panel-head)}
+.pg-btn{font-family:inherit;font-size:14px;font-weight:700;line-height:1.4;padding:10px 14px;margin-top:6px;border:0;border-radius:6px;background:var(--brand);color:#fff;cursor:pointer}
+.pg-btn:hover{background:var(--navy-800)}
+.pg-btn:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.pg-btn:disabled{opacity:.55;cursor:default}
+.pg-foot{font-size:11.5px;line-height:1.45;color:var(--ink-faint);margin-top:6px}
+.pg-card:focus{outline:none}
+</style>
 </head>
 <body>
+<!-- THE PIN GATE. First in <body> and visible from the first paint, so nothing
+     ever shows behind it. GATE (top of the script) hides it once a PIN is
+     accepted and puts it back the moment any request is refused. The input
+     has no name and the form never submits, so the PIN cannot end up in a
+     URL even if it is pressed before the script has loaded. -->
+<div class="pingate" id="pingate" role="dialog" aria-modal="true" aria-labelledby="pg-title" aria-describedby="pg-msg">
+  <form class="pg-card" id="pg-form" tabindex="-1" autocomplete="off" onsubmit="if(window.GATE){GATE.submit();}return false;">
+    <div class="pg-brand">Devoted Care &middot; Scheduler</div>
+    <h1 class="pg-title" id="pg-title">Enter the desk PIN</h1>
+    <p class="pg-msg" id="pg-msg" role="status" aria-live="polite">Loading&hellip;</p>
+    <label class="pg-lab" for="pg-pin">PIN</label>
+    <input class="pg-pin" id="pg-pin" type="password" inputmode="numeric" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="64" disabled>
+    <button class="pg-btn" id="pg-go" type="submit" disabled>Unlock</button>
+    <div class="pg-foot">The PIN is checked on every save and every read. If it changes, you will be asked for the new one.</div>
+  </form>
+</div>
+<script>
+/* No cloud config means no shared data to protect and no way to check a PIN,
+   so local-only mode must look exactly as it always did: hide the gate
+   before it is ever painted. */
+(function(){ var c = window.SCHEDULER_CONFIG || {};
+  if(!(c.supabaseUrl && c.supabaseAnonKey)){ var g = document.getElementById('pingate'); if(g) g.style.display = 'none'; } })();
+</script>
 <div class="app">
   <!-- SIDEBAR -->
   <aside class="sidebar">
@@ -2690,6 +2737,340 @@ body.ai-white .main{display:flex;flex-direction:column;min-height:100vh}
 <div class="toast" id="toast"></div>
 
 <script>
+/* =========================================================
+   GATE  -  the desk PIN, and the ONLY way this page reaches Supabase
+   ---------------------------------------------------------
+   Every table read and write, and every photo upload or removal, is a POST to
+   the app-gate Edge Function carrying the PIN. The tables have RLS on and NO
+   anon policies, so the anon key in config.js can read and write nothing on
+   its own - it only gets a request past the Supabase gateway.
+
+   THE PIN IS THE CREDENTIAL, AND IT IS SENT EVERY TIME. It is held in
+   sessionStorage for this tab only. There is no session, no token and no
+   "verified" flag: app-gate checks the PIN on every request, so changing
+   APP_PIN locks out every open tab on its very next request - the poll, a
+   save, an availability read - including one that has been open for days.
+   That is the requirement. Do not replace it with a token or a check at
+   load: a tab already past such a check could never be cut off, and that
+   is exactly the browser nobody can identify.
+
+   401 OR 403 FROM ANY REQUEST: forget the PIN, put the lock screen back,
+   stop. app-gate never passes an upstream 401/403 through, so either one
+   always means the PIN (or this page's key) - never a table.
+
+   WHILE LOCKED NOTHING SYNCS. call() refuses without touching the network,
+   CLOUD's poll and saves go quiet, and boot does not start at all until a
+   PIN is accepted - GATE.start() at the very end of the script wraps
+   CLOUD.boot(). CLOUD still keeps anything typed in localStorage.
+
+   BACK IN AFTER A LOCK, IN PLACE - NEVER A RELOAD. A reload would throw away
+   what the lock interrupted: an open editor, a save refused at the moment
+   of the change, and a CLOUD edit whose push hit the 401 (a fresh boot
+   counts the local copy as already agreed, so the server's older copy
+   would overwrite it). Modules re-sync through GATE.onUnlock() instead.
+
+   429 IS THE NETWORK, NOT THE PIN. app-gate answers 429 when this IP is
+   locked out for too many wrong PINs, before it looks at the PIN. A PIN the
+   tab holds is kept, and re-checked when the lock runs out.
+
+   FAIL CLOSED. If app-gate cannot be reached the page stays locked.
+   Unreachable is not the same as correct.
+
+   NO CLOUD CONFIG, NO GATE. With no Supabase URL or key there is no shared
+   data to protect and no way to check a PIN, so the app starts at once in
+   local-only mode, exactly as before.
+
+   GATE.fetch(url, init) is a drop-in for the fetch() calls that used to go
+   straight to /rest/v1 and /storage/v1: same URL, same init, and the answer
+   is app-gate's relay of PostgREST's own status and body, so r.ok, r.json()
+   and r.status read exactly as they did. app-gate only relays the requests
+   in its ALLOW list - a NEW Supabase request here needs an entry there too.
+
+   See CLAUDE.md, "The PIN gate".
+   ========================================================= */
+var GATE = (function(){
+  'use strict';
+  var KEY  = 'dcs_gate_pin_v1';
+  var CFG  = window.SCHEDULER_CONFIG || {};
+  var ON   = !!(CFG.supabaseUrl && CFG.supabaseAnonKey);
+  var ANON = CFG.supabaseAnonKey || '';
+  var BASE = String(CFG.supabaseUrl || '').replace(/\/+$/, '');
+  var FN   = BASE + '/functions/v1/app-gate';
+
+  var locked = ON, started = false, onStart = null, busy = false;
+  var mode = 'enter', until = 0, tick = null;
+  var hooks = [], loadTag = null;
+  var memPin = '';          /* only if sessionStorage throws (some private windows) */
+
+  function pin(){ try{ var v = sessionStorage.getItem(KEY); if(v != null) return v; }catch(e){} return memPin; }
+  function keep(p){ memPin = p; try{ sessionStorage.setItem(KEY, p); }catch(e){} }
+  function forget(){ memPin = ''; try{ sessionStorage.removeItem(KEY); }catch(e){} }
+  function isLocked(){ return ON && (locked || !pin()); }
+
+  function lockedError(){
+    var e = new Error('The dashboard was locked (desk PIN) \u2014 try again once it is unlocked.');
+    e.gateLocked = true;
+    return e;
+  }
+
+  /* The one network call. The anon key goes as the bearer token only because
+     app-gate is deployed with JWT verification on; it opens nothing by itself. */
+  function post(body){
+    return fetch(FN, {
+      method: 'POST', cache: 'no-store', credentials: 'omit',
+      headers: { 'Content-Type': 'application/json', apikey: ANON, Authorization: 'Bearer ' + ANON },
+      body: JSON.stringify(body)
+    });
+  }
+
+  function refused(res, used){
+    return res.json().catch(function(){ return {}; }).then(function(j){
+      j = j || {};
+      if(res.status === 429){
+        /* The throttle only when app-gate says so (it reports an upstream 429
+           as 503). The PIN is kept: it may well be right. */
+        if(j.error !== 'locked') throw new Error('HTTP 429 ' + String(j.error || j.message || ''));
+        lock('throttled', j);
+        throw lockedError();
+      }
+      /* Forget only the PIN this request carried: one that left before the
+         desk typed a new PIN must not wipe the new one. */
+      if(pin() === used) forget();
+      if(j.error === 'bad_pin') lock(started ? 'changed' : 'wrong', j);
+      else lock('denied', j);
+      throw lockedError();
+    });
+  }
+
+  /* Every gated request. Resolves with app-gate's Response for anything that
+     is not a PIN refusal; rejects (and locks) on 401/403/429; rejects WITHOUT
+     a request while locked. */
+  function call(action, payload){
+    if(!ON) return Promise.reject(new Error('No Supabase keys on this build.'));
+    var p = pin();
+    if(locked || !p) return Promise.reject(lockedError());
+    var body = {};
+    if(payload) for(var k in payload) if(Object.prototype.hasOwnProperty.call(payload, k)) body[k] = payload[k];
+    if(action) body.action = action;
+    body.pin = p;
+    return post(body).then(function(res){
+      if(res.status === 401 || res.status === 403 || res.status === 429) return refused(res, p);
+      return res;
+    });
+  }
+
+  function header(h, name){
+    if(!h) return '';
+    if(typeof h.get === 'function') return h.get(name) || '';
+    for(var k in h) if(Object.prototype.hasOwnProperty.call(h, k) && k.toLowerCase() === name) return String(h[k]);
+    return '';
+  }
+  function b64(blob){
+    return new Promise(function(done, fail){
+      var r = new FileReader();
+      r.onload = function(){ var s = String(r.result || ''); done(s.slice(s.indexOf(',') + 1)); };
+      r.onerror = function(){ fail(r.error || new Error('could not read that image')); };
+      r.readAsDataURL(blob);
+    });
+  }
+  /* The drop-in for the old direct calls - see the header above. */
+  function gfetch(url, init){
+    init = init || {};
+    var u = String(url), method = String(init.method || 'GET').toUpperCase();
+    var rest = BASE + '/rest/v1/';
+    if(BASE && u.indexOf(rest) === 0){
+      var payload = { path: u.slice(rest.length), method: method };
+      var prefer = header(init.headers, 'prefer');
+      if(prefer) payload.prefer = prefer;
+      if(init.body != null){
+        try{ payload.body = typeof init.body === 'string' ? JSON.parse(init.body) : init.body; }
+        catch(e){ return Promise.reject(new Error('GATE.fetch: a table request body must be JSON')); }
+      }
+      return call('rest', payload);
+    }
+    var photos = BASE + '/storage/v1/object/caregiver-photos/';
+    if(BASE && u.indexOf(photos) === 0){
+      var key = decodeURIComponent(u.slice(photos.length).split('?')[0]);
+      if(method === 'DELETE') return call('photo.del', { key: key });
+      if(method === 'POST' || method === 'PUT'){
+        if(isLocked()) return Promise.reject(lockedError());
+        return b64(init.body).then(function(data){ return call('photo.put', { key: key, data: data }); });
+      }
+    }
+    return Promise.reject(new Error('GATE.fetch: ' + method + ' ' + u + ' is not a request this page makes'));
+  }
+
+  /* ---------- the lock screen ---------- */
+  function $(id){ return document.getElementById(id); }
+  var COPY = {
+    enter:        ['Enter the desk PIN', 'The scheduling dashboard is shared by the desk. Enter the PIN to open it.'],
+    checking:     ['Checking\u2026', 'Checking the PIN with the server.'],
+    wrong:        ['That PIN isn\u2019t right', ''],
+    changed:      ['The desk PIN has changed', 'This tab has stopped saving to the shared board. Enter the new PIN to pick up where you left off \u2014 nothing on screen is lost, and a save that was interrupted will say so.'],
+    throttled:    ['Too many wrong PINs', ''],
+    unreachable:  ['Can\u2019t reach the server', 'The dashboard stays locked until the PIN can be checked. Check the connection and try again.'],
+    denied:       ['The server refused this page', ''],
+    unconfigured: ['The desk PIN is not set up', 'The server has no PIN configured, so it turns everyone away. Tell Carlo: APP_PIN needs setting.']
+  };
+  function throttleMsg(){
+    var s = Math.max(0, Math.ceil((until - Date.now()) / 1000));
+    if(!s) return 'You can try again now.';
+    var m = Math.ceil(s / 60);
+    return 'This network is locked out for ' + (s < 60 ? s + ' more second' + (s === 1 ? '' : 's') : m + ' more minute' + (m === 1 ? '' : 's')) +
+      '. Wait, then enter the PIN again.';
+  }
+  function startTick(){
+    clearInterval(tick);
+    tick = setInterval(function(){
+      if(mode !== 'throttled'){ clearInterval(tick); return; }
+      if(Date.now() >= until){
+        clearInterval(tick);
+        /* The lock was on the network, not the PIN: a PIN this tab holds is
+           simply checked again. */
+        if(pin() && !busy){ verify(pin(), false); return; }
+        show('enter'); var e = $('pg-msg'); if(e) e.textContent = 'You can try again now. Enter the PIN.'; return;
+      }
+      var el = $('pg-msg'); if(el) el.textContent = throttleMsg();
+    }, 5000);
+  }
+  function show(m, info){
+    mode = m; info = info || {};
+    var g = $('pingate'); if(!g) return;
+    var c = COPY[m] || COPY.enter, msg = c[1];
+    if(m === 'wrong'){
+      var left = Number(info.attempts_left);
+      msg = !isFinite(left) ? 'Try again.'
+          : left > 0 ? left + ' more wrong PIN' + (left === 1 ? '' : 's') + ' and this network is locked out for 15 minutes.'
+          : 'This network is now locked out for 15 minutes.';
+    }
+    if(m === 'throttled'){
+      until = Date.now() + Math.max(1, Number(info.retry_after) || 900) * 1000;
+      msg = throttleMsg();
+      startTick();
+    }
+    if(m === 'denied'){
+      msg = 'It said: ' + String(info.message || info.error || info.msg || 'no reason given') +
+            '. Hard refresh (Ctrl+Shift+R). If it keeps happening, tell Carlo.';
+    }
+    if(m === 'unreachable' && info.detail) msg += ' (' + info.detail + ')';
+    $('pg-title').textContent = c[0];
+    var el = $('pg-msg');
+    el.textContent = msg;
+    el.className = 'pg-msg' + (m === 'enter' || m === 'checking' ? '' : ' err');
+    var input = $('pg-pin'), btn = $('pg-go');
+    var wait = m === 'checking' || (m === 'throttled' && Date.now() < until);
+    input.disabled = wait; btn.disabled = wait;
+    btn.textContent = (m === 'unreachable' && pin()) ? 'Try again' : 'Unlock';
+    if(m !== 'checking') input.value = '';
+    g.style.display = '';
+    setInert(true);
+    /* Focus always moves INTO the dialog - onto the card while the input is
+       disabled - so it can never be left on something hidden behind it. */
+    setTimeout(function(){ try{ (wait ? $('pg-form') : input).focus(); }catch(e){} }, 0);
+  }
+  /* While locked the dashboard is still in the page underneath. inert takes
+     it out of the tab order and away from the keyboard, so nobody types into
+     a hidden note or presses a button they cannot see. */
+  var INERT = ['.app', '#modalbg', '#sidebg', '#toast'];
+  function setInert(on){
+    INERT.forEach(function(sel){
+      var el = document.querySelector(sel); if(!el) return;
+      if(on){ el.setAttribute('inert', ''); el.setAttribute('aria-hidden', 'true'); }
+      else { el.removeAttribute('inert'); el.removeAttribute('aria-hidden'); }
+    });
+  }
+  function hide(){ clearInterval(tick); setInert(false); var g = $('pingate'); if(g) g.style.display = 'none'; }
+  function lock(m, info){ locked = true; show(m || 'enter', info); }
+
+  function begin(){
+    if(started) return;
+    started = true;
+    try{ if(onStart) onStart(); }catch(e){ console.error('[gate] start failed', e); }
+  }
+  function stampNow(){
+    return fetch(location.pathname, { method: 'HEAD', cache: 'no-store' })
+      .then(function(res){ return res.ok ? (res.headers.get('etag') || res.headers.get('last-modified') || null) : null; },
+            function(){ return null; });
+  }
+  function accept(p){
+    keep(p);
+    locked = false;
+    if(started){
+      /* Back in after a lock: IN PLACE (see the header). Each module that
+         cares re-syncs from what it still holds in memory. */
+      hide();
+      hooks.forEach(function(fn){ try{ fn(); }catch(e){ console.warn('[gate] unlock hook failed', e); } });
+      try{ if(typeof render === 'function') render(); }catch(e){}
+      return;
+    }
+    /* FIRST UNLOCK. A tab can sit on this screen for hours. If a new build was
+       deployed meanwhile, boot THAT, not the code this tab loaded: CLOUD's
+       stale-build guard takes its baseline at boot, so it would record the
+       new build as "ours" and never notice. The PIN is kept, so the reload
+       comes straight back in. */
+    stampNow().then(function(tag){
+      if(loadTag && tag && tag !== loadTag){ location.reload(); return; }
+      hide(); begin();
+    });
+  }
+  /* POST {pin} with no action: app-gate answers {ok:true} and does nothing
+     else. "typed" separates a PIN somebody just entered from one this tab
+     already held (a reload), which reads as "changed" when it is refused. */
+  function verify(p, typed){
+    busy = true; show('checking');
+    return post({ pin: p }).then(function(res){
+      return res.json().catch(function(){ return {}; }).then(function(j){
+        j = j || {};
+        if(res.ok && j.ok){ accept(p); return; }
+        /* 429: the NETWORK is locked out. A PIN this tab already held is kept
+           and re-checked when the lock runs out; one just typed is not stored,
+           because nothing has checked it. */
+        if(res.status === 429){ show('throttled', j); return; }
+        if(res.status === 401 && j.error === 'bad_pin'){ if(pin() === p) forget(); show(typed ? 'wrong' : 'changed', j); return; }
+        if(res.status === 401 || res.status === 403){ if(pin() === p) forget(); show('denied', j); return; }
+        if(res.status === 503 && j.error === 'not_configured'){ show('unconfigured', j); return; }
+        show('unreachable', { detail: 'HTTP ' + res.status + (res.status === 404 ? ' - app-gate may not be deployed' : '') });
+      });
+    }, function(e){
+      show('unreachable', { detail: (e && e.message) || '' });
+    }).then(function(){ busy = false; }, function(){ busy = false; });
+  }
+  function submit(){
+    if(busy || !ON) return;
+    var input = $('pg-pin');
+    var typed = String((input && input.value) || '').trim();
+    /* "Try again" after the server could not be reached re-checks the PIN
+       this tab already holds rather than making somebody type it again. */
+    var p = typed || (mode === 'unreachable' ? pin() : '');
+    if(!p){ try{ input.focus(); }catch(e){} return; }
+    verify(p, !!typed);
+  }
+  /* Called once, at the very end of the script, with CLOUD.boot() inside. */
+  function start(fn){
+    onStart = fn;
+    if(!ON){ locked = false; hide(); begin(); return; }
+    /* The build this tab loaded - a HEAD of the page itself, not Supabase. */
+    stampNow().then(function(t){ if(loadTag === null) loadTag = t; });
+    var p = pin();
+    if(!p){ lock('enter'); return; }
+    verify(p, false);
+  }
+
+  return {
+    start: start,
+    submit: submit,
+    call: call,
+    fetch: gfetch,
+    isLocked: isLocked,
+    /* Run fn when a tab that had started is unlocked again (never on the
+       first unlock - that one starts the app instead). */
+    onUnlock: function(fn){ if(typeof fn === 'function') hooks.push(fn); },
+    /* Console: lock this tab by hand. Never returns the PIN. */
+    lock: function(){ forget(); lock('enter'); },
+    status: function(){ return { gated: ON, locked: isLocked(), started: started, screen: mode, holdsPin: !!pin() }; }
+  };
+})();
+
 /* =========================================================
    STATE  (in-memory demo data; AxisCare is the real source)
    ========================================================= */
@@ -9091,7 +9472,7 @@ var CGPHOTO = (function(){
     busyFor = cgId; menuFor = null; repaint();
     fit(file)
       .then(function(blob){
-        return fetch(objUrl(c.axisId), { method:'POST',
+        return GATE.fetch(objUrl(c.axisId), { method:'POST',
           headers: auth({ 'Content-Type': blob.type || file.type,
                           'x-upsert': 'true',
                           /* max-age=60, NOT a bare "60". Storage stores this
@@ -9133,7 +9514,7 @@ var CGPHOTO = (function(){
     if(!c || c.axisId==null || busyFor){ repaint(); return; }
     if(!window.confirm('Remove the photo for '+c.name+'?\n\nThis deletes it for everyone, not just this browser.')){ repaint(); return; }
     busyFor = cgId; repaint();
-    fetch(objUrl(c.axisId), { method:'DELETE', headers: auth() })
+    GATE.fetch(objUrl(c.axisId), { method:'DELETE', headers: auth() })
       .then(function(res){
         if(res.ok || res.status===404) return null;      /* gone is the goal */
         /* A BARE 400 IS NOT "ALREADY GONE". Storage answers a missing public
@@ -17376,7 +17757,7 @@ function cnAlertCard(a){
     <div class="cn-cbody">
       <div class="cn-ctop"><span class="cn-cat">${ic(cat.icon,13)} ${esc(a.category)}</span>${tierPill(t)}<span class="cn-status-text">${a.status}</span></div>
       <div class="cn-meta"><b>${esc(cl?cl.name:'Client')}</b> \u00b7 ${esc(cg?cg.name:'Caregiver')} \u00b7 ${cnWhen(a.at)}</div>
-      <div class="cn-excerpt">\u201c${esc(a.excerpt)}\u201d</div>
+      <div class="cn-excerpt">\u201c${escText(a.excerpt)}\u201d</div>
       <div class="cn-acth">Recommended actions</div>
       <div class="cn-acts">${actions}</div>
       <div class="cn-cfoot">
@@ -17397,12 +17778,12 @@ function alertDetailHtml(a){
   const assignOpts=activeSchedulerNames().map(n=>`<option${n===a.assignedTo?' selected':''}>${esc(n)}</option>`).join('');
   const sb=st=>`<button class="cn-sbtn ${a.status===st?'on '+st.toLowerCase():''}" onclick="setAlertStatus('${a.id}','${st}')">${st}</button>`;
   const rel=relatedNotes(a);
-  const relHtml=rel.length?rel.map(n=>{const ncg=cgById(n.cgId);return `<div class="ad-rel"><div class="ad-rel-meta">${esc(ncg?ncg.name:'Caregiver')} \u00b7 ${cnWhen(n.at)}</div><div class="ad-rel-tx">\u201c${esc(n.text)}\u201d</div></div>`;}).join(''):`<div class="ad-empty">No other recent notes for this client.</div>`;
+  const relHtml=rel.length?rel.map(n=>{const ncg=cgById(n.cgId);return `<div class="ad-rel"><div class="ad-rel-meta">${esc(ncg?ncg.name:'Caregiver')} \u00b7 ${cnWhen(n.at)}</div><div class="ad-rel-tx">\u201c${escText(n.text)}\u201d</div></div>`;}).join(''):`<div class="ad-empty">No other recent notes for this client.</div>`;
   const fam=familyFollowup(a), coach=caregiverCoaching(a);
   return `<div class="ad">
     <div class="ad-top"><span class="cn-cat">${ic(cat.icon,14)} ${esc(a.category)}</span>${tierPill(t)}<span class="cn-status-text">${a.status}</span></div>
     <div class="ad-meta"><b>${esc(cl?cl.name:'Client')}</b> \u00b7 ${esc(cg?cg.name:'Caregiver')} \u00b7 ${cnWhen(a.at)}</div>
-    <div class="ad-sec"><div class="ad-h">What happened</div><div class="cn-excerpt">\u201c${esc(a.excerpt)}\u201d</div></div>
+    <div class="ad-sec"><div class="ad-h">What happened</div><div class="cn-excerpt">\u201c${escText(a.excerpt)}\u201d</div></div>
     <div class="ad-inds">
       <div class="ad-ind ${fam.yes?'yes':'no'}"><div class="ad-ind-h">Family follow-up needed?</div><div class="ad-ind-v">${fam.yes?'Yes':'No'}</div><div class="ad-ind-s">${esc(fam.text)}</div></div>
       <div class="ad-ind ${coach.yes?'yes':'no'}"><div class="ad-ind-h">Caregiver coaching needed?</div><div class="ad-ind-v">${coach.yes?'Yes':'No'}</div><div class="ad-ind-s">${esc(coach.text)}</div></div>
@@ -17863,7 +18244,7 @@ var AxisLive = (function () {
     var base = String(cfg.supabaseUrl).replace(/\/+$/, '');
     var H = { apikey: cfg.supabaseAnonKey, Authorization: 'Bearer ' + cfg.supabaseAnonKey };
     var grab = function (p) {
-      return fetch(base + p, { headers: H }).then(function (r) {
+      return GATE.fetch(base + p, { headers: H }).then(function (r) {
         if (!r.ok) throw new Error('HTTP ' + r.status);
         return r.json();
       });
@@ -18310,7 +18691,7 @@ var ROSTER = (function () {
     if (!cfg.supabaseUrl || !cfg.supabaseAnonKey) return Promise.resolve({});
     var url = String(cfg.supabaseUrl).replace(/\/+$/, '') +
       '/rest/v1/caregiver_profile?select=*&limit=1000';
-    return fetch(url, { headers: { apikey: cfg.supabaseAnonKey,
+    return GATE.fetch(url, { headers: { apikey: cfg.supabaseAnonKey,
                                    Authorization: 'Bearer ' + cfg.supabaseAnonKey } })
       .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function (rows) {
@@ -18605,7 +18986,7 @@ var ROSTER = (function () {
     if (!cfg.supabaseUrl || !cfg.supabaseAnonKey) return Promise.resolve([]);
     var url = cfg.supabaseUrl.replace(/\/+$/, '') +
       '/rest/v1/care_notes?select=visit_id,client_id,caregiver_id,visit_at,note&order=visit_at.desc&limit=400';
-    return fetch(url, { headers: { apikey: cfg.supabaseAnonKey, Authorization: 'Bearer ' + cfg.supabaseAnonKey } })
+    return GATE.fetch(url, { headers: { apikey: cfg.supabaseAnonKey, Authorization: 'Bearer ' + cfg.supabaseAnonKey } })
       .then(function (r) {
         if (!r.ok) throw new Error('care notes HTTP ' + r.status);
         return r.json();
@@ -18681,7 +19062,7 @@ var ROSTER = (function () {
       return rows[0];
     };
 
-    return fetch(base + '?caregiver_id=eq.' + encodeURIComponent(c.axisId),
+    return GATE.fetch(base + '?caregiver_id=eq.' + encodeURIComponent(c.axisId),
                  { method: 'PATCH', headers: head, body: JSON.stringify(row) })
       .then(function (r) { return r.ok ? r.json() : fail(r); })
       .then(function (rows) {
@@ -18694,7 +19075,7 @@ var ROSTER = (function () {
            either way — named explicitly to match the caregiver_day_notes
            upsert and so a future key change fails loudly instead of
            inserting a duplicate. */
-        return fetch(base + '?on_conflict=caregiver_id', { method: 'POST', headers: up, body: JSON.stringify([row]) })
+        return GATE.fetch(base + '?on_conflict=caregiver_id', { method: 'POST', headers: up, body: JSON.stringify([row]) })
           .then(function (r) { return r.ok ? r.json() : fail(r); })
           .then(function (rows2) {
             if (!rows2 || !rows2.length) throw new Error('could not create a caregiver_profile row');
@@ -19563,6 +19944,10 @@ const CLOUD = (function(){
        lastBody is deliberately NOT set, so the local cache keeps tracking
        every further edit and the next load pushes the lot. */
     if(staleBuild) return;
+    /* LOCKED: the same rule as a stale tab - kept on this device (saved just
+       above), not written to the shared row. It goes out through resume()
+       when the tab is unlocked, which re-lays it over a fresh read. */
+    if(sb && GATE.isLocked()) return;
     if(!sb){ lastBody=body; lastSent=detach(o); return; }
     /* Already failing: keep writing to this device, but leave the network to
        the retry timer. Without this the conflict path re-entered itself
@@ -19622,12 +20007,90 @@ const CLOUD = (function(){
     }
   }
 
+  /* ---------- the shared row, through app-gate ----------
+     scheduler_state is no longer reachable with the anon key: every read and
+     write is a GATE.call(), which carries the desk PIN. These return the same
+     {data, error} shape supabase-js did, so pull() and push() below read
+     exactly as they always have:
+
+       state.save  answers 409 when the rev has moved - the optimistic-
+                   concurrency conflict, reported as data:[] just as a
+                   zero-row update was - and 422 when app-gate refuses an
+                   EMPTY overlay over one that holds records, the failure
+                   that emptied a sibling app. That reaches saveFailed() as
+                   an error; nothing is overwritten.
+
+     A refused PIN rejects inside GATE, which has already put the lock screen
+     up; pull() and doSave() check GATE.isLocked() and go quiet. */
+  function gateRow(action, payload){
+    payload.workspace = WORKSPACE;
+    /* app-gate only reaches scheduler_state and refuses any other table, so
+       a build configured for one is told rather than using the desk's row. */
+    payload.table = TABLE;
+    return GATE.call(action, payload).then(function(res){
+      return res.json().catch(function(){ return null; }).then(function(j){
+        /* A 2xx whose body cannot be read is a FAILED read, not "no row".
+           Only a parsed {ok:true, row:null} may mean the row is missing -
+           anything else would send pull() into the first-run create branch. */
+        if(res.ok && !(j && j.ok === true)) return { status: res.status, ok: false, j: { error: 'unreadable response from app-gate' } };
+        return { status: res.status, ok: res.ok, j: j || {} };
+      });
+    });
+  }
+  function gateErr(r){ return { message: r.j.message || r.j.error || ('HTTP ' + r.status) }; }
+  function netErr(e){ return { data: null, error: { message: (e && e.message) || 'network' } }; }
+  function dbHead(){
+    return gateRow('state.head', {}).then(function(r){
+      return r.ok ? { data: r.j.row || null, error: null } : { data: null, error: gateErr(r) };
+    }, netErr);
+  }
+  function dbLoad(){
+    return gateRow('state.load', {}).then(function(r){
+      return r.ok ? { data: r.j.row || null, error: null } : { data: null, error: gateErr(r) };
+    }, netErr);
+  }
+  function dbCreate(o){
+    return gateRow('state.create', { overlay: o, updated_by: o.updatedBy }).then(function(r){
+      return r.ok ? { data: null, error: null } : { data: null, error: gateErr(r) };
+    }, netErr);
+  }
+  /* force is CLOUD.reset() and nothing else: the deliberate "clear all". */
+  function dbSave(o, rev, force){
+    return gateRow('state.save', { overlay: o, rev: rev, updated_by: o.updatedBy, force: !!force }).then(function(r){
+      if(r.ok){
+        if(typeof r.j.rev === 'number' && isFinite(r.j.rev)) return { data: [{ rev: r.j.rev }], error: null };
+        return { data: null, error: { message: 'unreadable response from app-gate' } };
+      }
+      /* 409: the rev moved. 422: app-gate refused an EMPTY copy over the full
+         board. Both take the conflict path - pull, re-layer, push again - which
+         is also what heals a tab that somehow holds nothing: it reads the
+         board before it writes. The row is not touched on the way. */
+      if(r.status === 409 || (r.status === 422 && r.j.error === 'empty_refused')) return { data: [], error: null };
+      return { data: null, error: gateErr(r) };
+    }, netErr);
+  }
+
+  /* BACK IN AFTER A LOCK. GATE unlocks in place, never by reloading, so what
+     this tab held back is still in memory - an edit whose push hit the 401,
+     or one made after it - and lastSent is still the last copy the database
+     confirmed. Mark it unsent if it differs, forget lastBody so the next save
+     is real, and pull: pull() re-lays exactly our unconfirmed records over
+     whatever the other schedulers saved meanwhile, and the render it ends
+     with pushes the merge. The same path a rev conflict takes. */
+  function resume(){
+    if(!booted || !sb) return;
+    clearTimeout(retryTimer); retryTimer = null;
+    lastBody = null;
+    try{ if(!lastSent || bodyOf(buildOverlay()) !== bodyOf(lastSent)) unsent = true; }
+    catch(e){ unsent = true; }
+    pull(true);
+  }
+  try{ GATE.onUnlock(resume); }catch(e){}
+
   function push(o, body){
     pushing=true; pushTries++;
     setStatus('saving');
-    sb.from(TABLE)
-      .update({ overlay:o, rev:serverRev+1, updated_at:o.updatedAt, updated_by:o.updatedBy })
-      .eq('id',WORKSPACE).eq('rev',serverRev).select('rev')
+    dbSave(o, serverRev)
       .then(function(res){
         if(res.error){ saveFailed(res.error.message); pushDone(); return; }
         if(!res.data || !res.data.length){
@@ -19717,7 +20180,9 @@ const CLOUD = (function(){
   }
 
   function pull(force){
-    if(!sb) return Promise.resolve();
+    /* Locked: no read either. The poll, focus and online listeners all come
+       through here, so this is what makes a locked tab stop syncing. */
+    if(!sb || GATE.isLocked()) return Promise.resolve();
     /* TWO READS, AND THE FIRST IS DELIBERATELY TINY.
 
        This runs every POLL_MS in every visible session, and the overwhelming
@@ -19738,14 +20203,14 @@ const CLOUD = (function(){
       ? Promise.resolve(null)             /* forced: the column is wanted either
                                              way, so do not pay for a head read
                                              boot would only discard */
-      : sb.from(TABLE).select('rev').eq('id',WORKSPACE).maybeSingle();
+      : dbHead();
     return Promise.resolve(head)
       .then(function(h){
         if(h){
           if(h.error){ setStatus('error',h.error.message); return null; }
           if(h.data && h.data.rev===serverRev){ setStatus('synced'); return null; }
         }
-        return sb.from(TABLE).select('overlay,rev,updated_by').eq('id',WORKSPACE).maybeSingle();
+        return dbLoad();
       })
       .then(function(res){
         if(!res) return;                      /* nothing new - already synced */
@@ -19753,7 +20218,7 @@ const CLOUD = (function(){
         if(!res.data){                        /* first run — create the row */
           var o=buildOverlay();
           o.updatedAt=new Date().toISOString(); o.updatedBy=state.onShift||'';
-          return sb.from(TABLE).insert({ id:WORKSPACE, overlay:o, rev:1, updated_by:o.updatedBy })
+          return dbCreate(o)
             .then(function(r2){
               if(r2.error){ setStatus('error',r2.error.message); return; }
               serverRev=1; setStatus('synced');
@@ -19843,13 +20308,9 @@ const CLOUD = (function(){
       console.info('[cloud] No Supabase config — running local-only. See README, "Supabase setup".');
       return;
     }
-    if(!window.supabase || !window.supabase.createClient){
-      setStatus('offline','supabase-js did not load');
-      return;
-    }
-    try{
-      sb=window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey, { auth:{ persistSession:false } });
-    }catch(e){ setStatus('error','client init failed'); return; }
+    /* No Supabase client any more - every call goes through app-gate (GATE).
+       `sb` now only records that the shared board is in use. */
+    sb = true;
 
     pull(true);
     clearInterval(pollTimer);
@@ -19990,7 +20451,7 @@ const CLOUD = (function(){
     },
     isGone:  function(path, id){ return !!(GONE[path] && GONE[path][String(id)]); },
     sync:    function(){ return pull(true); },
-    status:  function(){ return { state:statusState, msg:statusMsg, rev:serverRev, workspace:WORKSPACE, cloud:!!sb }; },
+    status:  function(){ return { state:statusState, msg:statusMsg, rev:serverRev, workspace:WORKSPACE, cloud:!!sb, locked:GATE.isLocked() }; },
     overlay: buildOverlay,
     /* Raise the refresh banner by hand and stop this tab writing. Use it
        when a fix keeps coming back because an older session is overwriting
@@ -20006,10 +20467,10 @@ const CLOUD = (function(){
       GONE = {};                        /* a reset starts clean; nothing is deleted */
       var empty={ v:1, adds:{}, dels:{}, patches:{}, maps:{}, scalars:{},
                   updatedAt:new Date().toISOString(), updatedBy:state.onShift||'' };
+      /* force: the ONE save allowed to write an empty overlay over a full
+         one. app-gate refuses that from any other save. */
       if(sb){
-        sb.from(TABLE)
-          .update({ overlay:empty, rev:serverRev+1, updated_at:empty.updatedAt, updated_by:empty.updatedBy })
-          .eq('id',WORKSPACE)
+        dbSave(empty, serverRev, true)
           .then(function(){ location.reload(); }, function(){ location.reload(); });
       } else location.reload();
     }
@@ -21290,7 +21751,7 @@ var CLMATCH = (function () {
     var base = String(c.supabaseUrl).replace(/\/+$/, '');
     var H = { apikey: c.supabaseAnonKey, Authorization: 'Bearer ' + c.supabaseAnonKey };
     var grab = function (path, what) {
-      return fetch(base + path, { headers: H }).then(function (r) {
+      return GATE.fetch(base + path, { headers: H }).then(function (r) {
         if (!r.ok) throw new Error(what + ' HTTP ' + r.status);
         return r.json();
       });
@@ -21399,7 +21860,7 @@ var AVAIL = (function () {
       '?caregiver_id=eq.' + encodeURIComponent(axisId) +
       '&on_date=gte.' + from + '&on_date=lte.' + to +
       '&select=' + COLS + '&order=on_date.asc,start_min.asc.nullsfirst';
-    return fetch(url, { headers: { apikey: c.supabaseAnonKey, Authorization: 'Bearer ' + c.supabaseAnonKey } })
+    return GATE.fetch(url, { headers: { apikey: c.supabaseAnonKey, Authorization: 'Bearer ' + c.supabaseAnonKey } })
       .then(function (r) {
         if (!r.ok) return r.text().then(function (t) { throw new Error('HTTP ' + r.status + ' ' + t.slice(0, 140)); });
         return r.json();
@@ -21783,7 +22244,7 @@ var AVAIL = (function () {
       '&select=caregiver_id,' + COLS +
       '&order=caregiver_id.asc,on_date.asc,start_min.asc.nullsfirst' +
       '&limit=' + PAGE + '&offset=' + offset;
-    return fetch(url, { headers: { apikey: c.supabaseAnonKey, Authorization: 'Bearer ' + c.supabaseAnonKey } })
+    return GATE.fetch(url, { headers: { apikey: c.supabaseAnonKey, Authorization: 'Bearer ' + c.supabaseAnonKey } })
       .then(function (r) {
         if (!r.ok) return r.text().then(function (t) { throw new Error('HTTP ' + r.status + ' ' + t.slice(0, 140)); });
         return r.json();
@@ -21830,7 +22291,7 @@ var AVAIL = (function () {
       (openOnly ? '&status=eq.Open' : '') +
       '&select=caregiver_id,on_date,status' + (openOnly ? '' : ',updated_at,updated_by') +
       '&order=caregiver_id.asc,on_date.asc&limit=' + PAGE + '&offset=' + offset;
-    return fetch(url, { headers: { apikey: c.supabaseAnonKey, Authorization: 'Bearer ' + c.supabaseAnonKey } })
+    return GATE.fetch(url, { headers: { apikey: c.supabaseAnonKey, Authorization: 'Bearer ' + c.supabaseAnonKey } })
       .then(function (r) {
         if (!r.ok) return r.text().then(function (t) { throw new Error('HTTP ' + r.status + ' ' + t.slice(0, 140)); });
         return r.json();
@@ -22187,7 +22648,7 @@ var AVAIL = (function () {
       }),
       p_updated_by: author || (auto ? AV_AUTO_AUTHOR : AV_APP_AUTHOR)
     };
-    return fetch(cf.supabaseUrl.replace(/\/+$/, '') + '/rest/v1/rpc/set_availability_days', {
+    return GATE.fetch(cf.supabaseUrl.replace(/\/+$/, '') + '/rest/v1/rpc/set_availability_days', {
       method: 'POST',
       headers: { apikey: cf.supabaseAnonKey, Authorization: 'Bearer ' + cf.supabaseAnonKey, 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
@@ -22209,6 +22670,15 @@ var AVAIL = (function () {
       return load(c).then(function () { return res; });
     });
   }
+
+  /* Back in after a PIN lock: a read that failed only because the tab was
+     locked is cached as an error. Drop those so the next render asks again. */
+  try {
+    GATE.onUnlock(function () {
+      Object.keys(byCg).forEach(function (k) { if (byCg[k] && byCg[k].status === 'error') delete byCg[k]; });
+      if (idxState === 'error') primeIndex();
+    });
+  } catch (e) {}
 
   return {
     load: load, forDay: forDay, storedForDay: storedForDay, storedDays: storedDays,
@@ -22277,7 +22747,7 @@ var NOTES = (function () {
     var w = AxisLive.visitWindow(new Date());
     inFlight[c.id] = 1;
     byCg[c.id] = { status: 'loading', days: {}, count: 0 };
-    fetch(url('?select=id,on_date,note,updated_at,updated_by&caregiver_id=eq.' + c.axisId +
+    GATE.fetch(url('?select=id,on_date,note,updated_at,updated_by&caregiver_id=eq.' + c.axisId +
               '&on_date=gte.' + w.from + '&on_date=lte.' + w.to + '&order=on_date'), { headers: hdr() })
       .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function (rows) {
@@ -22325,7 +22795,7 @@ var NOTES = (function () {
     var rec = byCg[c.id] || (byCg[c.id] = { status: 'ready', days: {}, count: 0 });
 
     if (!body) {
-      return fetch(url('?caregiver_id=eq.' + c.axisId + '&on_date=eq.' + dateStr),
+      return GATE.fetch(url('?caregiver_id=eq.' + c.axisId + '&on_date=eq.' + dateStr),
                    { method: 'DELETE', headers: hdr() })
         .then(function (r) {
           if (!r.ok && r.status !== 404) throw new Error('HTTP ' + r.status);
@@ -22334,7 +22804,7 @@ var NOTES = (function () {
           return null;
         });
     }
-    return fetch(url('?on_conflict=caregiver_id,on_date'), {
+    return GATE.fetch(url('?on_conflict=caregiver_id,on_date'), {
       method: 'POST',
       headers: hdr('resolution=merge-duplicates,return=representation'),
       body: JSON.stringify([{ caregiver_id: c.axisId, on_date: dateStr, note: body, updated_by: 'Carlo' }])
@@ -22348,6 +22818,13 @@ var NOTES = (function () {
       return rec.days[dateStr];
     });
   }
+
+  /* Back in after a PIN lock: drop loads that failed only because of it. */
+  try {
+    GATE.onUnlock(function () {
+      Object.keys(byCg).forEach(function (k) { if (byCg[k] && byCg[k].status === 'error') delete byCg[k]; });
+    });
+  } catch (e) {}
 
   return { load: load, all: all, forDay: forDay, save: save, status: status, info: info,
            _reset: function () { byCg = {}; inFlight = {}; } };
@@ -22400,7 +22877,7 @@ var AVNOTECLEAN = (function () {
     var c = cfg();
     var url = String(c.supabaseUrl).replace(/\/+$/, '') +
       '/rest/v1/caregiver_availability?note=not.is.null&' + filter;
-    return fetch(url, {
+    return GATE.fetch(url, {
       method: 'PATCH',
       headers: { apikey: c.supabaseAnonKey, Authorization: 'Bearer ' + c.supabaseAnonKey,
                  'Content-Type': 'application/json', Prefer: 'return=representation' },
@@ -22637,8 +23114,15 @@ const Quo = (function(){
    record is a reason they cannot, and reads red — the label says which. */
 function availTone(status){ return status === 'Open' ? 'open' : 'unavail'; }
 
-CLOUD.boot();
-try{ AVNOTECLEAN.auto(); }catch(e){}
+/* THE PIN DECIDES WHEN THE APP STARTS. Nothing here may reach Supabase before
+   a PIN is accepted: boot reads profiles, care notes and the open-shift
+   mirror before its baseline snapshot, and AVNOTECLEAN writes. So both wait
+   inside GATE.start(), which runs them at once when there is no cloud config
+   (local-only mode, as before). CLOUD.boot() is still the last thing to run. */
+GATE.start(function(){
+  CLOUD.boot();
+  try{ AVNOTECLEAN.auto(); }catch(e){}
+});
 </script>
 </body>
 </html>

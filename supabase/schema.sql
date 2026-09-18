@@ -4,7 +4,10 @@
 -- Run this ONCE in your Supabase project:
 --   Supabase dashboard > SQL Editor > New query > paste > Run
 --
--- Safe to re-run: everything is idempotent.
+-- Safe to re-run: everything is idempotent. Re-running it KEEPS the
+-- tables locked (section 11 checks), so it is safe after the PIN gate
+-- too. Do not run it before the PIN-gated index.html is live - see
+-- CLAUDE.md, "The PIN gate", for the order.
 -- ==============================================================
 
 -- --------------------------------------------------------------
@@ -42,44 +45,32 @@ on conflict (id) do nothing;
 -- --------------------------------------------------------------
 -- 2. Row-level security
 --
--- >>> READ THIS BEFORE REAL CLIENT DATA GOES IN <<<
+-- RLS on, and NO policy for anon or authenticated - on this table and
+-- on every other table in this file. The browser does not reach any
+-- table with the anon key. Every read and write goes through the
+-- app-gate Edge Function (supabase/functions/app-gate), which checks
+-- the desk PIN (secret APP_PIN) on EVERY request and then works with
+-- the service-role key. See CLAUDE.md, "The PIN gate".
 --
--- This MVP has no login by design: anyone with the site link can use
--- it. That means the browser talks to Supabase using only the anon
--- key, which is public and visible in view-source. So the policies
--- below allow anonymous read and write.
---
--- Consequence, stated plainly: ANYONE WHO HAS THE SITE URL CAN READ
--- AND WRITE THIS ROW. That is an accepted trade-off while the data
--- is fictional demo data. Before real caregiver names, client names,
--- care notes or medication lists are entered, switch to the locked
--- down policies in section 4.
+-- Until 2026-09-18 this section created anon read/insert/update
+-- policies, so anyone who found the site URL could read and overwrite
+-- this row with the public key. The drops below are what is left of
+-- them: re-running this file keeps the table locked, it does not
+-- re-open it.
 -- --------------------------------------------------------------
 alter table public.scheduler_state enable row level security;
 
 drop policy if exists "anon read scheduler state"   on public.scheduler_state;
 drop policy if exists "anon insert scheduler state" on public.scheduler_state;
 drop policy if exists "anon update scheduler state" on public.scheduler_state;
+-- No anon or authenticated policy - see section 2 and section 11.
 
-create policy "anon read scheduler state"
-  on public.scheduler_state for select
-  to anon, authenticated
-  using (true);
 
-create policy "anon insert scheduler state"
-  on public.scheduler_state for insert
-  to anon, authenticated
-  with check (true);
 
-create policy "anon update scheduler state"
-  on public.scheduler_state for update
-  to anon, authenticated
-  using (true)
-  with check (true);
 
--- Note: there is deliberately NO delete policy. Nothing in the app
--- deletes the row, so nothing on the internet can either. "Reset
--- demo data" blanks the overlay via an UPDATE instead.
+-- Nothing deletes the row. CLOUD.reset() ("clear all data") blanks the
+-- overlay through app-gate with force:true - the one save app-gate
+-- lets write an empty overlay over a full one.
 
 
 -- --------------------------------------------------------------
@@ -130,41 +121,29 @@ on conflict (id) do nothing;
 -- --------------------------------------------------------------
 -- 3a. Care-notes security
 --
--- The dashboard READS these with the anon key, exactly like
--- scheduler_state. Writing is deliberately NOT granted to anon:
--- only the sync function writes, using the service-role key, which
--- lives in a Netlify environment variable and never reaches a
--- browser. So a stranger with the site URL can read care notes
--- (the same exposure already accepted for the AxisCare proxy) but
--- cannot forge or destroy them.
+-- The dashboard reads these through app-gate (desk PIN), never with
+-- the anon key. Only the sync function writes, using the service-role
+-- key, which lives in a Netlify environment variable and never
+-- reaches a browser.
 -- --------------------------------------------------------------
 alter table public.care_notes      enable row level security;
 alter table public.care_notes_sync enable row level security;
 
 drop policy if exists "anon read care notes" on public.care_notes;
-create policy "anon read care notes"
-  on public.care_notes for select
-  to anon, authenticated
-  using (true);
+-- No anon or authenticated policy - see section 2 and section 11.
 
--- No anon insert/update/delete policy, and none for care_notes_sync
--- at all. The service-role key bypasses RLS, which is what the sync
--- function uses.
+-- The service-role key bypasses RLS, which is what the sync function
+-- and app-gate use.
 
 
 -- --------------------------------------------------------------
--- 4. When you are ready to require a login
+-- 4. Anonymous access - revoked 2026-09-18
 --
--- Run this block to revoke anonymous access. You must also add a
--- sign-in screen to the app first, or nobody will be able to save.
--- --------------------------------------------------------------
--- drop policy if exists "anon read scheduler state"   on public.scheduler_state;
--- drop policy if exists "anon insert scheduler state" on public.scheduler_state;
--- drop policy if exists "anon update scheduler state" on public.scheduler_state;
---
--- create policy "signed-in read"   on public.scheduler_state for select to authenticated using (true);
--- create policy "signed-in insert" on public.scheduler_state for insert to authenticated with check (true);
--- create policy "signed-in update" on public.scheduler_state for update to authenticated using (true) with check (true);
+-- This section used to hold the commented-out block for revoking
+-- anonymous access "when you are ready to require a login". The PIN
+-- gate did that instead (section 11), without per-user logins: the
+-- desk shares one PIN, app-gate checks it on every request, and
+-- changing APP_PIN locks out every open tab at once.
 
 
 -- --------------------------------------------------------------
@@ -326,33 +305,19 @@ create trigger caregiver_availability_touch
 -- --------------------------------------------------------------
 -- Row-level security
 -- --------------------------------------------------------------
--- The browser writes this table directly with the anon key, including
--- DELETE - "Clear" empties a day and "Set day" replaces one. That is the
--- same posture already accepted for scheduler_state, and it is reviewed in
--- README.md under Security posture. It is an MVP on an unlisted URL; when
--- logins arrive these become `to authenticated`.
+-- The browser reads this table and writes it (through set_availability_days)
+-- via app-gate, with the desk PIN - never with the anon key.
 alter table public.caregiver_availability enable row level security;
 
 drop policy if exists "anon read availability"   on public.caregiver_availability;
 drop policy if exists "anon insert availability" on public.caregiver_availability;
 drop policy if exists "anon update availability" on public.caregiver_availability;
 drop policy if exists "anon delete availability" on public.caregiver_availability;
+-- No anon or authenticated policy - see section 2 and section 11.
 
-create policy "anon read availability"
-  on public.caregiver_availability for select
-  to anon, authenticated using (true);
 
-create policy "anon insert availability"
-  on public.caregiver_availability for insert
-  to anon, authenticated with check (true);
 
-create policy "anon update availability"
-  on public.caregiver_availability for update
-  to anon, authenticated using (true) with check (true);
 
-create policy "anon delete availability"
-  on public.caregiver_availability for delete
-  to anon, authenticated using (true);
 
 -- --------------------------------------------------------------
 -- Pruning - keep only what the calendar can reach
@@ -522,7 +487,10 @@ end $$;
 comment on function public.set_availability_days(bigint, date[], jsonb, text) is
   'Replaces each named date with exactly the given segments, in one transaction. Empty segments clears the days.';
 
-grant execute on function public.set_availability_days(bigint, date[], jsonb, text) to anon, authenticated;
+-- The browser calls this through app-gate and availability-copy calls it with
+-- the service role; the anon key has no business with it.
+revoke execute on function public.set_availability_days(bigint, date[], jsonb, text) from public, anon, authenticated;
+grant  execute on function public.set_availability_days(bigint, date[], jsonb, text) to service_role;
 
 notify pgrst, 'reload schema';
 
@@ -591,32 +559,18 @@ create trigger caregiver_day_notes_touch
   before update on public.caregiver_day_notes
   for each row execute function public.touch_caregiver_day_notes();
 
--- Same posture as caregiver_availability: anon may read and write, because
--- there are no logins yet and the schedulers are the only people with the
--- URL. Reviewed in README.md under Security posture; when logins arrive
--- these become `to authenticated`.
+-- Read and written through app-gate (desk PIN), like caregiver_availability.
 alter table public.caregiver_day_notes enable row level security;
 
 drop policy if exists "anon read day notes"   on public.caregiver_day_notes;
 drop policy if exists "anon insert day notes" on public.caregiver_day_notes;
 drop policy if exists "anon update day notes" on public.caregiver_day_notes;
 drop policy if exists "anon delete day notes" on public.caregiver_day_notes;
+-- No anon or authenticated policy - see section 2 and section 11.
 
-create policy "anon read day notes"
-  on public.caregiver_day_notes for select
-  to anon, authenticated using (true);
 
-create policy "anon insert day notes"
-  on public.caregiver_day_notes for insert
-  to anon, authenticated with check (true);
 
-create policy "anon update day notes"
-  on public.caregiver_day_notes for update
-  to anon, authenticated using (true) with check (true);
 
-create policy "anon delete day notes"
-  on public.caregiver_day_notes for delete
-  to anon, authenticated using (true);
 
 notify pgrst, 'reload schema';
 
@@ -693,23 +647,17 @@ create trigger client_caregiver_match_touch
   before update on public.client_caregiver_match
   for each row execute function public.touch_client_caregiver_match();
 
--- Same posture as every other table here, written up in README.md under
--- Security posture. Prefs are read-only to the app: they are Concierge's
--- answer. The match table takes updates, because resolving a name is this
--- app's job and a scheduler does it in the UI.
+-- Both are written by matching-sync with the service role and read by the
+-- browser through app-gate (desk PIN). No browser code writes either one;
+-- the old "anon update matches" policy had no user.
 alter table public.client_match_prefs     enable row level security;
 alter table public.client_caregiver_match enable row level security;
 
 drop policy if exists "anon read match prefs" on public.client_match_prefs;
-create policy "anon read match prefs" on public.client_match_prefs
-  for select to anon, authenticated using (true);
 
 drop policy if exists "anon read matches"   on public.client_caregiver_match;
 drop policy if exists "anon update matches" on public.client_caregiver_match;
-create policy "anon read matches" on public.client_caregiver_match
-  for select to anon, authenticated using (true);
-create policy "anon update matches" on public.client_caregiver_match
-  for update to anon, authenticated using (true) with check (true);
+-- No anon or authenticated policy - see section 2 and section 11.
 
 notify pgrst, 'reload schema';
 
@@ -731,6 +679,10 @@ create table if not exists public.availability_copy_sync (
 insert into public.availability_copy_sync (id, cursor_cg)
 values ('availcopy', null)
 on conflict (id) do nothing;
+
+-- Only availability-copy (service role) touches this. It had RLS OFF until
+-- 2026-09-18, which let the anon key read and rewrite the cursor.
+alter table public.availability_copy_sync enable row level security;
 
 notify pgrst, 'reload schema';
 
@@ -821,30 +773,19 @@ on conflict (id) do nothing;
 -- --------------------------------------------------------------
 -- 8a. Open-shift security -- the same shape as care_notes.
 --
--- The dashboard READS with the anon key. Writing is deliberately NOT
--- granted: only the sync writes, with SUPABASE_SERVICE_ROLE_KEY,
+-- The dashboard reads these through app-gate (desk PIN), never with
+-- the anon key. Only the sync writes, with SUPABASE_SERVICE_ROLE_KEY,
 -- which lives in a Netlify environment variable and never reaches a
--- browser. So a stranger with the site URL can read open shifts --
--- the exposure already accepted for the AxisCare proxy, written up
--- in README.md under "Security posture" -- but cannot forge a shift
--- or empty the coverage board.
+-- browser.
 -- --------------------------------------------------------------
 alter table public.open_shifts      enable row level security;
 alter table public.open_shifts_sync enable row level security;
 
 drop policy if exists "anon read open shifts" on public.open_shifts;
-create policy "anon read open shifts"
-  on public.open_shifts for select
-  to anon, authenticated
-  using (true);
 
 drop policy if exists "anon read open shift sync" on public.open_shifts_sync;
-create policy "anon read open shift sync"
-  on public.open_shifts_sync for select
-  to anon, authenticated
-  using (true);
+-- No anon or authenticated policy - see section 2 and section 11.
 
--- No anon insert/update/delete on either table.
 
 notify pgrst, 'reload schema';
 
@@ -897,5 +838,176 @@ create table if not exists public.comm_summaries (
 -- --------------------------------------------------------------
 alter table public.comm_summaries enable row level security;
 revoke all on public.comm_summaries from anon, authenticated;
+
+notify pgrst, 'reload schema';
+
+-- ==============================================================
+-- 10. The PIN throttle (app-gate) - also supabase/app-gate.sql
+--
+-- Safe to re-run: every statement is create-if-not-exists or
+-- create-or-replace. This file does NOT touch any anon policy -- the lock
+-- is a separate, later step (supabase/app-gate-lock.sql) that must only
+-- run once the PIN-gated index.html is live. See CLAUDE.md, "The PIN gate".
+--
+-- One row per caller IP that has presented a wrong PIN recently.
+--
+-- WHY IT COUNTS DISTINCT WRONG PINS, NOT WRONG REQUESTS
+--
+-- The reference design counted every wrong request. On this app that locks
+-- the whole desk out: the schedulers share one office IP, and the moment the
+-- owner changes APP_PIN every open tab fails several requests at once (the
+-- poll, availability, notes, the profile read). Two tabs are past 8 within a
+-- second, and then the person typing the NEW PIN is refused for fifteen
+-- minutes too. A stale tab repeating the old PIN is not a guess; a
+-- brute-forcer has to try different values. So `keys` holds an HMAC of each
+-- distinct wrong PIN in the window and `fails` is how many there are. The
+-- HMAC is keyed with a server secret, so a stored key says nothing about the
+-- PIN it came from.
+--
+-- WHY THE WHOLE DECISION IS ONE SQL CALL
+--
+-- An earlier version read the lock first and recorded a failure afterwards,
+-- as two calls. A burst of simultaneous guesses then all passed the read
+-- before the 8th failure landed, and every one of them had its PIN compared
+-- - the limit held for requests in sequence and not at all for a burst.
+-- gate_check() takes the IP's row lock, so every verdict for one IP is
+-- decided in turn: once 8 distinct wrong PINs are recorded, nothing after
+-- them - right PIN or wrong - gets an answer but "locked".
+-- ==============================================================
+create table if not exists public.auth_throttle (
+  ip           text        primary key,
+  fails        int         not null default 0,
+  first_fail   timestamptz not null default now(),
+  locked_until timestamptz,
+  keys         text[]      not null default '{}'
+);
+alter table public.auth_throttle add column if not exists keys text[] not null default '{}';
+
+-- No anon access of any kind. Only app-gate, with the service key.
+alter table public.auth_throttle enable row level security;
+revoke all on public.auth_throttle from anon, authenticated;
+comment on table public.auth_throttle is
+  'RLS on with NO policies on purpose: only the service role reaches this. Written by the app-gate edge function to throttle wrong PINs per IP.';
+
+-- The verdict for one request from p_ip.
+--   p_key      HMAC of the PIN it carried (hex)
+--   p_ok       whether that PIN was right (compared in the function)
+--   p_max      distinct wrong PINs allowed per window; the p_max-th locks
+--   p_window_s the counting window, in seconds
+--   p_lock_s   how long a lock lasts, in seconds
+-- Returns verdict 'ok' | 'bad' | 'locked', the distinct wrong PINs in the
+-- current window, and the lock expiry when locked.
+create or replace function public.gate_check(p_ip text, p_key text, p_ok boolean,
+                                             p_max int, p_window_s int, p_lock_s int)
+returns table (verdict text, fails int, locked_until timestamptz)
+language plpgsql
+security definer
+set search_path = public
+as $$
+#variable_conflict use_column
+declare
+  r      public.auth_throttle%rowtype;
+  now_ts timestamptz := now();
+  stale  boolean;
+begin
+  -- A right PIN from an IP with no recent failures is the common case (every
+  -- poll): one indexed read, no write, no lock held.
+  select * into r from public.auth_throttle where ip = p_ip for update;
+  if not found and p_ok then
+    return query select 'ok'::text, 0, null::timestamptz;
+    return;
+  end if;
+  if not found then
+    insert into public.auth_throttle (ip, fails, first_fail, locked_until, keys)
+    values (p_ip, 0, now_ts, null, '{}')
+    on conflict (ip) do nothing;
+    select * into r from public.auth_throttle where ip = p_ip for update;
+  end if;
+
+  -- Locked: nobody from this IP gets any other answer, not even a right PIN.
+  if r.locked_until is not null and r.locked_until > now_ts then
+    return query select 'locked'::text, r.fails, r.locked_until;
+    return;
+  end if;
+
+  -- The window has passed, or a lock has expired: the count starts again.
+  stale := r.locked_until is not null or now_ts - r.first_fail > make_interval(secs => p_window_s);
+  if stale then
+    r.keys := '{}';
+    r.first_fail := now_ts;
+    r.locked_until := null;
+  end if;
+
+  if p_ok then
+    -- Earlier failures are NOT cleared by a right PIN: the desk polls from one
+    -- office IP every 20 seconds, so clearing would reset the count for
+    -- anybody else on that network three times a minute.
+    if stale then
+      update public.auth_throttle set fails = 0, first_fail = r.first_fail, locked_until = null, keys = '{}'
+       where ip = p_ip;
+    end if;
+    return query select 'ok'::text, coalesce(array_length(r.keys, 1), 0), null::timestamptz;
+    return;
+  end if;
+
+  if not (p_key = any (r.keys)) then
+    r.keys := r.keys || p_key;
+  end if;
+  r.fails := coalesce(array_length(r.keys, 1), 0);
+  if r.fails >= p_max then
+    r.locked_until := now_ts + make_interval(secs => p_lock_s);
+  end if;
+  update public.auth_throttle
+     set fails = r.fails, first_fail = r.first_fail, locked_until = r.locked_until, keys = r.keys
+   where ip = p_ip;
+  return query select 'bad'::text, r.fails, r.locked_until;
+end
+$$;
+
+-- SECURITY DEFINER, so nobody but the service role may call it.
+revoke all on function public.gate_check(text, text, boolean, int, int, int) from public, anon, authenticated;
+grant execute on function public.gate_check(text, text, boolean, int, int, int) to service_role;
+
+-- Replaced by gate_check (it recorded a failure after a separate lock read,
+-- which a burst could outrun). Nothing else ever called it.
+drop function if exists public.gate_fail(text, text, int, int, int);
+
+notify pgrst, 'reload schema';
+
+
+-- ==============================================================
+-- 11. The lock - no table is reachable with the anon key
+--
+-- The same statements as supabase/app-gate-lock.sql, kept here so a
+-- re-run of this file can never leave a table open. The check at the
+-- end FAILS THE RUN if any anon/authenticated policy survives, or any
+-- table has RLS off - a loud error, not a silently re-opened table.
+-- ==============================================================
+revoke execute on function public.prune_caregiver_availability() from public, anon, authenticated;
+grant  execute on function public.prune_caregiver_availability() to service_role;
+
+-- Caregiver photos: uploads and removals go through app-gate. The bucket
+-- stays PUBLIC, so <img> reads of /object/public/... keep working - the
+-- public route does not consult these policies.
+drop policy if exists "anon read caregiver photos"   on storage.objects;
+drop policy if exists "anon upload caregiver photos" on storage.objects;
+drop policy if exists "anon update caregiver photos" on storage.objects;
+drop policy if exists "anon delete caregiver photos" on storage.objects;
+
+do $$
+declare n int;
+begin
+  select count(*) into n from pg_policies
+   where (schemaname = 'public' or (schemaname = 'storage' and tablename = 'objects'))
+     and roles && array['anon','authenticated','public']::name[];
+  if n <> 0 then
+    raise exception 'schema.sql: % anon/authenticated/public policies exist - the PIN gate expects none', n;
+  end if;
+  select count(*) into n from pg_class c join pg_namespace s on s.oid = c.relnamespace
+   where s.nspname = 'public' and c.relkind = 'r' and not c.relrowsecurity;
+  if n <> 0 then
+    raise exception 'schema.sql: % public tables have RLS off', n;
+  end if;
+end $$;
 
 notify pgrst, 'reload schema';
