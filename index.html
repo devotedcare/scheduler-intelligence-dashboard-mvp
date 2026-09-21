@@ -54,6 +54,17 @@
      Supabase client library any more: every read and write goes through the
      app-gate Edge Function with the desk PIN. See GATE at the top of the script. -->
 <script src="config.js"></script>
+<script>
+/* A PIN already on this computer: the lock screen stays hidden from the very
+   first paint while GATE checks it silently, and only appears if the PIN is
+   refused (or cannot be checked). Runs in <head>, before <body> is drawn, so it
+   never even flashes. GATE.show() removes the class. The key matches GATE's KEY. */
+(function(){ try{
+  var c = window.SCHEDULER_CONFIG || {};
+  if(c.supabaseUrl && c.supabaseAnonKey && (localStorage.getItem('dcs_gate_pin_v1') || sessionStorage.getItem('dcs_gate_pin_v1')))
+    document.documentElement.className += ' pg-held';
+}catch(e){} })();
+</script>
 <style>
   :root{
     /* Structural — navy + charcoal carry ALL chrome and hierarchy */
@@ -2660,6 +2671,7 @@ body.ai-white .main{display:flex;flex-direction:column;min-height:100vh}
    Visible from the first paint: .pingate is display:flex until GATE hides it,
    so the app can never flash up behind it. Opaque on purpose - after a lock
    the live dashboard is still in the page underneath. */
+html.pg-held .pingate{display:none!important}
 .pingate{position:fixed;inset:0;z-index:50000;display:flex;align-items:center;justify-content:center;padding:16px;background:var(--sidebar);overflow:auto}
 .pg-card{box-sizing:border-box;width:100%;max-width:360px;background:var(--surface);border-radius:10px;border-top:3px solid var(--brand);box-shadow:0 18px 50px rgba(0,0,0,.32);padding:24px 24px 20px;display:flex;flex-direction:column;gap:8px;font-family:'Inter',system-ui,sans-serif;color:var(--ink)}
 .pg-brand{font-size:11px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:var(--ink-faint)}
@@ -2754,6 +2766,13 @@ body.ai-white .main{display:flex;flex-direction:column;min-height:100vh}
    next request - the poll, a save, an availability read - including one
    that has been open for days. The only time anybody types it is the first
    time on a computer, and when it is wrong.
+
+   THE LOCK SCREEN APPEARS ONLY WHEN IT HAS SOMETHING TO SAY: no PIN on this
+   computer yet, a PIN the server refuses, a network lockout, or a server that
+   cannot be reached. A PIN already held is checked silently at load (the
+   'pg-held' class, set in <head>, keeps the screen hidden from the first
+   paint) and nothing starts until that check says yes - fail closed, as
+   ever, just without showing a PIN page for a second on every refresh.
 
    THE TABS OF ONE COMPUTER MOVE TOGETHER (the 'storage' listener below). A
    PIN accepted in one tab unlocks every tab showing the lock screen; a
@@ -2993,6 +3012,7 @@ var GATE = (function(){
     btn.textContent = (m === 'unreachable' && pin()) ? 'Try again' : 'Unlock';
     if(m !== 'checking') input.value = '';
     g.style.display = '';
+    document.documentElement.classList.remove('pg-held');
     setInert(true);
     /* Focus always moves INTO the dialog - onto the card while the input is
        disabled - so it can never be left on something hidden behind it. */
@@ -3046,8 +3066,12 @@ var GATE = (function(){
   /* POST {pin} with no action: app-gate answers {ok:true} and does nothing
      else. "typed" separates a PIN somebody just entered from one this tab
      already held (a reload), which reads as "changed" when it is refused. */
-  function verify(p, typed){
-    busy = true; show('checking');
+  function verify(p, typed, silent){
+    busy = true;
+    /* silent: the PIN this computer already holds, checked at load with the lock
+       screen kept hidden. Only a refusal (or no answer) brings the screen up,
+       through the show() calls below. */
+    if(!silent) show('checking');
     return post({ pin: p }).then(function(res){
       return res.json().catch(function(){ return {}; }).then(function(j){
         j = j || {};
@@ -3083,7 +3107,7 @@ var GATE = (function(){
     stampNow().then(function(t){ if(loadTag === null) loadTag = t; });
     var p = pin();
     if(!p){ lock('enter'); return; }
-    verify(p, false);
+    verify(p, false, true);
   }
 
   /* ONE PIN PER COMPUTER: the other tabs of this browser hear about it here.

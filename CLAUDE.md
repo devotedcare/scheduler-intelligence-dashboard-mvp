@@ -4060,6 +4060,18 @@ past such a check could never be cut off, which is the whole point.
 > reload. The trade-off is plain: anybody using that browser on that computer
 > gets in until the PIN changes. Clearing the site data forgets it.
 
+> **The PIN page appears only when it has something to say** (also
+> 2026-09-21): no PIN on this computer yet, a PIN the server refuses, a
+> network lockout, or a server that cannot be reached. A PIN already held is
+> checked **silently** at load — a tiny script in `<head>` adds `pg-held` to
+> `<html>`, which hides `#pingate` from the first paint, and `GATE.show()`
+> removes it. The check itself is unchanged and still runs **before** anything
+> starts, so this is fail closed exactly as before; it only stopped a PIN page
+> saying "Checking…" flashing up on every refresh. Measured in the page test
+> by counting every animation frame from the first: zero frames of the lock
+> screen on a refresh with a good PIN. **Claude: keep the `<head>` key and
+> `GATE`'s `KEY` the same** (`dcs_gate_pin_v1`).
+
 ```
 npx supabase secrets set APP_PIN=<new pin> --project-ref gdzgoyawavffjdjpjbfz
 delete from public.auth_throttle;      -- in the SQL editor: clears every lockout
