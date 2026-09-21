@@ -1154,6 +1154,17 @@ window and a range search can name thirty.
 > runs past 24, and files last night's tail on the date it actually occupies —
 > the same three-source rule `carvableVisits()` uses.
 
+> **The same one-hour trap sat in `coverageMatches()` until 2026-09-21**, on the
+> shift side this time. It handed `covClash()` `start + 1` for any shift whose
+> end was not after its start, so on every **overnight** shift the double-booking
+> check covered the first hour alone — somebody booked from 9pm was cleared for
+> a 7pm–1am shift. It now passes the real end, which `covClash()` already turns
+> into end + 24 — an end *equal* to the start included, which is a 24-hour
+> live-in shift and is how `coverageDetail()` reads it too — and keeps
+> `start + 1` only for an end AxisCare did not give. The date search always
+> passed the real end. Still not covered, on either screen: a visit that
+> *starts* after midnight, because it is filed on the next date.
+
 The excluded simply disappear; there is no greyed-out section. The one place
 they are described is `covEmptyReason()`, which runs **only when the list
 comes back empty**, because that is the only time the difference matters:
@@ -1213,7 +1224,9 @@ clients (Mary Lou Brown, Ziad Niazi) where Concierge plainly records that one is
 
 It now reads `client_match_prefs.driving_required` through `CLMATCH`, with
 `cl.drivingRequired` left underneath for seed clients. 10 clients require a
-driver, 6 explicitly do not.
+driver, 6 explicitly do not — **12 and 7 of the 24 active clients** when
+re-measured on 2026-09-21. What a caregiver who cannot drive them looks like on
+the list is under *The calling list shows warnings only*.
 
 ### How Find Coverage ORDERS the list — the client first, then the caregiver
 
@@ -1229,16 +1242,20 @@ what the caregiver wants decides within that, and geography breaks what is left.
 | **Client** | On this client's Concierge list | **+60** |
 | | AxisCare `preferredCaregiver` | **+50** |
 | | Worked with this client **in the last 30 days** | **50 + (visits−1) × 1.5**, capped 70 |
-| | Client needs a driver — and they drive | +10 (**never a penalty**) |
+| | Client needs a driver — and `covDrives()` says they can drive clients | +10 (**never a penalty**) |
 | **Caregiver** | Client's city is one they asked for | +12 |
-| | Shift is past their stated `maxMiles` | −25 |
+| | The drive is more than 20% past their stated `maxMiles`, in **road** miles | −25 |
 | | Client's gender matches their own stated comfort / doesn't | +8 / −15 |
 | | Shift falls in hours they prefer | +6 |
-| Logistics | Distance | 0…20, **null if the city is unknown** |
-| | 32+ hrs / 40+ hrs this week | −8 / −25 |
+| Logistics | Drive time | `max(0, 20 − 0.45 × minutes)`: 0…20, the client's own city 20, **nothing if either city is unknown** |
+| | 32+ hrs / 40+ hrs already booked in the shift's Mon–Sun week | −8 / −25 |
+
+None of these points is shown. The scheduler sees the order, the client's own
+reason for a caregiver as grey text, and amber or red warnings — see *The
+calling list shows warnings only*.
 
 **The magnitudes are load-bearing, not taste.** Everything on the caregiver's
-side tops out at **+26** and distance adds at most **+20**, so **46** is the most
+side tops out at **+26** and drive time adds at most **+20**, so **46** is the most
 the caregiver's side and the geography can ever contribute. The three terms that
 say *the client asked for this person* — Concierge list, AxisCare preferred,
 worked here recently — are each worth more than 46 on their own, so none can be
@@ -1246,8 +1263,37 @@ overturned by preferences and geography. That is what makes "the client first"
 arithmetic rather than an average. **Change one of those three and re-check it
 still holds.**
 
-The driving term (+10 / −20) is deliberately *not* in that group: it is a
+The driving term (+10) is deliberately *not* in that group: it is a
 requirement of the placement, not a request for a person.
+
+#### Weekly hours — what ranks, and what does not
+
+Asked on 2026-09-21 ("how does min hours per week affect the ranking?"), and the
+answer is **it does not**. Nothing that ranks caregivers reads `ops.minHours`,
+`ops.maxHours`, `ops.minShift` or `ops.maxShift`; they feed the Work Preferences
+card, Needs Update, Recent Updates and the availability report only.
+
+What ranks is the hours a caregiver is **already booked** in AxisCare in the
+Monday–Sunday week of the shift, not counting the open shift itself
+(`covWeekHours()` over `COVHIST`): 32–39 is −8 with the amber *36 h already
+booked that week* chip, 40 or more is −25 with the amber *At 40 hrs —
+overtime* chip. Every other hours term in the file reads `c.weekHrs`, which is
+`null` on every live caregiver, so none of them runs. The "N h this week" text
+came off the row on 2026-09-21 at Mitch's request — it read "0 h this week" on
+most rows and helped nobody choose who to ring — and the scoring did not
+change. The 32–39 chip was added the same day, because with the text gone that
+−8 had become invisible.
+
+**Do not give the min/max a reader without cleaning the data first.** Measured
+2026-09-21 on the 109 schedulable caregivers: the minimum is exactly **20** on
+104 of them, the old demo default, re-saved by the Work Preferences editor on
+every save because it writes back what the form showed; there is no
+`min_hours` column anywhere, so no real minimum exists outside the overlay. The
+maximum is a leftover **40** in the overlay that hides the real
+`caregiver_profile.max_hours` on 43 of them (so the card reads "20–40 hours"),
+and four records hold a minimum above the maximum. Even with clean data, a
+minimum-hours boost has about **+3** of room before it could outrank a caregiver
+the client asked for.
 
 #### `match_state` is NAME RESOLUTION, not strength of preference
 
@@ -1291,19 +1337,114 @@ the ranker believed nobody was preferred.
   never reach the screen. **If that filter ever goes, this has to come back.**
 - **The blanket "Driver" chip** — pushed onto every driver (69% of rows) and
   worth exactly zero unless the client needs one. It filled a chip slot while
-  explaining nothing. Driving still shows as a plain fact on the row.
+  explaining nothing. The grey "Driver" fact that replaced it went on
+  2026-09-21 with the green chips.
 
-#### `miles()` fabricates 30 for an unknown city — use `milesOrNull()` to score
+#### The calling list shows warnings only — 2026-09-21
 
-`miles()` answers **30** when either city is missing from the 12-entry `CITY`
-map. The ranker scored that as `max(0, 20 − 30×0.8)` = **zero** — a worse verdict
-than the furthest real distance in the county — and the row printed
-*"30 mi from client"* as though somebody had measured it.
+Mitch's call: the green chips were noise, and only amber and red warnings
+should show. **Claude: do not bring a green chip back.** Every positive term
+still scores exactly as before; only its chip went — *On this client's list*,
+*Preferred caregiver*, *Worked N visits here in 30 days*, *Drives — this client
+needs it*, *Wants to work in X*, *Hours they prefer* and *Closest available*.
 
-`milesOrNull()` is identical on all 144 known city pairs and returns `null`
-instead. **`miles()` itself is deliberately unchanged**: a dozen other call sites
-treat its answer as a number and would break on null. Anything that *scores* or
-*displays* a distance should use `milesOrNull()` and say "Distance not known".
+On the live board **every #1 row was explained by green chips alone**, so
+removing them outright would have left *Call in this order* with no reason on
+screen. The terms that decide a row's place therefore moved into
+`covMatchRow()`'s grey facts line rather than vanishing — the three that say
+the client asked for this person, and the caregiver's own preferred city:
+
+```
+Mariah Villarreal
+~15 mins away · Worked with this client in 30 days
+
+Desiree Gonzales
+~50 mins away · Asked to work in Simi Valley
+```
+
+The city was added the same day, after Carlo asked why Desiree (~50 mins) sat
+above Marysinia Ragon (~30 mins) on Patricia McGrath's shift. The answer was
++12 for asking to work in Simi Valley, and −8 on Ragon for 36 hours already
+booked that week — both invisible once the chips went. Still unshown, by
+choice: the drive term itself (the minutes say it), preferred hours (+6),
+client-gender comfort (+8) and the driving bonus (+10). So a row can still sit
+a few points above another for a reason not on screen.
+
+Also gone from that line: *Available for this shift* (true of every row —
+availability is a hard gate), *Driver*, and *N h this week* (see *Weekly
+hours*).
+
+What is left is warnings, never capped, red first:
+
+| Chip | Colour | When |
+|---|---|---|
+| Doesn't drive clients — this client needs a driver | **red** (`.cvm-tag.crit`) | `covDrives()` says no — see *Three places where absence…* |
+| Driving records disagree — this client needs a driver | amber | the driving records contradict each other |
+| Driving not recorded — this client needs a driver | amber | nobody has recorded anything |
+| Past their ~20 min travel limit | amber | the drive is more than 20% past their `maxMiles` |
+| Prefers female / male clients | amber | a *typed* client-gender preference the client does not fit |
+| 36 h already booked that week | amber | 32–39 hours already booked in the shift's week (−8) |
+| At 40 hrs — overtime | amber | 40+ hours already booked in the shift's week (−25) |
+
+Every chip carries its evidence in a tooltip (`why[].tip`): which records said
+what, the caregiver's own limit in miles, their typed preference, or where the
+hours come from. The red class is new and built on the existing `--crit-tx` /
+`--crit-bg` tokens.
+
+When Client Concierge cannot be read, `covClientPrefs()` returns
+`drivingKnown: false` and the note above the list says driving was **not
+checked** — a list with no driving chip must never read as "checked and
+clear". The same contract as `genderKnown` and `matchKnown`.
+
+#### Drive time comes from `DRIVE_TIMES`, not the `CITY` grid
+
+Added 2026-09-21: Mitch asked for time instead of distance, because a scheduler
+reads "~20 mins away" faster than a mileage. Both Find Coverage screens now show
+drive time, and neither reads `miles()` or `CITY` for it.
+
+`DRIVE_TIMES` (beside `CITY` in `index.html`) holds **[minutes, road miles]**
+between two city centres — free-flow, **no traffic**, the mean of both
+directions — generated once from OpenStreetMap routing by
+`scripts/drive-times.js` and pasted in. The page never calls a routing service,
+no address ever leaves the browser, and there is no key. Read it through
+`driveBetween(a, b)`, which returns `{same, min, mi}` or `null`; format with
+`fmtDrive()`, which rounds to 5 minutes because city-centre data cannot
+honestly say 17.
+
+**Why a table and not a formula over the grid.** `CITY` is a proximity grid,
+not a road map, and turning its miles into minutes keeps its mistakes. Measured
+2026-09-21 against real routes: across its 66 pairs the grid reads about
+two-thirds of the road miles and is up to 27 minutes out, and for a Camarillo
+client — 10 of the 24 active clients — it put Ventura caregivers closer than
+Oxnard ones when the drives are 20 and 15 minutes. `driveMin()` (miles × 1.6 +
+2) was already in the file, and only on screens nothing opens any more.
+
+What a row says, and why:
+
+| Row | Means |
+|---|---|
+| `~15 mins away` | the table has the pair; the tooltip gives road miles and "without traffic" |
+| `Same city as client` | both in one city. Not a number: inside Oxnard (10 × 12 miles) it could be 5 minutes or 20 |
+| `Drive time not known` | a city is missing, blank, or not in the table. It scores nothing, exactly as the old unknown city did |
+
+**Adding a city** is a line in `scripts/drive-times.js` and a regeneration.
+*Los Angeles* is left out on purpose — 47 miles across, so no one point answers
+for it — and those caregivers read "not known" until their neighbourhood is
+recorded. Lemoore is in: it is where AxisCare says one caregiver lives, and a
+four-hour drive on the row is how that address gets noticed. **The point that
+stands for a city matters** (moving Simi Valley's shifted its pairs by 3–4
+minutes), so the script keeps them fixed.
+
+The date search says `~15 mins from Camarillo` / `In Camarillo` against the city
+the search was **run** with, and nothing at all under *Any city* — it used to
+print "0mi" on every row, and "30mi" for anyone the grid did not know.
+
+`milesOrNull()` is gone. `miles()` stays, still answering a made-up 30 for an
+unknown city, because its remaining callers (Auto-offer, the old match cards,
+the manual and recurring searches) sit on screens no navigation reaches.
+**Do not give it a new caller.** An unknown city still scores 0 on the drive
+term — the same as the furthest drive — which is an old decision this change
+did not revisit.
 
 #### The caregiver's own preferences — `cgWants()`
 
@@ -1322,7 +1463,11 @@ tag fallback), and `ops.prefTimes` (44).
 > `20/16`, `20/12`, `20/8`, a minimum above the maximum, which nobody typed.
 > Live caregivers take `axisOps()`, which sets both to `null`; the values
 > survive only because `CARRY` faithfully re-emits patches from a code path
-> the roster no longer takes.
+> the roster no longer takes. Still true on 2026-09-21 — 104 of 109
+> schedulable caregivers read `20`, and **four** records (not three: 413,
+> 617, 628, 997) now hold a minimum above the maximum — and the Work
+> Preferences editor re-saves it too; see *Weekly hours — what ranks, and
+> what does not*.
 
 **`maxMiles` is a penalty, not a gate** — Carlo's call, 2026-09-08. The hard
 gates already decided who can genuinely be called, and somebody who said 15
@@ -1346,6 +1491,55 @@ points — and printed a red chip asserting it — on evidence nobody entered.
   every save, so a scheduler editing only the travel miles launders "never
   asked" into a recorded No. A penalty can come back only when a real
   "does not drive" answer gets a field no editor can write by omission.
+
+  **Since 2026-09-21 it is a warning** — still no penalty (Carlo). For a client
+  Concierge says needs a driver, `covDrives()` answers *can this caregiver
+  drive the client?* from stated answers only: these are elderly clients who
+  need to be driven, so **"can drive clients"**
+  (`caregiver_profile.can_transport_clients`) decides first, and the licence
+  (`can_drive`, the AxisCare `DL` / `WDL` tags) only when that is silent. A
+  value counts as a change made on this dashboard when Recent Updates recorded
+  a change to **that field** (`covDriveAudit()`) or it now differs from the
+  profile row; such a change is the latest word and stands alone, over the
+  profile and the tags — the same rule as a typed CNA answer over the CNA tag.
+  The raw row comes from `ROSTER.profileOf()`, because `applyProfile()` folds
+  it into `c.driver`.
+
+  **Only these Recent Updates labels count:** *Driving status updated* (Work
+  Preferences) and *Driving updated* (Ask Devi) for the licence, and *Can drive
+  clients updated* (both) for driving clients. **Not *Transportation updated*.**
+  That CG_WATCH key covered "Has own vehicle" and "Can drive clients" together,
+  so a vehicle-only edit logged it while the editor quietly saved its seeded
+  guess for "Can drive clients" — and reading it gave Puspa Sari (a1161) a red
+  chip from a value nobody typed. It was split into *Has own vehicle* and *Can
+  drive clients* on 2026-09-21; the second watches the **effective**
+  `canDriveClients(c)`, so an untouched save logs nothing. Old *Transportation
+  updated* entries cannot say which half changed, so they count for nothing.
+  Ask Devi's `DV_PREF_FIELDS` now tries *Can drive clients* before *Driving*,
+  because the driving regex also matched "can drive clients" and recorded a
+  licence instead.
+
+  | `covDrives()` | Chip | Score |
+  |---|---|---|
+  | yes | none | +10 |
+  | no | red *Doesn't drive clients* | nothing |
+  | conflict — can drive clients but no licence, or the licence sources disagree | amber *Driving records disagree* | nothing |
+  | nothing recorded | amber *Driving not recorded* | nothing |
+
+  **Never read `ops.prefs.driver` as evidence.** The laundering above is not
+  hypothetical: on 2026-09-15 one pass through Work Preferences stamped the
+  tag guess into `ops.prefs.driver` for all 105 schedulable caregivers, 35
+  seconds apart, with **zero** *Driving status updated* entries in Recent
+  Updates — no value changed, and every one now looks answered. Needs Update
+  counts that stamp as an answer, so it has stopped asking anyone about
+  driving; the editor still offers only Yes / No and starts on the guess. Both
+  are known and **not** fixed by this change.
+
+  The +10 follows `covDrives()`, not `c.driver`, so a caregiver recorded as a
+  driver (a licence tag, or the profile's `can_drive`) whose profile says they
+  do not drive clients no longer earns points for driving while wearing a red
+  chip. On the live board of 2026-09-21 that was Rosalie Cruz (profile), and
+  Bernadette Lazaro and Angela Zuniga (DL tag).
 - **Client gender.** `prefVal()` falls back to the AxisCare `CFC`/`CMC` tags and
   reads a present `CFC` with an absent `CMC` as *"Female clients"* — but nobody
   ever ticked `CMC`, so that absence is silence. **A tag may earn the bonus and
@@ -1368,20 +1562,31 @@ points — and printed a red chip asserting it — on evidence nobody entered.
 > a different door: a boolean `false` that means "never asked" is exactly as
 > dangerous as `null < 85`.
 
-#### `CITY` is a proximity grid, not road miles
+#### The travel limit is checked against ROAD miles, with 20% leeway
 
-The `maxMiles` comparison measures a caregiver's stated limit against `CITY`,
-which is a synthetic coordinate grid: its widest span, Port Hueneme → Simi
-Valley, computes **25** where the real drive is roughly double. So the penalty
-**under-fires** — it misses some genuinely-too-far shifts and cannot invent one,
-which is the safe direction. The number in the chip is the caregiver's own
-stated limit, which is real; the comparison against it is not precise.
+Until 2026-09-21 a caregiver's stated `maxMiles` was measured against the
+`CITY` grid, whose ceiling is **25**, so a limit of 25 or more (31 of the 104
+schedulable caregivers then) could never fire. It is now measured against the
+road miles in `DRIVE_TIMES`.
 
-**25 is the grid's ceiling**, so a stated limit of 25 or more can never trigger
-the penalty at all — that is **31 of the 104** schedulable caregivers (25 mi: 14,
-30 mi: 11, and a tail at 29/35/40/50). Tightening `CITY` is the fix.
-**Do not "fix" it by raising the 1.9 multiplier** — the same number feeds the
-0…20 distance term, so it would silently re-weight every row on every list.
+> This section used to say the grid's widest span, Port Hueneme → Simi Valley,
+> is "roughly double" in reality. It is not: that drive is **30.1 road miles,
+> about 47 minutes**. The grid's worst errors are elsewhere — Westlake Village →
+> Simi Valley reads 4 grid miles against 15 road miles.
+
+**The 20% leeway is deliberate — Carlo, 2026-09-21.** Against road miles with
+none, the −25 fired on 2.4× as many caregiver-client pairs as on the grid, and
+most of the new ones were within 20% of the limit — inside the noise of where
+each city's point sits (a stated 10 miles against the 10.6-mile
+Oxnard → Camarillo drive). So it fires only when the drive is more than 20% past
+what they said.
+
+**The chip reads in minutes** — *Past their ~20 min travel limit* — because the
+desk asked for time throughout. That is the caregiver's own miles converted at
+this route's own speed, and it is never shown as the same figure as the drive
+beside it. What the caregiver actually said, in miles, is in the tooltip.
+
+The same city, or a city not in the table, never fires it.
 
 #### Preferred cities must go through `normCity` too
 
@@ -1393,10 +1598,11 @@ nobody and looked like it was simply unpopular. `cgWantsCity()` now normalises
 both sides, and `CITY_FIX` gained `Westlake`, `Westlake Vlg` and
 `Westlake Village Ca`.
 
-> Worth knowing: `milesOrNull()` **surfaced** this rather than causing it. The
-> old fabricated 30 quietly absorbed every unmapped city, so nobody could see
-> which ones were missing. Expect more of these to become visible — that is the
-> point of the change, and each one is a one-line `CITY_FIX` or `CITY` entry.
+> Worth knowing: `milesOrNull()` (since replaced by `driveBetween()`)
+> **surfaced** this rather than causing it. The old fabricated 30 quietly
+> absorbed every unmapped city, so nobody could see which ones were missing.
+> Expect more of these to become visible — each one is a one-line `CITY_FIX`
+> entry, or a city added to `scripts/drive-times.js`.
 
 `cgWantsHours()` requires **every** band the shift touches to be one they asked
 for. A caregiver who picked *Morning* has not volunteered for an 8a–8p shift
@@ -4848,6 +5054,11 @@ AxisCare ids would break; and AxisCare city strings are dirty — `CAMARILLO`,
 > 104 schedulable caregivers** live in a city the 12-entry `CITY` map does not
 > know — not ~40. Seven of the eight have Open availability typed, so it is a
 > live problem, just a small and fixable one: add their cities to `CITY`.
+>
+> **Superseded 2026-09-21:** drive time comes from `DRIVE_TIMES` now, which
+> already knows every home city on the roster except *Los Angeles* (too broad
+> to map) and one blank address. Add a new city to `scripts/drive-times.js`,
+> not to `CITY` — that map is only the Location picker's list any more.
 
 ---
 
