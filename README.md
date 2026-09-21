@@ -97,9 +97,10 @@ CHANGELOG.md                   What changed, and why — including the
                                both contain real data.
 ```
 
-The only third-party code loaded at runtime is Inter from Google Fonts and
-`@supabase/supabase-js` from jsDelivr. Charts are hand-drawn SVG — there is no
-charting library.
+The only third-party code loaded at runtime is Inter from Google Fonts (and, on
+a Reports PDF export only, jsPDF and html2canvas from cdnjs). There is no
+Supabase client library: the page reaches Supabase only through the `app-gate`
+Edge Function. Charts are hand-drawn SVG — there is no charting library.
 
 ---
 
@@ -804,7 +805,8 @@ oversight:
 
 - **The dashboard opens behind a desk PIN** (since 2026-09-18). It is not a
   login — the desk shares one PIN — but it is the credential for every Supabase
-  read and write. The browser holds it for the tab and sends it with **every**
+  read and write. The browser remembers it once per computer (every tab shares
+  it, so it is typed only the first time and when it is wrong) and sends it with **every**
   request to the `app-gate` Edge Function, which checks it against the
   `APP_PIN` secret and only then works with the service-role key. There is no
   session and no token, so **changing `APP_PIN` locks out every open tab on its

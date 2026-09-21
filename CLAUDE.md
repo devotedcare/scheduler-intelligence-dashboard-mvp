@@ -4039,13 +4039,26 @@ it was and no way to stop it, because the key in the page was all it needed. A
 PIN checked once at load would not have helped: that tab was already past the
 gate. So:
 
-- the PIN is kept in `sessionStorage` for that tab and **sent with every
-  request**. There is no session, no token and no "verified" flag;
+- the PIN is remembered in `localStorage`, **once per computer**, and **sent
+  with every request**. There is no session, no token and no "verified" flag.
+  Somebody types it only the first time on a computer, and when it is wrong;
 - **changing `APP_PIN` locks out every open tab on its next request** — the
   20-second poll at the latest — including one left open for days.
 
 **Claude: do not replace this with a token, a cookie or a check at load.** A tab
 past such a check could never be cut off, which is the whole point.
+
+> **Once per computer since 2026-09-21**, at Mitch's request: it was
+> `sessionStorage` (once per tab), and typing it in every new tab was the
+> annoyance. Nothing about the check changed — it is still sent with every
+> request, so a PIN change still locks out every computer. The tabs of one
+> computer move together through a `storage` listener: a PIN accepted in one
+> tab unlocks every tab on the lock screen, a stored PIN the server refuses is
+> forgotten and locks the rest at once, and a refusal only ever forgets the PIN
+> it actually sent, so a tab still carrying the old PIN cannot wipe the new one.
+> A tab from before the change has its `sessionStorage` PIN moved across on
+> reload. The trade-off is plain: anybody using that browser on that computer
+> gets in until the PIN changes. Clearing the site data forgets it.
 
 ```
 npx supabase secrets set APP_PIN=<new pin> --project-ref gdzgoyawavffjdjpjbfz
@@ -4179,8 +4192,8 @@ re-run: it creates no anon policy, and its section 11 fails loudly if one exists
   the credential they were missing — the page already holds it — so putting them
   behind it is the natural next step. The proxy is Carlo's (see *Who does what*).
 - **Caregiver photos are read from a public URL**: an `<img>` cannot send a PIN.
-- **The PIN sits in `sessionStorage`**, so any script injected into the page can
-  read it. Text from outside the desk must go through `escText()`, never
+- **The PIN sits in `localStorage`** (once per computer), so any script injected
+  into the page can read it. Text from outside the desk must go through `escText()`, never
   `esc()` — see *Three traps* under Ask Devi.
 
 ---

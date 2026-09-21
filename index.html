@@ -2692,7 +2692,7 @@ body.ai-white .main{display:flex;flex-direction:column;min-height:100vh}
     <label class="pg-lab" for="pg-pin">PIN</label>
     <input class="pg-pin" id="pg-pin" type="password" inputmode="numeric" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="64" disabled>
     <button class="pg-btn" id="pg-go" type="submit" disabled>Unlock</button>
-    <div class="pg-foot">The PIN is checked on every save and every read. If it changes, you will be asked for the new one.</div>
+    <div class="pg-foot">You only enter the PIN once on this computer. It is still checked on every save and every read, and if it changes you will be asked for the new one.</div>
   </form>
 </div>
 <script>
@@ -2745,11 +2745,21 @@ body.ai-white .main{display:flex;flex-direction:column;min-height:100vh}
    anon policies, so the anon key in config.js can read and write nothing on
    its own - it only gets a request past the Supabase gateway.
 
-   THE PIN IS THE CREDENTIAL, AND IT IS SENT EVERY TIME. It is held in
-   sessionStorage for this tab only. There is no session, no token and no
-   "verified" flag: app-gate checks the PIN on every request, so changing
-   APP_PIN locks out every open tab on its very next request - the poll, a
-   save, an availability read - including one that has been open for days.
+   THE PIN IS THE CREDENTIAL, AND IT IS SENT EVERY TIME. It is remembered in
+   localStorage, ONCE PER COMPUTER: every tab of this browser shares it, so a
+   new tab or a restart opens straight in (asked for 2026-09-21 - typing it
+   in every new tab was the annoyance). There is still no session, no token
+   and no "verified" flag: app-gate checks the PIN on every request, so
+   changing APP_PIN locks out every open tab on every computer on its very
+   next request - the poll, a save, an availability read - including one
+   that has been open for days. The only time anybody types it is the first
+   time on a computer, and when it is wrong.
+
+   THE TABS OF ONE COMPUTER MOVE TOGETHER (the 'storage' listener below). A
+   PIN accepted in one tab unlocks every tab showing the lock screen; a
+   stored PIN the server refuses is forgotten, which locks the rest at once.
+   A refusal only ever forgets the PIN it actually sent, so a tab still
+   carrying the old PIN cannot wipe the new one another tab just stored.
    That is the requirement. Do not replace it with a token or a check at
    load: a tab already past such a check could never be cut off, and that
    is exactly the browser nobody can identify.
@@ -2800,11 +2810,21 @@ var GATE = (function(){
   var locked = ON, started = false, onStart = null, busy = false;
   var mode = 'enter', until = 0, tick = null;
   var hooks = [], loadTag = null;
-  var memPin = '';          /* only if sessionStorage throws (some private windows) */
+  var memPin = '';          /* only if localStorage throws (some private windows) */
 
-  function pin(){ try{ var v = sessionStorage.getItem(KEY); if(v != null) return v; }catch(e){} return memPin; }
-  function keep(p){ memPin = p; try{ sessionStorage.setItem(KEY, p); }catch(e){} }
-  function forget(){ memPin = ''; try{ sessionStorage.removeItem(KEY); }catch(e){} }
+  /* The PIN this computer holds. A tab opened before 2026-09-21 kept it in
+     sessionStorage; it is moved across rather than asked for again. */
+  function pin(){
+    try{
+      var v = localStorage.getItem(KEY);
+      if(v != null) return v;
+      var s = null; try{ s = sessionStorage.getItem(KEY); }catch(e2){}
+      if(s){ try{ localStorage.setItem(KEY, s); sessionStorage.removeItem(KEY); }catch(e3){} return s; }
+      return '';
+    }catch(e){ return memPin; }
+  }
+  function keep(p){ memPin = p; try{ localStorage.setItem(KEY, p); }catch(e){} try{ sessionStorage.removeItem(KEY); }catch(e){} }
+  function forget(){ memPin = ''; try{ localStorage.removeItem(KEY); }catch(e){} try{ sessionStorage.removeItem(KEY); }catch(e){} }
   function isLocked(){ return ON && (locked || !pin()); }
 
   function lockedError(){
@@ -2833,9 +2853,13 @@ var GATE = (function(){
         lock('throttled', j);
         throw lockedError();
       }
-      /* Forget only the PIN this request carried: one that left before the
-         desk typed a new PIN must not wipe the new one. */
-      if(pin() === used) forget();
+      /* Forget only the PIN this request carried. The PIN is shared by every
+         tab of this computer, so if another tab has already stored a NEWER
+         one, this refusal was about the old PIN: leave the new one alone and
+         do not lock - the next request carries the new PIN. */
+      var held = pin();
+      if(held && held !== used) throw new Error('The desk PIN was just updated on this computer \u2014 try again.');
+      if(held === used) forget();
       if(j.error === 'bad_pin') lock(started ? 'changed' : 'wrong', j);
       else lock('denied', j);
       throw lockedError();
@@ -2848,7 +2872,13 @@ var GATE = (function(){
   function call(action, payload){
     if(!ON) return Promise.reject(new Error('No Supabase keys on this build.'));
     var p = pin();
-    if(locked || !p) return Promise.reject(lockedError());
+    if(locked || !p){
+      /* The stored PIN went away under a running tab (another tab's refusal,
+         or site data cleared): say so, rather than failing every request in
+         silence behind a screen that looks unlocked. */
+      if(!locked && started) lock('changed');
+      return Promise.reject(lockedError());
+    }
     var body = {};
     if(payload) for(var k in payload) if(Object.prototype.hasOwnProperty.call(payload, k)) body[k] = payload[k];
     if(action) body.action = action;
@@ -3055,6 +3085,24 @@ var GATE = (function(){
     if(!p){ lock('enter'); return; }
     verify(p, false);
   }
+
+  /* ONE PIN PER COMPUTER: the other tabs of this browser hear about it here.
+     A PIN stored by one tab (it is only ever stored once accepted) unlocks
+     every tab showing the lock screen - checked with app-gate, as always -
+     and a PIN forgotten by one (the server refused it) locks the rest at once
+     instead of letting each discover it on its next request. */
+  try{
+    window.addEventListener('storage', function(e){
+      if(!ON || e.key !== KEY) return;
+      var v = e.newValue || '';
+      memPin = v;
+      if(v){
+        if(locked && !busy && mode !== 'throttled') verify(v, false);
+      } else if(started && !locked){
+        lock('changed');
+      }
+    });
+  }catch(e){}
 
   return {
     start: start,
