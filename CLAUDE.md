@@ -1196,15 +1196,17 @@ search through `dateSearch()`.
 |---|---|
 | `F` or `M` | that gender only |
 | `null`, or no row for the client | **either gender** — nothing recorded means nobody minds |
-| the table has not loaded | **everyone**, and the note above the list says the preference was not applied |
+| the table has not loaded | **everyone**, and the shift card says the preference was not applied |
 
 That last row is what `genderKnown` exists for. **Claude: do not collapse it
 into `genderPref === null`.** A missing preference and an unread one are
 different answers, and silently treating “could not read it” as “nobody
 minds” would put male caregivers in front of a client who asked for a woman
 with nothing on screen to explain it. `covMatchNote()` states the rule in
-force on every shift, in three versions — applied, not recorded, not loaded
-(and “not yet” reads differently from “not at all”).
+force on every shift, in four values — *Female only* / *Either* / *Still
+loading — not applied* / *Couldn’t read — not applied* (“not yet” reads
+differently from “not at all”). See *What the client asked for sits IN the
+shift card*.
 
 **A caregiver whose gender AxisCare does not record is held back** when a
 preference exists, because they are not *known* to be the gender asked for.
@@ -1350,25 +1352,43 @@ needs it*, *Wants to work in X*, *Hours they prefer* and *Closest available*.
 
 On the live board **every #1 row was explained by green chips alone**, so
 removing them outright would have left *Call in this order* with no reason on
-screen. The terms that decide a row's place therefore moved into
-`covMatchRow()`'s grey facts line rather than vanishing — the three that say
-the client asked for this person, and the caregiver's own preferred city:
+screen. The facts that say the client asked for this person therefore moved
+into `covMatchRow()`'s grey line rather than vanishing:
 
 ```
-Mariah Villarreal
-~15 mins away · Worked with this client in 30 days
+Erma Delassio
+Preferred · Port Hueneme · ~10 mins away · 8 recent visits
 
-Desiree Gonzales
-~50 mins away · Asked to work in Simi Valley
+Elizabeth Galang
+Oxnard · Same city
 ```
 
-The city was added the same day, after Carlo asked why Desiree (~50 mins) sat
-above Marysinia Ragon (~30 mins) on Patricia McGrath's shift. The answer was
-+12 for asking to work in Simi Valley, and −8 on Ragon for 36 hours already
-booked that week — both invisible once the chips went. Still unshown, by
-choice: the drive term itself (the minutes say it), preferred hours (+6),
-client-gender comfort (+8) and the driving bonus (+10). So a row can still sit
-a few points above another for a reason not on screen.
+The order is Mitch's, 2026-09-22: **why this row is here, then where they
+are, then how well they know the client.**
+
+- ***Preferred*** covers both sources — on this client's Concierge list
+  (+60) and AxisCare's `preferredCaregiver` (+50). They say the same thing to
+  a scheduler, so they read the same, and the tooltip names which record it
+  came from.
+- **The home city** then the drive: a scheduler knows the county, so
+  "Camarillo · ~15 mins away" says more than the minutes alone, and it is the
+  one fact on the row needing no tooltip. It is dropped only when AxisCare has
+  no city, where *Drive time not known* stands alone.
+- ***N recent visits*** replaced *Worked 13 visits here in 30 days*, which was
+  the longest thing on the row for the caregivers who most deserve a short
+  one. The thirty-day window is in the tooltip; see `COVHIST` for why it is
+  thirty days and not their whole history with the client.
+
+*Asked to work in X* was there for one day. It is the largest caregiver-side
+term (+12) and it explains a row ~50 mins away sitting above one ~30 mins
+away — Carlo asked exactly that about Patricia McGrath's shift on 2026-09-21,
+where the answer was that +12 plus −8 on the nearer caregiver for 36 hours
+already booked. Mitch read it as noise and it came off on 2026-09-22; the
+hours chip still explains that row, the city term no longer explains itself.
+Also unshown by choice: the drive term (the minutes say it), preferred hours
+(+6), client-gender comfort (+8) and the driving bonus (+10). **A row can sit
+a few points above another for a reason not on screen** — that is the accepted
+cost of chips-as-warnings.
 
 Also gone from that line: *Available for this shift* (true of every row —
 availability is a hard gate), *Driver*, and *N h this week* (see *Weekly
@@ -1378,9 +1398,9 @@ What is left is warnings, never capped, red first:
 
 | Chip | Colour | When |
 |---|---|---|
-| Doesn't drive clients — this client needs a driver | **red** (`.cvm-tag.crit`) | `covDrives()` says no — see *Three places where absence…* |
-| Driving records disagree — this client needs a driver | amber | the driving records contradict each other |
-| Driving not recorded — this client needs a driver | amber | nobody has recorded anything |
+| Doesn't drive clients | **red** (`.cvm-tag.crit`) | `covDrives()` says no — see *Three places where absence…* |
+| Driving records disagree | amber | the driving records contradict each other |
+| Driving not recorded | amber | nobody has recorded anything |
 | Past their ~20 min travel limit | amber | the drive is more than 20% past their `maxMiles` |
 | Prefers female / male clients | amber | a *typed* client-gender preference the client does not fit |
 | 36 h already booked that week | amber | 32–39 hours already booked in the shift's week (−8) |
@@ -1391,10 +1411,61 @@ what, the caregiver's own limit in miles, their typed preference, or where the
 hours come from. The red class is new and built on the existing `--crit-tx` /
 `--crit-bg` tokens.
 
-When Client Concierge cannot be read, `covClientPrefs()` returns
-`drivingKnown: false` and the note above the list says driving was **not
-checked** — a list with no driving chip must never read as "checked and
-clear". The same contract as `genderKnown` and `matchKnown`.
+#### What the client asked for sits IN the shift card — 2026-09-22
+
+`covMatchNote()` was four sentences of prose in a grey panel of its own.
+Mitch asked for the shape of the **Caregiver Matching** card on the client
+page instead — a label and a value per line, and the names as chips — because
+it says the same thing at a glance. The labels deliberately match that card,
+and Client Concierge's own, so the three screens read alike.
+
+Then the panel itself went: it was grey, sitting between the white shift card
+and the grey list header, and read as clutter. The rows are now **inside the
+shift summary card**, under a divider, and the *Caregiver matching* heading
+went with the panel — under the client's name and the shift time, a label
+saying these facts are about caregiver matching tells nobody anything.
+
+```
+Duane & Lynne Georgeson
+Oxnard · Fri, Oct 9 9:00 PM–6:00 AM
+———————————————————————————————————————————
+Caregiver gender preference               Female only
+Driving required                                 Yes
+CAREGIVERS THIS CLIENT ASKED FOR
+[ Erma Delassio ]  [ Aliyah Moran · not available ]
+```
+
+`renderCoverageCommand()` therefore returns **`{match, html}`** rather than a
+string: the facts have to name which of the asked-for caregivers are on the
+calling list, which is only known once that list is built, and `viewCoverage`
+hands `match` to `renderShiftSummary(q, match)`. One `coverageMatches()` run,
+not two.
+
+**Every value still separates "not recorded" from "not read", and that is the
+part not to lose.** Concierge owns all three facts — the gender preference,
+the driving requirement and the asked-for list — which are the largest terms
+in the order. When it cannot be read the list is built without them, and a
+blank value would look exactly like "nothing to apply". So the value says
+which, in red (`.emp-v.crit`), and the tooltip says what it cost:
+
+| | Value |
+|---|---|
+| recorded | `Female only` / `Yes` / the names as chips |
+| nothing recorded | `Either` / `Not recorded` |
+| Concierge still loading | `Still loading — not applied` |
+| Concierge unreadable | `Couldn't read — not applied` |
+
+**Claude: do not collapse those into one empty state**, and do not drop the
+tooltips — they are the only place the cost is stated.
+
+The asked-for caregivers are **named**, and the ones not on the calling list
+are marked rather than dropped. A bare count above a list holding none of them
+reads as a bug in the ranking rather than as an availability problem — on one
+client all five were gone before scoring.
+
+The **AxisCare double-booking check** appears only while it is running or when
+it failed. "Checked and clear" is the normal case and tells a scheduler
+nothing they need.
 
 #### Drive time comes from `DRIVE_TIMES`, not the `CITY` grid
 
@@ -1424,16 +1495,66 @@ What a row says, and why:
 | Row | Means |
 |---|---|
 | `~15 mins away` | the table has the pair; the tooltip gives road miles and "without traffic" |
-| `Same city as client` | both in one city. Not a number: inside Oxnard (10 × 12 miles) it could be 5 minutes or 20 |
+| `Same city` | both in one city, which the row has just named. Not a number: inside Oxnard (10 × 12 miles) it could be 5 minutes or 20 |
 | `Drive time not known` | a city is missing, blank, or not in the table. It scores nothing, exactly as the old unknown city did |
 
 **Adding a city** is a line in `scripts/drive-times.js` and a regeneration.
-*Los Angeles* is left out on purpose — 47 miles across, so no one point answers
-for it — and those caregivers read "not known" until their neighbourhood is
-recorded. Lemoore is in: it is where AxisCare says one caregiver lives, and a
+The table holds every home city on the roster **and every city in the part of
+AxisCare's address dropdown we have seen** — a screenshot of it from
+[None Set] to Reseda — so a record the desk changes tomorrow probably already
+has a drive time. **The rest of that list, S to Z, has never been looked at**,
+so a selection from it can still read "not known"; send a screenshot of the
+rest and it is one regeneration. Lemoore is in: it is where AxisCare says one caregiver lives, and a
 four-hour drive on the row is how that address gets noticed. **The point that
 stands for a city matters** (moving Simi Valley's shifted its pairs by 3–4
 minutes), so the script keeps them fixed.
+
+> That dropdown spells Chatsworth **"Chattsworth"**, so `CITY_FIX` carries the
+> misspelling. It also omits cities already on records (Canoga Park, Granada
+> Hills, Agoura Hills, Lancaster…), so AxisCare holds values from outside its
+> own list — probably an import. Do not read the dropdown as the full set.
+
+#### When the city cannot be placed but the postcode can — `DRIVE_ZIP`
+
+*Los Angeles* is left out of the table on purpose: 47 miles across, so no one
+point answers for it. Three schedulable caregivers are recorded that way, plus
+one parked and the desk's test record, and they are nowhere near each other —
+**Reseda and Encino are both 60 minutes from Ventura, MacArthur Park is 81**,
+and Pico-Union 82. One "Los Angeles" figure would be wrong for most of them,
+and they used to read "Drive time not known".
+
+So when the city is not in the table, **the postcode decides where to measure
+from** (`DRIVE_ZIP`, read through `drivePlace()`). A ZIP is small enough to
+place: 90057 covers about 0.9 square miles (Census ZCTA), against Oxnard's
+27. The row still
+shows the city AxisCare records, and the tooltip says the postcode was used:
+
+```
+Los Angeles · ~1 hr away
+  About 49 road miles, Reseda to Ventura — city centre to city centre,
+  without traffic. Measured from postcode 91335 (Reseda), because
+  "Los Angeles" is too wide to place on a map.
+```
+
+**Fix the record where AxisCare offers the right city.** Its dropdown has
+Reseda, so caregiver 1254 belongs there rather than in this map; it has no
+Encino, which is why 91316 is in it. `'Los Angeles 90057'` is a ZIP centroid
+rather than a place, because 90057 has no neighbourhood name of its own — it
+is *Westlake* locally, and `CITY_FIX` already reads "Westlake" as **Westlake
+Village**, in Ventura County, 40 miles the other way.
+
+> **`zip` has to be added to BOTH mappers.** `AxisRoster.mapCaregiver()` reads
+> `mailingAddress.postalCode`, and `toAppCaregiver()` rebuilds the app record
+> field by field — a value added to the first alone never reaches `state`, and
+> the row goes on reading "not known". Caught by the live page test, not by
+> reading. It is derived from AxisCare on every boot exactly as `base` is, so
+> it is in the baseline snapshot and diffs clean.
+
+**Placing them starts the travel-limit chip firing**, because they finally have
+real miles: Fitri Syam's stated 15 against a 49-mile drive to Ventura, Cindy
+Vera Cruz's 30 against the 38 to her own two clients. Those limits are worth
+re-confirming with the desk rather than assuming the chip is wrong — Cindy has
+twice accepted 38-mile work.
 
 The date search says `~15 mins from Camarillo` / `In Camarillo` against the city
 the search was **run** with, and nothing at all under *Any city* — it used to
@@ -5056,7 +5177,9 @@ AxisCare ids would break; and AxisCare city strings are dirty — `CAMARILLO`,
 > live problem, just a small and fixable one: add their cities to `CITY`.
 >
 > **Superseded 2026-09-21:** drive time comes from `DRIVE_TIMES` now, which
-> already knows every home city on the roster except *Los Angeles* (too broad
+> already knows every home city on the roster except *Los Angeles* — and
+> since 2026-09-22 those are placed by postcode, see *When the city cannot be
+> placed but the postcode can* — (too broad
 > to map) and one blank address. Add a new city to `scripts/drive-times.js`,
 > not to `CITY` — that map is only the Location picker's list any more.
 

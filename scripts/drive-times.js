@@ -27,7 +27,14 @@
 
    "Los Angeles" is deliberately absent: the city is 47 miles across, so no
    single point answers for an address in it. A caregiver recorded that way
-   reads "Drive time not known" until their neighbourhood is recorded.
+   is placed by their POSTCODE instead — see DRIVE_ZIP in index.html — and
+   reads "Drive time not known" only when their postcode is unmapped too.
+
+   MALIBU is the one entry to treat with suspicion. It is a single point on
+   21 miles of coast, so a west-end address reads far longer than the table
+   says. It is here because the AxisCare dropdown offers it; nobody on the
+   roster lives there today. If somebody does, give them a postcode entry in
+   DRIVE_ZIP rather than trusting this row.
 
    Times are free-flow — no traffic — and each pair is the mean of the two
    directions. Pairs are kept only when at least one side is in the
@@ -50,20 +57,40 @@ const SERVICE = {
   'Ventura':          [34.2783355, -119.293174],
   'Westlake Village': [34.1460234, -118.8061794]
 };
-/* Caregiver home cities outside the service area, as recorded in AxisCare
-   on 2026-09-21. Add a city here when a caregiver's row reads "Drive time
-   not known". */
+/* Places outside the service area: every caregiver home city recorded in
+   AxisCare, plus every city its address dropdown offers, so a record the
+   desk changes tomorrow already has a drive time. Add one here when a row
+   reads "Drive time not known".
+
+   A key is not always a city. 'Los Angeles 90057' is a ZIP centroid, used
+   through DRIVE_ZIP in index.html for an address whose city can only be
+   "Los Angeles" — see that map for why. The row shows the city AxisCare
+   records, and the tooltip names the POSTCODE rather than this key, which
+   is not a place anybody would recognise. */
 const OUTSIDE = {
   'Agoura Hills':     [34.1481692, -118.7655456],
+  'Arleta':           [34.2413266, -118.4322047],
+  'Azusa':            [34.1338751, -117.9056046],
+  'Buena Park':       [33.870413,  -117.9962165],
   'Canoga Park':      [34.2011078, -118.5978087],
+  'Chatsworth':       [34.2572499, -118.6017022],
+  'Encino':           [34.1591324, -118.5016166],
   'Garden Grove':     [33.7746292, -117.9463717],
   'Granada Hills':    [34.2661558, -118.5174342],
   'Lancaster':        [34.6981064, -118.1366153],
   'Lemoore':          [36.3006495, -119.7827122],
+  'Loma Linda':       [34.0537971, -117.2610925],
+  'Lomita':           [33.8036545, -118.3195014],
+  'Los Angeles 90006':[34.0497223, -118.2907082],
+  'Los Angeles 90057':[34.0636879, -118.2765132],
+  'Malibu':           [34.035591,  -118.689423],
   'North Hills':      [34.2429575, -118.4854081],
   'North Hollywood':  [34.1649502, -118.374752],
   'Pacoima':          [34.2625025, -118.427027],
+  'Palmdale':         [34.5793131, -118.11711],
   'Panorama City':    [34.2242902, -118.4453745],
+  'Porter Ranch':     [34.2818164, -118.5612714],
+  'Reseda':           [34.200768,  -118.5356869],
   'Woodland Hills':   [34.1684364, -118.6058382]
 };
 
