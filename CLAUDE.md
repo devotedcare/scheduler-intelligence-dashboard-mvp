@@ -4677,6 +4677,12 @@ in `README.md` under *How the data model works*.
     and say they are still loading. Any view that asserts an AxisCare fact
     from an empty slice needs the same treatment.
 
+    **The ICON is part of the claim.** Both said "Loading open shifts…" under
+    `emptyState()`'s green tick, which means "we looked, and there is nothing
+    to do" — the one thing a loading screen has not established. Reported by
+    Carlo on 2026-09-22; `loadingState()` is the same card with a spinner and
+    no green. Use it wherever the answer is still arriving.
+
 3c. **Whatever fetches the roster, validate before assigning `state`.**
 
     `if (!list || list.length < 10) throw` guards against a truncated AxisCare

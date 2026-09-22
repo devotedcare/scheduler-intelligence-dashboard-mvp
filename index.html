@@ -389,7 +389,7 @@
   .radio-opt.sel{border-color:var(--brand);background:var(--watch-bg);color:var(--brand)}
 
   .empty{text-align:center;padding:30px 20px;color:var(--ink-faint)}
-  .empty .ei{width:38px;height:38px;margin:0 auto 9px;color:var(--good-solid)}
+  .empty .ei{width:38px;height:38px;margin:0 auto 9px;color:var(--good-solid)}.ei.busy{display:flex;align-items:center;justify-content:center;color:var(--ink-faint)}.cs-spin.lg{width:26px;height:26px;border-width:3px}
   .empty .et{font-weight:750;color:var(--ink-soft);font-size:13.5px}
 
   .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--navy-900);color:#fff;padding:11px 17px;border-radius:var(--r);font-size:13px;font-weight:650;opacity:0;transition:.22s;z-index:200;display:flex;gap:8px;align-items:center;box-shadow:0 10px 30px rgba(0,0,0,.3);border-left:3px solid var(--good-solid)}
@@ -6063,7 +6063,7 @@ function viewOpen(){
      without this the screen states everything is covered for the whole boot
      and then quietly fills with the gaps it just denied. */
   if(!groups.length && rosterLoading())
-    return emptyState('Loading open shifts\u2026','One moment.');
+    return loadingState('Loading open shifts\u2026','One moment.');
   if(!groups.length) return emptyState('All shifts are covered','A caregiver call-off or open visit will appear here.');
   return `<div class="osg-list">`+groups.map(openClientCardHTML).join('')+`</div>`;
 }
@@ -14318,7 +14318,7 @@ function viewLog(){
   const shifts=openShifts().slice().sort((a,b)=>a.start-b.start);
   /* Same reason as viewOpen: not yet loaded is not the same as none. */
   if(!shifts.length && rosterLoading())
-    return emptyState('Loading open shifts\u2026','One moment.');
+    return loadingState('Loading open shifts\u2026','One moment.');
   if(!shifts.length) return emptyState('No open shifts to track','The contact log keeps every call attempt per shift so two schedulers never call the same caregiver twice.');
   if(!state.activeShift || !shifts.find(s=>s.id===state.activeShift)) state.activeShift=shifts[0].id;
   const s=state.shifts.find(x=>x.id===state.activeShift);
@@ -17049,6 +17049,12 @@ function saveHandoff(){
 
 /* ============ HELPERS ============ */
 function emptyState(t,d){ return `<div class="card"><div class="empty"><div class="ei">${ic('check',40)}</div><div class="et">${t}</div><div class="subnote">${d}</div></div></div>`; }
+/* THE SAME CARD, WITHOUT THE VERDICT. emptyState()'s green tick says "we
+   looked, and there is nothing to do" - which is exactly what a screen that
+   is still loading has NOT established. Open Shifts showed a tick over
+   "Loading open shifts…" until Carlo reported it on 2026-09-22. Use this
+   wherever the answer is still arriving. */
+function loadingState(t,d){ return `<div class="card"><div class="empty"><div class="ei busy"><span class="cs-spin lg"></span></div><div class="et">${t}</div><div class="subnote">${d}</div></div></div>`; }
 let toastT;
 function toast(msg){ const el=document.getElementById('toast'); el.innerHTML=ic('check',16)+msg; el.classList.add('show'); clearTimeout(toastT); toastT=setTimeout(()=>el.classList.remove('show'),2200); }
 function headerDate(){ return NOW.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'}); }
