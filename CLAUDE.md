@@ -1277,9 +1277,10 @@ card, Needs Update, Recent Updates and the availability report only.
 
 What ranks is the hours a caregiver is **already booked** in AxisCare in the
 Monday–Sunday week of the shift, not counting the open shift itself
-(`covWeekHours()` over `COVHIST`): 32–39 is −8 with the amber *36 h already
-booked that week* chip, 40 or more is −25 with the amber *At 40 hrs —
-overtime* chip. Every other hours term in the file reads `c.weekHrs`, which is
+(`covWeekHours()` over `COVHIST`): 32–39 is −8, 40 or more is −25, and since
+2026-09-22 both chips name the **total the caregiver would reach** rather than
+the hours already on the books — see *The hours chip says the total, not the
+booked hours*. Every other hours term in the file reads `c.weekHrs`, which is
 `null` on every live caregiver, so none of them runs. The "N h this week" text
 came off the row on 2026-09-21 at Mitch's request — it read "0 h this week" on
 most rows and helped nobody choose who to ring — and the scoring did not
@@ -1403,13 +1404,70 @@ What is left is warnings, never capped, red first:
 | Driving not recorded | amber | nobody has recorded anything |
 | Past their ~20 min travel limit | amber | the drive is more than 20% past their `maxMiles` |
 | Prefers female / male clients | amber | a *typed* client-gender preference the client does not fit |
-| 36 h already booked that week | amber | 32–39 hours already booked in the shift's week (−8) |
-| At 40 hrs — overtime | amber | 40+ hours already booked in the shift's week (−25) |
+| Overtime — 45 h with this shift | amber | 32–39 booked in the shift's week, and the shift takes them to 40+ (−8) |
+| 39 h with this shift | amber | 32–39 booked, and the shift does **not** reach 40 — a short shift, so no overtime claim (−8) |
+| Overtime — already at 49 h | amber | 40+ booked in the shift's week before this shift (−25) |
 
 Every chip carries its evidence in a tooltip (`why[].tip`): which records said
 what, the caregiver's own limit in miles, their typed preference, or where the
 hours come from. The red class is new and built on the existing `--crit-tx` /
 `--crit-bg` tokens.
+
+##### The hours chip says the TOTAL, not the booked hours — 2026-09-22
+
+Carlo: *"36 h already booked that week — it seems it is not intuitive on what
+it means."* It was a fact where the row needed a consequence, and it left the
+arithmetic to the reader.
+
+Measured over four consecutive live weeks (2026-09-29 → 10-20), across all 175
+caregivers:
+
+| week of | 0 h | 1–31 h | **32–39 h** | 40 h+ |
+|---|---|---|---|---|
+| Sep 29 | 123 | 24 | **11** | 17 |
+| Oct 6 | 127 | 27 | **4** | 17 |
+| Oct 13 | 129 | 25 | **5** | 16 |
+| Oct 20 | 130 | 22 | **3** | 20 |
+
+Two things in that made the decision:
+
+- **The 32–39 band only ever held 34, 35, 36, 37 and 39 h**, so any shift over
+  6 hours takes them past 40 — and the shift on the board was 9 h. The chip was
+  an overtime warning that never said the word.
+- **The 40+ chip read a flat *At 40 hrs — overtime*** while sitting on
+  caregivers at 48, 60, 71, 74 and **79 h**. It understated the people a
+  scheduler would least want to ring, twofold in places.
+
+So the chip states the total:
+
+| booked | the shift | chip |
+|---|---|---|
+| 36 h | 9 h | `Overtime — 45 h with this shift` |
+| 36 h | 3 h | `39 h with this shift` — **no overtime claim, because it is not true** |
+| 49 h | any | `Overtime — already at 49 h` |
+
+**The scoring did not change** — still −8 and −25, still amber, still the same
+bands. Only the wording.
+
+###### `shiftLen` is NOT the clash window's `end`
+
+The clash check substitutes `start + 1` for an end AxisCare did not give,
+because for *"is this hour busy"* there is nothing better to check. Reusing it
+here would quietly claim a one-hour shift and **understate the very total this
+chip exists to state**. So `shiftLen` is derived separately and is `null` when
+there is no real end; the chip then falls back to `36 h booked that week`.
+
+That fallback is a guard rather than a live path: `coverageMatches()` hands
+`coverageDetail()` the **raw `q.end`**, deliberately, so a shift with no end
+excludes every caregiver at the availability gate before any chip is reached.
+Verified — every row came back *"Not available at that time"*. If that gate
+ever softens, the fallback is already correct.
+
+An end at or before the start wraps (an overnight), and an end **equal** to the
+start is a 24-hour live-in — the same reading `covClash()` and
+`coverageDetail()` give it. Verified against the real `coverageMatches()`: a
+9p–6a overnight on 34 h reads `Overtime — 43 h with this shift`, and an 8a–8a
+live-in on the same caregiver reads `58 h`.
 
 #### What the client asked for sits IN the shift card — 2026-09-22
 
@@ -4073,30 +4131,140 @@ the signal. It is also, with no extra machinery, how **follow-ups** arrive:
 "why?", "what about Saturday?", "who else?" match no pattern, so they land in
 Devi with the whole conversation behind them.
 
-### The dock — one Ask Devi area, on every page
+### Ask Devi is ONE page — the dock was removed 2026-09-22
 
-`renderDock()` paints `#devidock`, a sticky strip at the bottom of `.main`:
-composer, and the last `DOCK_TURNS` (6) exchanges above it when it is open. It
-is called from `render()`, so it survives every navigation.
+There was a sticky strip at the bottom of every page (`renderDock()`,
+`#devidock`): a composer, and the last six exchanges above it when opened.
+Mitch had it removed — a bar pinned to the bottom of every screen is a cost
+every page pays for something the desk opens occasionally.
 
-Three things about it are deliberate, not stylistic:
+**What it bought, stated plainly, because rebuilding it is a real option:** a
+question could be asked *without leaving the page it was about*. That was the
+original request, and giving it up is the whole trade. Ask Devi is in the nav;
+`viewAssistant()` is now the only place the composer exists.
 
-- **It is not a modal and not a card.** The scheduler keeps the page they are
-  asking about in view. A dialog would cover the thing being discussed.
-- **It hides itself on the Ask Devi page** (`state.view==='assistant'`), which
-  is the same `state.aiLog` at full height. Two visible copies of one
-  conversation is not "one area".
-- **The thread is one thread.** The dock and the full page read and write the
-  same `state.aiLog`, so a question asked from Open Shifts is still there when
-  the scheduler opens the full view, and follow-ups keep their context.
+The page keeps the shape the dock had — **the conversation reads downward into
+the box that produced it**, composer at the foot rather than above its own
+output — and `state.aiLog` is unchanged, so nothing about the thread, the
+router or the action cards moved.
 
-`.main` is a flex column and `.view` takes the slack (`flex:1 1 auto`) — that is
-what `margin-top:auto` on the dock pushes against. Without it a short page
-strands the strip in the middle of the screen.
+#### The composer is the sibling apps', not its own thing
 
-**The composer keeps what is being typed across a re-render.** `render()` runs
-on every save and every 15-second poll; `renderDock()` reads `#aiq` before it
-rewrites the strip and restores the value, focus and selection afterwards.
+Mitch put the three Ask tabs side by side on 2026-09-22 and this one was the
+odd file out: a one-line pill with a caret-toggle underneath, where Client
+Concierge and Finance both have a roomy multi-line box and a button beneath it.
+Three apps the same desk uses all day should not each have their own idea of
+what asking looks like, so this one follows them.
+
+```
++-------------------------------------------------+
+|  Ask Devi anything - or ask it to record        |   <- textarea, 3 rows
+|  availability, a work preference or a task...   |
++-------------------------------------------------+
+  [ * Suggested questions ]  Changes need your approval     [Clear] [Ask]
+```
+
+- **A `<textarea>`, not an `<input>`.** Somebody writing *"record that Maria
+  does not drive on Tuesdays and Thursdays"* should see the whole sentence.
+  Instructions are the longest thing typed here and they were the thing the
+  one-line box hid.
+- **Enter sends, Shift+Enter is a newline.** That is what every chat box does,
+  and it is what people type without thinking.
+- **Every example sits behind the one button.** An empty thread briefly showed
+  six of them as cards above the box; that went the same day, because the other
+  two apps put all of theirs behind a single *Suggested prompts* control and a
+  scheduler moving between the three should not have to learn two places to
+  look. All 26 `AI_EXAMPLES` are in the one list, including the two instruction
+  shapes — nothing else tells a scheduler that Devi can be *told* to do
+  something.
+- **"Changes need your approval" is Finance's line**, and it is true here for
+  the same reason: nothing Devi proposes is written until somebody clicks
+  Approve on the card. See *Devi actions*.
+
+##### The composer is at the FOOT of the page, on an empty thread too
+
+The page is a full-height flex column: the thread takes the slack and scrolls,
+the composer is the last row. On an empty thread that leaves the box at the
+bottom of the viewport with a screen of white above it, which **looks** like a
+defect and is not one — it is what Client Concierge and Finance do, and it is
+where this page's own box sits the moment there is a conversation.
+
+**Claude: do not "fix" that white space.** It was fixed once, on 2026-09-22,
+with an `.ai-wrap.start` class that turned the stretch off so the box opened at
+the top of an empty page. Carlo reported it within the hour — *"why is it in
+the upper left corner and not in the bottom similar to Concierge and
+Finance?"* — and it was reverted the same day. A composer that moves depending
+on whether you have asked anything yet is worse than one that sits still in a
+wrong-looking place, and it made this Ask tab the odd one out again, which is
+the exact thing the restyle was for.
+
+The suggestions stay **collapsed** behind their button. Opening all 26 of them
+on the empty page was the other attempt to fill that space, and it was
+reverted too: a wall of chips *above* the box, which neither sibling app has.
+
+##### The chat is FULL WIDTH, and it took a scoped rule — `.ai-wrap` is two screens
+
+Carlo, an hour later: *"why is the chat not full width?"* Because the width on
+screen was never this page's own rule. **`.ai-wrap` is used by two unrelated
+screens** — `viewAssistant()` here, and `guideAiForm()`, the guide library's
+AI-assisted draft form:
+
+| where | rule | |
+|---|---|---|
+| the Ask Devi CSS block | `.ai-wrap{max-width:880px}` | looks authoritative |
+| the guide library CSS block, ~1,100 lines lower | `.ai-wrap{max-width:620px}` | **wins** — equal specificity, later in the file |
+
+So the chat was capped at 620px and left-aligned, leaving ~280px of white
+beside it on a 1150px window and over 1,000px on a 1920 one, with nothing near
+either rule to say why. **This is the `.mwide{max-width:680px!important}` trap
+again** — a rule far down the stylesheet quietly overriding the one that reads
+like the answer. When a width on this page does not match its rule, look for a
+second owner of the class before touching the rule you found first.
+
+The fix is scoped rather than global, because the guide form genuinely wants to
+stay narrow — it is a short form, not a conversation:
+
+```
+.v-assistant .ai-wrap{max-width:none}     /* (0,2,0) beats the guide's (0,1,0) */
+```
+
+Measured after, chat against the view's inner width, and the guide form beside
+it:
+
+| window | chat | gap | guide form |
+|---|---|---|---|
+| 1150 | 874 | **0** | 620 |
+| 1440 | 1164 | **0** | 620 |
+| 1920 | 1644 | **0** | 620 |
+
+**Renaming the class on one of the two screens is the tidier fix** and a much
+larger diff — every rule in both blocks, plus `.ai-card` / `.ai-h` / `.ai-sub` /
+`.ai-go`, which the guide form also owns and which the composer must not reuse.
+Worth doing if either screen is touched again in earnest.
+
+> The cost, stated plainly: on a wide monitor an answer's text now runs the
+> full width of the content area, which is a long line to read. `.ai-ask`
+> (the question bubble) still caps at 80%. If the desk finds the answers too
+> wide, the fix is a max-width on `.ai-ans` — not on `.ai-wrap`, which would
+> narrow the composer again and put back what this change removed.
+
+##### `render()` carries what is half-typed — the dock used to
+
+`render()` runs on every save and on every 20-second poll, and it rewrites the
+view wholesale. The dock read `#aiq` before it repainted and put the value,
+focus and selection back; when the dock went, nothing did, so a poll landing
+mid-sentence silently emptied the box. `render()` itself now does it, which is
+the right home for it — the page is re-rendered from about a dozen places and
+only one of them was ever the dock.
+
+`askAI()` clears the box itself after reading it (`preset == null` only, so a
+suggestion chip does not wipe something already typed). Leaving the clear to
+the re-render would now be undone by the carry.
+
+> **`.ai-card` is taken.** The guide-draft form uses `.ai-card`, `.ai-h`,
+> `.ai-sub` and `.ai-go`. The starter cards reused the name for an hour and
+> restyled that form as a side effect. The composer's own classes are
+> `.ai-ta`, `.ai-tools`, `.ai-sugbtn` and `.ai-approve`.
 
 ### The four-part answer, and its honest limit
 
@@ -4144,8 +4312,8 @@ write    through the SAME function the matching screen uses
 `dactPrepare()` returns null when there is nothing to do, so a card only ever
 appears when there is a real change behind it. `e.act` rides the turn, so Clear
 takes proposals with the thread and an old card can never attach itself to a
-new question. `dactCards()` renders them, once, for both the dock and the full
-page.
+new question. `dactCards()` renders them, once, on the Ask Devi page (it
+served the bottom dock too, until that was removed).
 
 **Five rules, each of which cost something to learn:**
 

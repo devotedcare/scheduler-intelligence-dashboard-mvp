@@ -1563,7 +1563,7 @@
   /* AI assistant */
   .ai-wrap{max-width:880px}
   .ai-chips{display:flex;flex-wrap:wrap;gap:8px}
-  .ai-chip{text-align:left;padding:9px 14px;border:1px solid var(--line-strong);background:#fff;border-radius:20px;font-size:12.5px;color:var(--ink);cursor:pointer;font-family:inherit;transition:all .12s}
+  .ai-chip{text-align:left;padding:9px 14px;border:1px solid var(--line-strong);background:#fff;border-radius:20px;font-size:12.5px;color:var(--ink);cursor:pointer;font-family:inherit;transition:all .12s}.ai-ta{width:100%;box-sizing:border-box;resize:vertical;min-height:84px;font-family:inherit;font-size:14px;line-height:1.5;color:var(--ink);background:#fff;border:1px solid var(--line-strong);border-radius:10px;padding:13px 15px;outline:none}.ai-ta:focus{border-color:var(--brand);box-shadow:0 0 0 1px var(--brand) inset}.ai-ta::placeholder{color:var(--ink-faint)}.ai-tools{display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap}.ai-toolsp{flex:1 1 auto}.ai-sugbtn{display:inline-flex;align-items:center;gap:7px;font-family:inherit;font-size:13px;font-weight:700;color:var(--ink);background:#fff;border:1px solid var(--line-strong);border-radius:8px;padding:8px 14px;cursor:pointer}.ai-sugbtn:hover{border-color:var(--brand);color:var(--brand)}.ai-sugbtn.on{border-color:var(--brand);color:var(--brand);background:#F5FAFD}.ai-sugbtn svg{color:var(--brand)}.ai-approve{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-faint);font-weight:600}.ai-chips{margin-bottom:10px}
   .ai-chip:hover{border-color:var(--brand);background:var(--panel-head);color:var(--navy-900)}
   .ai-thread{display:flex;flex-direction:column;gap:18px;margin-bottom:8px}
   .ai-turn{display:flex;flex-direction:column;gap:9px}
@@ -1597,21 +1597,24 @@ body.ai-white .app{background:#fff}
 body.ai-white .main{display:flex;flex-direction:column;min-height:100vh}
 .v-assistant{flex:1 1 auto;display:flex;flex-direction:column;min-height:0}
 .ai-wrap{flex:1 1 auto;display:flex;flex-direction:column;min-height:0}
+/* FULL WIDTH, and it takes a scoped rule to get there. `.ai-wrap` is also
+   the guide library’s AI-draft form, whose own .ai-wrap{max-width:620px}
+   sits far below this block at equal specificity and therefore wins - which
+   is why the chat read as a narrow column in the top-left with ~280px of
+   white beside it. Scoped to this page so the guide form stays narrow. */
+.v-assistant .ai-wrap{max-width:none}
 .ai-thread{flex:1 1 auto;overflow-y:auto;min-height:0}.ai-p{margin:0 0 9px;line-height:1.55;font-size:13.5px;color:var(--ink)}.ai-p:last-child{margin-bottom:0}.ai-ul{margin:0 0 9px;padding-left:20px;display:flex;flex-direction:column;gap:4px}.ai-ul li{line-height:1.5;font-size:13.5px;color:var(--ink)}.ai-ul:last-child{margin-bottom:0}.ai-wait{display:flex;align-items:center;gap:9px}
 .ai-foot{flex:0 0 auto;margin-top:auto;padding-top:14px}
 .main-white .topbar{background:#fff}
-.ai-inbar{display:flex;gap:9px;padding:0;background:#fff;margin:0}
-/* Suggested questions: closed by default, opened from its own row under the
-   input. No card, no border, nothing above the box. */
-.ai-sug{margin-top:12px}
-.ai-sug-t{display:inline-flex;align-items:center;gap:7px;background:none;border:none;padding:2px 0;
-  font-family:inherit;font-size:12.5px;font-weight:700;color:var(--ink-soft);cursor:pointer}
-.ai-sug-t:hover{color:var(--brand)}
-.ai-sug-c{font-size:10px;color:var(--ink-faint)}
-.ai-sug .ai-chips{margin-top:10px}
-  .ai-input{flex:1;padding:12px 15px;border:1px solid var(--line-strong);border-radius:24px;font-size:14px;font-family:inherit;outline:none}
-  .ai-input:focus{border-color:var(--brand)}
-  .ai-inbar .btn{border-radius:24px}
+
+
+
+
+
+
+  
+  
+  
 
   /* day side panel */
   .side-bg{position:fixed;inset:0;background:rgba(20,40,60,.34);opacity:0;pointer-events:none;transition:opacity .18s;z-index:60}
@@ -2595,7 +2598,7 @@ body.ai-white .main{display:flex;flex-direction:column;min-height:100vh}
    tallest of them (Work Preferences at 303px of body) with room for a
    service-areas list that wraps. Still one height per row, and every card in
    a row identical. */
-.ws-card.pfx.pfx-tall{height:376px}.ws-card.pfx.pfx-full{height:auto}.pf2 .ws-card.pfx-full .emp-grid{grid-template-columns:1fr 1fr;gap:0 32px}.pf-f.wp-span{grid-column:1/-1}.pf-f.wp-span .av-chks{display:flex;flex-direction:row;flex-wrap:wrap;gap:6px 18px}#devidock{position:sticky;bottom:0;z-index:40;margin-top:auto}.dk{background:#fff;border-top:1px solid var(--line);box-shadow:0 -2px 10px rgba(0,0,0,.06)}.dk-bar{display:flex;align-items:center;gap:8px;padding:8px 18px}.dk-t{display:flex;align-items:center;gap:6px;font-family:inherit;font-size:12.5px;font-weight:800;color:var(--brand);background:none;border:none;cursor:pointer;padding:4px 2px;white-space:nowrap}.dk-n{font-size:11px;font-weight:800;color:#fff;background:var(--brand);border-radius:9px;padding:1px 6px;font-variant-numeric:tabular-nums}.dk-c{color:var(--ink-faint);font-size:10px}.dk-in{flex:1 1 auto;min-width:120px;box-sizing:border-box;font-family:inherit;font-size:13.5px;color:var(--ink);background:#fff;border:1px solid var(--line-strong);border-radius:8px;padding:8px 12px;outline:none}.dk-in:focus{border-color:var(--brand)}.dk-thread{max-height:44vh;overflow-y:auto;overscroll-behavior:contain;padding:12px 18px 2px;border-bottom:1px solid var(--line-soft)}.dk-turn{margin-bottom:12px}.dk-turn:last-child{margin-bottom:6px}.dk-q{font-size:12.5px;font-weight:700;color:var(--ink-soft);margin-bottom:4px}.dk-q:before{content:'\2937  '}.dk-at{font-size:13.5px;font-weight:800;color:var(--ink);margin-bottom:5px}@media(max-width:800px){.dk-t span:not(.dk-n):not(.dk-c){display:none}.dk-thread{max-height:38vh}}.dact{margin:8px 0 2px;border-left:3px solid var(--brand);background:var(--panel-head);border-radius:0 8px 8px 0;padding:9px 12px}.dact.ok,.dact.bad,.dact.off{display:flex;align-items:flex-start;gap:7px;padding:8px 12px}.dact.ok{border-left-color:var(--good-solid);background:var(--good-bg)}.dact.bad{border-left-color:var(--crit-solid);background:var(--crit-bg)}.dact.off{border-left-color:var(--line-strong);background:var(--panel-head)}.dact.ok svg,.dact.bad svg{flex:0 0 auto;margin-top:1px}.dact-msg{font-size:12.5px;font-weight:650;color:var(--ink);line-height:1.45}.dact-h{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--brand);margin-bottom:6px}.dact-b{display:flex;flex-direction:column;gap:3px;max-height:190px;overflow-y:auto}.dact-r{display:flex;align-items:baseline;gap:8px;font-size:12.5px;line-height:1.45}.dact-rm{font-weight:700;color:var(--ink);flex:0 0 auto}.dact-rx{color:var(--ink-soft);min-width:0}.dact-n{font-size:11.5px;color:var(--ink-soft);line-height:1.45;margin-top:6px}.dact-n.warn{color:var(--soon-tx);font-weight:650}.dact-f{display:flex;align-items:center;gap:7px;margin-top:8px}.str-grp{margin-bottom:7px}.str-grp:last-child{margin-bottom:0}.str-grp-h{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-faint);margin:0 0 4px}.tp-grp-h{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-faint);margin:11px 0 5px}.tp-grp-h:first-child{margin-top:0}
+.ws-card.pfx.pfx-tall{height:376px}.ws-card.pfx.pfx-full{height:auto}.pf2 .ws-card.pfx-full .emp-grid{grid-template-columns:1fr 1fr;gap:0 32px}.pf-f.wp-span{grid-column:1/-1}.pf-f.wp-span .av-chks{display:flex;flex-direction:row;flex-wrap:wrap;gap:6px 18px}.dact{margin:8px 0 2px;border-left:3px solid var(--brand);background:var(--panel-head);border-radius:0 8px 8px 0;padding:9px 12px}.dact.ok,.dact.bad,.dact.off{display:flex;align-items:flex-start;gap:7px;padding:8px 12px}.dact.ok{border-left-color:var(--good-solid);background:var(--good-bg)}.dact.bad{border-left-color:var(--crit-solid);background:var(--crit-bg)}.dact.off{border-left-color:var(--line-strong);background:var(--panel-head)}.dact.ok svg,.dact.bad svg{flex:0 0 auto;margin-top:1px}.dact-msg{font-size:12.5px;font-weight:650;color:var(--ink);line-height:1.45}.dact-h{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--brand);margin-bottom:6px}.dact-b{display:flex;flex-direction:column;gap:3px;max-height:190px;overflow-y:auto}.dact-r{display:flex;align-items:baseline;gap:8px;font-size:12.5px;line-height:1.45}.dact-rm{font-weight:700;color:var(--ink);flex:0 0 auto}.dact-rx{color:var(--ink-soft);min-width:0}.dact-n{font-size:11.5px;color:var(--ink-soft);line-height:1.45;margin-top:6px}.dact-n.warn{color:var(--soon-tx);font-weight:650}.dact-f{display:flex;align-items:center;gap:7px;margin-top:8px}.str-grp{margin-bottom:7px}.str-grp:last-child{margin-bottom:0}.str-grp-h{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-faint);margin:0 0 4px}.tp-grp-h{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-faint);margin:11px 0 5px}.tp-grp-h:first-child{margin-top:0}
 .pfx-body{flex:1 1 auto;min-height:0;overflow:hidden;position:relative}.clm-card{width:100%;max-width:560px;height:340px}.clm-body{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain}.clm-stack{margin-top:11px}.clm-l{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-faint);margin-bottom:3px}.clm-v{font-size:13px;color:var(--ink);line-height:1.5}.clm-cgs{display:flex;flex-wrap:wrap;gap:6px;margin-top:5px}.clm-cg{font-size:12px;font-weight:650;border-radius:12px;padding:3px 10px;border:1px solid var(--line);background:var(--panel-head);color:var(--ink)}.clm-cg.unres{color:var(--ink-faint);border-style:dashed;font-style:italic}.clm-note{font-size:12.5px;color:var(--ink-faint);line-height:1.45}
 /* No fade over the cut. Everything on a card is full opacity; where the body
    is longer than the card it is simply clipped, and View Details is what says
@@ -2732,12 +2735,6 @@ html.pg-held .pingate{display:none!important}
       </div>
     </div>
     <div class="view" id="view"></div>
-    <!-- ONE Ask Devi area for the whole dashboard. Rendered by renderDock()
-         and hidden on the Ask Devi page itself, which is the same thread at
-         full height — two visible copies of one conversation is not "one
-         area". Deliberately a docked strip, not a modal: the scheduler keeps
-         the page they are working on in view while they ask about it. -->
-    <div id="devidock"></div>
   </div>
 </div>
 
@@ -4058,16 +4055,27 @@ function render(){
   const mainEl=document.querySelector('.main');
   if(mainEl) mainEl.classList.toggle('main-white', state.view==='assistant');
   document.body.classList.toggle('ai-white', state.view==='assistant');
-  renderDock();
   /* A render replaces the whole view, so anything typed in the caregiver
      search would lose the cursor - including on the 8-second cloud poll,
      which fires while someone is still typing a name. Put it back. */
   const fx=document.activeElement, keep = fx && fx.id==='cgfSearch'
     ? {start:fx.selectionStart, end:fx.selectionEnd} : null;
+  /* Ask Devi's box holds a WHOLE question, and its value lives nowhere but
+     the element - so the poll would wipe a half-typed sentence. The dock
+     used to carry it across its own re-render; since the dock went this is
+     the only composer, so render() carries it. askAI() clears the box
+     itself, which is what stops the question reappearing in it. */
+  const aq=document.getElementById('aiq');
+  const aiKeep = aq ? {v:aq.value, on:document.activeElement===aq, s:aq.selectionStart, e:aq.selectionEnd} : null;
   v.innerHTML = demoNotice() + VIEWS[state.view]();
   if(keep){
     const el=document.getElementById('cgfSearch');
     if(el){ el.focus(); try{ el.setSelectionRange(keep.start,keep.end); }catch(e){} }
+  }
+  if(aiKeep && aiKeep.v){
+    const el=document.getElementById('aiq');
+    if(el){ el.value=aiKeep.v;
+      if(aiKeep.on){ el.focus(); try{ el.setSelectionRange(aiKeep.s,aiKeep.e); }catch(e){} } }
   }
   /* Measured after the paint, because scrollHeight is only meaningful once
      the markup is in the document. A no-op on every screen but the profile. */
@@ -8112,6 +8120,22 @@ function coverageMatches(q){
      Fixed 2026-09-21. */
   var ds=q.date, start=q.start;
   var end=(typeof q.end==='number' && isFinite(q.end)) ? q.end : q.start+1;
+  /* THE SHIFT'S OWN LENGTH, for the overtime arithmetic below and nothing
+     else. Deliberately NOT `end` above: that substitutes start+1 when
+     AxisCare gave no end, which is the right guess for "is this hour busy"
+     and the wrong one for "what would this take them to" - it would quietly
+     claim a one-hour shift and understate the total on the one chip whose
+     whole job is that number. No end means no total, and the chip falls
+     back to the booked hours alone.
+
+     An end at or before the start wraps (an overnight), and an end EQUAL
+     to the start is a 24-hour live-in - the same reading covClash() and
+     coverageDetail() give it. */
+  var shiftLen=null;
+  if(typeof q.end==='number' && isFinite(q.end) && typeof q.start==='number' && isFinite(q.start)){
+    var slen=q.end-q.start; if(!(slen>0)) slen+=24;
+    if(slen>0 && slen<=24) shiftLen=Math.round(slen*10)/10;
+  }
   var driveAudit=null;                     /* built once, and only if a client needs a driver */
   var prefs=covClientPrefs(cl);
   var sh=q.shiftId?state.shifts.find(function(x){ return x.id===q.shiftId; }):null;
@@ -8281,10 +8305,34 @@ function coverageMatches(q){
        off (2026-09-21) that was completely invisible, and a nearer caregiver
        could sit below a further one for no reason the desk could see. Both
        bands say so now, with where the number comes from. */
+    /* THE CHIP STATES THE CONSEQUENCE, NOT THE FACT - Carlo, 2026-09-22:
+       "36 h already booked that week" left the arithmetic to the reader,
+       and the arithmetic is the whole point. Measured across four live
+       weeks, the 32-39 band only ever held 34, 35, 36, 37 and 39 h, so any
+       shift over 6 hours takes them past 40 - and the one shift on the
+       board was 9 h. So the chip says the TOTAL they would reach.
+
+       The 40+ chip says the real number for the same reason: it read a
+       flat "At 40 hrs - overtime" while sitting on caregivers at 48, 60,
+       71, 74 and 79 h in those same four weeks, understating the people a
+       scheduler would least want to ring, twofold in places. */
     if(hrs!=null && hrs>=32){
-      var hrsTip='AxisCare has '+hrs+' hours booked for this caregiver in the Monday\u2013Sunday week of this shift, not counting this shift.';
-      if(hrs>=40){ score-=25; why.push({t:'At 40 hrs \u2014 overtime', k:'minus', tip:hrsTip}); }
-      else { score-=8; why.push({t:hrs+' h already booked that week', k:'minus', tip:hrsTip}); }
+      var wkTip=hrs+' h already booked in AxisCare for the Monday\u2013Sunday week this shift falls in, not counting this shift.';
+      if(hrs>=40){
+        score-=25;
+        why.push({t:'Overtime \u2014 already at '+hrs+' h', k:'minus', tip:wkTip});
+      } else {
+        score-=8;
+        var after=(shiftLen!=null) ? Math.round((hrs+shiftLen)*10)/10 : null;
+        if(after==null)    why.push({t:hrs+' h booked that week', k:'minus', tip:wkTip});
+        else if(after>=40) why.push({t:'Overtime \u2014 '+after+' h with this shift', k:'minus',
+                                     tip:wkTip+' Taking it would make '+after+' h.'});
+        /* Under 40 even with the shift: a short shift on a 34 h week. The
+           -8 still applies, because they are close - but the chip may not
+           say overtime, because it would not be true. */
+        else               why.push({t:after+' h with this shift', k:'minus',
+                                     tip:wkTip+' Taking it would make '+after+' h.'});
+      }
     }
     out.push({cg:cg, score:score, why:why, worked:worked, preferred:preferred, onList:onList, drv:drv,
               dmin:drv?drv.min:null, hrs:hrs,
@@ -16268,6 +16316,11 @@ function askAI(preset){
   const inp=document.getElementById('aiq');
   const q=(preset!=null?preset:(inp?inp.value:'')).trim();
   if(!q) return;
+  /* Emptied HERE, not by the re-render: render() now carries the box across
+     a paint (the 15-second poll would otherwise eat a half-typed question),
+     so the asked question would come back in the box. A question from a
+     suggestion chip leaves a typed draft alone - it is not what was sent. */
+  if(inp && preset==null) inp.value='';
   /* An availability answer must not come from a cache somebody has since
      edited. Fetch first, answer second, and say so while it happens. */
   if(/avail|overnight|free\b|open\b|who can|cover/i.test(q)){
@@ -16333,89 +16386,58 @@ function viewAssistant(){
       }${dactCards(e)}</div></div>`).join('');
   const chips=AI_EXAMPLES.map((q,i)=>`<button class="ai-chip" onclick="askAIex(${i})">${q}</button>`).join('');
   const open=!!state.aiSugOpen;
-  /* The input first, the suggestions under it, and nothing above either —
-     no hero, no icon, no strapline. A scheduler who knows what to ask sees
-     only the box; the examples are there when they want them. */
-  /* The conversation occupies the top and middle and the composer is pinned
-     to the bottom of the page, so the answers read downward into the box
-     that produced them rather than the box sitting above its own output. */
+  /* THE COMPOSER FOLLOWS CLIENT CONCIERGE AND FINANCE, 2026-09-22. Mitch put
+     the three Ask tabs side by side and this one was the odd file out: a
+     one-line pill with a caret-toggle under it, where the others have a
+     roomy multi-line box and a "Suggested prompts" button beneath. Three
+     apps the same desk uses all day should not each have their own idea of
+     what asking looks like.
+
+     So: a TEXTAREA, not an input - somebody writing "record that Maria does
+     not drive on Tuesdays and Thursdays" should see the whole sentence -
+     with the examples behind a button on the left and Ask on the right.
+     Enter still sends, because that is what everybody types, and
+     Shift+Enter is the newline, which is the convention every chat box
+     shares.
+
+     The approval line is Finance's, and it is true here for the same
+     reason: nothing Devi proposes is written until a person clicks Approve
+     on the card. See DEVI ACTIONS.
+
+     The starter cards that briefly sat above the box went with this: the
+     other two apps put every example behind the one button, and a scheduler
+     moving between them should not have to learn two places to look. */
   return `<div class="ai-wrap">
     <div class="ai-thread">${thread}</div>
     <div class="ai-foot">
-    <div class="ai-inbar">
-      <input id="aiq" class="ai-input" placeholder="Ask about availability, coverage, call-offs, clients\u2026" onkeydown="if(event.key==='Enter')askAI()" autocomplete="off">
-      <button class="btn pri" onclick="askAI()">${ic('spark',14)} Ask</button>
-      ${state.aiLog.length?`<button class="btn" onclick="clearAI()">Clear</button>`:''}
-    </div>
-    <div class="ai-sug">
-      <button class="ai-sug-t" aria-expanded="${open}" onclick="toggleAiSug()">
-        <span class="ai-sug-c">${open?'\u25be':'\u25b8'}</span>Suggested questions</button>
       ${open?`<div class="ai-chips">${chips}</div>`:''}
-    </div>
-    </div>
-  </div>`;
-}
-
-/* ============ ASK DEVI DOCK — the whole dashboard, one thread ============
-   Available from every page, not just the Ask Devi screen, and backed by the
-   SAME state.aiLog and the SAME askAI() — so a question asked from Open
-   Shifts and one asked from the Ask Devi page are one conversation, and
-   clearing it clears both.
-
-   A strip, not a modal and not a card: the request was explicitly for the
-   answer to stay inline and for the scheduler to keep their page. Collapsed
-   it is one line; open it shows the last few turns above the box, capped and
-   scrollable so a long answer never pushes the dashboard off screen.
-
-   Hidden on state.view==='assistant', which is this same thread at full
-   height. Two visible copies of one conversation is not "one area". */
-const DOCK_TURNS = 6;
-function toggleDock(){ state.dockOpen=!state.dockOpen; render();
-  setTimeout(function(){ const i=document.getElementById('aiq'); if(i) i.focus(); },0); }
-function dockScrollBottom(){
-  const t=document.querySelector('#devidock .dk-thread');
-  if(t) t.scrollTop=t.scrollHeight;
-}
-function renderDock(){
-  const el=document.getElementById('devidock'); if(!el) return;
-  /* The Ask Devi page IS the dock, full height. */
-  if(state.view==='assistant'){ el.innerHTML=''; el.hidden=true; return; }
-  el.hidden=false;
-
-  /* A render replaces the strip, and render() also runs on the cloud poll —
-     so anything half-typed would vanish mid-sentence. Carry it across, the
-     same way the caregiver search box is carried in render(). */
-  const prev=document.getElementById('aiq');
-  const typed=(prev&&document.activeElement===prev)?{v:prev.value,s:prev.selectionStart,e:prev.selectionEnd}:null;
-  const carry=prev?prev.value:'';
-
-  const open=!!state.dockOpen, log=state.aiLog||[];
-  const busy=log.some(e=>e.pending);
-  const thread = open && log.length
-    ? '<div class="dk-thread">'+log.slice(-DOCK_TURNS).map(e=>`<div class="dk-turn">
-        <div class="dk-q">${escText(e.q)}</div>
-        <div class="dk-a"><div class="dk-at">${e.title}</div>${
-          e.pending?`<div class="ai-none ai-wait"><span class="cs-spin"></span>Devi is thinking…</div>`:e.html}${dactCards(e)}</div>
-      </div>`).join('')+'</div>'
-    : '';
-  el.innerHTML = `<div class="dk${open?' on':''}">
-    ${thread}
-    <div class="dk-bar">
-      <button class="dk-t" aria-expanded="${open}" onclick="toggleDock()" title="${open?'Collapse':'Expand'}">
-        ${ic('spark',13)}<span>Ask Devi</span>${log.length?`<span class="dk-n">${log.length}</span>`:''}
-        <span class="dk-c">${open?'▾':'▴'}</span></button>
-      <input id="aiq" class="dk-in" placeholder="Ask about coverage, availability, call-offs, care notes…"
-        value="${esc(carry)}" onkeydown="if(event.key==='Enter'){state.dockOpen=true;askAI();}" autocomplete="off">
-      <button class="btn pri sm" onclick="state.dockOpen=true;askAI()">${busy?'…':'Ask'}</button>
-      ${log.length?`<button class="btn sm" onclick="clearAI()">Clear</button>`:''}
-      <button class="btn sm ghost" onclick="go('assistant')" title="Open the full Ask Devi page">Full view</button>
+      <textarea id="aiq" class="ai-ta" rows="3" placeholder="Ask Devi anything — or ask it to record availability, a work preference or a task…"
+        onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();askAI();}"></textarea>
+      <div class="ai-tools">
+        <button class="ai-sugbtn${open?' on':''}" aria-expanded="${open}" onclick="toggleAiSug()">${ic('spark',13)} Suggested questions</button>
+        <span class="ai-approve">${ic('shield',12)} Changes need your approval</span>
+        <span class="ai-toolsp"></span>
+        ${state.aiLog.length?`<button class="btn" onclick="clearAI()">Clear</button>`:''}
+        <button class="btn pri" onclick="askAI()">Ask</button>
+      </div>
     </div>
   </div>`;
-  if(typed){ const i=document.getElementById('aiq');
-    if(i){ i.value=typed.v; i.focus(); try{ i.setSelectionRange(typed.s,typed.e); }catch(e){} } }
-  if(open) dockScrollBottom();
 }
 
+/* ============ ASK DEVI LIVES ON ITS OWN PAGE ============
+   There WAS a docked strip here, on every page: one line collapsed, the
+   last six turns above the box when open, backed by the same state.aiLog
+   as the Ask Devi page. It was removed on 2026-09-22 at Mitch’s request
+   — a bar pinned to the bottom of every screen is a cost every page pays
+   for something the desk opens occasionally.
+
+   What it bought is worth knowing before anybody rebuilds it: a question
+   could be asked WITHOUT leaving the page it was about. That is the whole
+   trade, and the desk made it knowingly. Ask Devi is in the nav.
+
+   viewAssistant() is now the only place the composer exists, and it keeps
+   the shape the dock had — the conversation reads downward into the box
+   that produced it. */
 /* ============ MODALS ============ */
 const mbg=document.getElementById('modalbg'), mEl=document.getElementById('modal');
 /* textEpoch: closing ANY modal invalidates a composer repaint that is still
