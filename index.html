@@ -17604,11 +17604,46 @@ function cgpHTML(id, value, placeholder){
       <span class="cgp-val ${value?'':'ph'}" id="${id}-val">${gEsc(value||placeholder)}</span><span class="cgp-car">\u25be</span>
     </button>
     <div class="cgp-panel" id="${id}-panel" hidden>
-      <input class="cgp-q" id="${id}-q" type="text" placeholder="Search caregiver..." autocomplete="off" oninput="cgpRender('${id}')">
+      <input class="cgp-q" id="${id}-q" type="text" placeholder="Search caregiver..." autocomplete="off" oninput="cgpRender('${id}')" onkeydown="cgpKey(event,'${id}')">
       <div class="cgp-list" id="${id}-list"></div>
     </div>
     <input type="hidden" id="${id}" value="${gEsc(value||'')}">
   </div>`;
+}
+/* Click-only used to be the only way to confirm a name — typing "Bob
+   Coverer" and pressing Enter (the ordinary way to close a type-to-filter
+   box) left the hidden field empty, silently. On the required Caregiver
+   field that got caught by its own validation; on the optional Covered By
+   field nothing ever complained, so the save "succeeded" with the field
+   simply blank. Enter now confirms the top filtered match, same as any
+   other combobox; Escape closes without picking one. */
+function cgpKey(e,id){
+  if(e.key==='Escape'){
+    e.preventDefault();
+    const p=document.getElementById(id+'-panel');
+    if(p) p.setAttribute('hidden','');
+    if(state.cgp&&state.cgp[id]) state.cgp[id].open=false;
+    return;
+  }
+  if(e.key!=='Enter') return;
+  e.preventDefault();
+  const box=document.getElementById(id+'-list'), first=box&&box.querySelector('.cgp-opt');
+  if(first) cgpPick(id, first.dataset.n);
+}
+/* The value a picker actually holds, read at save time. Normally just the
+   hidden field cgpPick() wrote — but a scheduler who typed a full name and
+   clicked straight to Save without pressing Enter or clicking the row (the
+   panel left open) would otherwise save a blank. An EXACT, case-insensitive
+   match against the active roster is resolved here as a last-chance
+   safety net; anything short of an exact match is left alone rather than
+   guessed at. */
+function cgpVal(id){
+  const h=document.getElementById(id), hv=(h&&h.value)||'';
+  if(hv) return hv;
+  const q=document.getElementById(id+'-q'), qv=((q&&q.value)||'').trim();
+  if(!qv) return '';
+  const hit=activeCgNames().find(n=>n.toLowerCase()===qv.toLowerCase());
+  return hit||'';
 }
 function cgpToggle(id){
   const p=document.getElementById(id+'-panel'); if(!p) return;
@@ -17679,13 +17714,16 @@ function openAttEntry(id){
 }
 function saveAttEntry(id){
   const v=x=>{ const el=document.getElementById(x); return el?el.value.trim():''; };
-  const cg=v('atCg'); if(!cg) return toast('Choose a caregiver');
+  /* Caregiver and Covered By are both the cgp picker, so both read through
+     cgpVal() rather than the plain hidden-field read — see cgpVal()'s own
+     comment for why a plain read alone was silently dropping typed names. */
+  const cg=cgpVal('atCg'); if(!cg) return toast('Choose a caregiver');
   /* Required now the table is filed by month: an entry with no date belongs
      to no month and would be logged straight out of sight. */
   const date=v('atDate'); if(!date) return toast('Choose a date');
   const need=v('atNeed')==='yes';
   const rec={cg, client:v('atClient'), date:date, type:v('atType'), note:v('atNote'),
-    coverNeeded:need, coverStatus: need?v('atStatus'):'Not needed', coveredBy:v('atBy')};
+    coverNeeded:need, coverStatus: need?v('atStatus'):'Not needed', coveredBy:cgpVal('atBy')};
   state.attendance=state.attendance||[];
   if(id){
     const i=state.attendance.findIndex(x=>x.id===id);
