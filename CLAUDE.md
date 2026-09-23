@@ -1278,9 +1278,10 @@ card, Needs Update, Recent Updates and the availability report only.
 What ranks is the hours a caregiver is **already booked** in AxisCare in the
 Monday–Sunday week of the shift, not counting the open shift itself
 (`covWeekHours()` over `COVHIST`): 32–39 is −8, 40 or more is −25, and since
-2026-09-22 both chips name the **total the caregiver would reach** rather than
-the hours already on the books — see *The hours chip says the total, not the
-booked hours*. Every other hours term in the file reads `c.weekHrs`, which is
+2026-09-23 both chips describe **workload** rather than overtime, and name the
+total the shift would produce — the agency pays DAILY overtime, so a weekly
+figure is not a pay figure at all. See *It is a WORKLOAD chip, not an overtime
+one*. Every other hours term in the file reads `c.weekHrs`, which is
 `null` on every live caregiver, so none of them runs. The "N h this week" text
 came off the row on 2026-09-21 at Mitch's request — it read "0 h this week" on
 most rows and helped nobody choose who to ring — and the scoring did not
@@ -1402,128 +1403,191 @@ What is left is warnings, never capped, red first:
 | Doesn't drive clients | **red** (`.cvm-tag.crit`) | `covDrives()` says no — see *Three places where absence…* |
 | Driving records disagree | amber | the driving records contradict each other |
 | Driving not recorded | amber | nobody has recorded anything |
-| Past their ~20 min travel limit | amber | the drive is more than 20% past their `maxMiles` |
+| Long drive — ~20 min past their limit | amber | the drive is more than 20% past their `maxMiles`, and the chip states the MINUTES PAST |
 | Prefers female / male clients | amber | a *typed* client-gender preference the client does not fit |
-| Overtime — 45 h with this shift | amber | 32–39 booked in the shift's week, and the shift takes them to 40+ (−8) |
-| 39 h with this shift | amber | 32–39 booked, and the shift does **not** reach 40 — a short shift, so no overtime claim (−8) |
-| Overtime — already at 49 h | amber | 40+ booked in the shift's week before this shift (−25) |
+| Heavy week — 44 h with this shift | amber | the shift would take them to 40 h or more that week (−8 at 32–39 booked, −25 at 40+) |
+| 39 h that week with this shift | amber | 32–39 booked, but a short shift keeps the total under 40 (−8) |
 
 Every chip carries its evidence in a tooltip (`why[].tip`): which records said
 what, the caregiver's own limit in miles, their typed preference, or where the
 hours come from. The red class is new and built on the existing `--crit-tx` /
 `--crit-bg` tokens.
 
-##### The hours chip says the TOTAL, not the booked hours — 2026-09-22
+##### It is a WORKLOAD chip, not an overtime one — 2026-09-23
 
-Carlo: *"36 h already booked that week — it seems it is not intuitive on what
-it means."* It was a fact where the row needed a consequence, and it left the
-arithmetic to the reader.
+**Claude: do not put the word "overtime" back on this chip.** It was there for
+a day, it was wrong, and the reason is a fact about the agency rather than a
+matter of wording.
 
-Measured over four consecutive live weeks (2026-09-29 → 10-20), across all 175
-caregivers:
+**This agency pays DAILY overtime — hours over 8 in a shift — not weekly
+overtime over 40.** Carlo, 2026-09-23. His own example settles it:
 
-| week of | 0 h | 1–31 h | **32–39 h** | 40 h+ |
-|---|---|---|---|---|
-| Sep 29 | 123 | 24 | **11** | 17 |
-| Oct 6 | 127 | 27 | **4** | 17 |
-| Oct 13 | 129 | 25 | **5** | 16 |
-| Oct 20 | 130 | 22 | **3** | 20 |
+```
+4 × 10 h shifts  ->  40 h worked,  2 h over 8 on each  =  8 h at the OT rate
+1 ×  4 h shift   ->   4 h worked,  none
+                      ──────────────────────────────────────
+                      44 h worked,  8 h of overtime
+```
 
-Two things in that made the decision:
+The weekly-40 reading calls that **"4 h over 40"** — half the real figure,
+from a rule this agency does not use. So the chip was not merely unclear, it
+was **describing the wrong quantity**, which is why Mitch kept rejecting every
+rewording of it.
 
-- **The 32–39 band only ever held 34, 35, 36, 37 and 39 h**, so any shift over
-  6 hours takes them past 40 — and the shift on the board was 9 h. The chip was
-  an overtime warning that never said the word.
-- **The 40+ chip read a flat *At 40 hrs — overtime*** while sitting on
-  caregivers at 48, 60, 71, 74 and **79 h**. It understated the people a
-  scheduler would least want to ring, twofold in places.
+It matters more here than it would elsewhere. Measured on the live account
+(2026-09-01..22, 497 visits, removed ones excluded): the dominant shift is
+**twelve hours — 265 of 497** — and **71% of all visits exceed 8 h**, 66%
+exceed 9 h. Under daily overtime almost every shift the desk fills generates
+some. A weekly threshold was never going to describe that.
 
-So the chip states the total:
+So the chip now claims only what the app can stand behind: **how loaded
+somebody already is, and what this shift would make it.**
 
 | booked | the shift | chip |
 |---|---|---|
-| 36 h | 9 h | `Overtime — 45 h with this shift` |
-| 36 h | 3 h | `39 h with this shift` — **no overtime claim, because it is not true** |
-| 49 h | any | `Overtime — already at 49 h` |
+| 32 h | 12 h | `Heavy week — 44 h with this shift` |
+| 42 h | 12 h | `Heavy week — 54 h with this shift` |
+| 36 h | 3 h | `39 h that week with this shift` — under 40, so no judgement word |
+| any | no end from AxisCare | `36 h booked that week` |
 
-**The scoring did not change** — still −8 and −25, still amber, still the same
-bands. Only the wording.
+**One rule, not two.** The score still bands on the hours already booked —
+−8 at 32–39, −25 at 40+, **unchanged** — but the wording keys on the total the
+shift would produce, so a scheduler reads one sentence whichever band it came
+from. The tooltip says the hours are **scheduled, not clocked**: `absorbHours()`
+reads `scheduledStartDate || startDate`.
 
-###### `shiftLen` is NOT the clash window's `end`
+###### Why this app may not talk about pay at all
 
-The clash check substitutes `start + 1` for an end AxisCare did not give,
-because for *"is this hour busy"* there is nothing better to check. Reusing it
-here would quietly claim a one-hour shift and **understate the very total this
-chip exists to state**. So `shiftLen` is derived separately and is `null` when
-there is no real end; the chip then falls back to `36 h booked that week`.
+Verified against the live account on 2026-09-23, so nobody has to re-litigate
+it. AxisCare's API is silent on pay computation:
 
-That fallback is a guard rather than a live path: `coverageMatches()` hands
-`coverageDetail()` the **raw `q.end`**, deliberately, so a shift with no end
-excludes every caregiver at the availability gate before any chip is reached.
-Verified — every row came back *"Not available at that time"*. If that gate
-ever softens, the fallback is already correct.
+- `payrollId` is **null on all 185 active caregivers**
+- `payRate` is one flat string, **5 distinct values**, 167 of them `20.000` —
+  no overtime variant, no rate table, no effective dates
+- no caregiver, visit or schedule field matches `overtime` or `ot_`, and the
+  **496 KB OpenAPI spec contains "overtime" zero times**. There is no payroll
+  or timesheet path
+- AxisCare's only overtime concept is the **service code on the CLIENT's
+  schedule** — `STDOT40`, `STDOT42`, `SROT36` against `STD40`, `STD41`, `SR38`.
+  That is a per-client contract somebody chose, not a per-caregiver
+  calculation: 13 clients had September schedules, **3 use an OT code and 0
+  mix**. It is not even a premium — `SROT36` bills **36**, *lower* than
+  `SR38`'s 38. It reads as "overtime is included in this client's rate"
+- `chargeRate` appears **zero times** in `index.html` and `payRate` has **no
+  readers**, so none of it reaches a scheduler anyway
 
-An end at or before the start wraps (an overnight), and an end **equal** to the
-start is a 24-hour live-in — the same reading `covClash()` and
-`coverageDetail()` give it. Verified against the real `coverageMatches()`: a
-9p–6a overnight on 34 h reads `Overtime — 43 h with this shift`, and an 8a–8a
-live-in on the same caregiver reads `58 h`.
+Whether AxisCare's payroll module applies an OT rule for this tenant is a
+question only its payroll screen answers — one screenshot from Mitch settles
+it. Either way the app has no evidence of cost, so a chip may not claim one.
 
-#### What the client asked for sits IN the shift card — 2026-09-22
+###### KNOWN BETTER, NOT BUILT: the real overtime figure is derivable
 
-`covMatchNote()` was four sentences of prose in a grey panel of its own.
-Mitch asked for the shape of the **Caregiver Matching** card on the client
-page instead — a label and a value per line, and the names as chips — because
-it says the same thing at a glance. The labels deliberately match that card,
-and Client Concierge's own, so the three screens read alike.
-
-Then the panel itself went: it was grey, sitting between the white shift card
-and the grey list header, and read as clutter. The rows are now **inside the
-shift summary card**, under a divider, and the *Caregiver matching* heading
-went with the panel — under the client's name and the shift time, a label
-saying these facts are about caregiver matching tells nobody anything.
+Now that the rule is known, `COVHIST` already holds what it needs — it walks
+every visit in the shift's week with its start and end:
 
 ```
-Duane & Lynne Georgeson
-Oxnard · Fri, Oct 9 9:00 PM–6:00 AM
-———————————————————————————————————————————
-Caregiver gender preference               Female only
-Driving required                                 Yes
-CAREGIVERS THIS CLIENT ASKED FOR
-[ Erma Delassio ]  [ Aliyah Moran · not available ]
+overtime hours = Σ over each DAY of the week: max(0, that day's hours − 8)
 ```
 
-`renderCoverageCommand()` therefore returns **`{match, html}`** rather than a
+That returns **8** for the example above, correctly, and this shift's own
+contribution is knowable too (a 12 h shift adds 4 h). Three reasons it was not
+smuggled in with a rewording:
+
+- it must group by **day**, not by visit — two 5 h visits in one day is 10 h,
+  so 2 h of OT. By visit it would undercount
+- the scoring bands would want revisiting: is "8 h of OT" worse than "44 h
+  booked"? Probably, but that is a ranking decision, not a wording one
+- **the 8 must be confirmed with payroll.** California uses 8 h/day for
+  household employees under Wage Order 15, but **9 h/day (and 45 h/week) for
+  personal attendants** under the Domestic Worker Bill of Rights, and which
+  applies turns on the duty mix — the share of time on non-caregiving work.
+  Nothing in AxisCare records the mix. Carlo states 8, which is authoritative
+  for this payroll; it should not be hard-coded on one sentence in a chat
+
+###### The daily line is also not checked ANYWHERE
+
+`covWeekHours()` returns a Mon–Sun total and nothing in the ranker looks at a
+single day. With 71% of visits over 8 h, the rule that actually binds fires
+several times a week and the board never mentions it. Its own piece of work,
+not started.
+
+#### What the client asked for rides the HEADER LINE — 2026-09-23
+
+`covMatchNote()` has been three shapes in two days, and the reasons are worth
+keeping because the third is not obviously better than the second until you
+know what went wrong with it.
+
+| | shape | why it went |
+|---|---|---|
+| until 09-22 | four sentences of prose in its own grey panel | grey block between a white card and a grey list header — clutter |
+| 09-22 | a label/value table **inside** the shift card | see below |
+| 09-23 | **chips on the client's own line**, beside the care type | — |
+
+The table was `.emp-row`, which is `justify-content:space-between`. The page
+went **full width** on 09-22 (see *The chat is FULL WIDTH*), so from that
+moment the label sat at the far left of the card and the value at the far
+right — **up to 1,600px apart on a wide monitor**. Three rows of that is a lot
+of eye travel for six words, and it pushed *Call in this order* most of a
+screen further down. Mitch: *"it is still hard to read, the table is so big and
+not instantly read."* Her fix, and it is the right one: put the facts where the
+care-type chip already is.
+
+```
+Patricia McGrath  [FULL ASSISTANCE WITH ADLS] [FEMALE ONLY] [NO DRIVING REQUIRED]
+                  PREFERS [Cristal Zambrano · not available] [Dummy Caregiver Test · not available]
+Simi Valley · Tue, Sep 29 12:00 PM–9:00 PM
+```
+
+Measured on the live board: the card went **~190px → 72px**, and it wraps with
+no overflow at 1600, 1280, 1024 and 820.
+
+`.cv-fact` is deliberately **grey, not amber**. It is the same pill as
+`.cc-part` so the line reads as one run, but the care type is what a scheduler
+looks for first and has to keep the only colour on the line.
+
+##### The three states are told apart by SHAPE now, not by wording
+
+This is the part that must not be lost, and it is easy to break by "tidying".
+Concierge owns all three facts, and they are the largest terms in the order, so
+*could not read it* means the list below was built without them:
+
+| | on screen |
+|---|---|
+| recorded, and it constrains the search | a chip with the value |
+| recorded, constrains nothing (*Either*, no driving requirement) | **no chip** |
+| Concierge unreadable or still loading | a **red** chip saying which |
+
+So an absent chip always means *asked, and nothing to apply*, and red always
+means *not asked*. **Claude: do not add a neutral chip for the not-recorded
+case.** It would make absence ambiguous and put us back where the table
+started — which is the whole reason the table carried so many words.
+
+Verified by stubbing `CLMATCH.status()` to `error`: three red chips, one per
+fact, each naming what was not applied.
+
+The asked-for caregivers keep the `.clm-cg` chips they already had, still
+marked `· not available` when they are not on the calling list, behind one
+`PREFERS` label — Mitch's own word. They still wrap, so a six-name client
+(Ziad Niazi) runs onto a second line rather than truncating.
+
+> **One rule was doing live work and nearly went with the dead ones.**
+> `.cv-match .emp-v[title], .cv-match .clm-cg{cursor:help}` was the **only**
+> `cursor:help` the name chips had. There is no standalone `.clm-cg{cursor:help}`
+> rule — a `grep -o` makes it look like there is, by matching the tail of that
+> compound selector. It moved to `.cv-client .clm-cg` rather than being
+> deleted. Five `.cv-match` rules went; the `.clm-*` rules themselves stayed,
+> because the client schedule page's read-only Caregiver Matching card still
+> uses them.
+
+The **AxisCare double-booking check** is a chip too now, and still appears only
+while it is running or when it failed.
+
+`renderCoverageCommand()` still returns **`{match, html}`** rather than a
 string: the facts have to name which of the asked-for caregivers are on the
 calling list, which is only known once that list is built, and `viewCoverage`
 hands `match` to `renderShiftSummary(q, match)`. One `coverageMatches()` run,
-not two.
-
-**Every value still separates "not recorded" from "not read", and that is the
-part not to lose.** Concierge owns all three facts — the gender preference,
-the driving requirement and the asked-for list — which are the largest terms
-in the order. When it cannot be read the list is built without them, and a
-blank value would look exactly like "nothing to apply". So the value says
-which, in red (`.emp-v.crit`), and the tooltip says what it cost:
-
-| | Value |
-|---|---|
-| recorded | `Female only` / `Yes` / the names as chips |
-| nothing recorded | `Either` / `Not recorded` |
-| Concierge still loading | `Still loading — not applied` |
-| Concierge unreadable | `Couldn't read — not applied` |
-
-**Claude: do not collapse those into one empty state**, and do not drop the
-tooltips — they are the only place the cost is stated.
-
-The asked-for caregivers are **named**, and the ones not on the calling list
-are marked rather than dropped. A bare count above a list holding none of them
-reads as a bug in the ranking rather than as an availability problem — on one
-client all five were gone before scoring.
-
-The **AxisCare double-booking check** appears only while it is running or when
-it failed. "Checked and clear" is the normal case and tells a scheduler
-nothing they need.
+not two — `renderShiftSummary` now drops it onto the client’s line instead of
+under the card.
 
 #### Drive time comes from `DRIVE_TIMES`, not the `CITY` grid
 
@@ -1760,10 +1824,37 @@ each city's point sits (a stated 10 miles against the 10.6-mile
 Oxnard → Camarillo drive). So it fires only when the drive is more than 20% past
 what they said.
 
-**The chip reads in minutes** — *Past their ~20 min travel limit* — because the
-desk asked for time throughout. That is the caregiver's own miles converted at
-this route's own speed, and it is never shown as the same figure as the drive
-beside it. What the caregiver actually said, in miles, is in the tooltip.
+**The chip states the EXCESS** — *Long drive — ~20 min past their limit*.
+Carlo, 2026-09-23, matching the workload chip: a two-word verdict, then the
+evidence. The row beside it already says how long the drive is, so the minutes
+PAST what they agreed to is the one number the chip can add. It showed the
+limit itself for two days (*Past their ~20 min travel limit*).
+
+**The excess is computed from the RAW values and rounded once.** Subtracting
+the two rounded figures on screen disagrees with the truth on **19 of the 149**
+caregiver-client pairs that fire on the live roster: Lorilyn Federis to
+Patricia McGrath reads a ~45 min drive against a ~20 min limit, which looks
+like 25, where the real excess is 21.8 and rounds to **20**. The old wording
+needed a `lim >= shown` fudge for exactly this reason; computing the excess
+directly removed it.
+
+`fmtDrive()` carries the hours form, which one caregiver genuinely needs:
+Lemoore to Ventura County is a 247-minute drive against a stated 30 miles, so
+it reads *~3 hr 30 min past*. And `driveRound()` floors at 5, so the shortest
+firing drive on live data — **17 minutes** against a stated 10 miles, a true
+excess of 3.7 — reads *~5 min past* rather than a number this data cannot
+honestly give.
+
+> **"Long drive" is an absolute word on a relative test, and that was
+> weighed.** **25 of the 149** firings are on drives of 25 minutes or less;
+> the shortest is 17. Carlo chose it anyway on 2026-09-23 over the relative
+> alternative (*Past their limit — ~20 min further*), for punchiness. Read it
+> as "long **for them**". If it ever reads wrong on a short drive, that is the
+> known trade rather than a bug.
+
+What the caregiver actually said, in miles, stays in the tooltip — the minutes
+are our conversion of their miles at this route’s own speed, and must never
+read as something they stated in minutes.
 
 The same city, or a city not in the table, never fires it.
 
