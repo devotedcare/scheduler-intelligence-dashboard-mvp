@@ -1594,7 +1594,12 @@ body.ai-white .app{background:#fff}
 /* Full-height column: the thread takes the slack and scrolls on its own, and
    the composer is the last row, so an empty page shows the box at the bottom
    with the space above it kept clear for the conversation. */
-body.ai-white .main{display:flex;flex-direction:column;min-height:100vh}
+/* The assistant is the one VIEWPORT-HEIGHT screen in this app: the thread
+   scrolls inside a fixed box and the composer never moves. Scoped to
+   body.ai-white so no other view is affected. */
+body.ai-white .app{height:100dvh;min-height:0}
+body.ai-white .main{display:flex;flex-direction:column;min-height:0;overflow:hidden}
+body.ai-white .view{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;overflow:hidden;padding-bottom:16px}
 .v-assistant{flex:1 1 auto;display:flex;flex-direction:column;min-height:0}
 .ai-wrap{flex:1 1 auto;display:flex;flex-direction:column;min-height:0}
 /* FULL WIDTH, and it takes a scoped rule to get there. `.ai-wrap` is also
@@ -1603,7 +1608,25 @@ body.ai-white .main{display:flex;flex-direction:column;min-height:100vh}
    is why the chat read as a narrow column in the top-left with ~280px of
    white beside it. Scoped to this page so the guide form stays narrow. */
 .v-assistant .ai-wrap{max-width:none}
-.ai-thread{flex:1 1 auto;overflow-y:auto;min-height:0}.ai-p{margin:0 0 9px;line-height:1.55;font-size:13.5px;color:var(--ink)}.ai-p:last-child{margin-bottom:0}.ai-ul{margin:0 0 9px;padding-left:20px;display:flex;flex-direction:column;gap:4px}.ai-ul li{line-height:1.5;font-size:13.5px;color:var(--ink)}.ai-ul:last-child{margin-bottom:0}.ai-wait{display:flex;align-items:center;gap:9px}
+.ai-thread{flex:1 1 auto;overflow-y:auto;min-height:0}
+/* The history rests on the BOTTOM of the scroller, so the first question of a
+   new conversation appears just above the composer instead of at the top of an
+   empty page, and every later one enters from the foot like a chat. It gives
+   way the moment the thread outgrows its box. NOT justify-content:flex-end,
+   which clips overflow in a scroll container — Concierge (.ask-scroll, its 202)
+   and Finance (.fai-scroll, its 1464) carry this identical rule and the same
+   warning. It acts on the thread’s CONTENTS and does not move the composer. */
+.ai-thread>*:first-child{margin-top:auto}
+/* Concierge’s slim bar (its ::-webkit-scrollbar, 75-76), scoped to the one
+   element that scrolls. The 3px white border is what makes the thumb read as
+   a thin pill rather than filling the gutter. */
+.ai-thread{scrollbar-width:thin;scrollbar-color:#DDE4EB transparent}
+.ai-thread::-webkit-scrollbar{width:10px}
+.ai-thread::-webkit-scrollbar-track{background:transparent}
+.ai-thread::-webkit-scrollbar-thumb{background:#DDE4EB;border-radius:8px;border:3px solid #fff}
+.ai-caret{display:inline-block;width:2px;height:1.05em;margin-left:2px;vertical-align:-2px;background:var(--brand);animation:aiBlink 1s steps(1) infinite}
+@keyframes aiBlink{50%{opacity:0}}
+@media (prefers-reduced-motion:reduce){.ai-caret{animation:none}}.ai-p{margin:0 0 9px;line-height:1.55;font-size:13.5px;color:var(--ink)}.ai-p:last-child{margin-bottom:0}.ai-ul{margin:0 0 9px;padding-left:20px;display:flex;flex-direction:column;gap:4px}.ai-ul li{line-height:1.5;font-size:13.5px;color:var(--ink)}.ai-ul:last-child{margin-bottom:0}.ai-wait{display:flex;align-items:center;gap:9px}
 .ai-foot{flex:0 0 auto;margin-top:auto;padding-top:14px}
 .main-white .topbar{background:#fff}
 
@@ -4131,10 +4154,22 @@ function render(){
      itself, which is what stops the question reappearing in it. */
   const aq=document.getElementById('aiq');
   const aiKeep = aq ? {v:aq.value, on:document.activeElement===aq, s:aq.selectionStart, e:aq.selectionEnd} : null;
+  /* Same hazard, one element over: .ai-thread is what scrolls, and the poll
+     repaints it wholesale — so a long conversation jumped back to the TOP
+     every 20 seconds while somebody was reading it. Follow the conversation
+     when the reader is at the foot of it; leave them exactly where they are
+     when they have scrolled up to re-read. Finance’s 80px rule; Concierge
+     re-pins unconditionally and there is no escaping it. */
+  const th=document.querySelector('.ai-thread');
+  const thKeep = th ? {top:th.scrollTop, bottom:(th.scrollHeight-th.scrollTop-th.clientHeight)<80} : null;
   v.innerHTML = demoNotice() + VIEWS[state.view]();
   if(keep){
     const el=document.getElementById('cgfSearch');
     if(el){ el.focus(); try{ el.setSelectionRange(keep.start,keep.end); }catch(e){} }
+  }
+  if(thKeep){
+    const el=document.querySelector('.ai-thread');
+    if(el) el.scrollTop = thKeep.bottom ? el.scrollHeight : thKeep.top;
   }
   if(aiKeep && aiKeep.v){
     const el=document.getElementById('aiq');
@@ -14953,6 +14988,38 @@ function aiMissingNotes(){
     }))};
 }
 
+/* "Summarise yesterday’s care notes" / "what happened with the clients".
+   Answered from public.care_note_summaries through SUMS — exact, instant,
+   free, and NOTHING LEAVES THE BROWSER. CLAUDE.md’s rule is that a router
+   builder beats widening the snapshot, and it applies with extra force here
+   because the content is clinical. */
+function aiCareSummary(day){
+  const d = day || careYesterdayPac();
+  const when = d===careTodayPac() ? 'today' : (d===careYesterdayPac() ? 'yesterday' : d);
+  const st = SUMS.status();
+  if(st==='loading') return {title:'Still reading the summaries', html:aiEmpty('The care-note summaries are still loading. Ask again in a moment.')};
+  if(st==='unconfigured') return {title:'No database configured', html:aiEmpty('This copy of the dashboard has no Supabase connection.')};
+  if(st==='error') return {title:'Could not read the summaries', html:aiEmpty('The care-note summaries could not be read — '+escText(SUMS.info().error||''))};
+  const rows = SUMS.forDay(d);
+  /* An empty answer here means the DATE was never summarised, not that the
+     shifts went undocumented. A summary is written the first time somebody
+     opens that date on Care Notes, so saying "nothing happened" would be a
+     confident lie about a day nobody has looked at. */
+  if(!rows.length) return {title:'No summaries for '+when,
+    html:aiEmpty('Nothing has been summarised for '+escText(d)+' yet. Open that date on Care Notes once and it is written.')};
+  const byClient = {};
+  rows.forEach(function(r){ (byClient[r.clientId]=byClient[r.clientId]||{am:null,pm:null})[r.shift]=r.summary; });
+  const ids = Object.keys(byClient).sort(function(a,b){
+    const ca=clById(a), cb=clById(b); return (ca?ca.name:a).localeCompare(cb?cb.name:b); });
+  return {title:ids.length+' client'+(ids.length===1?'':'s')+' summarised for '+when,
+    html:aiRows(ids.map(function(id){
+      const cl=clById(id), b=byClient[id];
+      const parts=[];
+      if(b.am) parts.push('<b>AM</b> '+escText(b.am));
+      if(b.pm) parts.push('<b>PM</b> '+escText(b.pm));
+      return aiRow(escText(cl?cl.name:'Client'), parts.join('<br>'));
+    }))};
+}
 /* "What needs my attention today?" / "What should I handle first?" */
 function aiTodayFocus(){
   const wq=buildWorkQueue(), crit=wq.critical||[], warn=wq.warning||[];
@@ -15837,6 +15904,7 @@ function aiAnswer(raw){
   if(/repeat.{0,20}call.?off|call.?off.{0,20}repeat|multiple call.?off|frequent.{0,12}call.?off/.test(q)) return aiRepeatCallOffs();
   if(/follow.?up/.test(q)) return aiFollowUp();
   if(/(which|what).{0,24}(shift|coverage).{0,24}(first|most urgent|priorit)|cover.{0,12}first/.test(q)) return aiCoverFirst();
+  if(/(summar|recap|rundown|what happened|how did).{0,30}(care ?note|shift|client|day|yesterday)|(care ?note|shift).{0,20}summar/.test(q)) return aiCareSummary(day && day.key);
   if(/\blate\b|running late|tardy/.test(q)) return aiLate();
   if(/conflict|double.?book|overlap|clash/.test(q)) return aiConflicts();
   if(/(missing|incomplete|no).{0,20}care note|care note.{0,20}(missing|incomplete|outstanding)/.test(q)) return aiMissingNotes();
@@ -15862,7 +15930,16 @@ function aiAnswer(raw){
   if(/risk/.test(q) || /biggest.*(gap|problem)/.test(q)) return aiCoverageRisks();
   if(skill) return aiBySkill(skill);
   if(wantsAvail) return aiAvailable(day, win, city);
-  const named=state.caregivers.find(c=>{ const f=c.name.toLowerCase().split(' ')[0]; return f.length>3 && q.includes(f); });
+  /* A WHOLE WORD, never a substring. `q.includes(f)` matched "ester" inside
+     "yesterday" and answered four of ten ordinary questions with Ester
+     Siron’s profile card (measured on the live roster, 2026-09-23). A bare
+     first name is still enough — "how is Maria doing" — it just has to BE a
+     word. Names are escaped because a real one can carry . or ’. */
+  const named=state.caregivers.find(c=>{
+    const f=String(c.name||'').toLowerCase().split(' ')[0];
+    if(f.length<=3) return false;
+    return new RegExp('(^|[^a-z0-9])'+f.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'([^a-z0-9]|$)').test(q);
+  });
   if(named) return aiCaregiver(named);
   /* `fallthrough` is what askAI() hands to Devi. The title and html stay as
      they were so the screen degrades to exactly the old behaviour when there
@@ -16222,6 +16299,23 @@ function deviContext(){
         ' · ' + (cg?cg.name:'?') + ' · ' + dvWhen(a.at) + ' · "' + String(a.excerpt||'').slice(0,110) + '"';
     }), 15);
 
+  /* ---- 7b. what the care notes actually SAID, summarised ----
+     The two sections above carry only alert METADATA and a 110-character
+     excerpt. These are the day review the desk reads, from
+     public.care_note_summaries via SUMS — a READ, never a generation.
+
+     ONE DATE ONLY, and that is a hard constraint rather than taste:
+     devi-agent caps the request at MAX_BODY_BYTES = 64_000 and its own
+     comment puts this snapshot at ~55KB already. A date is ~22 blocks at a
+     median 241 characters, so roughly 6KB — one fits, a week 413s. The
+     dvSection cap is the second belt. */
+  const sumDay = careYesterdayPac();
+  dvSection(L, 'CARE NOTE SUMMARIES — ' + sumDay + ' (AM/PM per client)',
+    dvSafe(function(){ return SUMS.forDay(sumDay); }, []).map(function(r){
+      const cl = clById(r.clientId);
+      return (cl?cl.name:'?') + ' ' + String(r.shift||'').toUpperCase() + ' — ' + r.summary;
+    }), 24);
+
   /* ---- 8. the roster itself ---- */
   L.push('');
   /* c.base, NOT c.city. A caregiver record has no `city` — AxisRoster's
@@ -16361,6 +16455,125 @@ function deviInline(s){
   return escText(s).replace(/\*\*([^*]+)\*\*/g,'<b>$1</b>');
 }
 
+/* =========================================================
+   THE TYPEWRITER  —  ported from the Finance dashboard
+   ---------------------------------------------------------
+   Carlo, 2026-09-23: Ask Devi should read like Concierge and Finance.
+   Verified against both before writing this, and THEY DO NOT AGREE:
+
+     Concierge  real SSE streaming and NO typewriter at all. Zero
+                @keyframes and zero animation: rules in 20,961 lines.
+                Its "typing" is the model's tokens arriving live.
+     Finance    streams AND runs a real character typewriter on top
+                (faiTypeTo / faiTypeTick, its index.html 11077-11104).
+
+   Finance is the one copied, because it is the one that has a
+   typewriter — and because its typewriter is TRANSPORT-INDEPENDENT:
+   faiTypeTo() is handed a complete string on its own non-streaming
+   fallback path. So this needs no Edge Function change and no Supabase
+   deploy. devi-agent contains the string "stream" zero times today.
+
+   THE HONEST COST, so nobody re-derives it later: Concierge's streaming
+   REMOVES dead air (~15s -> ~2s, ASK_CONCIERGE.md:345). A typewriter over
+   an answer we already hold ADDS about 1.6s to a 1,200-character reply.
+   Real streaming stays worth doing; it is a separate piece of work that
+   changes devi-agent, and Finance proves the two compose.
+
+   ONLY DEVI'S ANSWERS TYPE. A router answer is computed from the local
+   tables in under a millisecond, and its `html` is built markup — tables
+   and lists — not model prose. Slicing THAT would mean cutting rendered
+   HTML, which is exactly what the escaping note below forbids. An instant
+   answer appearing instantly is honest.
+
+   THE COUNTERS LIVE IN state.aiLog, NEVER IN THE DOM. render() rewrites
+   the view wholesale on every save and every 20-second poll, so a
+   half-typed node is destroyed and recreated constantly. viewAssistant()
+   redraws the current frame from `live`/`shown`, so a poll landing
+   mid-type costs one frame and nothing else. Put the counters in the DOM
+   and every poll restarts the animation from zero. */
+
+var aiTypeTimer = 0;
+function aiReduce(){ try{ return matchMedia('(prefers-reduced-motion: reduce)').matches; }catch(e){ return false; } }
+
+/* The thread is the element that scrolls, not the page. `.ai-thread` is
+   flex:1 1 auto; overflow-y:auto, so window.scrollTo() does nothing here. */
+function aiThreadEl(){ return document.querySelector('.ai-thread'); }
+function aiAtBottom(el){ return !el || (el.scrollHeight - el.scrollTop - el.clientHeight) < 80; }
+function aiScrollToBottom(){ const el=aiThreadEl(); if(el) el.scrollTop = el.scrollHeight; }
+
+/* Finance's rule, and it is better than Concierge's. Concierge re-pins
+   unconditionally from render() (its 11549/4249), so scrolling up to
+   re-read an earlier answer yanks you back within 120ms with no escape.
+   Follow the conversation only while the reader is already at the foot
+   of it. */
+function aiStick(wasAtBottom){ if(wasAtBottom) aiScrollToBottom(); }
+
+/* What one frame looks like. It slices the RAW MODEL TEXT and re-renders
+   it, never the rendered HTML — cutting deviRender()'s output at N
+   characters would bisect a tag, an entity or an attribute and reopen the
+   injection path escText() exists to close. Finance slices its raw text
+   for the same reason (faiLiveHTML, 11093). */
+function aiLiveHTML(e){
+  const shown = String(e.live||'').slice(0, e.shown||0);
+  /* A trailing ** or a half-written bullet would flicker as bold opens and
+     closes, so trim a dangling marker off the visible edge only. */
+  const tidy = shown.replace(/\*{1,2}$/,'').replace(/\n[-*•]\s*$/,'');
+  return (tidy ? deviRender(tidy) : '<div class="ai-p"></div>')
+    + '<span class="ai-caret" aria-hidden="true"></span>';
+}
+
+/* Begin typing `text` into the turn with this id. The final html is
+   already on the turn — this only controls how it is revealed. */
+function aiTypeTo(id, text){
+  const e = state.aiLog.find(x=>x.devi===id);
+  if(!e) return;
+  if(!text || aiReduce()){ render(); aiScrollToBottom(); return; }
+  e.live = text; e.shown = 0;
+  render();                       /* first frame, drawn from state */
+  aiScrollToBottom();
+  if(!aiTypeTimer) aiTypeTimer = setTimeout(aiTypeTick, 16);
+}
+
+/* ONE global timer drives every live turn, and it stops rescheduling
+   itself the moment none is left. Nothing ever clearTimeout()s it —
+   the same self-terminating shape Finance uses.
+
+   Step = max(2, ceil(remaining/24)): a floor of 2 characters a tick
+   (~125/sec) and otherwise a twenty-fourth of the backlog, so it
+   accelerates the further behind it is and lands smoothly. */
+function aiTypeTick(){
+  aiTypeTimer = 0;
+  let more = false;
+  const jump = aiReduce() || document.hidden;   /* no motion, or nobody looking */
+  const el = aiThreadEl(), stick = aiAtBottom(el);
+  state.aiLog.forEach(function(e){
+    if(e.live == null) return;
+    const n = e.live.length, s = e.shown || 0;
+    if(s < n){
+      e.shown = jump ? n : Math.min(n, s + Math.max(2, Math.ceil((n - s) / 24)));
+      aiLivePaint(e); more = true;
+    } else aiTypeFinish(e);
+  });
+  aiStick(stick);
+  if(more) aiTypeTimer = setTimeout(aiTypeTick, 16);
+}
+
+/* Paint ONE node rather than calling render(). A full render is ~10ms and
+   would fight the composer's cursor sixty times a second. */
+function aiLivePaint(e){
+  const el = document.getElementById('ailive-' + e.devi);
+  if(el) el.innerHTML = aiLiveHTML(e);
+}
+
+/* Swap the typed text for the finished answer. e.html was set at settle,
+   so this only drops the live fields and repaints once. */
+function aiTypeFinish(e){
+  e.live = null; e.shown = 0;
+  const stick = aiAtBottom(aiThreadEl());
+  render();
+  aiStick(stick);
+}
+
 /* ---- the ask ------------------------------------------------------------ */
 /* Turns are patched by ID, never by index. The obvious version captures the
    push() index and writes state.aiLog[at] when the fetch lands — which is
@@ -16430,7 +16643,10 @@ function deviAsk(q, local){
         : 'Devi returned an empty answer.';
       deviSettle(id, {q, title:'Devi', html:'<div class="ai-none">'+escText(why)+'</div>', text:''});
     } else {
+      /* Settle first so e.html holds the finished answer, THEN reveal it.
+         aiTypeTo is a no-op under prefers-reduced-motion. */
       deviSettle(id, {q, title:'Devi', html:deviRender(text), text:text});
+      aiTypeTo(id, text);
     }
   }).catch(function(e){
     const aborted = ctl && ctl.signal.aborted;
@@ -16452,7 +16668,11 @@ function deviAsk(q, local){
     /* Same courtesy the router's answers get: put the cursor back in the box
        and bring the newest turn into view. */
     setTimeout(function(){
-      window.scrollTo(0,document.body.scrollHeight);
+      /* .ai-thread is the element that overflows — it is flex:1 1 auto with
+         overflow-y:auto inside a full-height column — so the old
+         window.scrollTo() moved nothing and a new turn could land below the
+         fold on a long conversation. */
+      aiScrollToBottom();
       const i2=document.getElementById('aiq'); if(i2) i2.focus();
     },30);
   });
@@ -16516,7 +16736,7 @@ function askAI(preset){
      never attaches itself to a newer question. */
   state.aiLog.push({q, title:ans.title, html:ans.html, text:ans.text, act:ans.act});
   render();
-  setTimeout(()=>{ window.scrollTo(0,document.body.scrollHeight); const i2=document.getElementById('aiq'); if(i2) i2.focus(); },30);
+  setTimeout(()=>{ aiScrollToBottom(); const i2=document.getElementById('aiq'); if(i2) i2.focus(); },30);
 }
 function clearAI(){ state.aiLog=[]; render(); }
 /* The suggestions start closed and are opened by the scheduler. */
@@ -16529,7 +16749,12 @@ function viewAssistant(){
   const thread=state.aiLog.map(e=>`<div class="ai-turn">
       <div class="ai-ask">${ic('spark',13)}<span>${escText(e.q)}</span></div>
       <div class="ai-ans"><div class="ai-ans-t">${e.title}</div>${
-        e.pending ? `<div class="ai-none ai-wait"><span class="cs-spin"></span>Devi is thinking…</div>` : e.html
+        e.pending ? `<div class="ai-none ai-wait"><span class="cs-spin"></span>Devi is thinking…</div>`
+        /* Mid-type: redraw the CURRENT FRAME from state, so the 20-second
+           poll destroying and recreating this node costs one frame rather
+           than restarting the animation. The id is what lets the 16ms tick
+           paint this one node instead of calling render(). */
+        : (e.live != null ? `<div class="ai-live" id="ailive-${e.devi}">${aiLiveHTML(e)}</div>` : e.html)
       }${dactCards(e)}</div></div>`).join('');
   const chips=AI_EXAMPLES.map((q,i)=>`<button class="ai-chip" onclick="askAIex(${i})">${q}</button>`).join('');
   const open=!!state.aiSugOpen;
@@ -18668,6 +18893,88 @@ var CNSUM = (function () {
   return { load: load, soon: soon, get: get, status: status, forBlock: forBlock, retry: retry, info: info };
 })();
 function cnsumRetry(day) { CNSUM.retry(day); }
+
+/* =========================================================
+   SUMS  —  read-only access to the care-note summaries
+   ---------------------------------------------------------
+   `CNSUM` above is the Care Notes PAGE's module: it POSTs a date to
+   carenotes-summary, which GENERATES when a row is stale — ~30 seconds
+   and ~1.8 cents, and it writes clinical rows.
+
+   This is the other half, and the difference is the whole point: SUMS
+   only ever READS `public.care_note_summaries` through the PIN gate. It
+   cannot generate, cannot spend and cannot write. That is what makes it
+   safe to call from Ask Devi, where a question must never cost money.
+
+   **Claude: never call CNSUM.load() from deviContext() or any router
+   builder.** deviContext() runs on EVERY Devi question; load() generates.
+   That is the trap this module exists to avoid.
+
+   Two things it can reach that CNSUM cannot:
+     - dates NOBODY opened on the Care Notes page this session
+     - dates hidden by fetchCareNotes()'s limit=400 against 701 rows
+
+   It needs `care_note_summaries: { GET: true }` in app-gate's ALLOW.
+   Without it every read is 400 not_allowed — and a commit does not deploy
+   app-gate. Nothing in the SQL changes: the relay uses the service key, so
+   RLS-with-no-policies does not block it.
+
+   Module-level, never in `state` — a few hundred summaries in a tracked
+   CLOUD slice is the 323KB overlay bug arriving through one more door. */
+var SUMS = (function () {
+  var byDay = {};              /* day -> [{clientId, shift, summary}] */
+  var st = 'idle';             /* idle | loading | ready | error | unconfigured */
+  var err = null, loaded = 0;
+
+  /* How far back to read at boot. Yesterday is what the Care Notes page
+     opens on and what the desk asks about; a fortnight covers "last week"
+     without being a sweep. ~22 rows a date, so ~300 rows. */
+  var WINDOW_DAYS = 14;
+
+  function status() { return st; }
+  function info() { return { state: st, days: Object.keys(byDay).length, rows: loaded, error: err }; }
+  function forDay(day) { return byDay[day] || []; }
+  function days() { return Object.keys(byDay).sort(); }
+
+  function prime(nDays) {
+    var cfg = window.SCHEDULER_CONFIG || {};
+    if (!cfg.supabaseUrl || !cfg.supabaseAnonKey) { st = 'unconfigured'; return Promise.resolve(); }
+    if (st === 'loading' || st === 'ready') return Promise.resolve();
+    st = 'loading';
+    var to = careTodayPac(), from = careDayShift(to, -(nDays || WINDOW_DAYS));
+    var url = cfg.supabaseUrl.replace(/\/+$/, '') +
+      '/rest/v1/care_note_summaries?select=day,client_id,shift,summary' +
+      '&day=gte.' + from + '&day=lte.' + to + '&order=day.desc&limit=1000';
+    return GATE.fetch(url, { headers: { apikey: cfg.supabaseAnonKey, Authorization: 'Bearer ' + cfg.supabaseAnonKey } })
+      .then(function (r) {
+        if (!r.ok) throw new Error('care note summaries HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function (rows) {
+        byDay = {}; loaded = 0;
+        (rows || []).forEach(function (x) {
+          if (!x || !x.day || x.client_id == null || !x.summary) return;
+          var d = String(x.day).slice(0, 10);   /* a date column, sliced not cast */
+          (byDay[d] = byDay[d] || []).push({
+            clientId: 'k' + x.client_id,        /* the app's own client id shape */
+            shift: x.shift, summary: x.summary,
+          });
+          loaded++;
+        });
+        st = 'ready'; err = null;
+      })
+      .catch(function (e) {
+        st = 'error'; err = (e && e.message) || String(e);
+        console.warn('[sums] ' + err);
+      });
+  }
+
+  /* A roster re-sync or a fresh generation should be picked up without a
+     reload; nothing calls this on a timer. */
+  function forget() { byDay = {}; st = 'idle'; err = null; loaded = 0; }
+
+  return { prime: prime, forDay: forDay, days: days, status: status, info: info, forget: forget };
+})();
 
 function careDayNav(dateStr){
   const d=new Date(dateStr+'T12:00:00');
@@ -21434,6 +21741,9 @@ const CLOUD = (function(){
        built against the final roster, and after hookRender(), so its own
        render() when it lands is a real one. Nothing waits on it. */
     try{ AVAIL.primeIndex(); }catch(e){ console.warn('[avail] index prime threw',e); }
+    /* One small GET, after the board is already usable. It only READS — see
+       SUMS — so it cannot generate a summary or spend anything. */
+    try{ SUMS.prime(); }catch(e){ console.warn('[sums] prime threw',e); }
     /* The revalidate half of stale-while-revalidate - see AxisLive. After
        booted=true, because it repaints and may save; nothing waits on it. */
     try{ AxisLive.revalidateOpenShifts(); }catch(e){ console.warn('[openshifts] revalidate threw',e); }

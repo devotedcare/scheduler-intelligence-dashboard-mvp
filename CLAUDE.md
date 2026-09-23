@@ -4667,6 +4667,243 @@ the re-render would now be undone by the carry.
 > restyled that form as a side effect. The composer's own classes are
 > `.ai-ta`, `.ai-tools`, `.ai-sugbtn` and `.ai-approve`.
 
+### The answer TYPES, and the thread behaves like a chat — 2026-09-23
+
+Carlo: *"the animation for Devi should be similar to how the Concierge and
+Finance work. There should be a typewriting when answering and also the message
+appear at the bottom first like a chat."* The design is unchanged — only the
+reveal and the scrolling.
+
+#### Concierge and Finance do NOT do the same thing
+
+Both were read before anything was written, and this is the part worth keeping:
+
+| | Concierge | Finance |
+|---|---|---|
+| Reveal | **real SSE streaming, and no typewriter at all** | streaming **and** a character typewriter on top |
+| Timing | `AGENT_STREAM_MS = 120` — a repaint *throttle*, not a speed | `setTimeout(…,16)`, step `max(2, ceil((n−s)/24))` |
+| Caret | none | `.fai-caret`, off under reduced motion |
+| Scroll pin | **unconditional**, from `render()` | pins only within **80px** of the bottom |
+
+Concierge has **zero `@keyframes` and zero `animation:` rules in 20,961 lines**
+— what looks like typing there is the model's tokens arriving. Do not go
+looking for a `typeOut()` in it.
+
+**Finance is the one copied**, for three reasons: it is the only one with a
+typewriter, which is what was asked for; its `faiTypeTo()` is fed a *complete*
+string on its own non-streaming fallback path, so this needed **no Edge
+Function change**; and Concierge's unconditional pin is a defect — scroll up to
+re-read and it yanks you back with no escape.
+
+#### `.ai-thread>*:first-child{margin-top:auto}` is the whole placement fix
+
+The one line both siblings carry, with the same warning in both files: **not**
+`justify-content:flex-end`, which clips overflow in a scroll container. It rests
+the history on the bottom of the scroller, so the first question of a new
+conversation appears just above the composer, and gives way once the thread
+outgrows its box. It acts on the thread's **contents** and does not move the
+composer — the empty-page layout under *The composer is at the FOOT* is
+untouched.
+
+**The ordering was already right.** `state.aiLog.push()` has always put the
+newest turn last. What was missing was any scroll of the element that actually
+overflows.
+
+#### Two scroll bugs, and the second was silent
+
+`.ai-thread` is `flex:1 1 auto; overflow-y:auto`, so **the page does not
+scroll — the thread does.** Both answer paths ended with
+`window.scrollTo(0, document.body.scrollHeight)`, which moved nothing: on a long
+conversation a new turn simply landed below the fold. Both now call
+`aiScrollToBottom()`.
+
+Worse, `render()` rewrites the view wholesale on every save and **every
+20-second poll**, so a long conversation jumped back to the **top** every 20
+seconds while somebody was reading it. `render()` now carries the thread's
+scroll the same way it already carries the composer's half-typed text, with
+Finance's 80px rule: follow the conversation when the reader is at the foot of
+it, leave them exactly where they are when they have scrolled up.
+
+#### The counters live in `state.aiLog`, never in the DOM
+
+`e.live` (the raw text) and `e.shown` (how much of it) are fields on the turn.
+`viewAssistant()` draws the current frame from them, so the poll destroying and
+recreating the node costs **one frame** — measured 104 → 114 characters across a
+mid-type `render()`. Put the counters in the DOM and every poll restarts the
+animation from zero.
+
+`state.aiLog` is deliberately not a `SLICES` entry, so two extra fields share
+nothing and are never written to Supabase.
+
+The 16ms timer is module-level, drives every live turn at once, and **stops
+rescheduling itself** when none is left — it is never `clearTimeout`-ed, the
+same self-terminating shape Finance uses. `document.hidden` and
+`prefers-reduced-motion` both jump straight to the end.
+
+#### It types the RAW TEXT and re-renders — never the HTML
+
+`aiLiveHTML()` slices `e.live` and runs it through `deviRender()` every frame.
+Cutting `deviRender()`'s *output* at N characters would bisect a tag, an entity
+or an attribute and reopen exactly the injection path `escText()` exists to
+close. A dangling `**` or half-written bullet is trimmed off the visible edge so
+bold does not flicker open and shut.
+
+#### ONLY DEVI'S ANSWERS TYPE
+
+A router answer is computed from the local tables in under a millisecond and its
+`html` is built markup — tables and lists — not model prose. Animating it would
+mean slicing rendered HTML, which the rule above forbids, and would add latency
+to the one path that has none. An instant answer appearing instantly is honest.
+
+#### The honest cost, so nobody re-derives it
+
+Concierge's streaming **removes** dead air — ~15s to ~2s, by its own docs. A
+typewriter over an answer already in hand **adds** about 1.6s to a
+1,200-character reply, on top of Devi's own latency. That was the accepted trade
+for a change that needs no deploy. **Real streaming is still worth doing** and is
+a separate piece of work: `stream:true` in `devi-agent`, an SSE reader in
+`deviAsk()`, and Concierge's content-type sniff so the page and the function can
+deploy in either order. Finance proves the two compose.
+
+---
+
+#### "yesterday" returned a caregiver's profile card
+
+**Reported from a live session, 2026-09-23.** *"can you help me figure out the
+care plan of Brenda yesterday?"* came back twice as a profile card for **Ester
+Siron** — a caregiver nobody asked about, and not the client who was asked
+about. Devi answered correctly on the third try and guessed, reasonably, that a
+widget had fired instead of a reply. It had not. The router did it.
+
+```js
+const named = state.caregivers.find(c => {
+  const f = c.name.toLowerCase().split(' ')[0];
+  return f.length > 3 && q.includes(f);        // SUBSTRING, not a word
+});
+```
+
+`"yesterday".includes("ester")` is **true**. Every question containing the word
+*yesterday* was answered with Ester Siron's card.
+
+Measured against the live roster the same day: **4 of 10** ordinary scheduling
+questions were hijacked, every one through *yesterday*, and it is the only
+everyday word in the scheduling vocabulary that collides — but on a desk whose
+care-note screen is literally *"Yesterday's Summary"*, it is the worst one it
+could have been.
+
+The match is a **whole word** now — `(^|[^a-z0-9])name([^a-z0-9]|$)` — so a
+bare first name still works (*"how is Edna doing"* → Edna Arma) and an embedded
+one does not. The name is regex-escaped, because a real one can carry `.` or
+an apostrophe.
+
+> Two things this did NOT change, deliberately. The branch still searches
+> **caregivers only**, so a question about a client falls through to Devi —
+> which is what happened here, and Devi answered it well from the care-note
+> summaries. And two caregivers sharing a first name still resolve to whichever
+> `find()` reaches first.
+
+#### The PAGE scrolled, not the thread
+
+Carlo, same session: *"why is the chat going down and scrolling down? it should
+stay where it is similar to Finance and Concierge."*
+
+`.ai-thread` has always been `flex:1 1 auto; overflow-y:auto` — but **an
+element only overflows inside a BOUNDED parent**, and `body.ai-white .main` was
+`min-height:100vh`, which grows. So the column stretched with the conversation,
+the thread never overflowed, the page scrolled instead, and the composer slid
+down out of reach. `aiScrollToBottom()` was a no-op for the same reason:
+`scrollHeight === clientHeight`.
+
+Both siblings bound it — Concierge `height:calc(100dvh - 78px)`, Finance
+`calc(100dvh - 68px)` — each with breakpoint overrides for the chrome above
+them. **Scheduling needs no magic number**, because its topbar is a flex child
+of `.main`:
+
+```css
+body.ai-white .app {height:100dvh;min-height:0}
+body.ai-white .main{min-height:0;overflow:hidden}
+body.ai-white .view{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+```
+
+Flex does the arithmetic, so it is exact at every width and cannot drift when
+the topbar changes height. Scoped to `body.ai-white`, so no other view moves.
+
+Measured after: the app is **900px in a 900px viewport**, the page does not
+scroll, the thread does, and adding ten more turns leaves the composer at
+**731px — unmoved to the pixel**.
+
+#### The scrollbar
+
+Concierge styles this globally (its `::-webkit-scrollbar`, 75–76); Scheduling
+styled it nowhere, so the thread got the chunky OS default. The same slim bar is
+now on `.ai-thread` — `scrollbar-width:thin`, a `#DDE4EB` thumb with a 3px
+white border, which is what makes it read as a pill rather than filling the
+gutter. **Scoped to the one element that scrolls**, rather than restyling every
+scrollbar in the app, which is a larger change than was asked for.
+
+---
+
+### Devi can read the care-note summaries — `SUMS`
+
+Carlo, same day: *"can check if Devi can get the summarize care notes and have
+read access to those."* It could not, by any path, and the two halves failed
+differently: `care_note_summaries` was not in `app-gate`'s `ALLOW`, so a browser
+read was `400 not_allowed`; and `deviContext()` carried only alert metadata and
+a 110-character excerpt, never a summary.
+
+```
+app-gate ALLOW   care_note_summaries: { GET: true }      <- GET ONLY
+SUMS (index.html)  reads a 14-day window through GATE.fetch at boot
+aiCareSummary()    a router builder - nothing leaves the browser
+deviContext()      ONE date, capped, in the snapshot
+```
+
+#### `SUMS` reads; `CNSUM` generates. That is the whole distinction
+
+**Claude: never call `CNSUM.load()` from `deviContext()` or any router
+builder.** `deviContext()` runs on **every** Devi question and `CNSUM.load()`
+*generates* when a row is stale — ~30 seconds, ~1.8 cents, and it writes
+clinical rows. A question would silently spend money and write to a clinical
+table. `SUMS` exists so that cannot happen: it only ever reads, so it cannot
+generate, cannot spend and cannot write.
+
+It also reaches two things `CNSUM` cannot: dates nobody opened on the Care Notes
+page this session, and the ~16 oldest dates hidden by `fetchCareNotes()`'s
+`limit=400` against 701 rows.
+
+Module-level, never in `state` — a few hundred summaries in a tracked CLOUD
+slice is the 323KB overlay bug arriving through one more door.
+
+#### No SQL change, and GET only
+
+The relay uses the service key, so RLS-with-no-policies does not block it and
+`supabase/care-note-summaries.sql` is untouched. The entry is **GET only**:
+nothing in the browser may create or change a summary, because only
+`carenotes-summary` may write one. **A commit does not deploy `app-gate`** —
+it was deployed 2026-09-23.
+
+#### The builder is preferred over the snapshot, and says so when it knows nothing
+
+`aiCareSummary()` answers *"summarise yesterday's care notes"* from the table:
+exact, instant, free, and **nothing leaves the browser** — CLAUDE.md's rule that
+a router builder beats widening the snapshot, applying with extra force because
+the content is clinical.
+
+**An empty answer means the DATE was never summarised, not that the shifts went
+undocumented.** A summary is written the first time somebody opens that date on
+Care Notes, so the builder says exactly that rather than reporting a quiet day.
+
+#### The snapshot carries ONE date, and that is a hard constraint
+
+`devi-agent` caps the request at `MAX_BODY_BYTES = 64_000` and its own comment
+puts the snapshot at ~55KB. A date is ~22 blocks at a median 241 characters,
+so roughly 6KB: **one date fits, a week `413`s.** `dvSection`'s cap of 24 is the
+second belt. Measured with the section in place: **24KB**.
+
+Verified in the browser against the live table: 44 rows over the 2 dates that
+have been summarised, the builder answering *"15 clients summarised for
+yesterday"*, the router reaching it, and one `app-gate` request returning 200.
+
 ### The four-part answer, and its honest limit
 
 `deviSystem()` asks for **WHAT I FOUND / WHAT I CAN DO / WHAT THE SCHEDULER
@@ -5030,7 +5267,9 @@ never 401, 403 or 404** (NOTES and CGPHOTO read a 404 as "already gone").
   table, method and body columns (`ALLOW` in `supabase/functions/app-gate/index.ts`).
   No embedded `select`; a PATCH or DELETE needs a filter; `caregiver_profile`
   takes only `employment_status`; the `caregiver_availability` PATCH takes only
-  `{note: null}`. **A new Supabase request in `index.html` needs a line in
+  `{note: null}`; `care_note_summaries` is **GET only**, because only
+  `carenotes-summary` may write a summary (added 2026-09-23 so Ask Devi can
+  read them — see *Devi can read the care-note summaries*). **A new Supabase request in `index.html` needs a line in
   `ALLOW` too**, or it fails with `400 not_allowed`. That is the *seven lists*
   lesson again, and here it is the point.
 - **The dashboard is `inert` while locked**, so nobody types into a hidden note

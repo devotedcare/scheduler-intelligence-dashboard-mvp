@@ -208,6 +208,12 @@ const ALLOW: Record<string, Partial<Record<"GET" | "POST" | "PATCH" | "DELETE", 
     POST: ["caregiver_id", "employment_status", "updated_by"],   // its new-hire upsert
   },
   care_notes: { GET: true },
+  /* READ ONLY, deliberately. These are AI summaries of clinical shift notes,
+     written only by carenotes-summary with the service key; nothing in the
+     browser may create or change one. The table has RLS on with no policies,
+     which the anon key cannot get past -- this relay uses the service key, so
+     GET works without touching the SQL. Added for Ask Devi, 2026-09-23. */
+  care_note_summaries: { GET: true },
   open_shifts: { GET: true },
   open_shifts_sync: { GET: true },
   client_match_prefs: { GET: true },
