@@ -2722,6 +2722,11 @@ html.pg-held .pingate{display:none!important}
 .cd-noteby{font-size:11.5px;font-weight:700;color:var(--ink-soft);margin-bottom:2px}
 .cd-notetx{font-size:13px;color:var(--ink);line-height:1.5;white-space:pre-wrap}
 .cd-nonote{font-size:12.5px;color:var(--ink-faint);font-style:italic}
+.cd-sumtx{font-size:13px;color:var(--ink);line-height:1.5}
+.cd-sumbar{display:flex;align-items:center;gap:8px;padding:8px 16px;font-size:12.5px;font-weight:600;border-bottom:1px solid var(--line)}
+.cd-sumbar.work{color:var(--ink-faint);background:var(--panel-head)}
+.cd-sumbar.bad{color:var(--crit-tx);background:var(--crit-bg)}
+.cd-sumbar>span{flex:1 1 auto}
 .cd-twocol{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 @media(max-width:900px){.cd-twocol{grid-template-columns:1fr}}
 .cd-flagcard{padding:0;overflow:hidden}
@@ -18524,6 +18529,146 @@ function careDocIssuesForDay(dateStr){
   return out.sort((a,b)=>{ const ca=clById(a.clientId),cb=clById(b.clientId); return (ca?ca.name:'').localeCompare(cb?cb.name:'')||new Date(a.at)-new Date(b.at); });
 }
 
+/* =========================================================
+   CNSUM  —  the AI summary behind "Yesterday's Summary"
+   ---------------------------------------------------------
+   Section 1 of this page used to print the caregiver's raw AxisCare
+   note under a heading that said Summary, which is the one thing a
+   summary section is not. supabase/functions/carenotes-summary writes
+   the summarised version — one short block per CLIENT per AM/PM
+   shift — and saves it in public.care_note_summaries.
+
+   ONE REQUEST PER DATE, AND ONE MODEL CALL BEHIND IT. Measured on the
+   live mirror 2026-09-23: a date is 18.9 notes over 13.3 clients on
+   average, ~3,400 input tokens, so a whole date fits in one call and
+   costs about 1.8 cents. Opening the date again — by anybody, in any
+   browser — reads the saved rows and spends nothing: measured 30s for
+   the first open of 2026-09-22 and 0.68s for every open after it.
+
+   ONLY THE DATE IS SENT. The browser is already holding the notes, so
+   posting them would be less code — and would let anyone with the site
+   URL save invented clinical summaries and spend the Anthropic key on
+   any text they liked, because there is no per-person login. The
+   function reads care_notes itself with the service key. Claude: do
+   not "simplify" this into posting state.careNotes.
+
+   NOTHING GOES INTO `state`. A few hundred summaries in a tracked
+   CLOUD slice would be diffed into the overlay and written to Supabase
+   as though a scheduler typed them — the 323KB bug in *Don't break
+   these*, arriving through one more door. Same reason CGVISITS and
+   CGCOMMS keep their caches in their own modules.
+
+   AN ERROR IS NEVER RETRIED BY A RENDER. render() runs on every save
+   and every 20-second poll, and the render is what asks — so a failure
+   that retried itself would send one request per render for as long as
+   the page stayed open. Retry is a button. */
+var CNSUM = (function () {
+  var days = {};        /* day -> {status, units:{key:summary}, model, generated, reused, error} */
+  var inflight = {};
+
+  function url() {
+    var u = (window.SCHEDULER_CONFIG || {}).supabaseUrl;
+    return u ? String(u).replace(/\/+$/, '') + '/functions/v1/carenotes-summary' : '';
+  }
+  var DEPLOY = 'npx supabase functions deploy carenotes-summary --project-ref gdzgoyawavffjdjpjbfz --no-verify-jwt';
+
+  /* Have the care notes been fetched at all yet? A boot still in flight is not
+     evidence that a date is empty. Any note at all having arrived is enough --
+     the fetch assigns state.careNotes in one go. */
+  function careNotesLoaded() {
+    try { return (state.careNotes || []).length > 0 || !rosterLoading(); } catch (e) { return true; }
+  }
+  function get(day) { return days[day] || null; }
+  function status(day) { var d = days[day]; return d ? d.status : 'idle'; }
+
+  /* One block’s summary as {summary, sourceCount}, or null. sourceCount is how
+     many notes the FUNCTION summarised, read live from care_notes; the caller
+     compares it with how many this browser holds, because state.careNotes is
+     boot-time and the two can legitimately differ. */
+  function forBlock(day, clientId, shift) {
+    var d = days[day];
+    if (!d || d.status !== 'ready') return null;
+    return d.units[day + '|' + String(clientId).replace(/^k/, '') + '|' + shift] || null;
+  }
+
+  function load(day) {
+    if (!day || inflight[day] || days[day]) return;
+    /* A date the browser holds no notes for has nothing to render a
+       summary into, so asking would generate text nobody could see.
+       NOTE: the page's own note list is capped (limit=400 on the
+       care_notes read), so an older date can look empty here while the
+       table holds notes. Fixing that cap is what makes those dates
+       summarise; this gate is not what stops them. */
+    if (!careNotesForDay(day).length) {
+      /* EMPTY IS ONLY AN ANSWER ONCE THE NOTES HAVE LANDED. state.careNotes is
+         filled by hydrate()'s Promise.all and viewCareNotes() paints before it,
+         so caching 'ready' here would be permanent and this page would show raw
+         notes under a subtitle promising summaries for the rest of the session.
+         Cache nothing while it is still arriving; the next render asks again. */
+      if (!careNotesLoaded()) return;
+      days[day] = { status: 'ready', units: {}, generated: 0, reused: 0 };
+      return;
+    }
+    var base = url();
+    if (!base) { days[day] = { status: 'error', units: {}, error: 'This copy of the dashboard has no Supabase URL.' }; return; }
+    days[day] = { status: 'loading', units: {} };
+    inflight[day] = fetch(base, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ day: day })
+    }).then(function (r) {
+      return r.json().catch(function () { return null; }).then(function (b) {
+        /* The gateway answers a missing FUNCTION with {code,message} and
+           no `ok` — the same two-404s trap Quo and CARE document. */
+        if (r.status === 404 && !(b && b.ok === false)) {
+          throw new Error('The carenotes-summary function is not deployed. Committing does not deploy it \u2014 it needs: ' + DEPLOY);
+        }
+        if (!r.ok || !b || !b.ok) throw new Error((b && (b.error || b.message)) || ('HTTP ' + r.status));
+        var u = {};
+        (b.units || []).forEach(function (x) {
+        if (x && x.key && x.summary) u[x.key] = { summary: x.summary, sourceCount: x.sourceCount };
+      });
+        days[day] = { status: 'ready', units: u, model: b.model || null,
+          generated: b.generated || 0, reused: b.reused || 0 };
+      });
+    }).then(null, function (err) {
+      /* An UNDEPLOYED function arrives HERE, not in the 404 branch: the
+         gateway answers the POST's preflight with a 404 whose
+         access-control-allow-headers omits content-type, so the browser
+         blocks the request and throws a bare TypeError before any body
+         can be read. Measured on comms-summary, 2026-09-15. */
+      var msg = (err && err.message) || String(err);
+      if (err && err.name === 'TypeError') {
+        msg = 'Could not reach the carenotes-summary function. It may not be deployed yet (' + DEPLOY + '), or the connection dropped.';
+      }
+      days[day] = { status: 'error', units: {}, error: msg };
+    }).then(function () {
+      delete inflight[day];
+      try { if (state.view === 'carenotes') render(); } catch (x) {}
+    });
+  }
+
+  /* Ask for a date only if it is STILL the one on screen when the timer fires.
+     One timer, restarted on every call, so holding an arrow down costs one
+     request rather than one per frame. A date already answered returns at
+     load()’s own guard, so a late fire is free. */
+  var soonT = null, soonDay = null;
+  function soon(day) {
+    if (!day || days[day] || inflight[day]) return;
+    soonDay = day;
+    if (soonT) clearTimeout(soonT);
+    soonT = setTimeout(function () {
+      soonT = null;
+      if (soonDay === state.cnDay) load(soonDay);
+    }, 400);
+  }
+  function retry(day) { if (inflight[day]) return; delete days[day]; load(day); render(); }
+  function info(day) { var d = days[day]; return d ? { status: d.status, blocks: Object.keys(d.units).length, model: d.model, generated: d.generated, reused: d.reused, error: d.error } : { status: 'idle' }; }
+
+  return { load: load, soon: soon, get: get, status: status, forBlock: forBlock, retry: retry, info: info };
+})();
+function cnsumRetry(day) { CNSUM.retry(day); }
+
 function careDayNav(dateStr){
   const d=new Date(dateStr+'T12:00:00');
   const label=d.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'});
@@ -18537,20 +18682,47 @@ function careDayNav(dateStr){
 }
 function setCnDay(d){ state.cnDay=d; render(); }
 
-function careShiftSummaryHtml(list){
+/* The SUMMARY is what this section is for; the caregiver's own words are
+   one click away under "View Original Notes". Two deliberate fallbacks:
+
+   - while the summary is still coming the RAW NOTE stays on screen rather
+     than a spinner. The first open of a date takes ~30s and an empty card
+     for half a minute is worse than the text we already have.
+   - a FAILED summary falls back to the same raw note, so this section is
+     never less useful than it was before summaries existed. */
+function careShiftSummaryHtml(list,clientId,shift){
   if(!list.length) return `<div class="cd-nonote">No care note recorded for this window.</div>`;
+  const sum=CNSUM.forBlock(state.cnDay,clientId,shift);
+  /* Only show the summary when it describes EXACTLY the notes this browser is
+     holding. The function reads care_notes live; state.careNotes is boot-time
+     and capped at 400 rows, so the two can differ — and a summary mentioning a
+     fall whose note "View Original Notes" cannot show is worse than the note. */
+  if(sum && sum.summary && sum.sourceCount===list.length){
+    const by=[...new Set(list.map(n=>{ const c=cgById(n.cgId); return c?c.name:'Caregiver'; }))].join(', ');
+    const when=list.map(n=>careTimeLabel(n.at)).join(', ');
+    return `<div class="cd-sum"><div class="cd-noteby">${escText(by)} \u00b7 ${escText(when)}</div><div class="cd-sumtx">${escText(sum.summary)}</div></div>`;
+  }
   return list.map(n=>{
     const cg=cgById(n.cgId);
     return `<div class="cd-noteblock"><div class="cd-noteby">${escText(cg?cg.name:'Caregiver')} \u00b7 ${careTimeLabel(n.at)}</div><div class="cd-notetx">${escText(cleanNoteText(n.text))}</div></div>`;
   }).join('');
+}
+/* Said once, at the top of the card, rather than on all ~26 blocks. An
+   error is NOT retried by the render that shows it — see CNSUM. */
+function cnSumStrip(dateStr){
+  const s=CNSUM.status(dateStr);
+  if(s==='loading') return `<div class="cd-sumbar work">${ic('refresh',13)} <span>Summarising this day\u2026 the caregivers\u2019 own notes are shown until it lands.</span></div>`;
+  if(s==='error'){ const d=CNSUM.get(dateStr)||{};
+    return `<div class="cd-sumbar bad">${ic('alerts',13)} <span>Could not summarise this day \u2014 showing the original notes. ${escText(d.error||'')}</span><button class="btn sm" onclick="cnsumRetry('${dateStr}')">Retry</button></div>`; }
+  return '';
 }
 function careClientRowHtml(r){
   const cl=clById(r.clientId), name=cl?cl.name:'Unknown client';
   return `<div class="cd-crow">
     <div class="cd-cname"><b>${escText(name)}</b><span class="cd-ccount">${r.notes.length} note${r.notes.length===1?'':'s'}</span></div>
     <div class="cd-shifts">
-      <div class="cd-shift"><div class="cd-shiftlabel">AM Shift (6:00 AM \u2013 2:00 PM)</div>${careShiftSummaryHtml(r.am)}</div>
-      <div class="cd-shift"><div class="cd-shiftlabel">PM Shift (2:00 PM \u2013 10:00 PM)</div>${careShiftSummaryHtml(r.pm)}</div>
+      <div class="cd-shift"><div class="cd-shiftlabel">AM Shift (6:00 AM \u2013 2:00 PM)</div>${careShiftSummaryHtml(r.am,r.clientId,'am')}</div>
+      <div class="cd-shift"><div class="cd-shiftlabel">PM Shift (2:00 PM \u2013 10:00 PM)</div>${careShiftSummaryHtml(r.pm,r.clientId,'pm')}</div>
     </div>
     <button class="btn sm" onclick="openClientNotesModal('${r.clientId}','${state.cnDay}')">${ic('eye',13)} View Original Notes \u203a</button>
   </div>`;
@@ -18590,6 +18762,11 @@ function viewCareNotes(){
   if(!state.cnDay) state.cnDay=careYesterdayPac();
   const dateStr=state.cnDay;
   const rows=careDayClients(dateStr), concerns=careConcernsForDay(dateStr), issues=careDocIssuesForDay(dateStr);
+  /* Guarded inside CNSUM: one request per date per session, an error is
+     never retried by a render. Safe from a render for that reason only.
+     Deferred, because the day arrows re-render this view: paging back a week
+     would otherwise start a model call for every date passed through. */
+  CNSUM.soon(dateStr);
 
   const summaryRows=rows.length?rows.map(careClientRowHtml).join(''):
     `<div class="cd-empty"><div class="cn-clear sm">${ic('check',14)} No AxisCare care notes synced for this date.</div></div>`;
@@ -18600,7 +18777,8 @@ function viewCareNotes(){
 
   return `${careDayNav(dateStr)}
    <div class="ws-card cd-summary">
-     <div class="cd-shead"><span class="cd-stitle">${ic('forms',16)} Yesterday's Summary</span><span class="cd-ssub">AM and PM notes for every client with a care note this day. Click "View Original Notes" for the full AxisCare text.</span></div>
+     <div class="cd-shead"><span class="cd-stitle">${ic('forms',16)} Yesterday's Summary</span><span class="cd-ssub">Summarised by Devi from the caregivers’ AxisCare notes — AM and PM for every client with a note this day. Click "View Original Notes" for what they actually wrote.</span></div>
+     ${cnSumStrip(dateStr)}
      <div class="cd-slist">${summaryRows}</div>
    </div>
    <div class="cd-twocol">

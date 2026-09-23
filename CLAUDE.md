@@ -106,7 +106,7 @@ layout or wording change, or anything already answered in this file.
 | **Clients** | Live — 20 active |
 | **Open shifts** | **Mirrored** — derived by `openshifts-sync` into `public.open_shifts`, read from there. Falls back to the live scan when the mirror is cold |
 | **Caregiver calendar** | Live — each caregiver’s own scheduled client visits |
-| **Care notes** | Live — swept into Supabase on a schedule, read from there |
+| **Care notes** | Live — swept into Supabase on a schedule, read from there. The day review is **summarised** by `carenotes-summary` and saved in `public.care_note_summaries`; the caregiver’s own words stay one click away |
 | **Communication Logs** | Live — every agency line read from Quo when a profile is opened. *Summary by Devi* is written when a conversation is opened and saved in `public.comm_summaries` |
 | Medication lists | Cannot be fetched. AxisCare API limitation |
 | Attendance history | No AxisCare source. Derivable from visit clock-ins, not built |
@@ -261,6 +261,302 @@ environment variable. Since 2026-09-18 the anon key cannot even *read*
 `care_notes`: the browser reads it through `app-gate` with the desk PIN (see
 *The PIN gate*), so a stranger with the site URL can neither read nor forge
 notes.
+
+### The day review is SUMMARISED — `carenotes-summary`
+
+Added 2026-09-23. The Care Notes page opens on one date and shows, per client,
+an AM block and a PM block. Those blocks used to print the caregiver's raw
+AxisCare note verbatim, under a card headed **Yesterday's Summary** — which is
+the one thing a summary section is not. Measured on the live mirror: the raw
+notes rendered there run to a **median of 610 characters and a maximum of
+6,130**. The summaries that replaced them are **median 241, maximum 327**.
+
+```
+supabase/functions/carenotes-summary   POST {day:'YYYY-MM-DD'}
+  -> reads public.care_notes ITSELF for that Pacific day
+  -> one model call for the WHOLE date
+  -> upserts public.care_note_summaries, one row per client x date x shift
+  -> returns every summary the date has
+CNSUM (index.html) reads it; careShiftSummaryHtml() draws it
+```
+
+`CNSUM.soon(day)` is called from `viewCareNotes()` — `load()` behind a 400ms
+timer, because the day arrows re-render this view and paging back a week would
+otherwise start a model call for every date passed through. It is only safe at
+all because it is guarded: one request per date per session, and **an error is
+never retried by a render**. `render()` runs on every save and every
+20-second poll, so a failure that retried itself would send one request per
+render for as long as the page stayed open — the same rule `comms-summary`
+learned. Retry is a button.
+
+#### One model call per DATE, not one per client
+
+Measured across the 37 dates in `care_notes`, 2026-09-23:
+
+| per date | |
+|---|---|
+| notes | avg 18.9, max 23 |
+| clients | avg 13.3, max 17 |
+| input tokens for one call covering the whole date | avg ~3,400, max ~5,000 |
+
+So a date is **one small request**, not the "big charge per day" the design
+was braced for: 2026-09-22 measured **7,737 in / 2,092 out, 22 blocks, 30
+seconds** on Haiku 4.5 — about **1.8 cents**, and the entire history
+backfills for under 50 cents.
+
+Asking per client-shift would be ~26 requests for the same tokens and would
+throw away the one thing a whole-date pass can see: **the same client's AM and
+PM read together**, and one client's day beside the next.
+
+#### Written once, read back forever
+
+The first person to open a date pays for it; everybody else, in every browser,
+reads the saved rows. Measured on 2026-09-22: **30s to generate, 0.68s on
+every open after it**, with `generated: 0`. A date nobody opens is never
+summarised. There is no cron and no backfill job.
+
+A row records `source_sig` — a fingerprint of the **visit ids AND the note
+text** behind it. `carenotes-sync` re-reads `FRESH_DAYS = 2`, so a caregiver
+may still be correcting today's or yesterday's note; a changed note changes
+the signature and **only that row** is rewritten. Verified by stamping one row
+stale: `generated 1, reused 21`. `model` and `prompt_version` do the same for
+a model switch or a prompt edit, exactly as `comm_summaries` does.
+
+#### Only the DATE goes up — the function reads the notes itself
+
+**Claude: do not "simplify" this into posting `state.careNotes`.** The browser
+is already holding them and it would be less code. It would also let anyone
+with the site URL save invented **clinical** summaries into the table and
+spend the Anthropic key on any text they liked, because there is no
+per-person login. The function reads `care_notes` with the service key, so a
+summary can only ever describe notes AxisCare actually holds, and spend is
+capped at one pass per date per model. Same argument as `comms-summary`, and
+the stakes are higher here because the content is clinical.
+
+`care_note_summaries` has RLS on and **no policies at all** — the anon key can
+neither read nor write it. `app-gate` is untouched and needs no `ALLOW` line,
+because the browser talks to the function directly, the way it talks to
+`comms-summary`.
+
+#### The fallbacks are the whole safety of the screen
+
+Neither is a placeholder. The page must never be *less* useful than it was
+before summaries existed:
+
+| | on screen |
+|---|---|
+| summary ready | the summary, with the caregivers' names and times above it |
+| still coming (~30s on a first open) | **the raw note**, under a strip saying it is summarising |
+| failed, or not deployed | **the raw note**, under a red strip naming the reason, with Retry |
+| the summary describes more notes than this browser holds | **the raw note** — see *A summary may only replace notes the page can still SHOW* |
+
+A spinner for half a minute is worse than the text we already have, which is
+why loading shows the note rather than a skeleton. Verified in the browser
+both ways: 22 summaries and 0 raw notes when it lands, 0 summaries and 23 raw
+notes when the call is refused — and `render()` fired no second request in
+either case.
+
+`escText()`, never `esc()`. These are written by caregivers in AxisCare —
+people outside the desk — and the model's output is arbitrary text too.
+
+#### It is labelled once, in the card header
+
+Not on all ~26 blocks. The subtitle says *"Summarised by Devi from the
+caregivers' AxisCare notes"* and **View Original Notes** was already on every
+row, so the caregiver's own words stay one click away. That button is the
+reason the summary can replace the note rather than sit above it — unlike the
+Communication Logs dialog, where *Summary by Devi* sits over a thread the
+scheduler still has to be able to read in place.
+
+#### PHI, and what is still redacted
+
+These are clinical shift notes and they go to Anthropic in full. Carlo,
+2026-09-23: *"The Anthropic API that we have has the PHI contract."* That is
+what makes this allowed; see *What leaves the browser*.
+
+Phone numbers, email addresses and links are **still** replaced before the
+notes leave the function, and again over the output. Not because of the BAA —
+because they add nothing to a summary of somebody's shift, and `comms-summary`
+already measured that a prompt rule alone does not hold: with the rule in
+place the model still wrote an applicant's email address into a summary.
+
+The prompt's other rules are load-bearing rather than style, and each is
+pinned by what a scheduler would do with a wrong one:
+
+- **Never infer a diagnosis, a cause, a severity or an outcome that was not
+  written.** If the note is vague the summary is vague — do not improve it.
+- **Never give medical advice**, and never suggest a treatment or a
+  medication change.
+- **Medication names only where the note is reporting what happened** with
+  them (refused, vomited, ran out). A routine pass is "medications given".
+- A note that says **essentially nothing** is reported as saying nothing. Do
+  not invent a shift to describe.
+
+#### `max_tokens` is 16000, and the answer is JSON
+
+Both for reasons this repo has hit before. `max_tokens` **includes thinking**,
+and a switch to Sonnet 5 or Opus 5 thinks by default — `care-brief`,
+`devi-agent` and `comms-summary` all returned HTTP 200 with an empty text
+block on a budget sized for the answer. 26 blocks of 45 words is ~1,500 tokens
+of actual output; the rest is thinking room, and only what is used is billed.
+
+The reply is a JSON array of `{id, summary}` and is **parsed defensively**: an
+unknown id, a repeated id, an empty summary or one over `MAX_CHARS` is
+discarded, and a block missing from the answer simply stays unsummarised — the
+page falls back to its raw note for that block alone. Losing one entry is
+better than losing the date.
+
+#### Switching the model needs no code change and no redeploy
+
+```
+npx supabase secrets set CARENOTES_MODEL=claude-sonnet-5 --project-ref gdzgoyawavffjdjpjbfz
+```
+
+Default `claude-haiku-4-5`. `CARENOTES_EFFORT` (default `low`) is sent to every
+model **except Haiku**, which answers `400` to it. **No `temperature`** — Sonnet
+5 and Opus 5 reject it, so sending one would make the first switch fail on
+every request. `GET …/carenotes-summary?action=status` reports the model in
+force. No new secret is needed: `ANTHROPIC_API_KEY` and `ALLOWED_ORIGIN`
+already exist on the project.
+
+#### A COMMIT DOES NOT DEPLOY IT
+
+```
+npx supabase functions deploy carenotes-summary --project-ref gdzgoyawavffjdjpjbfz --no-verify-jwt
+```
+
+**Deployed 2026-09-23** and verified from the Netlify origin: `?action=status`
+reports the model, and a POST for 2026-09-22 returns 22 units with
+`generated: 0, reused: 22` — the saved rows, no spend.
+
+If `index.html` lands first, every date shows the red strip and the raw notes —
+which is the pre-summary page, so nothing breaks. The browser sees a bare
+"Failed to fetch" rather than a 404 (the gateway answers the POST's preflight
+with a 404 whose `access-control-allow-headers` omits `content-type`), so
+`CNSUM` turns a `TypeError` into the deploy command. Same measurement as
+`comms-summary`, 2026-09-15.
+
+The table is created — `supabase/care-note-summaries.sql`, also section 10b of
+`schema.sql`, run against the live database on 2026-09-23 (RLS on, 0 policies).
+
+#### What an adversarial review changed, before it shipped
+
+Reviewed 2026-09-23 by six independent reviewers over separate dimensions —
+time, cost, data, browser, PHI and prompt — each finding then put to two
+skeptics with opposite lenses (*does it reproduce?* and *is it already
+handled?*), plus a completeness critic asked what all six had missed. **11
+raised, 4 survived both skeptics**, and the critic added 5 more. Six of those
+are now fixed; the rest are recorded below.
+
+Four are worth knowing about because each was invisible on the happy path.
+
+##### A summary may only replace notes the page can still SHOW
+
+**The sharpest one, and it undercut the whole design.** The summary is read
+from `care_notes` **as of now**; the caregivers' names, the times and the
+**View Original Notes** button all come from `state.careNotes` **as of boot**.
+`carenotes-sync` re-reads `FRESH_DAYS = 2` and this page opens on *yesterday*,
+so a note filed after somebody's tab loaded is described by a summary whose
+original text that tab cannot show. A summary leading with a fall, over a
+button that opens only the other caregiver's note.
+
+And it needs no timing at all to happen: `fetchCareNotes()` reads
+`limit=400` against 701 rows, so the cut lands mid-date and one date **always**
+holds a partial set in the browser and a complete one in the function.
+
+The function already knew the answer and threw it away — it stored
+`source_count` in a column nothing read back. It now **returns** it, and
+`careShiftSummaryHtml()` shows the summary only when `sourceCount` equals the
+number of notes this browser holds. Otherwise the block falls back to its raw
+notes. **Claude: do not drop that comparison.** *View Original Notes* being
+reachable is the entire licence for the summary replacing the note rather than
+sitting above it, and without the check that promise is silently false.
+
+Verified in the browser: bumping one block's `sourceCount` by one took the
+page from 22 summaries / 0 raw notes to **21 / 1**, and restoring it put the
+summary back.
+
+##### An empty date is only an answer once the notes have LANDED
+
+`CNSUM.load()` skips a date the browser holds no notes for. But
+`state.careNotes` is filled inside `hydrate()`'s `Promise.all` and
+`viewCareNotes()` paints well before that — so opening Care Notes during boot
+cached `{status:'ready', units:{}}` **permanently**, and the page showed raw
+notes under a subtitle promising summaries for the rest of the session.
+Reproduced against the real module.
+
+`careNotesLoaded()` is the guard: a date that looks empty while the boot is
+still in flight caches **nothing**, and the next render asks again. A date that
+is genuinely empty after the boot finished is still answered empty. Both pinned
+by the page test.
+
+##### The day arrows were one model call per date GLANCED AT
+
+`viewCareNotes()` is a render function and the arrows re-render it, so paging
+back a week started a ~30s, ~1.8¢ call for every date passed through.
+`CNSUM.soon(dateStr)` arms a single 400ms timer instead and asks only for the
+date still on screen when it fires. Measured: **paging back six dates fires one
+call**, for the date actually landed on.
+
+##### A PM block can hold TWO caregivers, and the 45-word cap lost one
+
+The PM window runs 14:00 to 06:00, so an evening caregiver and an overnight
+caregiver both write into it. `PROMPT_VERSION 1` described a block as one
+caregiver's one visit and capped it at three sentences — and a two-note block
+lost a caregiver's whole shift. Reproduced 4/4 and 3/3 against the live model.
+
+`PROMPT_VERSION` is **2**: a block may hold more than one note, every note in
+it must be covered, each caregiver named, and a multi-note block may run to
+five sentences and 75 words. On the live board exactly one block on 2026-09-22
+holds two notes, and it now reads to 544 characters covering both.
+
+##### The smaller three
+
+- **`String(item.summary)` on a non-string** stored the literal
+  `"[object Object]"` — non-empty, under `MAX_CHARS`, so it *saved*, satisfied
+  `current()`, and was served forever in place of the note. It is a `typeof`
+  check now.
+- **`sig()` depended on row order.** PostgREST promises none for equal
+  `visit_at`, and two live client-days already tie (clients 335 and 342 on
+  2026-09-18). Inside the `FRESH_DAYS` window a re-upsert can move a row and
+  flip the fingerprint, paying for a regeneration that changes nothing. The
+  sort now breaks ties on `visit_id`, the primary key.
+- **`out.generated` was set BEFORE the write** and `dbPut()`'s boolean
+  discarded, so a lost batch reported `generated: 22`. The cost claim attached
+  to this was correctly refuted — the model call is paid for either way — but
+  *report what happened, not what was attempted* is this repo's own rule, so
+  the write is now awaited and `saveFailed` is returned.
+
+##### Raised and deliberately NOT fixed
+
+- **A failed read of `care_note_summaries` regenerates the whole date.**
+  `savedForDay()` returns an empty map on any error, so every unit reads stale
+  and is rewritten. The repro stands; it is deliberate, carries its own comment,
+  and costs ~1.8¢. A failed read must not become a destructive write, and it
+  does not — `orphans` is empty in that case, so nothing is deleted.
+- **A partially summarised date looks like a fully summarised one.** Blocks the
+  model dropped fall back to raw notes with no strip and no marker. Now that
+  the `sourceCount` check makes fallback more common, this is worth a neutral
+  strip naming the shortfall. Not built.
+- **The first open re-renders ~30s in and moves the card under the reader.**
+  Worth preserving the scroll position of the `.cd-crow` nearest the top.
+  Not built.
+- **Four findings were refuted outright** and are recorded here so nobody
+  re-raises them: a discarded block does not cause runaway spend (the cost
+  framing was an order of magnitude out); `dbPut()`'s return value cannot change
+  what is spent; the "note that says essentially nothing" rule does not erase a
+  short note reporting a real event; and "name people by first name" does not
+  make the model invent one spouse of a couple client — tested on the exact
+  client named, whose notes do not occur in the shape claimed.
+
+#### KNOWN: the page's own note list is capped at 400 rows
+
+`fetchCareNotes()` reads `care_notes` with `limit=400` against a table that
+holds **701 rows**, so the oldest ~16 dates render "No AxisCare care notes
+synced for this date" when the notes exist. `CNSUM.load()` deliberately
+**skips a date the browser holds no notes for, once they have loaded** — summarising it would write
+text nothing could display. So those dates stay unsummarised until the cap is
+fixed, and this gate is not what stops them.
 
 ---
 
@@ -2647,9 +2943,9 @@ Nine users: five owners, two admins, two members.
 
 ### It lives in SUPABASE, not Netlify — and that has a cost
 
-The AxisCare-facing backends are Netlify functions. Quo is one of five Supabase
-Edge Functions — `devi-agent`, `quo`, `care-brief`, `comms-summary` and, since
-2026-09-18, `app-gate` (see *The PIN gate*) — and it is there for the same
+The AxisCare-facing backends are Netlify functions. Quo is one of six Supabase
+Edge Functions — `devi-agent`, `quo`, `care-brief`, `comms-summary`,
+`carenotes-summary` and, since 2026-09-18, `app-gate` (see *The PIN gate*) — and it is there for the same
 reason as the others: **the key is there.**
 `QUO_API_KEY` was put in the Supabase project secrets, so the function that
 reads it has to be a Supabase Edge Function.
@@ -2671,8 +2967,9 @@ ref. Have you run supabase link?"* otherwise. The ref is pinned in
 `devi-agent`.
 
 Auth is a **personal access token** (`sbp_…`), not the anon or service-role
-key — `supabase login`, or `SUPABASE_ACCESS_TOKEN`, which `.env` carries and
-`.env.example` documents. An expired one fails late and confusingly: the
+key — `supabase login`, or `SUPABASE_ACCESS_TOKEN` **exported into the shell**;
+`.env` carries the value and `.env.example` documents it, but the CLI does not
+read `.env` itself (see the box below). An expired one fails late and confusingly: the
 upload starts, then `unexpected deploy status 401: Unauthorized`.
 
 Deployed and verified live on 2026-09-11, and again on **2026-09-14** with the
@@ -2683,13 +2980,26 @@ over-long body, a send over GET, a POST to a non-send action, PUT/PATCH/DELETE,
 and a test-mode destination that is not one of our own lines). All refused, and
 no text was sent to anybody.
 
-> **The access token expires.** Deploying needs a personal access token
-> (`sbp_…`), and the one in `.env` has now gone stale twice. It fails on *any*
-> CLI call, so `npx supabase projects list` is the one-second way to tell a dead
-> token from a broken deploy — an expired one otherwise fails late and
-> confusingly, with the upload starting and then `unexpected deploy status 401`.
-> Only Mitch can mint a replacement (Supabase dashboard → Account → Access
-> Tokens).
+> **THE CLI DOES NOT READ `.env`.** This is the first thing to rule out, and it
+> cost a wrong diagnosis on 2026-09-23. `SUPABASE_ACCESS_TOKEN` lives in `.env`,
+> but `npx supabase` reads the token from the **environment** or from a prior
+> `supabase login` — so a perfectly good token answers `Unauthorized`, which is
+> byte-identical to what an expired one answers. Export it first:
+>
+> ```
+> export SUPABASE_ACCESS_TOKEN=$(grep ^SUPABASE_ACCESS_TOKEN= .env | cut -d= -f2-)
+> npx supabase projects list        # NOW it is a token test
+> ```
+>
+> **Only call the token expired if it still fails after that.** It genuinely has
+> expired twice (2026-09-11, 2026-09-14), so both causes are real — but telling
+> the owner a live credential is dead sends them to a dashboard for nothing. Same
+> shape as the AxisCare rule: rule out the version header before blaming the
+> token.
+>
+> A genuinely expired token fails late and confusingly on a deploy — the upload
+> starts, then `unexpected deploy status 401`. Only Mitch can mint a replacement
+> (Supabase dashboard → Account → Access Tokens).
 
 > **The "not deployed" message had to be fixed to say so.** Supabase answers a
 > missing function with perfectly valid JSON — `{"code":"NOT_FOUND","message":
@@ -4507,7 +4817,8 @@ exists) and two rows for one person is not a question worth asking.
 
 ### The key lives in a Supabase Edge Function
 
-The first of the four in this repo — `quo`, `care-brief` and `comms-summary`
+The first of the five in this repo — `quo`, `care-brief`, `comms-summary`
+and `carenotes-summary`
 followed; the AxisCare-facing backends are Netlify functions. It is there
 because the `ANTHROPIC_API_KEY` secret is there.
 
@@ -4570,22 +4881,23 @@ and says how many were cut — **an uncapped list is how this becomes a
 note excerpts and attendance history alongside the names and cities it already
 carried. The BAA question below has not moved; it got bigger.
 
-**It is still PHI, and more of it.** The sibling Client Concierge function's
-header records that adaptive thinking is not on Anthropic's BAA-covered feature
-list and concludes *"point this at invented data only"* — that note was written
-about the same API and has not been cleared for this one. It is Carlo's call
-with Anthropic, not a code question. Blanking `CONCIERGE_MODEL`/the function URL
-is not the off switch here; `deviAsk()` degrades to the router's own answer when
-the call fails, so the local router keeps working with nothing leaving the
-browser.
+**It is PHI, and the BAA question is SETTLED.** Carlo, 2026-09-23: *"The
+Anthropic API that we have has the PHI contract."* That is the answer to the
+question this section carried open for three weeks, and it covers the whole
+key — `devi-agent`, `care-brief`, `comms-summary` and anything added after.
+Mitch had already said the same on 2026-09-14 under *The care-needs line*; the
+two statements disagreed and this is the one that stands.
 
-> **This file now says two different things, and only Carlo can say which is
-> current.** The paragraph above says the BAA question is open. *The care-needs
-> line — `care-brief`* records that Mitch confirmed on 2026-09-14 that the
-> Anthropic key has PHI handling in place. Since then `care-brief` (client care
-> needs) and `comms-summary` (call transcripts and text threads, with email
-> addresses, phone numbers and links redacted) send more of the same kind of
-> content to that key. Whichever statement is current, correct the other.
+**It does not make the snapshot free.** Everything else in this section still
+applies: each list is capped, an uncapped one is how this becomes a 100k-token
+request, and a router builder is always better than widening the snapshot. The
+sibling Client Concierge function’s header still says *"point this at invented
+data only"* on the grounds that adaptive thinking is not a BAA-covered feature
+— that note predates the contract and is no longer the position here.
+
+> Blanking `CONCIERGE_MODEL` or the function URL is **not** an off switch:
+> `deviAsk()` degrades to the router’s own answer when the call fails, so the
+> local router keeps working with nothing leaving the browser.
 
 **The router is what makes that tolerable.** `aiNeedsAvail`, `aiOpenAvail`,
 `aiLate`, `aiConflicts`, `aiMissingNotes` and `aiTodayFocus` answer the
@@ -4615,7 +4927,7 @@ desk PIN. `app-gate` checks it against the `APP_PIN` secret on **every** request
 and only then does the work with the service-role key. The tables have RLS on
 and **no anon policies**, so the anon key in `config.js` reads and writes
 nothing by itself — it only gets a request past the Supabase gateway (`app-gate`
-is deployed with JWT verification **on**, unlike the other four functions).
+is deployed with JWT verification **on**, unlike the other five functions).
 
 ### The PIN is the credential, and it is sent every time
 
@@ -4754,7 +5066,7 @@ IP out for 15 minutes — a right PIN included, so a locked caller learns nothin
   function: the edge *replaces* a forged `X-Forwarded-For` and refuses a forged
   `cf-connecting-ip` (Cloudflare error 1000). `Forwarded` passes through
   untouched and is never read. A request without `cf-connecting-ip` shares one
-  bucket. (The other four functions' comments say `X-Forwarded-For` is
+  bucket. (The other five functions' comments say `X-Forwarded-For` is
   caller-written; on this project's edge it is not.)
 
 ### What it costs
