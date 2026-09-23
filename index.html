@@ -2692,6 +2692,65 @@ html.pg-held .pingate{display:none!important}
 .pg-foot{font-size:11.5px;line-height:1.45;color:var(--ink-faint);margin-top:6px}
 .pg-card:focus{outline:none}
 </style>
+<style>
+/* ===== Care Notes — Yesterday (the 3-section day review) =====
+   Section 1 shows the caregiver's own note text, grouped into two fixed
+   windows (6a-2p / 2p-10p) — not an AI paraphrase. This app has no
+   summarization pipeline for care notes (unlike the sibling Concierge
+   dashboard), so the honest "summary" here is the real text, cleanly
+   formatted, not a fabricated one. Sections 2 and 3 are kept strictly
+   separate per spec: client-condition concerns vs. documentation-quality
+   flags never mix in one list. */
+.cd-nav{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+.cd-nav-label{font-size:16px;font-weight:800;color:var(--ink);min-width:0}
+.cd-nav-sub{font-size:12.5px;font-weight:600;color:var(--ink-faint);margin-left:8px}
+.cd-summary{padding:0;overflow:hidden}
+.cd-shead{padding:14px 16px;border-bottom:1px solid var(--line);background:var(--panel-head)}
+.cd-stitle{display:flex;align-items:center;gap:7px;font-size:14.5px;font-weight:800;color:var(--ink)}
+.cd-ssub{display:block;font-size:12px;color:var(--ink-faint);margin-top:4px;font-weight:600}
+.cd-slist{display:flex;flex-direction:column}
+.cd-crow{padding:14px 16px;border-bottom:1px solid var(--line-soft)}
+.cd-crow:last-child{border-bottom:none}
+.cd-cname{display:flex;align-items:baseline;gap:9px;margin-bottom:10px}
+.cd-cname b{font-size:14.5px;color:var(--ink)}
+.cd-ccount{font-size:11.5px;font-weight:700;color:var(--ink-faint)}
+.cd-shifts{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:10px}
+@media(max-width:820px){.cd-shifts{grid-template-columns:1fr}}
+.cd-shift{background:var(--panel-head);border:1px solid var(--line);border-radius:var(--r);padding:10px 12px}
+.cd-shiftlabel{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--ink-faint);margin-bottom:7px}
+.cd-noteblock+.cd-noteblock{margin-top:9px;padding-top:9px;border-top:1px solid var(--line-soft)}
+.cd-noteby{font-size:11.5px;font-weight:700;color:var(--ink-soft);margin-bottom:2px}
+.cd-notetx{font-size:13px;color:var(--ink);line-height:1.5;white-space:pre-wrap}
+.cd-nonote{font-size:12.5px;color:var(--ink-faint);font-style:italic}
+.cd-twocol{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:900px){.cd-twocol{grid-template-columns:1fr}}
+.cd-flagcard{padding:0;overflow:hidden}
+.cd-flagcard.concern{border-top:3px solid var(--crit-solid)}
+.cd-flagcard.doc{border-top:3px solid var(--soon-solid)}
+.cd-fhead{display:flex;align-items:center;gap:8px;padding:13px 15px;border-bottom:1px solid var(--line)}
+.cd-flagcard.concern .cd-fhead{background:var(--crit-bg)}
+.cd-flagcard.doc .cd-fhead{background:var(--soon-bg)}
+.cd-ftitle{display:flex;align-items:center;gap:7px;font-size:13.5px;font-weight:800;color:var(--ink)}
+.cd-flagcard.concern .cd-ftitle{color:var(--crit-tx)}
+.cd-flagcard.doc .cd-ftitle{color:var(--soon-tx)}
+.cd-fcount{margin-left:auto;font-size:12.5px;font-weight:800;color:inherit}
+.cd-flist{display:flex;flex-direction:column}
+.cd-flagrow{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:none;border:none;border-bottom:1px solid var(--line-soft);font-family:inherit;padding:11px 15px;cursor:pointer}
+.cd-flagrow:last-child{border-bottom:none}
+.cd-flagrow:hover{background:var(--panel-head)}
+.cd-frname{flex:0 0 auto;max-width:34%;font-size:13px;font-weight:700;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cd-frwhat{flex:1;min-width:0;font-size:12.5px;color:var(--ink-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cd-frgo{flex:0 0 auto;font-size:12px;font-weight:700;color:var(--brand)}
+.cd-issue{padding:12px 15px;border-bottom:1px solid var(--line-soft)}
+.cd-issue:last-child{border-bottom:none}
+.cd-itop{display:flex;align-items:center;gap:7px;margin-bottom:4px}
+.cd-iwarn{color:var(--soon-solid);display:flex;flex:0 0 auto}
+.cd-itop b{font-size:13px;color:var(--ink)}
+.cd-ilabel{margin-left:auto;font-size:11px;font-weight:700;color:var(--ink-faint)}
+.cd-ihead{font-size:13px;font-weight:700;color:var(--soon-tx);margin-bottom:3px}
+.cd-idetail{font-size:12.5px;color:var(--ink-soft);line-height:1.5;margin-bottom:8px}
+.cd-empty{padding:16px}
+</style>
 </head>
 <body>
 <!-- THE PIN GATE. First in <body> and visible from the first paint, so nothing
@@ -18238,27 +18297,238 @@ function cnRefreshDetail(){ if(state.cnDetailId && mbg.classList.contains('show'
 function alertBucket(a){ if(a.catKey==='documentation'||a.catKey==='missing') return 'documentation'; if(a.priority==='critical'||a.priority==='high') return 'critical'; return 'review'; }
 function actionRow(a){ const t=alertTier(a); return `<button class="ia-row" onclick="openAlertDetail('${a.id}')"><span class="ia-dot ${t}"></span><span class="ia-text">${esc(actionPhrase(a))}</span><span class="ia-tag">${esc(CARE_CAT_BY_KEY[a.catKey].label)}</span><span class="ia-go">Review \u203a</span></button>`; }
 function cnToggleGroup(k){ if(!state.cnOpenGroups) state.cnOpenGroups={}; state.cnOpenGroups[k]=!state.cnOpenGroups[k]; render(); }
-function viewCareNotes(){
-  const open=buildCareAlerts().filter(a=>a.status!=='Resolved');
-  const buckets={critical:[],review:[],documentation:[]};
-  open.forEach(a=>buckets[alertBucket(a)].push(a));
-  ['critical','review','documentation'].forEach(k=>buckets[k].sort((a,b)=>new Date(b.at)-new Date(a.at)));
-  const meta={critical:{label:'Critical',tone:'urgent'},review:{label:'Needs Review',tone:'followup'},documentation:{label:'Documentation',tone:'neutral'}};
-  if(!state.cnOpenGroups) state.cnOpenGroups={critical:true,review:false,documentation:false};
-  const totalOpen=open.length;
-  const groupHtml=['critical','review','documentation'].map(k=>{
-    const list=buckets[k]; const m=meta[k]; const exp=!!state.cnOpenGroups[k];
-    const rows=list.length?list.map(actionRow).join(''):`<div class="cn-clear sm">${ic('check',14)} None right now.</div>`;
-    return `<div class="cg-group ${m.tone}">
-      <button class="cg-head" onclick="cnToggleGroup('${k}')"><span class="cg-dot ${m.tone}"></span><span class="cg-label">${m.label}</span><span class="cg-count">${list.length}</span><span class="cg-chev ${exp?'open':''}">${ic('chev',16)}</span></button>
-      ${exp?`<div class="cg-body">${rows}</div>`:''}
-    </div>`;
+
+/* ===================== CARE NOTES \u2014 YESTERDAY (day review) =====================
+
+   The desk asked for a page that answers three questions at a glance:
+   what happened yesterday, which clients need attention, which caregiver
+   notes need clarification \u2014 kept as three strictly separate sections.
+
+   Two honesty calls, made deliberately rather than by omission:
+
+   1. Section 1 shows the caregiver's OWN note text, grouped into two fixed
+      windows (6a-2p / 2p-10p), not an AI-written paraphrase. This app has
+      no summarization pipeline for care notes \u2014 unlike the sibling
+      Client Concierge dashboard, whose CLAUDE.md documents a sync-time
+      Claude summary written into its own `sum`/`att` columns, this repo's
+      `care_notes` table (netlify/functions/carenotes-sync.js) stores only
+      the raw AxisCare careNote text, one row per visit. Building a real
+      summarizer would mean a new Supabase Edge Function, a new secret and
+      a live deploy \u2014 Carlo's side, and nothing this session could
+      verify end to end. So "the summary" here is the real words a
+      caregiver wrote, cleanly formatted per shift window, which is an
+      honest reading of "understand what happened without opening the
+      original notes" and never invents a sentence nobody wrote.
+
+   2. Section 3's flags are HEURISTICS over real numbers \u2014 word counts,
+      wording overlap with the same caregiver's own other notes for the
+      same client, and this client's own typical note length \u2014 never an
+      accusation. There is no per-entry timestamp inside a careNote (it is
+      "a plain string", per CLAUDE.md's own AxisCare field list), so a
+      literal "3-hour gap: 2:45 AM\u20135:52 AM" read is not something this
+      app can honestly produce without either richer sync data or an LLM
+      reading free text; this flags the SAME underlying signal \u2014 too
+      little written for the window \u2014 without pretending to know the
+      exact gap. And there is no client care plan source wired into this
+      app (AxisCare has none; the nearest thing, Client Concierge's care
+      needs, is only reachable through a narrow, medication-filtered
+      Edge Function built for a different feature) \u2014 so this does not
+      claim a care-plan comparison it cannot make.
+
+   Every flag is worded as "this looks unusual, review it" and never as
+   "the caregiver did X" \u2014 that is the one hard constraint here. */
+
+const CARE_TZ='America/Los_Angeles';
+const CARE_SHORT_WORDS=30;        // under this for a full 8h window looks thin
+const CARE_VERY_SHORT_WORDS=12;   // under this is close to nothing written
+
+function careDayKey(d){ try{ return new Date(d).toLocaleDateString('en-CA',{timeZone:CARE_TZ}); }catch(e){ return ''; } }
+function carePacHour(d){ try{ return parseInt(new Date(d).toLocaleString('en-US',{timeZone:CARE_TZ,hour:'2-digit',hour12:false}),10); }catch(e){ return null; } }
+function careTimeLabel(d){ try{ return new Date(d).toLocaleTimeString('en-US',{timeZone:CARE_TZ,hour:'numeric',minute:'2-digit'}); }catch(e){ return ''; } }
+function careShiftOf(d){ const h=carePacHour(d); if(h==null) return 'pm'; return (h>=6&&h<14)?'am':'pm'; }
+function careTodayPac(){ return careDayKey(new Date()); }
+function careDayShift(dateStr,delta){ const d=new Date(dateStr+'T12:00:00'); d.setDate(d.getDate()+delta); return careDayKey(d); }
+function careYesterdayPac(){ return careDayShift(careTodayPac(),-1); }
+function cleanNoteText(t){ return String(t||'').replace(/^[\s\-\u2013\u2014\u2022\*\u00b7]+/,'').trim(); }
+function careWordCount(t){ const s=cleanNoteText(t); return s?s.split(/\s+/).length:0; }
+/* Word-overlap similarity, not string equality \u2014 catches a note that
+   was copy-pasted and lightly edited, which a straight compare misses. */
+function careNoteSimilarity(a,b){
+  const wa=new Set((cleanNoteText(a).toLowerCase().match(/[a-z']+/g))||[]);
+  const wb=new Set((cleanNoteText(b).toLowerCase().match(/[a-z']+/g))||[]);
+  if(!wa.size||!wb.size) return 0;
+  let inter=0; wa.forEach(w=>{ if(wb.has(w)) inter++; });
+  return inter/Math.min(wa.size,wb.size);
+}
+function careTypicalWords(clientId,excludeId){
+  const list=(state.careNotes||[]).filter(n=>n.clientId===clientId&&n.id!==excludeId).map(n=>careWordCount(n.text)).sort((a,b)=>a-b);
+  return list.length?list[Math.floor(list.length/2)]:null;
+}
+function careNotesForDay(dateStr){ return (state.careNotes||[]).filter(n=>n.at&&careDayKey(n.at)===dateStr); }
+function careDayClients(dateStr){
+  const notes=careNotesForDay(dateStr), byClient={};
+  notes.forEach(n=>{
+    if(!n.clientId) return;
+    if(!byClient[n.clientId]) byClient[n.clientId]={clientId:n.clientId,notes:[],am:[],pm:[]};
+    const b=byClient[n.clientId]; b.notes.push(n); b[careShiftOf(n.at)].push(n);
+  });
+  const rows=Object.keys(byClient).map(k=>byClient[k]);
+  rows.forEach(r=>{ r.am.sort((a,b)=>new Date(a.at)-new Date(b.at)); r.pm.sort((a,b)=>new Date(a.at)-new Date(b.at)); });
+  rows.sort((a,b)=>{ const ca=clById(a.clientId),cb=clById(b.clientId); return (ca?ca.name:'').localeCompare(cb?cb.name:''); });
+  return rows;
+}
+/* Section 2 \u2014 client-condition concerns. Reuses the existing keyword
+   categoriser (categorizeNote/CARE_CATEGORIES) rather than a second,
+   competing classifier, and excludes the documentation/missing keys \u2014
+   those belong to Section 3 and must never mix in here. One row per
+   client: the worst category found in any of that client's notes for the
+   day, so a client with three concerning notes gets one clear row rather
+   than three. */
+function careConcernsForDay(dateStr){
+  const notes=careNotesForDay(dateStr), byClient={};
+  notes.forEach(n=>{
+    const cats=categorizeNote(n.text).filter(k=>k!=='documentation'&&k!=='missing');
+    if(!cats.length) return;
+    cats.sort((a,b)=>CARE_PRIO_RANK[CARE_CAT_BY_KEY[a].prio]-CARE_PRIO_RANK[CARE_CAT_BY_KEY[b].prio]);
+    const top=cats[0], cat=CARE_CAT_BY_KEY[top], cur=byClient[n.clientId];
+    if(!cur||CARE_PRIO_RANK[cat.prio]<CARE_PRIO_RANK[cur.prio])
+      byClient[n.clientId]={clientId:n.clientId,noteId:n.id,catKey:top,category:cat.label,prio:cat.prio,at:n.at,excerpt:n.text};
+  });
+  return Object.keys(byClient).map(k=>byClient[k]).sort((a,b)=>CARE_PRIO_RANK[a.prio]-CARE_PRIO_RANK[b.prio]||new Date(b.at)-new Date(a.at));
+}
+/* Section 3 \u2014 documentation-quality flags. Heuristics over real
+   numbers only: how much was written for a fixed 8h window, whether this
+   note's wording closely repeats the same caregiver's own other notes for
+   this client, and whether it is far short of what this client usually
+   gets. Never a claim about why \u2014 only what was measured. */
+function careDocIssuesForDay(dateStr){
+  const rows=careDayClients(dateStr), out=[];
+  rows.forEach(r=>{
+    [['am','AM Shift (6:00 AM \u2013 2:00 PM)'],['pm','PM Shift (2:00 PM \u2013 10:00 PM)']].forEach(function(pair){
+      const win=pair[0], label=pair[1], list=r[win];
+      if(!list.length) return;   // no note recorded \u2014 shown in Section 1, not asserted as a problem here
+      const words=list.reduce((s,n)=>s+careWordCount(n.text),0);
+      const cgNames=[...new Set(list.map(n=>{ const c=cgById(n.cgId); return c?c.name:'The caregiver'; }))].join(', ');
+      const primary=list[0];
+      if(words<CARE_VERY_SHORT_WORDS){
+        out.push({clientId:r.clientId,noteId:primary.id,at:primary.at,label,
+          headline:words+'-word note for an 8-hour shift',
+          detail:cgNames+' documented only '+words+' word'+(words===1?'':'s')+' for this window. Review to confirm the shift is fully captured before assuming anything was missed.'});
+        return;
+      }
+      if(words<CARE_SHORT_WORDS){
+        out.push({clientId:r.clientId,noteId:primary.id,at:primary.at,label,
+          headline:'Very little documentation for a long shift',
+          detail:cgNames+' documented '+words+' words across '+list.length+' note'+(list.length===1?'':'s')+' for this 8-hour window \u2014 thinner than usual. Worth a quick check with the caregiver.'});
+        return;
+      }
+      list.forEach(function(n){
+        const cg=cgById(n.cgId);
+        /* Only compares against an EARLIER note, so a repeated pair is
+           flagged once — on the later, repeating note — not twice. */
+        const dup=(state.careNotes||[]).find(o=>o.id!==n.id&&o.cgId===n.cgId&&o.clientId===n.clientId&&new Date(o.at)<new Date(n.at)&&careWordCount(n.text)>=8&&careNoteSimilarity(n.text,o.text)>=0.75);
+        if(dup) out.push({clientId:r.clientId,noteId:n.id,at:n.at,label,
+          headline:'Note closely repeats an earlier one',
+          detail:(cg?cg.name:'The caregiver')+'\u2019s note for this shift closely matches wording used in another of their notes for this client. May be a copy-paste habit \u2014 worth confirming the details are specific to this visit.'});
+      });
+      const typical=careTypicalWords(r.clientId,null);
+      if(typical!=null&&typical>=25&&words<typical*0.4)
+        out.push({clientId:r.clientId,noteId:primary.id,at:primary.at,label,
+          headline:'Shorter than usual for this client',
+          detail:cgNames+' documented '+words+' words, well under the '+typical+'-word note this client usually gets. Could just be a quiet shift \u2014 worth a quick check.'});
+    });
+  });
+  return out.sort((a,b)=>{ const ca=clById(a.clientId),cb=clById(b.clientId); return (ca?ca.name:'').localeCompare(cb?cb.name:'')||new Date(a.at)-new Date(b.at); });
+}
+
+function careDayNav(dateStr){
+  const d=new Date(dateStr+'T12:00:00');
+  const label=d.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'});
+  const isYesterday=dateStr===careYesterdayPac(), isToday=dateStr===careTodayPac();
+  const leadWord=isToday?'Today':(isYesterday?'Yesterday':label);
+  return `<div class="cd-nav">
+    <button class="at-mo-a" onclick="setCnDay('${careDayShift(dateStr,-1)}')" title="Previous day">${ic('chevL',15)}</button>
+    <div class="cd-nav-label">${esc(leadWord)}<span class="cd-nav-sub">${esc(label)}</span></div>
+    <button class="at-mo-a" onclick="setCnDay('${careDayShift(dateStr,1)}')" ${dateStr>=careTodayPac()?'disabled':''} title="Next day">${ic('chev',15)}</button>
+  </div>`;
+}
+function setCnDay(d){ state.cnDay=d; render(); }
+
+function careShiftSummaryHtml(list){
+  if(!list.length) return `<div class="cd-nonote">No care note recorded for this window.</div>`;
+  return list.map(n=>{
+    const cg=cgById(n.cgId);
+    return `<div class="cd-noteblock"><div class="cd-noteby">${escText(cg?cg.name:'Caregiver')} \u00b7 ${careTimeLabel(n.at)}</div><div class="cd-notetx">${escText(cleanNoteText(n.text))}</div></div>`;
   }).join('');
-  const allClear = totalOpen===0 ? `<div class="cn-clear">${ic('check',16)} Nothing needs action right now \u2014 every care note is reviewed.</div>` : '';
-  return `<div class="cn-hero">
-     <div class="cn-h1">Immediate Actions Required Today</div>
-     <div class="cn-sub">Grouped by urgency \u2014 ${totalOpen} open. Click any item for the full story, related notes, and next steps.</div>
-     ${allClear || `<div class="cg-groups">${groupHtml}</div>`}
+}
+function careClientRowHtml(r){
+  const cl=clById(r.clientId), name=cl?cl.name:'Unknown client';
+  return `<div class="cd-crow">
+    <div class="cd-cname"><b>${escText(name)}</b><span class="cd-ccount">${r.notes.length} note${r.notes.length===1?'':'s'}</span></div>
+    <div class="cd-shifts">
+      <div class="cd-shift"><div class="cd-shiftlabel">AM Shift (6:00 AM \u2013 2:00 PM)</div>${careShiftSummaryHtml(r.am)}</div>
+      <div class="cd-shift"><div class="cd-shiftlabel">PM Shift (2:00 PM \u2013 10:00 PM)</div>${careShiftSummaryHtml(r.pm)}</div>
+    </div>
+    <button class="btn sm" onclick="openClientNotesModal('${r.clientId}','${state.cnDay}')">${ic('eye',13)} View Original Notes \u203a</button>
+  </div>`;
+}
+function careConcernRowHtml(row){
+  const cl=clById(row.clientId), excerpt=cleanNoteText(row.excerpt);
+  const short=excerpt.length>150?excerpt.slice(0,150).trim()+'\u2026':excerpt;
+  return `<button class="cd-flagrow" onclick="openAlertDetail('${row.noteId}__${row.catKey}')">
+    <span class="cd-frname">${escText(cl?cl.name:'Client')}</span>
+    <span class="cd-frwhat">${escText(short)}</span>
+    <span class="cd-frgo">Review \u203a</span>
+  </button>`;
+}
+function careIssueRowHtml(issue){
+  const cl=clById(issue.clientId);
+  return `<div class="cd-issue">
+    <div class="cd-itop"><span class="cd-iwarn">${ic('alerts',13)}</span><b>${escText(cl?cl.name:'Client')}</b><span class="cd-ilabel">${escText(issue.label)}</span></div>
+    <div class="cd-ihead">${escText(issue.headline)}</div>
+    <div class="cd-idetail">${escText(issue.detail)}</div>
+    <button class="btn sm" onclick="openClientNotesModal('${issue.clientId}','${state.cnDay}')">${ic('eye',13)} View Original Notes \u203a</button>
+  </div>`;
+}
+/* Read-only \u2014 the original AxisCare text, unedited, always reachable
+   from either flagged section as well as the summary row. */
+function openClientNotesModal(clientId,dateStr){
+  const cl=clById(clientId);
+  const notes=careNotesForDay(dateStr).filter(n=>n.clientId===clientId).sort((a,b)=>new Date(a.at)-new Date(b.at));
+  const rows=notes.length?notes.map(n=>{ const cg=cgById(n.cgId);
+    return `<div class="ad-rel"><div class="ad-rel-meta">${escText(cg?cg.name:'Caregiver')} \u00b7 ${cnWhen(n.at)}</div><div class="ad-rel-tx">\u201c${escText(n.text)}\u201d</div></div>`;
+  }).join(''):`<div class="ad-empty">No original notes found for this date.</div>`;
+  mEl.classList.add('mwide');
+  mEl.innerHTML=`<div class="mh"><span class="mt">Original Care Notes \u2014 ${escText(cl?cl.name:'Client')}</span><button class="mc" onclick="closeModal()">\u00d7</button></div><div class="mb">${rows}</div>`;
+  mbg.classList.add('show');
+}
+
+function viewCareNotes(){
+  if(!state.cnDay) state.cnDay=careYesterdayPac();
+  const dateStr=state.cnDay;
+  const rows=careDayClients(dateStr), concerns=careConcernsForDay(dateStr), issues=careDocIssuesForDay(dateStr);
+
+  const summaryRows=rows.length?rows.map(careClientRowHtml).join(''):
+    `<div class="cd-empty"><div class="cn-clear sm">${ic('check',14)} No AxisCare care notes synced for this date.</div></div>`;
+  const concernRows=concerns.length?concerns.map(careConcernRowHtml).join(''):
+    `<div class="cd-empty"><div class="cn-clear sm">${ic('check',14)} No client concerns flagged for this date.</div></div>`;
+  const issueRows=issues.length?issues.map(careIssueRowHtml).join(''):
+    `<div class="cd-empty"><div class="cn-clear sm">${ic('check',14)} No documentation issues flagged for this date.</div></div>`;
+
+  return `${careDayNav(dateStr)}
+   <div class="ws-card cd-summary">
+     <div class="cd-shead"><span class="cd-stitle">${ic('forms',16)} Yesterday's Summary</span><span class="cd-ssub">AM and PM notes for every client with a care note this day. Click "View Original Notes" for the full AxisCare text.</span></div>
+     <div class="cd-slist">${summaryRows}</div>
+   </div>
+   <div class="cd-twocol">
+     <div class="ws-card cd-flagcard concern">
+       <div class="cd-fhead"><span class="cd-ftitle">${ic('alerts',15)} Clients Needing Attention</span><span class="cd-fcount">${concerns.length}</span></div>
+       <div class="cd-flist">${concernRows}</div>
+     </div>
+     <div class="ws-card cd-flagcard doc">
+       <div class="cd-fhead"><span class="cd-ftitle">${ic('forms',15)} Care Note Issues</span><span class="cd-fcount">${issues.length}</span></div>
+       <div class="cd-flist">${issueRows}</div>
+     </div>
    </div>`;
 }
 
