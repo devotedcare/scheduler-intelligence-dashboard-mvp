@@ -2763,8 +2763,6 @@ html.pg-held .pingate{display:none!important}
 .cd-sumbar>span{flex:1 1 auto}
 .cd-more{display:block;margin-top:7px;font-family:inherit;font-size:12px;font-weight:700;color:var(--brand);background:none;border:none;padding:0;cursor:pointer;text-align:left}
 .cd-more:hover{text-decoration:underline}
-.cd-twocol{display:grid;grid-template-columns:1fr 1fr;gap:14px}
-@media(max-width:900px){.cd-twocol{grid-template-columns:1fr}}
 .cd-flagcard{padding:0;overflow:hidden}
 .cd-flagcard.concern{border-top:3px solid var(--crit-solid)}
 .cd-flagcard.doc{border-top:3px solid var(--soon-solid)}
@@ -2776,12 +2774,23 @@ html.pg-held .pingate{display:none!important}
 .cd-flagcard.doc .cd-ftitle{color:var(--soon-tx)}
 .cd-fcount{margin-left:auto;font-size:12.5px;font-weight:800;color:inherit}
 .cd-flist{display:flex;flex-direction:column}
-.cd-flagrow{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:none;border:none;border-bottom:1px solid var(--line-soft);font-family:inherit;padding:11px 15px;cursor:pointer}
-.cd-flagrow:last-child{border-bottom:none}
-.cd-flagrow:hover{background:var(--panel-head)}
-.cd-frname{flex:0 0 auto;max-width:34%;font-size:13px;font-weight:700;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.cd-frwhat{flex:1;min-width:0;font-size:12.5px;color:var(--ink-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.cd-frgo{flex:0 0 auto;font-size:12px;font-weight:700;color:var(--brand)}
+/* Clients Needing Attention — the FULL explanation inline, compact rows,
+   only a thin divider between them. No box per row, no truncation: the
+   whole point is a scheduler reads this without clicking through. */
+.cd-attnrow{padding:11px 15px;border-bottom:1px solid var(--line-soft)}
+.cd-attnrow:last-child{border-bottom:none}
+.cd-attn-head{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:4px}
+.cd-attn-name{font-size:13.5px;font-weight:800;color:var(--ink)}
+.cd-attn-badge{font-size:10.5px;font-weight:800;padding:2px 8px;border-radius:20px;white-space:nowrap}
+.cd-attn-badge.crit{background:var(--crit-bg);color:var(--crit-tx)}
+.cd-attn-badge.soon{background:var(--soon-bg);color:var(--soon-tx)}
+.cd-attn-time{margin-left:auto;font-size:11.5px;font-weight:600;color:var(--ink-faint);white-space:nowrap}
+.cd-attn-what{font-size:13px;color:var(--ink);line-height:1.5;margin-bottom:6px}
+.cd-attn-foot{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+.cd-attn-follow{font-size:12px;color:var(--ink-soft);line-height:1.4;flex:1 1 auto;min-width:0}
+.cd-attn-follow b{color:var(--ink-soft);font-weight:700}
+.cd-attn-open{flex:0 0 auto;font-family:inherit;font-size:12px;font-weight:700;color:var(--brand);background:none;border:none;padding:0;cursor:pointer;display:flex;align-items:center;gap:4px}
+.cd-attn-open:hover{text-decoration:underline}
 .cd-issue{padding:12px 15px;border-bottom:1px solid var(--line-soft)}
 .cd-issue:last-child{border-bottom:none}
 .cd-itop{display:flex;align-items:center;gap:7px;margin-bottom:4px}
@@ -18716,7 +18725,7 @@ function careConcernsForDay(dateStr){
     cats.sort((a,b)=>CARE_PRIO_RANK[CARE_CAT_BY_KEY[a].prio]-CARE_PRIO_RANK[CARE_CAT_BY_KEY[b].prio]);
     const top=cats[0], cat=CARE_CAT_BY_KEY[top], cur=byClient[n.clientId];
     if(!cur||CARE_PRIO_RANK[cat.prio]<CARE_PRIO_RANK[cur.prio])
-      byClient[n.clientId]={clientId:n.clientId,noteId:n.id,catKey:top,category:cat.label,prio:cat.prio,at:n.at,excerpt:n.text};
+      byClient[n.clientId]={clientId:n.clientId,noteId:n.id,catKey:top,category:cat.label,prio:cat.prio,at:n.at,excerpt:n.text,cgId:n.cgId,actions:cat.actions};
   });
   return Object.keys(byClient).map(k=>byClient[k]).sort((a,b)=>CARE_PRIO_RANK[a.prio]-CARE_PRIO_RANK[b.prio]||new Date(b.at)-new Date(a.at));
 }
@@ -19063,14 +19072,29 @@ function careClientRowHtml(r){
     <div class="cd-ccell cd-col-action"><button class="btn sm" onclick="openClientNotesModal('${r.clientId}','${state.cnDay}')">${ic('eye',13)} View Original Notes \u203a</button></div>
   </div>`;
 }
+/* Full detail inline \u2014 a scheduler must understand what happened without
+   clicking through. "Full alert \u203a" still opens the tracked alert (assign,
+   mark resolved, send a guide); it is not required reading to know why this
+   client is here. */
+function careAttnBadgeClass(prio){ return (prio==='critical'||prio==='high')?'crit':'soon'; }
+const CARE_SHIFT_WINDOW_LABEL={am:'AM Shift (6:00 AM \u2013 2:00 PM)',pm:'PM Shift (2:00 PM \u2013 10:00 PM)'};
 function careConcernRowHtml(row){
-  const cl=clById(row.clientId), excerpt=cleanNoteText(row.excerpt);
-  const short=excerpt.length>150?excerpt.slice(0,150).trim()+'\u2026':excerpt;
-  return `<button class="cd-flagrow" onclick="openAlertDetail('${row.noteId}__${row.catKey}')">
-    <span class="cd-frname">${escText(cl?cl.name:'Client')}</span>
-    <span class="cd-frwhat">${escText(short)}</span>
-    <span class="cd-frgo">Review \u203a</span>
-  </button>`;
+  const cl=clById(row.clientId), cg=cgById(row.cgId), excerpt=cleanNoteText(row.excerpt);
+  const shift=careShiftOf(row.at), win=CARE_SHIFT_WINDOW_LABEL[shift]||'';
+  const actions=(row.actions||[]).slice(0,3);
+  const follow=actions.length?actions.join(', ')+((row.actions||[]).length>actions.length?'\u2026':''):'None noted for this category.';
+  return `<div class="cd-attnrow">
+    <div class="cd-attn-head">
+      <span class="cd-attn-name">${escText(cl?cl.name:'Client')}</span>
+      <span class="cd-attn-badge ${careAttnBadgeClass(row.prio)}">${escText(row.category)}</span>
+      <span class="cd-attn-time">${escText(careTimeLabel(row.at))} \u00b7 ${escText(win)}${cg?' \u00b7 '+escText(cg.name):''}</span>
+    </div>
+    <div class="cd-attn-what">${escText(excerpt)}</div>
+    <div class="cd-attn-foot">
+      <span class="cd-attn-follow"><b>Follow-up:</b> ${escText(follow)}</span>
+      <button class="cd-attn-open" onclick="openAlertDetail('${row.noteId}__${row.catKey}')">${ic('eye',12)} Full alert \u203a</button>
+    </div>
+  </div>`;
 }
 function careIssueRowHtml(issue){
   const cl=clById(issue.clientId);
@@ -19111,22 +19135,25 @@ function viewCareNotes(){
   const issueRows=issues.length?issues.map(careIssueRowHtml).join(''):
     `<div class="cd-empty"><div class="cn-clear sm">${ic('check',14)} No documentation issues flagged for this date.</div></div>`;
 
+  /* Clients Needing Attention leads the page — the scheduler should
+     understand who needs a look and why before anything else renders.
+     Yesterday's Summary and Care Note Issues follow, in that order; Care
+     Note Issues is documentation quality (CARE_CATEGORIES prio 'low'),
+     genuinely the least urgent of the three, so it belongs last. */
   return `${careDayNav(dateStr)}
+   <div class="ws-card cd-flagcard concern">
+     <div class="cd-fhead"><span class="cd-ftitle">${ic('alerts',15)} Clients Needing Attention</span><span class="cd-fcount">${concerns.length}</span></div>
+     <div class="cd-flist">${concernRows}</div>
+   </div>
    <div class="ws-card cd-summary">
      <div class="cd-shead"><span class="cd-stitle">${ic('forms',16)} Yesterday's Summary</span><span class="cd-ssub">Summarised by Devi from the caregivers’ AxisCare notes — AM and PM for every client with a note this day. Click "View Original Notes" for what they actually wrote.</span></div>
      ${cnSumStrip(dateStr)}
      ${rows.length?'<div class="cd-thead"><span>Client</span><span>AM Shift</span><span>PM Shift</span><span>Action</span></div>':''}
      <div class="cd-slist">${summaryRows}</div>
    </div>
-   <div class="cd-twocol">
-     <div class="ws-card cd-flagcard concern">
-       <div class="cd-fhead"><span class="cd-ftitle">${ic('alerts',15)} Clients Needing Attention</span><span class="cd-fcount">${concerns.length}</span></div>
-       <div class="cd-flist">${concernRows}</div>
-     </div>
-     <div class="ws-card cd-flagcard doc">
-       <div class="cd-fhead"><span class="cd-ftitle">${ic('forms',15)} Care Note Issues</span><span class="cd-fcount">${issues.length}</span></div>
-       <div class="cd-flist">${issueRows}</div>
-     </div>
+   <div class="ws-card cd-flagcard doc">
+     <div class="cd-fhead"><span class="cd-ftitle">${ic('forms',15)} Care Note Issues</span><span class="cd-fcount">${issues.length}</span></div>
+     <div class="cd-flist">${issueRows}</div>
    </div>`;
 }
 
