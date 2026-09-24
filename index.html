@@ -2781,15 +2781,21 @@ html.pg-held .pingate{display:none!important}
 .cd-attnrow:last-child{border-bottom:none}
 .cd-attn-head{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:4px}
 .cd-attn-name{font-size:13.5px;font-weight:800;color:var(--ink)}
-.cd-attn-badge{font-size:10.5px;font-weight:800;padding:2px 8px;border-radius:20px;white-space:nowrap}
+.cd-attn-badge{font-size:10.5px;font-weight:800;padding:2px 8px;border-radius:20px;white-space:nowrap;text-transform:uppercase;letter-spacing:.3px}
 .cd-attn-badge.crit{background:var(--crit-bg);color:var(--crit-tx)}
 .cd-attn-badge.soon{background:var(--soon-bg);color:var(--soon-tx)}
 .cd-attn-time{margin-left:auto;font-size:11.5px;font-weight:600;color:var(--ink-faint);white-space:nowrap}
-.cd-attn-what{font-size:13px;color:var(--ink);line-height:1.5;margin-bottom:6px}
-.cd-attn-foot{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
-.cd-attn-follow{font-size:12px;color:var(--ink-soft);line-height:1.4;flex:1 1 auto;min-width:0}
-.cd-attn-follow b{color:var(--ink-soft);font-weight:700}
-.cd-attn-open{flex:0 0 auto;font-family:inherit;font-size:12px;font-weight:700;color:var(--brand);background:none;border:none;padding:0;cursor:pointer;display:flex;align-items:center;gap:4px}
+/* The extracted bullets — compact, two short labelled lists, never a
+   pasted note. cd-attn-sec+cd-attn-sec keeps them close together so the
+   whole row stays scannable at a glance. */
+.cd-attn-sec{margin-bottom:6px}
+.cd-attn-sec:last-of-type{margin-bottom:8px}
+.cd-attn-lbl{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--ink-faint);margin-bottom:2px}
+.cd-attn-bl{margin:0;padding-left:17px;list-style:disc}
+.cd-attn-bl li{font-size:13px;color:var(--ink);line-height:1.45}
+.cd-attn-bl li+li{margin-top:1px}
+.cd-attn-wait{font-size:12.5px;color:var(--ink-faint);font-style:italic;margin-bottom:8px}
+.cd-attn-open{font-family:inherit;font-size:12px;font-weight:700;color:var(--brand);background:none;border:none;padding:0;cursor:pointer;display:flex;align-items:center;gap:4px}
 .cd-attn-open:hover{text-decoration:underline}
 .cd-issue{padding:12px 15px;border-bottom:1px solid var(--line-soft)}
 .cd-issue:last-child{border-bottom:none}
@@ -18725,7 +18731,7 @@ function careConcernsForDay(dateStr){
     cats.sort((a,b)=>CARE_PRIO_RANK[CARE_CAT_BY_KEY[a].prio]-CARE_PRIO_RANK[CARE_CAT_BY_KEY[b].prio]);
     const top=cats[0], cat=CARE_CAT_BY_KEY[top], cur=byClient[n.clientId];
     if(!cur||CARE_PRIO_RANK[cat.prio]<CARE_PRIO_RANK[cur.prio])
-      byClient[n.clientId]={clientId:n.clientId,noteId:n.id,catKey:top,category:cat.label,prio:cat.prio,at:n.at,excerpt:n.text,cgId:n.cgId,actions:cat.actions};
+      byClient[n.clientId]={clientId:n.clientId,noteId:n.id,catKey:top,category:cat.label,prio:cat.prio,at:n.at,cgId:n.cgId};
   });
   return Object.keys(byClient).map(k=>byClient[k]).sort((a,b)=>CARE_PRIO_RANK[a.prio]-CARE_PRIO_RANK[b.prio]||new Date(b.at)-new Date(a.at));
 }
@@ -18915,6 +18921,128 @@ var CNSUM = (function () {
 function cnsumRetry(day) { CNSUM.retry(day); }
 
 /* =========================================================
+   CALERT  —  the extraction behind "Clients Needing Attention"
+   ---------------------------------------------------------
+   This section used to print the caregiver's raw AxisCare note,
+   cleaned and cut at 150 characters with "..." — reported back as
+   "still the full note, lightly rephrased" and not a summary at all.
+   supabase/functions/carealerts-summary reads the ONE flagged note
+   behind each row and returns two short bullet lists — what
+   happened (the issue only, never the routine shift) and what the
+   scheduler needs to do about it — saved in public.care_alert_summaries.
+
+   WHICH note+category is this browser's own call — careConcernsForDay()
+   already runs the keyword categoriser and knows which client is
+   flagged and why. Only {noteId, catKey} pairs are sent; the function
+   reads the note's own words itself with the service key, the same
+   shape as care-brief. Nobody with the site URL can hand this
+   function invented text or an invented category.
+
+   ONE REQUEST PER DAY OPENED, covering every row on screen — not one
+   per client. A note already extracted (by anybody, in any browser)
+   is read back from the table and costs nothing.
+
+   NOTHING GOES INTO `state`, for the same reason CNSUM and CGVISITS
+   keep their own caches — a handful of extracted rows in a tracked
+   CLOUD slice would be written to Supabase as though a scheduler
+   typed them.
+
+   NEVER FALLS BACK TO THE RAW NOTE. CNSUM's per-block fallback is
+   fine — an AM/PM narrative summary and the note it describes are the
+   same kind of content. Here the raw note is the exact thing this
+   screen was asked to stop showing, so a loading or failed row shows
+   name/category/time only (all computed locally, no AI needed) and
+   points at "Full alert" for the original text — never the note.
+
+   AN ERROR IS NEVER RETRIED BY A RENDER, same rule as CNSUM: render()
+   runs on every save and every 20-second poll, so a failure that
+   retried itself would send one request per render for as long as the
+   page stayed open. Retry is a button. */
+var CALERT = (function () {
+  var days = {};         /* day -> {status, units:{id:{whatHappened,schedulerAction}}, error} */
+  var inflight = {};
+
+  function url() {
+    var u = (window.SCHEDULER_CONFIG || {}).supabaseUrl;
+    return u ? String(u).replace(/\/+$/, '') + '/functions/v1/carealerts-summary' : '';
+  }
+  var DEPLOY = 'npx supabase functions deploy carealerts-summary --project-ref gdzgoyawavffjdjpjbfz --no-verify-jwt';
+
+  function get(day) { return days[day] || null; }
+  function status(day) { var d = days[day]; return d ? d.status : 'idle'; }
+
+  /* {whatHappened, schedulerAction} for one alert, or null. Only ever
+     returns a row for the EXACT id asked for — this browser's own
+     careConcernsForDay() row, matched against what the function
+     actually produced — so a row can never be shown against the wrong
+     client or the wrong category. */
+  function forAlert(day, id) {
+    var d = days[day];
+    if (!d || d.status !== 'ready') return null;
+    return d.units[id] || null;
+  }
+
+  function load(day, wanted) {
+    if (!day || inflight[day] || days[day]) return;
+    if (!wanted.length) { days[day] = { status: 'ready', units: {} }; return; }
+    var base = url();
+    if (!base) { days[day] = { status: 'error', units: {}, error: 'This copy of the dashboard has no Supabase URL.' }; return; }
+    days[day] = { status: 'loading', units: {} };
+    inflight[day] = fetch(base, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ day: day, units: wanted })
+    }).then(function (r) {
+      return r.json().catch(function () { return null; }).then(function (b) {
+        /* The gateway answers a missing FUNCTION with {code,message} and
+           no `ok` — the same two-404s trap Quo and CARE document. */
+        if (r.status === 404 && !(b && b.ok === false)) {
+          throw new Error('The carealerts-summary function is not deployed. Committing does not deploy it — it needs: ' + DEPLOY);
+        }
+        if (!r.ok || !b || !b.ok) throw new Error((b && (b.error || b.message)) || ('HTTP ' + r.status));
+        var u = {};
+        (b.units || []).forEach(function (x) {
+          if (x && x.id && x.whatHappened && x.schedulerAction) u[x.id] = { whatHappened: x.whatHappened, schedulerAction: x.schedulerAction };
+        });
+        days[day] = { status: 'ready', units: u, model: b.model || null, generated: b.generated || 0, reused: b.reused || 0 };
+      });
+    }).then(null, function (err) {
+      /* An UNDEPLOYED function arrives here, not in the 404 branch: the
+         gateway answers the POST's preflight with a 404 whose
+         access-control-allow-headers omits content-type, so the browser
+         blocks the request and throws a bare TypeError before any body
+         can be read. Same trap CNSUM documents for carenotes-summary. */
+      var msg = (err && err.message) || String(err);
+      if (err && err.name === 'TypeError') {
+        msg = 'Could not reach the carealerts-summary function. It may not be deployed yet (' + DEPLOY + '), or the connection dropped.';
+      }
+      days[day] = { status: 'error', units: {}, error: msg };
+    }).then(function () {
+      delete inflight[day];
+      try { if (state.view === 'carenotes') render(); } catch (x) {}
+    });
+  }
+
+  /* Same one-timer-restarted debounce as CNSUM.soon(), and for the same
+     reason: the day arrows re-render this view, so paging back a week
+     must not fire one request per date passed through. */
+  var soonT = null, soonDay = null, soonWanted = null;
+  function soon(day, wanted) {
+    if (!day || days[day] || inflight[day]) return;
+    soonDay = day; soonWanted = wanted;
+    if (soonT) clearTimeout(soonT);
+    soonT = setTimeout(function () {
+      soonT = null;
+      if (soonDay === state.cnDay) load(soonDay, soonWanted);
+    }, 400);
+  }
+  function retry(day, wanted) { if (inflight[day]) return; delete days[day]; load(day, wanted); render(); }
+
+  return { load: load, soon: soon, get: get, status: status, forAlert: forAlert, retry: retry };
+})();
+function calertRetry(day) { CALERT.retry(day, careConcernsForDay(day).map(function (r) { return { noteId: r.noteId, catKey: r.catKey }; })); }
+
+/* =========================================================
    SUMS  —  read-only access to the care-note summaries
    ---------------------------------------------------------
    `CNSUM` above is the Care Notes PAGE's module: it POSTs a date to
@@ -19063,6 +19191,16 @@ function cnSumStrip(dateStr){
     return `<div class="cd-sumbar bad">${ic('alerts',13)} <span>Could not summarise this day \u2014 showing the original notes. ${escText(d.error||'')}</span><button class="btn sm" onclick="cnsumRetry('${dateStr}')">Retry</button></div>`; }
   return '';
 }
+/* Unlike cnSumStrip, an error here does NOT fall back to raw notes \u2014
+   see CALERT. Each row already says "Could not analyse\u2026" on its own,
+   so this bar exists to explain why, once, and offer Retry. */
+function calertStrip(dateStr){
+  const s=CALERT.status(dateStr);
+  if(s==='loading') return `<div class="cd-sumbar work">${ic('refresh',13)} <span>Analysing flagged notes\u2026 each one fills in as it finishes.</span></div>`;
+  if(s==='error'){ const d=CALERT.get(dateStr)||{};
+    return `<div class="cd-sumbar bad">${ic('alerts',13)} <span>Could not analyse these notes automatically. ${escText(d.error||'')}</span><button class="btn sm" onclick="calertRetry('${dateStr}')">Retry</button></div>`; }
+  return '';
+}
 function careClientRowHtml(r){
   const cl=clById(r.clientId), name=cl?cl.name:'Unknown client';
   return `<div class="cd-crow">
@@ -19075,25 +19213,44 @@ function careClientRowHtml(r){
 /* Full detail inline \u2014 a scheduler must understand what happened without
    clicking through. "Full alert \u203a" still opens the tracked alert (assign,
    mark resolved, send a guide); it is not required reading to know why this
-   client is here. */
+   client is here.
+
+   The WHAT HAPPENED / SCHEDULER ACTION bullets are written by
+   carealerts-summary, which reads the one flagged note itself and
+   extracts ONLY the issue \u2014 never the routine shift. See CALERT above.
+   Reported back 2026-09-24: printing the cleaned note text here (even
+   truncated) was "still the full note, lightly rephrased," so this row
+   NEVER shows raw note text \u2014 only the extracted bullets once they
+   land, or a plain "analysing / could not analyse" line while they
+   don't. "Full alert" is where the original note still lives. */
 function careAttnBadgeClass(prio){ return (prio==='critical'||prio==='high')?'crit':'soon'; }
 const CARE_SHIFT_WINDOW_LABEL={am:'AM Shift (6:00 AM \u2013 2:00 PM)',pm:'PM Shift (2:00 PM \u2013 10:00 PM)'};
+function careAttnBulletsHtml(label,items){
+  return `<div class="cd-attn-sec"><div class="cd-attn-lbl">${escText(label)}</div><ul class="cd-attn-bl">${items.map(b=>`<li>${escText(b)}</li>`).join('')}</ul></div>`;
+}
 function careConcernRowHtml(row){
-  const cl=clById(row.clientId), cg=cgById(row.cgId), excerpt=cleanNoteText(row.excerpt);
+  const cl=clById(row.clientId), cg=cgById(row.cgId);
   const shift=careShiftOf(row.at), win=CARE_SHIFT_WINDOW_LABEL[shift]||'';
-  const actions=(row.actions||[]).slice(0,3);
-  const follow=actions.length?actions.join(', ')+((row.actions||[]).length>actions.length?'\u2026':''):'None noted for this category.';
+  const id=row.noteId+'__'+row.catKey;
+  const ex=CALERT.forAlert(state.cnDay,id);
+  /* "Analysing" is only true while the request is genuinely still in
+     flight (idle = not yet asked, loading = asked). Once the batch has
+     settled (ready or error) and this specific id still has nothing \u2014
+     dropped by the function, or the model did not return it \u2014 that is a
+     finished, negative answer, not still-in-progress. Saying "Analysing"
+     forever for a request that already came back would be a silent lie. */
+  const calSt=CALERT.status(state.cnDay);
+  const body=ex
+    ?careAttnBulletsHtml('What happened',ex.whatHappened)+careAttnBulletsHtml('Scheduler action',ex.schedulerAction)
+    :`<div class="cd-attn-wait">${(calSt==='idle'||calSt==='loading')?'Analysing this note\u2026':'Could not analyse this note automatically \u2014 open Full alert to read it.'}</div>`;
   return `<div class="cd-attnrow">
     <div class="cd-attn-head">
       <span class="cd-attn-name">${escText(cl?cl.name:'Client')}</span>
       <span class="cd-attn-badge ${careAttnBadgeClass(row.prio)}">${escText(row.category)}</span>
       <span class="cd-attn-time">${escText(careTimeLabel(row.at))} \u00b7 ${escText(win)}${cg?' \u00b7 '+escText(cg.name):''}</span>
     </div>
-    <div class="cd-attn-what">${escText(excerpt)}</div>
-    <div class="cd-attn-foot">
-      <span class="cd-attn-follow"><b>Follow-up:</b> ${escText(follow)}</span>
-      <button class="cd-attn-open" onclick="openAlertDetail('${row.noteId}__${row.catKey}')">${ic('eye',12)} Full alert \u203a</button>
-    </div>
+    ${body}
+    <button class="cd-attn-open" onclick="openAlertDetail('${row.noteId}__${row.catKey}')">${ic('eye',12)} Full alert \u203a</button>
   </div>`;
 }
 function careIssueRowHtml(issue){
@@ -19122,11 +19279,12 @@ function viewCareNotes(){
   if(!state.cnDay) state.cnDay=careYesterdayPac();
   const dateStr=state.cnDay;
   const rows=careDayClients(dateStr), concerns=careConcernsForDay(dateStr), issues=careDocIssuesForDay(dateStr);
-  /* Guarded inside CNSUM: one request per date per session, an error is
-     never retried by a render. Safe from a render for that reason only.
+  /* Guarded inside CNSUM/CALERT: one request per date per session, an error
+     is never retried by a render. Safe from a render for that reason only.
      Deferred, because the day arrows re-render this view: paging back a week
      would otherwise start a model call for every date passed through. */
   CNSUM.soon(dateStr);
+  CALERT.soon(dateStr, concerns.map(r=>({noteId:r.noteId,catKey:r.catKey})));
 
   const summaryRows=rows.length?rows.map(careClientRowHtml).join(''):
     `<div class="cd-empty"><div class="cn-clear sm">${ic('check',14)} No AxisCare care notes synced for this date.</div></div>`;
@@ -19143,6 +19301,7 @@ function viewCareNotes(){
   return `${careDayNav(dateStr)}
    <div class="ws-card cd-flagcard concern">
      <div class="cd-fhead"><span class="cd-ftitle">${ic('alerts',15)} Clients Needing Attention</span><span class="cd-fcount">${concerns.length}</span></div>
+     ${calertStrip(dateStr)}
      <div class="cd-flist">${concernRows}</div>
    </div>
    <div class="ws-card cd-summary">
