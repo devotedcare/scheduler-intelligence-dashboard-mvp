@@ -2750,6 +2750,8 @@ html.pg-held .pingate{display:none!important}
 .cd-sumbar.work{color:var(--ink-faint);background:var(--panel-head)}
 .cd-sumbar.bad{color:var(--crit-tx);background:var(--crit-bg)}
 .cd-sumbar>span{flex:1 1 auto}
+.cd-more{display:block;margin-top:7px;font-family:inherit;font-size:12px;font-weight:700;color:var(--brand);background:none;border:none;padding:0;cursor:pointer;text-align:left}
+.cd-more:hover{text-decoration:underline}
 .cd-twocol{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 @media(max-width:900px){.cd-twocol{grid-template-columns:1fr}}
 .cd-flagcard{padding:0;overflow:hidden}
@@ -14366,18 +14368,15 @@ function demoNotice(){
   var ns = NO_AXIS_SOURCE[state.view];
   if(ns) return '<div class="demo-banner"><span class="db-ic">\u2139</span><span>'+ns+'</span></div>';
 
-  /* 4b. care notes come from the sync mirror, not AxisCare directly */
-  if(state.view==='carenotes' && st && st.ok){
-    var n = st.careNotes || 0;
-    if(!n) return '<div class="demo-banner"><span class="db-ic">\u2139</span><span>'+
-      '<b>No care notes synced yet.</b> A caregiver\u2019s shift note is only available on '+
-      'AxisCare\u2019s per-visit call, so notes are swept into the database on a schedule '+
-      'rather than fetched live. The sweep runs every 15 minutes; a first full sweep of the '+
-      'week takes a few runs.</span></div>';
-    return '<div class="demo-banner live"><span class="db-ic">\u2713</span><span><b>'+n+
-      ' care notes synced from AxisCare.</b> Swept on a schedule \u2014 the note text is only '+
-      'on the per-visit call, so a live fetch would be one request per visit.</span></div>';
-  }
+  /* 4b used to say "N care notes synced from AxisCare" here on the Care
+     Notes page. Removed on request, 2026-09-24 \u2014 the redesigned page states
+     its own per-date freshness inline (the summary strip, and each
+     section's own empty state), so a screen-wide raw sync count sitting
+     above three already-informative sections was noise rather than
+     something the screen otherwise wouldn't say. Same precedent as Open
+     Shifts' green confirmation below. Failures and partial loads (1 and 3
+     above) still show here exactly as before \u2014 only the success/idle
+     confirmation went. */
 
   /* Open Shifts used to carry a green "Live from AxisCare" confirmation here.
      Removed on request. Only the success case went - every banner that
@@ -18537,6 +18536,7 @@ if(!state.cnFilter) state.cnFilter={cat:'all',status:'all',prio:'all',q:''};
 if(state.cnDetailId===undefined) state.cnDetailId=null;
 if(state.cnShowAll===undefined) state.cnShowAll=false;
 if(state.cnOpenGroups===undefined) state.cnOpenGroups={critical:true,review:false,documentation:false};
+if(!state.cdExpanded) state.cdExpanded={};
 
 function categorizeNote(text){
   const t=(text||'').toLowerCase().trim();
@@ -18997,22 +18997,42 @@ function setCnDay(d){ state.cnDay=d; render(); }
      for half a minute is worse than the text we already have.
    - a FAILED summary falls back to the same raw note, so this section is
      never less useful than it was before summaries existed. */
+/* A client with several notes, or a long fallback note, used to run the
+   shift box as long as the content \u2014 fine for one note, unreadable for a
+   busy client. Truncated in JS (never a CSS clamp), because the toggle has
+   to reveal the REAL rest of the text, not just uncap a box. `state.cdExpanded`
+   is UI state only, per-block, never in SLICES \u2014 same pattern as
+   `state.cnOpenGroups` beside it. */
+const CD_TRUNC_CHARS=220;
+function cdBlockKey(clientId,shift){ return clientId+'|'+shift; }
+function cdToggleShift(key){ if(!state.cdExpanded) state.cdExpanded={}; state.cdExpanded[key]=!state.cdExpanded[key]; render(); }
+function cdTrunc(t){ return t.length<=CD_TRUNC_CHARS ? t : t.slice(0,CD_TRUNC_CHARS).replace(/\s+\S*$/,'').trim()+'\u2026'; }
+function cdMoreBtn(key,expanded,label){ return `<button class="cd-more" onclick="cdToggleShift('${key}')">${escText(expanded?'View less':(label||'View more'))}</button>`; }
 function careShiftSummaryHtml(list,clientId,shift){
   if(!list.length) return `<div class="cd-nonote">No care note recorded for this window.</div>`;
+  const key=cdBlockKey(clientId,shift), expanded=!!(state.cdExpanded&&state.cdExpanded[key]);
   const sum=CNSUM.forBlock(state.cnDay,clientId,shift);
   /* Only show the summary when it describes EXACTLY the notes this browser is
      holding. The function reads care_notes live; state.careNotes is boot-time
-     and capped at 400 rows, so the two can differ — and a summary mentioning a
+     and capped at 400 rows, so the two can differ \u2014 and a summary mentioning a
      fall whose note "View Original Notes" cannot show is worse than the note. */
   if(sum && sum.summary && sum.sourceCount===list.length){
     const by=[...new Set(list.map(n=>{ const c=cgById(n.cgId); return c?c.name:'Caregiver'; }))].join(', ');
     const when=list.map(n=>careTimeLabel(n.at)).join(', ');
-    return `<div class="cd-sum"><div class="cd-noteby">${escText(by)} \u00b7 ${escText(when)}</div><div class="cd-sumtx">${escText(sum.summary)}</div></div>`;
+    const long=sum.summary.length>CD_TRUNC_CHARS;
+    const shown=(long&&!expanded)?cdTrunc(sum.summary):sum.summary;
+    return `<div class="cd-sum"><div class="cd-noteby">${escText(by)} \u00b7 ${escText(when)}</div><div class="cd-sumtx">${escText(shown)}</div>${long?cdMoreBtn(key,expanded):''}</div>`;
   }
-  return list.map(n=>{
-    const cg=cgById(n.cgId);
-    return `<div class="cd-noteblock"><div class="cd-noteby">${escText(cg?cg.name:'Caregiver')} \u00b7 ${careTimeLabel(n.at)}</div><div class="cd-notetx">${escText(cleanNoteText(n.text))}</div></div>`;
+  const totalLen=list.reduce((s,n)=>s+cleanNoteText(n.text).length,0);
+  const many=list.length>1||totalLen>CD_TRUNC_CHARS;
+  const shownList=(many&&!expanded)?list.slice(0,1):list;
+  const blocks=shownList.map(n=>{
+    const cg=cgById(n.cgId), tx=cleanNoteText(n.text);
+    return `<div class="cd-noteblock"><div class="cd-noteby">${escText(cg?cg.name:'Caregiver')} \u00b7 ${careTimeLabel(n.at)}</div><div class="cd-notetx">${escText((many&&!expanded)?cdTrunc(tx):tx)}</div></div>`;
   }).join('');
+  const hidden=(many&&!expanded)?list.length-1:0;
+  const label=hidden?('View more ('+hidden+' more note'+(hidden===1?'':'s')+')'):undefined;
+  return blocks+(many?cdMoreBtn(key,expanded,label):'');
 }
 /* Said once, at the top of the card, rather than on all ~26 blocks. An
    error is NOT retried by the render that shows it — see CNSUM. */
