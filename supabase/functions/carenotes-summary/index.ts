@@ -105,7 +105,7 @@ const SEND_EFFORT = !!EFFORT && !/haiku/i.test(MODEL);
 /* 2: a block may hold more than one caregiver's note -- the PM window runs to
       6am, and a 45-word cap written for one note lost a caregiver's whole
       shift, reproduced against the live model 2026-09-23 */
-const PROMPT_VERSION = 2;
+const PROMPT_VERSION = 6;
 
 const API = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION = "2023-06-01";
@@ -119,8 +119,16 @@ const NOTES_TABLE = "care_notes";
    summary lands under the wrong heading. */
 const AM_FROM = 6, AM_TO = 14;
 
-/* A block past this is not a summary any more. Asked for under 45 words
-   (~280 characters); a little over is accepted, a paragraph is not. */
+/* A CLIENT'S WHOLE DAY -- every block they have -- is budgeted at this many
+   words, which is the density of the sample Mitch supplied (11 clients, 399
+   words, mean 36.3 per client-day). Each block is told its own share, because
+   the model demonstrably cannot divide one budget across blocks it writes
+   separately: told "40 words for the whole client", a two-block client came
+   back at 83. */
+const DAY_BUDGET_WORDS = 40;
+
+/* A block past this is not a summary any more. Kept as the backstop that
+   actually protects the page; the word budget above is what shapes it. */
 const MAX_CHARS = 700;
 
 /* A date with more notes than this is refused rather than sent. The live
@@ -416,8 +424,9 @@ const PROMPT = [
   "California. A scheduler reads your summaries first thing in the morning to see how yesterday",
   "went across every client, and opens the original note only when something needs following up.",
   "",
-  "You are given one DAY. Within it, each block is ONE CLIENT and ONE SHIFT (AM is 6am-2pm, PM is",
-  "2pm-10pm), containing what the caregivers wrote after those visits. Summarise EVERY block.",
+  "You are given one DAY. Within it, each block is ONE CLIENT and ONE SHIFT -- AM is 6am-2pm,",
+  "PM is 2pm-6am, which is the evening AND the whole night. Each block holds what the",
+  "caregivers wrote after those visits. Summarise EVERY block.",
   "",
   "A BLOCK MAY HOLD MORE THAN ONE NOTE. The PM window runs to 6am, so an evening",
   "caregiver and an overnight caregiver can both write in the same block, and a",
@@ -430,8 +439,33 @@ const PROMPT = [
   'block, in the order given: [{"id":"<the block id>","summary":"<the summary>"}]',
   "Every id you were given must appear exactly once. Use the ids verbatim.",
   "",
-  "EACH SUMMARY (one-note block): at most THREE sentences and under 45 words. Plain prose, no headings, labels,",
-  "bullets or quotation marks.",
+  "EVERY BLOCK CARRIES ITS OWN WORD BUDGET, on a \"Budget:\" line in its header. Honour that",
+  "number. It is already divided for you: a client's whole day is budgeted together, so a",
+  "client with one block gets the lot and a client with an AM and a PM block gets half each.",
+  "Do not borrow from the other block. One sentence is the normal shape for a half-share.",
+  "",
+  "This is a SCAN, not a record. A scheduler reads fifteen clients before 9am and can open any",
+  "original note in one click, so your job is what GENERALLY happened -- not what happened.",
+  "Twenty words saying the day was ordinary beat forty listing every task in it. Count the",
+  "words before you answer. If you are over, cut care tasks first and never cut something the",
+  "office has to act on. Plain prose -- no headings, labels, bullets or quotation marks.",
+  "",
+  "HOW IT SHOULD READ. Flowing prose that GROUPS related care, led by the caregiver's first",
+  "name. Not a timestamped log, not a checklist. Routine tasks belong together in one clause;",
+  "they do not each need their own sentence and their own clock time.",
+  "",
+  "The people in these examples are INVENTED. Never reuse a name, a reading or a time that",
+  "appears in these instructions: they are illustrations, not data.",
+  "",
+  "  Write this:  Rosa got Mr Alder up, through his morning routine and out to an appointment,",
+  "               and had meals and the housework done by the end of the shift.",
+  "",
+  "  Not this:    Rosa watered the plants inside and outside. Fixed the bed at 8:30am.",
+  "               Prepared coffee for tomorrow. Had lunch ready at 11:42am. Checked blood",
+  "               pressure 128/81 and again at 10:30am.",
+  "",
+  "The caregiver is the SUBJECT of the sentence, never \"the caregiver\" in the abstract and",
+  "never a passive \"the client was assisted\". A scheduler reading this decides who to ring.",
   "",
   "SAY how the shift went and what a scheduler would want to know:",
   "- anything about the client's condition that changed, or that the caregiver was worried about",
@@ -441,28 +475,61 @@ const PROMPT = [
   "Lead with whatever matters most. A quiet, ordinary shift is a good outcome: say so briefly",
   "rather than padding it out.",
   "",
+  "WHAT ALWAYS SURVIVES THE CUT, ahead of any care task: a change in the client's condition or",
+  "care plan; confusion, agitation, a refusal, a fall or new pain; anything the client or the",
+  "family asked for; anything the caregiver raised or left for the office; and anything said",
+  "about a caregiver. If you are over budget, a care task comes out to make room for one of",
+  "these -- never the other way round.",
+  "",
   "RULES:",
   "- Use ONLY what the note says. Never infer a diagnosis, a cause, a severity or an outcome that",
   "  was not written. If the note is vague, your summary is vague -- do not improve it.",
   "- Never give medical advice and never suggest a treatment or a medication change.",
   "- Keep medication names and doses only where the note is reporting what happened with them",
   '  (refused, vomited, ran out). Do not list a routine medication pass beyond "medications given".',
-  "- Name people by first name, using the names given. Say \"the caregiver\" if none is given.",
-  "- Keep the times, dates and figures that matter (a fall at 3pm, ate half a meal, 2 of 3 meds).",
+  "- Name people by FIRST NAME ONLY. Every note is labelled with the caregiver's first name",
+  "  as the agency records it: use THAT spelling, never a variant or a fuller form that",
+  "  appears inside the note text. Say \"the caregiver\" only if no name is given.",
+  "- WRITE NO NUMBERS. No clock times, no vital signs, no blood sugars, no intake or output",
+  "  volumes, no doses, no counts of brief changes, bathroom trips or repositionings, no menu",
+  "  quantities. The scheduler cannot act on a reading and the note behind the button already",
+  "  has every one of them. Describe the PATTERN instead: \"restless and up to the toilet all",
+  "  night\", \"ate almost nothing at lunch\", \"slept through\".",
+  "- THE ONE EXCEPTION: a figure the note shows somebody REACTING to. A dose repeated because",
+  "  the first did nothing; a reading a nurse or the family was rung about; an instruction that",
+  "  followed from it. Even then, give it ONCE and say what was done -- never a run of",
+  "  individual readings.",
+  "- A number you print is a claim you have to be right about, and the desk cannot check it",
+  "  without opening the note. When in doubt, leave it out.",
   "- Notes may mix English and Tagalog, be lightly punctuated, or be typed on a phone. Summarise",
   "  the meaning in English.",
   "- Contact details already appear as [phone number], [email address] or [link]. Do not mention",
   "  those placeholders.",
-  "- If a note says essentially nothing (a few words, or boilerplate), say that the note records",
-  "  almost nothing about the shift. Do not invent a shift to describe.",
+  "- If a note says essentially nothing (a few words, or boilerplate), say that THE NOTE",
+  "  records almost nothing about the shift. Do not invent a shift to describe.",
+  "- NEVER mention the block, its id, its AM/PM label or the shift window, and never remark",
+  "  that a note looks misfiled or belongs elsewhere. Summarise the care in the notes you were",
+  "  given. How they are grouped is not the reader's problem and not yours.",
+  "- NEVER characterise how well somebody documented their shift. Describe what the note",
+  "  contains; do not write that a caregiver \"reported minimal detail\", \"gave little\" or",
+  "  \"documented poorly\". That is a judgement about a person, it is saved in a clinical",
+  "  record, and the block header already says whose shift it was.",
 ].join("\n");
 
-function blockFor(u: Unit): string {
+/* `share` is DAY_BUDGET_WORDS split across however many blocks this client has
+   on the date, rounded to 5 so it reads as guidance rather than false
+   precision. Computed here because the model cannot do it: see PROMPT_VERSION 6. */
+function blockFor(u: Unit, share: number): string {
   const head = "### " + u.key + "\n" +
     "Client: " + u.clientName + "\n" +
-    "Shift: " + (u.shift === "am" ? "AM (6:00 AM - 2:00 PM)" : "PM (2:00 PM - 10:00 PM)") + "\n";
+    "Shift: " + (u.shift === "am" ? "AM (6:00 AM - 2:00 PM)"
+                                  : "PM (2:00 PM - 6:00 AM, evening and overnight)") + "\n" +
+    "Budget: " + share + " words\n";
   const body = u.notes.map((n) => {
-    const who = String(n.caregiver_name || "Caregiver");
+    /* FIRST NAME, from care_notes.caregiver_name -- the agency's own spelling.
+       Passing the full name invited "Donmar Erick Villanueva's shift with Jose
+       Ortiz from 6:55 PM", 14 words of identification against a 45-word cap. */
+    const who = String(n.caregiver_name || "").trim().split(/\s+/)[0] || "Caregiver";
     const when = n.visit_at ? timeLabel(n.visit_at) : "";
     const text = redact(cleanNote(n.note)).slice(0, MAX_NOTE_CHARS);
     return who + (when ? " (" + when + ")" : "") + ": " + text;
@@ -471,11 +538,17 @@ function blockFor(u: Unit): string {
 }
 
 async function askClaude(day: string, units: Unit[]): Promise<Map<string, string>> {
+  /* how many blocks each client has in THIS request, so the day budget can be
+     split before the model ever sees it */
+  const blocks = new Map<number, number>();
+  units.forEach((u) => blocks.set(u.clientId, (blocks.get(u.clientId) ?? 0) + 1));
+  const share = new Map<number, number>();
+  blocks.forEach((n, id) => share.set(id, Math.max(15, Math.round(DAY_BUDGET_WORDS / n / 5) * 5)));
   const content =
     "Date: " + new Date(laMidnightUtc(day) + 12 * 3600000).toLocaleDateString("en-US",
       { timeZone: TZ, weekday: "long", month: "long", day: "numeric", year: "numeric" }) + "\n" +
     "Blocks to summarise: " + units.length + "\n\n" +
-    units.map(blockFor).join("\n\n");
+    units.map((u) => blockFor(u, share.get(u.clientId) ?? DAY_BUDGET_WORDS)).join("\n\n");
 
   /* max_tokens INCLUDES THINKING. Haiku does not think unless asked, but a
      CARENOTES_MODEL switch to Sonnet 5 or Opus 5 does by default, and a budget
