@@ -966,6 +966,37 @@
   .cv-tag{font-size:11.5px;font-weight:650;padding:3px 9px;border-radius:10px;background:var(--neutral-bg);color:var(--ink-soft)}
   .cv-tag.warn{background:var(--soon-bg);color:var(--soon-tx)}
   .cv-none{font-size:11.5px;color:var(--ink-faint)}
+  /* the simple weekly availability view — flat, compact, no large cards.
+     Names stay hidden until a bucket is clicked; see .wk-detail below. */
+  .wk-card{padding:14px 16px}
+  .wk-nav{display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:12px}
+  .wk-navlabel{font-size:14px;font-weight:800;color:var(--ink);min-width:150px;text-align:center;letter-spacing:.3px}
+  .wk-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
+  @media(max-width:900px){.wk-grid{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:560px){.wk-grid{grid-template-columns:1fr}}
+  .wk-day{border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+  .wk-day.today{border-color:var(--brand)}
+  .wk-dayhead{padding:8px 10px;background:var(--panel-head);border-bottom:1px solid var(--line);font-size:12.5px;font-weight:800;color:var(--ink);display:flex;align-items:center;justify-content:space-between;gap:6px}
+  .wk-daydate{font-size:10.5px;font-weight:700;color:var(--ink-faint);white-space:nowrap}
+  .wk-bucket{display:flex;align-items:center;justify-content:space-between;width:100%;text-align:left;background:none;border:none;border-top:1px solid var(--line-soft);font-family:inherit;padding:8px 10px;cursor:pointer}
+  .wk-day .wk-bucket:first-of-type{border-top:none}
+  .wk-bucket:hover{background:var(--panel-head)}
+  .wk-bucket.on{background:var(--panel-head);box-shadow:inset 2px 0 0 var(--brand)}
+  .wk-bucket.wait{cursor:default}
+  .wk-blabel{font-size:12.5px;font-weight:650;color:var(--ink-soft)}
+  .wk-bcount{font-size:12px;font-weight:700;color:var(--ink)}
+  .wk-bucket.on .wk-bcount{color:var(--brand)}
+  .wk-detail{margin-top:14px;padding:0;overflow:hidden}
+  .wk-detailhead{display:flex;align-items:center;gap:10px;padding:12px 15px;border-bottom:1px solid var(--line);background:var(--panel-head)}
+  .wk-detailtitle{font-size:13.5px;font-weight:800;color:var(--ink)}
+  .wk-close{margin-left:auto;background:none;border:none;font-size:18px;line-height:1;color:var(--ink-faint);cursor:pointer;padding:2px 4px}
+  .wk-close:hover{color:var(--ink)}
+  .wk-cglist{display:flex;flex-direction:column}
+  .wk-cgrow{display:flex;align-items:center;gap:10px;padding:9px 15px;border-bottom:1px solid var(--line-soft)}
+  .wk-cgrow:last-child{border-bottom:none}
+  .wk-cgname{font-family:inherit;font-size:13px;font-weight:700;color:var(--brand);background:none;border:none;padding:0;cursor:pointer;text-align:left}
+  .wk-cgname:hover{text-decoration:underline}
+  .wk-cgmeta{font-size:12px;color:var(--ink-soft);flex:1 1 auto;min-width:0}
   /* status bar */
   .cov-status{background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:13px 16px;margin-bottom:14px}
   .cov-status-h{display:flex;align-items:center;gap:10px;margin-bottom:11px}
@@ -6476,7 +6507,13 @@ function aoTrackHtml(ao,s){
 }
 function aoTrackFoot(ao){ return `<div class="mf ao-foot"><div class="ao-foot-note">${ic('shield',13)} No caregiver is assigned until you click Assign.</div><div class="ao-foot-btns"><button class="btn" onclick="closeModal()">Close</button></div></div>`; }
 
-function openCoverageGeneral(){ state.coverageContext='search'; state.dispCalling=null; if(!state.searchQuery) state.searchQuery=defaultSearchQuery(); go('coverage'); }
+/* Generic sidebar entry -> the simple weekly availability view (see
+   renderWeekAvailability()). Always clears searchQuery: without this, a
+   scheduler who used the Coverage Planner's "Find Coverage" (which DOES
+   still need the old client/date/time search below - see viewCoverage())
+   and then clicked the sidebar link would find that client-specific
+   search still showing instead of the generic weekly view. */
+function openCoverageGeneral(){ state.coverageContext='search'; state.dispCalling=null; state.searchQuery=null; go('coverage'); }
 function setCovMode(m){ state.covMode=m; state.dispCalling=null; if(m==='search' && !state.searchQuery){ state.searchQuery=defaultSearchQuery(); } render(); }
 
 function dispStartCall(shiftId,cgId){ const cg=cgById(cgId); state.dispCalling=cgId; toast('Calling '+cg.name+' \u00b7 '+cg.phone); render(); }
@@ -8899,14 +8936,167 @@ function viewCoverage(){
     const cmd=renderCoverageCommand(q);
     return renderShiftSummary(q, cmd.match) + cmd.html;
   }
-  // Default: search caregiver availability — shift cards first, then specific-time search
-  if(!state.searchQuery) state.searchQuery=defaultSearchQuery();
-  const sq=state.searchQuery;
-  /* Dates only. Availability is recorded per date now, so a weekday
-     question has nothing to read. */
-  const _refine = state.refineOpen ? renderCoverageSearchPanel(sq) : '';
-  return renderResultsHeader(sq) + _refine + renderDateSearchResults(sq);
+  /* Came from the Coverage Planner's "Find Coverage" (plannerFindCoverage())
+     with a real client and a real set of selected shifts — that is a
+     different, specific question ("who can cover THESE shifts for THIS
+     client") the simple weekly view below cannot answer, so it keeps the
+     detailed date/time/client search. Only the Planner ever sets
+     searchQuery.clientId; the generic sidebar entry (openCoverageGeneral())
+     always clears searchQuery first. */
+  if(state.searchQuery && state.searchQuery.clientId){
+    const sq=state.searchQuery;
+    const _refine = state.refineOpen ? renderCoverageSearchPanel(sq) : '';
+    return renderResultsHeader(sq) + _refine + renderDateSearchResults(sq);
+  }
+  // Default: the simple weekly availability view — see renderWeekAvailability()
+  return renderWeekAvailability();
 }
+
+/* =========================================================
+   THE WEEKLY AVAILABILITY VIEW  —  Find Coverage's generic landing page
+   ---------------------------------------------------------
+   Redesigned 2026-09-24 at Mitch's request: the old landing page opened on
+   a big filter form (client, city, skills, date type) that a scheduler had
+   to fill in and press Search before seeing anything. This answers one
+   question at a glance instead — "how many caregivers are free, and when,
+   this week" — with names withheld until a specific day/time is picked.
+
+   Monday-Friday only, always, three fixed windows per day (Morning 6am-2pm,
+   Afternoon 2pm-10pm, Night 10pm-6am — the same 8-hour split the Care Notes
+   AM/PM windows use, split a third time for the overnight stretch). No
+   client, no city, no skills: those questions belong to a SPECIFIC shift,
+   which is exactly what the shift command centre (state.coverageContext
+   ==='shift', reached from an Open Shifts row) and the Coverage Planner
+   flow above already answer. This page answers a different, simpler
+   question and stays simple on purpose.
+
+   "Available" means the same thing it means everywhere else in Find
+   Coverage — coverageDetail() returns 'full' only for a caregiver whose
+   recorded Open blocks cover the ENTIRE window, the same all-or-nothing
+   rule CLAUDE.md documents ("Partial coverage is deliberately NOT a
+   result"). This view does NOT run the AxisCare double-booking check
+   (covClash/COVHIST) that the detailed search does — that is a real cost
+   (one COVHIST window per date) for a page whose whole point is staying
+   light, and the caregiver list here is an overview to click into, not a
+   calling queue to work through immediately the way the shift command
+   centre's is.
+
+   DATA: coverageDetail() reads AVAIL's per-date index, so the 5 shown
+   dates plus one day on each side (Sunday for Monday-morning carry-in,
+   the following Saturday for Friday-night carry-out — the same "day
+   before, day after" fetch runCoverageSearch() already does) are asked
+   for with AVAIL.fetchDates(...,true) whenever the WEEK changes. Not on
+   every render: render() fires on every save and every 20-second poll
+   while this page is open, and wkEnsureWeek() only fetches when
+   state.wkAvail is missing or for a different week than the one on
+   screen — the same guard shape CNSUM/CALERT use to stay out of a render
+   path. Force:true on that one per-week fetch, though, because a stale
+   coverage answer is the worst kind of wrong (CLAUDE.md, "the round trip
+   is cheap; do not optimise it back into a cache hit"). */
+const WK_BUCKETS=[['Morning',6,14],['Afternoon',14,22],['Night',22,30]];
+function wkMonday(ds){
+  const d=new Date(ds+'T12:00:00'), day=d.getDay();
+  d.setDate(d.getDate()+(day===0?-6:1-day));
+  return toDateInput(d);
+}
+function wkWeekDates(start){ return [0,1,2,3,4].map(n=>addDaysStr(start,n)); }
+function wkRangeLabel(start){
+  const dates=wkWeekDates(start);
+  const a=new Date(start+'T12:00:00'), b=new Date(dates[4]+'T12:00:00');
+  const mon=d=>d.toLocaleDateString('en-US',{month:'short'}).toUpperCase();
+  return a.getMonth()===b.getMonth()
+    ? mon(a)+' '+a.getDate()+'–'+b.getDate()
+    : mon(a)+' '+a.getDate()+' – '+mon(b)+' '+b.getDate();
+}
+function wkActiveCaregivers(){ return state.caregivers.filter(c=>c.active!==false); }
+function wkAvailableCaregivers(dateStr,start,end){
+  return wkActiveCaregivers().filter(cg=>coverageDetail(cg,dateStr,start,end).cov==='full');
+}
+/* Fetches once per week shown, not once per render — see the header
+   comment above for why. */
+function wkEnsureWeek(){
+  if(!state.wkStart) state.wkStart=wkMonday(toDateInput(NOW));
+  if(state.wkAvail && state.wkAvail.start===state.wkStart) return;
+  const need=[addDaysStr(state.wkStart,-1)].concat(wkWeekDates(state.wkStart), [addDaysStr(state.wkStart,5)]);
+  state.wkAvail={status:'loading', start:state.wkStart, error:null};
+  AVAIL.fetchDates(need, true).then(function(){
+    state.wkAvail={status:'ready', start:state.wkStart, error:null};
+  }, function(e){
+    state.wkAvail={status:'error', start:state.wkStart, error:(e&&e.message)||String(e)};
+  }).then(function(){ try{ if(state.view==='coverage') render(); }catch(x){} });
+}
+function wkPrevWeek(){ state.wkStart=addDaysStr(state.wkStart||wkMonday(toDateInput(NOW)), -7); state.wkSel=null; render(); }
+function wkNextWeek(){ state.wkStart=addDaysStr(state.wkStart||wkMonday(toDateInput(NOW)), 7); state.wkSel=null; render(); }
+function wkRetryWeek(){ state.wkAvail=null; render(); }
+function wkSelectBucket(dateStr,label,start,end){
+  const sel=state.wkSel;
+  /* A second click on the same bucket closes it — the natural way to
+     dismiss the list without hunting for a separate close control. */
+  state.wkSel=(sel && sel.date===dateStr && sel.label===label) ? null : {date:dateStr, label:label, start:start, end:end};
+  render();
+}
+function wkClearSel(){ state.wkSel=null; render(); }
+function wkCgRowHtml(cg){
+  const meta=[cg.base, cg.driver?'Driver':'No car', hasVal(cg.reliability)?cg.reliability+'% reliable':null].filter(Boolean).join(' · ');
+  return `<div class="wk-cgrow">
+    <button type="button" class="wk-cgname" onclick="openCgFromCoverage('${cg.id}')" title="Open ${escText(cg.name)}’s calendar">${escText(cg.name)}</button>
+    ${meta?`<span class="wk-cgmeta">${escText(meta)}</span>`:''}
+    <button class="btn sm" onclick="manualCall('${cg.id}')">${ic('phone',11)} Call</button>
+  </div>`;
+}
+function renderWeekSelDetail(){
+  const sel=state.wkSel; if(!sel) return '';
+  const full=new Date(sel.date+'T12:00:00').toLocaleDateString('en-US',{weekday:'long'});
+  const list=wkAvailableCaregivers(sel.date, sel.start, sel.end).sort((a,b)=>a.name.localeCompare(b.name));
+  const rows=list.length ? list.map(wkCgRowHtml).join('')
+    : `<div class="ws-none">No caregivers have availability entered for this window.</div>`;
+  return `<div class="ws-card wk-detail">
+    <div class="wk-detailhead">
+      <span class="wk-detailtitle">${escText(full)} ${escText(sel.label)} — ${list.length} Available Caregiver${list.length===1?'':'s'}</span>
+      <button class="wk-close" onclick="wkClearSel()" aria-label="Close">×</button>
+    </div>
+    <div class="wk-cglist">${rows}</div>
+  </div>`;
+}
+function renderWeekAvailability(){
+  wkEnsureWeek();
+  const start=state.wkStart, dates=wkWeekDates(start);
+  const sw=AVAIL.searchWindow();
+  const prevOff=addDaysStr(start,-7)<sw.from, nextOff=addDaysStr(start,7)>sw.to;
+  const loading=state.wkAvail.status==='loading', error=state.wkAvail.status==='error';
+
+  const nav=`<div class="wk-nav">
+    <button class="btn sm" ${prevOff?'disabled':''} onclick="wkPrevWeek()">${ic('chevL',14)} Previous Week</button>
+    <div class="wk-navlabel">${escText(wkRangeLabel(start))}</div>
+    <button class="btn sm" ${nextOff?'disabled':''} onclick="wkNextWeek()">Next Week ${ic('chev',14)}</button>
+  </div>`;
+
+  const statusBar=loading
+    ? `<div class="cd-sumbar work">${ic('refresh',13)} <span>Loading availability for this week…</span></div>`
+    : error
+    ? `<div class="cd-sumbar bad">${ic('alerts',13)} <span>Could not load availability. ${escText(state.wkAvail.error||'')}</span><button class="btn sm" onclick="wkRetryWeek()">Retry</button></div>`
+    : '';
+
+  const grid=`<div class="wk-grid">${dates.map(function(ds){
+    const full=new Date(ds+'T12:00:00').toLocaleDateString('en-US',{weekday:'long'});
+    const isToday=ds===toDateInput(NOW);
+    const buckets=loading
+      ? WK_BUCKETS.map(b=>`<div class="wk-bucket wait"><span class="wk-blabel">${escText(b[0])}</span><span class="wk-bcount">…</span></div>`).join('')
+      : WK_BUCKETS.map(function(b){
+          const n=wkAvailableCaregivers(ds,b[1],b[2]).length;
+          const sel=state.wkSel && state.wkSel.date===ds && state.wkSel.label===b[0];
+          return `<button type="button" class="wk-bucket${sel?' on':''}" onclick="wkSelectBucket('${ds}','${b[0]}',${b[1]},${b[2]})">
+            <span class="wk-blabel">${escText(b[0])}</span><span class="wk-bcount">${n} available</span></button>`;
+        }).join('');
+    return `<div class="wk-day${isToday?' today':''}">
+      <div class="wk-dayhead">${escText(full)}<span class="wk-daydate">${escText(fmtDateShort(ds))}</span></div>
+      ${buckets}
+    </div>`;
+  }).join('')}</div>`;
+
+  return `<div class="ws-card wk-card">${nav}${statusBar}${grid}</div>${renderWeekSelDetail()}`;
+}
+
 function renderSearchHeader(){ return ''; }
 /* `match` is covMatchNote()'s rows, carried INSIDE this white card since
    2026-09-22 rather than in a grey panel of their own below it. */
