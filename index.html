@@ -977,6 +977,16 @@
   .wk-day{border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
   .wk-day.today{border-color:var(--brand)}
   .wk-dayhead{padding:8px 10px;background:var(--panel-head);border-bottom:1px solid var(--line);font-size:12.5px;font-weight:800;color:var(--ink);display:flex;align-items:center;justify-content:space-between;gap:6px}
+  /* One soft color per weekday, carried down to the results header below
+     when that day's bucket is selected — same classes, same fill, on both
+     .wk-dayhead (the grid) and .wk-detailhead (the selected-day results
+     header). Text stays var(--ink) on all five: soft enough to tint,
+     dark enough to stay readable. Nothing else about the layout changes. */
+  .wk-dayhead.wk-c-mon,.wk-detailhead.wk-c-mon{background:#E3EEFA}
+  .wk-dayhead.wk-c-tue,.wk-detailhead.wk-c-tue{background:#E5F5EA}
+  .wk-dayhead.wk-c-wed,.wk-detailhead.wk-c-wed{background:#F1EAFA}
+  .wk-dayhead.wk-c-thu,.wk-detailhead.wk-c-thu{background:#FCF1DF}
+  .wk-dayhead.wk-c-fri,.wk-detailhead.wk-c-fri{background:#FBE8EF}
   .wk-daydate{font-size:10.5px;font-weight:700;color:var(--ink-faint);white-space:nowrap}
   .wk-bucket{display:flex;align-items:center;justify-content:space-between;width:100%;text-align:left;background:none;border:none;border-top:1px solid var(--line-soft);font-family:inherit;padding:8px 10px;cursor:pointer}
   .wk-day .wk-bucket:first-of-type{border-top:none}
@@ -8994,6 +9004,11 @@ function viewCoverage(){
    coverage answer is the worst kind of wrong (CLAUDE.md, "the round trip
    is cheap; do not optimise it back into a cache hit"). */
 const WK_BUCKETS=[['Morning',6,14],['Afternoon',14,22],['Night',22,30]];
+/* One soft color per weekday, keyed off dayKeyFromDate(). Used on both the
+   grid's day header and the selected-day results header below it, so the
+   two visually match — see the .wk-c-* rules by .wk-dayhead. */
+const WK_DAY_COLOR={Mon:'wk-c-mon',Tue:'wk-c-tue',Wed:'wk-c-wed',Thu:'wk-c-thu',Fri:'wk-c-fri'};
+function wkDayColorClass(ds){ return WK_DAY_COLOR[dayKeyFromDate(ds)]||''; }
 function wkMonday(ds){
   const d=new Date(ds+'T12:00:00'), day=d.getDay();
   d.setDate(d.getDate()+(day===0?-6:1-day));
@@ -9051,7 +9066,7 @@ function renderWeekSelDetail(){
   const rows=list.length ? list.map(wkCgRowHtml).join('')
     : `<div class="ws-none">No caregivers have availability entered for this window.</div>`;
   return `<div class="ws-card wk-detail">
-    <div class="wk-detailhead">
+    <div class="wk-detailhead ${wkDayColorClass(sel.date)}">
       <span class="wk-detailtitle">${escText(full)} ${escText(sel.label)} — ${list.length} Available Caregiver${list.length===1?'':'s'}</span>
       <button class="wk-close" onclick="wkClearSel()" aria-label="Close">×</button>
     </div>
@@ -9089,7 +9104,7 @@ function renderWeekAvailability(){
             <span class="wk-blabel">${escText(b[0])}</span><span class="wk-bcount">${n} available</span></button>`;
         }).join('');
     return `<div class="wk-day${isToday?' today':''}">
-      <div class="wk-dayhead">${escText(full)}<span class="wk-daydate">${escText(fmtDateShort(ds))}</span></div>
+      <div class="wk-dayhead ${wkDayColorClass(ds)}">${escText(full)}<span class="wk-daydate">${escText(fmtDateShort(ds))}</span></div>
       ${buckets}
     </div>`;
   }).join('')}</div>`;
