@@ -137,17 +137,24 @@ nothing about it. If `index.html` lands first, the feature shows its error state
 — which is always designed to be the pre-feature page, not a break.
 
 `npx supabase functions list --project-ref gdzgoyawavffjdjpjbfz` is the check,
-and it is worth running after any merge that adds one. **Two are unrun as of
-2026-09-24** — `carealerts-summary` and `caregiver-about-summary`, both merged
-that day and both called from a live `index.html`. Each needs its SQL first:
+and it is worth running after any merge that adds one. **`caregiver-about-summary`
+is still unrun as of 2026-09-24** — merged that day, called from a live
+`index.html`, so the caregiver *About* summary falls back to its one-line
+sentence. It needs `supabase/caregiver-about-summaries.sql` run first, then the
+deploy. (`carealerts-summary` was in the same state and was fixed and deployed
+on 2026-09-24 — see *The note id the browser sends is MUNGED*.)
 
-```
-supabase/care-alert-summaries.sql          -> care_alert_summaries
-supabase/caregiver-about-summaries.sql     -> caregiver_about_summaries
-```
+**Run the SQL before the deploy, never after.** These functions swallow database
+errors by design — `savedByIds()` returns an empty map on any failure and
+`dbPut()` only `console.warn`s — so a function deployed without its table looks
+perfect on screen while re-billing the Anthropic key on every open, forever,
+with nothing anywhere saying so.
 
-Neither table exists yet, so *Clients Needing Attention* and the caregiver
-*About* summary both show their not-deployed message on the live desk.
+> `DB_PASSWORD` is empty in `.env`, so there is no direct Postgres connection.
+> Run SQL through the Management API instead, which takes the same
+> `SUPABASE_ACCESS_TOKEN` as the CLI:
+> `POST https://api.supabase.com/v1/projects/gdzgoyawavffjdjpjbfz/database/query`
+> with `{"query": "<the file>"}`.
 
 ---
 
@@ -787,6 +794,174 @@ request. `GET …?action=status` reports the model in force.
   exist. This is the same trap that bit the care-notes sync, the caregiver
   calendar and the open-shift mirror — made in the checking tool, which is the
   one place nobody thinks to look.
+
+---
+
+## Clients Needing Attention — `carealerts-summary`
+
+The same page's other AI section. The **browser** decides which clients are
+flagged and why, with its own keyword categoriser (`categorizeNote()` over
+`CARE_CATEGORIES`, 13 keys) — that part is free and needs no function. The
+function is told *which* note and *which* category, reads that note itself with
+the service key, and returns **What happened** (1–3 bullets) and **Scheduler
+action** (1–2), saved per note × category in `public.care_alert_summaries`.
+
+One model call per page open covering every flagged client, ~0.5¢ on Haiku;
+every later open of that date reads the saved rows for nothing. Like its
+siblings it is called **directly**, not through `GATE`, so it needs no
+`app-gate` `ALLOW` entry. Deployed 2026-09-24.
+
+**The raw note is never rendered on this row again** — `careConcernRowHtml()`
+does not read `row.excerpt` at all, and loading shows *"Analysing…"* rather than
+the note. That is a deliberate departure from `CNSUM`'s raw-note fallback,
+because here the raw note is the exact thing the screen was asked to stop
+showing. *Full alert* still has the original text.
+
+### The note id the browser sends is MUNGED — match it, never expect `visit_id`
+
+**Claude: `fetchCareNotes()` is the only builder of `state.careNotes`, and it
+keeps NO copy of the AxisCare visit id:**
+
+```js
+id: 'cn' + String(n.visit_id).replace(/[^A-Za-z0-9]+/g, '_')   // index.html
+```
+
+So `s=1626:d=2026-08-23` reaches the function as `cns_1626_d_2026_08_23`. The
+first version looked that up as `care_notes.visit_id` and matched **zero** rows:
+every unit dropped, HTTP 200, empty `units[]`, no model call, and five silent
+*"Could not analyse this note automatically"* rows with no strip and no Retry.
+
+The munge is lossy, so it cannot be reversed — but it does not need to be. The
+request carries `day`, so `notesForDay()` reads that Pacific day and keys every
+note **both** ways, by the real `visit_id` and by `browserNoteId()`. Verified
+against the live table: munging all 719 rows gives 719 distinct keys, so there
+is nothing to collide.
+
+- **`browserNoteId()` must stay byte-identical to `fetchCareNotes()`'s id.**
+  Change one without the other and the lookup silently matches nothing again.
+- **Do not "fix" this by sending `visit_id` from the browser instead.**
+  `noteId + '__' + catKey` is *also* the key of `state.careAlertOverrides`, a
+  tracked CLOUD map holding every scheduler's assign/status/action-tick state,
+  and the `openAlertDetail()` argument. Re-keying it orphans that work for all
+  three desks. Keying both ways means a later browser change still works here.
+- `note_id` stores the **real** `visit_id` (nothing reads the column; it is
+  there so a row traces back to AxisCare). `id` stays the browser's form,
+  because that is what `CALERT.forAlert()` looks up.
+
+### `categorizeNote()` decides the whole board — it is measured, not guessed
+
+**This is the most consequential function on the screen.** The browser picks the
+client and the category; `carealerts-summary` only writes up what it is handed.
+When this is wrong the summary faithfully reports that nothing happened, which is
+exactly what the desk saw on 2026-09-24: a **critical** *Falls* alert on a note
+whose only fall was *"Fell asleep on the couch"*.
+
+It used to be `t.indexOf(keyword) >= 0`. Measured against **177 labelled
+(note × category) pairs drawn from all 719 real notes**, that was **41% correct**.
+It is **90%** now — 94 false alerts removed across the corpus, one true alert lost.
+
+| | before | after |
+|---|---|---|
+| **falls** (critical) | 39 raised, **1 real** | **1** |
+| family | 23 raised, 1 real | 2 |
+| hospitalization | 13 raised, 2 real | 4 |
+| agitation | 46 raised, 28 real | 27 |
+| whole corpus | 177 | **83** |
+
+**Three mechanisms, and they are the fix — not the keyword edits.**
+
+- **`CARE_BLANK`** deletes a phrase before matching, so a word in the wrong sense
+  cannot fire at all: `fell|fall|fallen|falling + asleep` (32 of the 39), `falling
+  leaves`, `hospital bed|gown|mattress`. **Cover the whole paradigm** — a first
+  attempt handled "fell asleep" and missed *"had fallen asleep"*.
+- **`careNegated()`** discards a hit whose nearest preceding negator is in the same
+  clause — *"no agitation noted"* was 12 of the agitation alerts. It stops at
+  sentence punctuation **and at `CARE_BREAK`** (`due to`, `because`, `but`…),
+  because *"Ed did not have PT today **due to** having chest pain"* negates the PT,
+  not the pain. Without that clause-break it ate a real alert.
+- **`CARE_HYPO` and `CARE_PREVENT` are two gates on purpose.** Generic
+  hypotheticals (`if`, `might`, `in case`) apply everywhere; risk-and-avoidance
+  words (`prevent`, `risk`, `fear`, `afraid`, `history of`) apply to **falls
+  only**, because "risky" in a *safety* note is a real hazard being reported and
+  the shared gate silently ate that alert.
+
+Plus `CARE_ADMIT` (hospitalization needs a transport or an admission, not the
+word), `CARE_SERVICE` (a family complaint must be about *us* — *"complains of knee
+pain"* is not, *"because I was afraid of her cat"* is), and `CARE_ATE_WELL`.
+
+> **A keyword written with spaces (`' er '`) means "whole word".** `careKwFires()`
+> trims it and enforces a real boundary; leaving the literal spaces to fight the
+> boundary check silently lost a genuine ER visit, because the character before the
+> space in "to the ER" is the "e" of "the".
+
+**Claude: re-measure if you change a keyword.** The harness and the labelled set
+are the point — every failure here was ordinary (`fell asleep`, `no agitation`,
+`hospital bed`, `complains of knee pain`), and all of them looked fine by eye.
+
+### Skin & Bleeding — added 2026-09-24, and every keyword is an EVENT VERB
+
+A 14th category, `prio: high`. It fires on **6 of the 719 notes and is right 6
+times** — a skin tear that bled, a heavy nosebleed, a post-discharge rash peeling, new
+bed sores, dry blood on a diaper from a bed wound, and a pressure sore actively bleeding.
+
+It exists because the board showed **nothing** for three weeks of one client's pressure
+ulcer developing: *"pink colour like sore… hoping bed sore won't develop"* (23 Aug) →
+*"bed sores… not there last week"* (30 Aug) → *"dry blood on diaper"* (10 Sep) →
+*"pressure sore is bleeding, as it's fresh"* (11 Sep).
+
+**Claude: never add a bare skin NOUN to this category.** That is the whole design, and
+it is what makes an ongoing-care suppressor unnecessary: routine skin care talks in
+nouns — *"applied barrier cream on her bed sore"* — so it never reaches an event verb.
+A suppressor was tried first and was worse, because caregivers cream new injuries too.
+Measured over all 719 notes:
+
+| noun | fires | real |
+|---|---|---|
+| `blood` | 61 | 1 — it is "blood pressure" |
+| `sore` | 44 | 3 |
+| `wound` | 15 | 2 |
+| `bed sore` | 13 | 1 |
+| `rash` | 8 | 1 |
+
+Any one of them repeats Falls. The verbs — `bleed`, `blood on`, `skin came off`,
+`noticed bed sore`, `starting to peel` — fire 6 times between them and are right every
+time. The other six keywords fire zero times today and are deliberate future-proofing.
+
+> **This category silently depends on `careNegated()`.** It is the only thing stopping
+> `bleed` firing on *"Bed sore is still the same, but not bleeding"*. Re-measure skin if
+> that gate is ever weakened.
+
+### A PAIN category was measured and REJECTED — do not revisit it on a hunch
+
+Bare `pain` fires on **41 of 719 notes for 5 real ones**. That is the Falls shape almost
+exactly (39 fires, 1 real fall). `sore` is 1/44, `hurting` 1/10, `discomfort` 0/4.
+
+**The reason is structural, not lexical.** Pain here is a chronic managed fact about four
+clients — one has a nurse and CNA on site 24/7 and morphine on his chart; another's
+back, neck and knee pain is recorded in six separate notes. What separates an alert from
+the care plan working is whether *this client* has said it before, which the note alone
+cannot tell you. The honest route is a **per-client history suppressor** — suppress a
+flag unless the client has had no mention of that category in the last N notes — and
+that is a feature, not a word list.
+
+What was shipped instead recovers a third of the value at no cost: `migraine` into
+changeCondition, 3 fires and 3 right, each one a day of care lost.
+
+### The Edge Function keeps its OWN category map — that is TWO lists
+
+**Claude: a category added to `CARE_CATEGORIES` in `index.html` must also be added to
+`CATEGORIES` in `supabase/functions/carealerts-summary/index.ts`, and the function
+redeployed.** An unknown `catKey` is dropped **silently** — no error, HTTP 200 — so the
+row would read *"Could not analyse this note automatically"* forever. Same shape as
+*Adding a Work Preference touches SEVEN lists*.
+
+**KNOWN, accepted:** bare `restless` is gone from `agitation` — it recovers one
+true alert and adds six false, every false one a note saying the client was *not*
+agitated. The 8 surviving false positives all need to know *who* the sentence is
+about ("it is the **husband** who is in hospital", "**Elizabeth** is the wife, not
+the client"), which keyword matching cannot do — that is what the summary is for,
+and it says so. Same substring-matching class as the `"yesterday".includes("ester")`
+bug in Ask Devi.
 
 ---
 

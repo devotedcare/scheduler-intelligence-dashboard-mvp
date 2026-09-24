@@ -1339,6 +1339,111 @@ The Care Notes day review was rewritten twice in one day: `PROMPT_VERSION 4` too
 
 ---
 
+## 2026-09-24 — Clients Needing Attention is fixed and deployed
+
+Mitch reported the section failing on the live site with *"Could not reach the
+carealerts-summary function"*. Two defects had been masking each other: the function
+had never been deployed and its table never created, and — the one that mattered —
+the browser sends a note id the function could never have matched.
+
+- **`carealerts-summary` deployed, and `care_alert_summaries` created.** The SQL was run
+  FIRST, deliberately: both database helpers swallow errors by design — `savedByIds()`
+  returns an empty map on any failure and `dbPut()` only `console.warn`s — so a
+  function deployed without its table looks perfect on screen while re-billing the
+  Anthropic key on every open, forever, with nothing anywhere saying so. Seven Edge
+  Functions are now live.
+- **The note id contract was broken.** `fetchCareNotes()` is the only builder of
+  `state.careNotes` and it keeps no copy of the AxisCare visit id, storing
+  `id: "cn" + visit_id.replace(/[^A-Za-z0-9]+/g, "_")`. So `s=1626:d=2026-08-23`
+  reached the function as `cns_1626_d_2026_08_23` while it looked the id up as
+  `care_notes.visit_id`. **Zero rows matched** — every unit dropped, HTTP 200, an
+  empty `units[]`, no model call. Deploying alone would have swapped a loud,
+  correctly-worded error for five silent *"Could not analyse this note automatically"*
+  rows with no strip and no Retry — strictly worse to debug from.
+- **Fixed server-side, in `notesForDay()`.** The request already carries `day`, so the
+  function now reads that Pacific day the way `carenotes-summary` already does and
+  keys every note **both** ways: by the real `visit_id` and by `browserNoteId()`, which
+  is byte-identical to the browser's munge. Munging all 719 rows in the live table
+  gives 719 distinct keys, so there is nothing to collide.
+- **Why not fix it in the browser.** `noteId + "__" + catKey` is also the key of
+  `state.careAlertOverrides` — a tracked CLOUD map holding every scheduler's
+  assign/status/action-tick state — and the `openAlertDetail()` argument. Re-keying it
+  would have orphaned that work on all three desks, and needed a Netlify deploy plus a
+  desk-wide hard refresh. Keying both ways means a later browser change still works.
+- **Verified before deploying, then again after.** The patched function was run locally
+  against the live database and the real Anthropic key, with the exact payload
+  `index.html` builds for 2026-09-23 — `CARE_CATEGORIES` and `categorizeNote()` lifted
+  out of `index.html` so the keys could not drift. Result: `generated=5, dropped=0` in
+  7.5s for 2,202 in / 540 out tokens, about half a cent. Then against the deployed
+  function from the live origin: `reused=5, dropped=0` in 1.1s, no spend.
+- **The categoriser was over-flagging, and is now measured rather than guessed.**
+  Reported the same day: a **critical** `falls` alert on a note whose only fall was
+  *"Fell asleep on the couch"*. `categorizeNote()` matched with `indexOf` — no word
+  boundaries, no negation, no sense. Every flagged note was labelled against the real
+  table: **177 (note × category) pairs from all 719 notes, 41% correct**. Falls raised
+  **39 alerts for 1 real fall**; family 23 for 1; 12 agitation alerts were notes saying
+  *"no agitation noted"*; `hospital` matched *"if hospital bed comes"*.
+- **Three mechanisms took it to 90%** — 94 false alerts removed across the corpus, one
+  true alert lost. `CARE_BLANK` deletes a phrase before matching so a word in the
+  wrong sense cannot fire (`fell|fall|fallen|falling + asleep` was 32 of the 39,
+  plus *falling leaves* and *hospital bed*). `careNegated()` discards a hit whose
+  nearest preceding negator is in the same clause, stopping at sentence punctuation and
+  at `CARE_BREAK` — because *"Ed did not have PT today due to having chest pain"*
+  negates the PT, not the pain, and without that break it ate a real alert. `CARE_HYPO`
+  and `CARE_PREVENT` are two gates on purpose: risk-and-avoidance words apply to
+  **falls only**, because "risky" in a safety note is a real hazard and the shared gate
+  silently ate that one too.
+- **Keyword corrections, each one the data's idea and not a guess** — bare `fall`
+  (never once a real incident in 719 notes), `restless and` (a sentence conjunction),
+  `during transfer` / `transfer from` (routine care), bare `safety` (a duty word,
+  *"make sure the patient safety etc"*), bare `skipped` (matched oral care and a
+  medication name) and bare `911` (a film the client was watching).
+- **On the reported date, 2026-09-23: 5 flagged clients → 2**, and the two that remain
+  are the two the summariser had produced useful text for. Falls across the whole corpus
+  went **39 → 1**, and the survivor is the one real fall in the table — *"I was approached
+  by Kim that she had fallen in front of her office"*.
+- **A 14th category, Skin & Bleeding** (`prio: high`), after labelling 33 candidate
+  notes. It fires on **6 of 719 notes and is right 6 times**, and it exists because the
+  board showed nothing for three weeks of one client's pressure ulcer developing —
+  *"pink colour like sore… hoping bed sore won't develop"* (23 Aug) through to *"pressure
+  sore is bleeding, as it's fresh"* (11 Sep). **Every keyword is an event VERB, never a
+  condition noun**, which is what makes an ongoing-care suppressor unnecessary: routine
+  care talks in nouns (*"applied barrier cream on her bed sore"*) and never reaches a
+  verb. Measured, the nouns are unusable — `blood` 61 fires for 1 real (it is "blood
+  pressure"), `sore` 44/3, `bed sore` 13/1.
+- **A PAIN category was measured and rejected**, and the decision is recorded so it is
+  not revisited on a hunch. Bare `pain` fires on **41 of 719 notes for 5 real** — the
+  Falls shape almost exactly. The reason is structural: pain here is a chronic managed
+  fact about four clients, and what separates an alert from the care plan working is
+  whether *this client* has said it before, which the note alone cannot tell you. The
+  honest route is a per-client history suppressor, which is a feature rather than a word
+  list. `migraine` shipped into changeCondition instead — 3 fires, 3 right.
+- **Five keyword additions adopted, four rejected on measurement.** Adopted: `near-slip`,
+  `trouble standing` and `not bearing weight` into **safety** (not falls — nobody fell,
+  and not changeCondition either, so one sentence raises one row), plus `panic attack` and
+  `migraine` into changeCondition. Rejected: `refused to have dinner` (5 fires, 0 real —
+  every one the same client at the end of a shift with dinner prepared for later),
+  `already took` (inverted: it catches only the routine confirmation and misses the real
+  near-miss), and the ASCII `didn't eat` — already fixed by a better mechanism.
+- **Apostrophe normalisation.** `careNorm()` folds curly apostrophes on **both** sides of
+  the match. The keyword list was typed with `\u2019` and caregivers use both — 22 of the
+  719 notes carry the curly form and 16 the ASCII one — so *"she didn't eat it"* had been
+  missing on a character.
+- **The Edge Function keeps its own category map, and that is a second list.** `skin` had
+  to be added to `CATEGORIES` in `carealerts-summary/index.ts` and the function
+  redeployed; an unknown `catKey` is dropped silently at HTTP 200, so the row would have
+  read *"could not analyse"* forever. Verified live: 14 categories, and two real skin
+  notes summarised end to end.
+- **Net effect on the board: 177 alerts → 94**, across 146 notes → 84. Precision on the
+  labelled set is unchanged at 90% with the same single loss, so nothing regressed.
+- **KNOWN, accepted.** Bare `restless` is gone from agitation: it recovers one true
+  alert and adds six false, every false one a note saying the client was *not* agitated.
+  The 8 surviving false positives all need to know **who** the sentence is about ("it is
+  the husband who is in hospital", "Elizabeth is the wife, not the client"), which keyword
+  matching cannot do — that is what the summary is for, and it says so plainly.
+
+---
+
 ## Still open
 
 - Attendance, punctuality and the "Not tracked" caregiver metrics — all

@@ -106,6 +106,10 @@ const NOTES_TABLE = "care_notes";
    clear of any real day's flagged-client count and stops a bad request
    turning into an enormous one. */
 const MAX_UNITS = 30;
+/* Every note on one Pacific day, not just the flagged ones -- the lookup map is
+   built from the whole day. The live table averages ~19 a day; 500 is headroom,
+   not a target, and only the flagged ones ever reach the model. */
+const MAX_DAY_NOTES = 500;
 
 /* One note past this is truncated for the model, same ceiling
    carenotes-summary uses -- the live p99 is far under it. */
@@ -145,6 +149,10 @@ const CATEGORIES: Record<string, { label: string; actions: string[] }> = {
   family: { label: "Family Concerns", actions: ["Call the family the same day", "Listen fully and document the concern", "Notify Care Quality Coordinator", "Identify a structured next step within policy", "Follow up to confirm resolution"] },
   foodIntake: { label: "Poor Food Intake", actions: ["Review previous care notes", "Monitor for a recurring pattern", "Notify family if needed", "Follow up with caregiver", "Send Nutrition & Hydration Guide", "Encourage detailed meal documentation"] },
   fluidIntake: { label: "Poor Fluid Intake", actions: ["Review previous care notes", "Watch for signs of dehydration", "Notify family if needed", "Follow up with caregiver", "Send Nutrition & Hydration Guide", "Encourage detailed fluid documentation"] },
+  /* Added with the index.html category of the same key. This map is the SECOND list:
+     an unknown catKey is dropped silently, so a category added to the browser alone
+     would never be summarised and the row would read "could not analyse". */
+  skin: { label: "Skin & Bleeding", actions: ["Contact caregiver for details", "Confirm home health or the nurse knows", "Contact family", "Notify Care Quality Coordinator", "Review repositioning and skin care in the care plan", "Monitor closely on the next shift"] },
 };
 
 class UpstreamError extends Error {
@@ -235,6 +243,29 @@ function dayKey(iso: string): string {
   return new Date(iso).toLocaleDateString("en-CA", { timeZone: TZ });
 }
 
+function laOffsetMin(utcMs: number): number {
+  const part = new Intl.DateTimeFormat("en-US", { timeZone: TZ, timeZoneName: "shortOffset" })
+    .formatToParts(new Date(utcMs)).find((p) => p.type === "timeZoneName")?.value ?? "GMT-8";
+  const m = /GMT([+-])(\d{1,2})(?::(\d{2}))?/.exec(part);
+  if (!m) return -480;
+  return (m[1] === "-" ? -1 : 1) * (Number(m[2]) * 60 + Number(m[3] ?? 0));
+}
+/* The UTC instant of Pacific midnight starting `day`. The offset is probed at
+   08:00 UTC, which is 00:00 or 01:00 Pacific -- before the 2am daylight-saving
+   change on either transition day, so it is the offset midnight actually had. */
+function laMidnightUtc(day: string): number {
+  const [y, mo, d] = day.split("-").map(Number);
+  return Date.UTC(y, mo - 1, d) - laOffsetMin(Date.UTC(y, mo - 1, d, 8)) * 60000;
+}
+
+/* EXACTLY index.html's fetchCareNotes id, and it must stay exactly that:
+     id: "cn" + String(n.visit_id).replace(/[^A-Za-z0-9]+/g, "_")
+   That is the id the browser names a note by, because it keeps no other copy
+   of visit_id on the record. */
+function browserNoteId(visitId: string): string {
+  return "cn" + String(visitId).replace(/[^A-Za-z0-9]+/g, "_");
+}
+
 /* Same FNV-1a fold as carenotes-summary's sig() -- only has to change when
    the content changes, not be cryptographic, and must be stable across
    isolates. */
@@ -252,7 +283,7 @@ function sig(parts: string[]): string {
 
 type NoteRow = { visit_id: string; client_id: number | null; note: string; visit_at: string | null };
 type SavedRow = { id: string; source_sig: string; model: string; prompt_version: number; what_happened: string[]; scheduler_action: string[] };
-type Unit = { id: string; noteId: string; catKey: string; clientId: number | null; text: string; sig: string };
+type Unit = { id: string; noteId: string; visitId: string; catKey: string; clientId: number | null; text: string; sig: string };
 type Result = {
   day: string;
   units: { id: string; whatHappened: string[]; schedulerAction: string[] }[];
@@ -266,18 +297,38 @@ function inList(ids: string[]): string {
   return "(" + ids.map((id) => '"' + id.replace(/"/g, '""').replace(/,/g, "\\,") + '"').join(",") + ")";
 }
 
-/* The exact notes named by the browser's {noteId, catKey} pairs -- a direct
-   primary-key lookup, not a day-window scan, because the caller already
-   knows which visit_ids it wants. A noteId with no matching row is simply
-   absent from the result and that unit is dropped later. */
-async function notesByIds(noteIds: string[]): Promise<Map<string, NoteRow>> {
+/* Everything care_notes holds for one PACIFIC day, keyed BOTH by the real
+   visit_id and by the browser's munged form of it.
+
+   It has to be a day-window scan rather than the primary-key lookup this once
+   was: index.html keeps no copy of visit_id on a care-note record, so the
+   noteId it sends is already munged and cannot be turned back into the real
+   one. Reading the day and munging each row matches in that space instead.
+
+   Keying both ways is deliberate: an index.html that is later fixed to send
+   the real visit_id keeps working with no second change here.
+
+   The window is the UTC instants of Pacific midnight to Pacific midnight, so
+   it cannot inherit the "sliced textually vs cast" bug the open-shift mirror
+   documents: a visit at 2026-09-18T20:00-07:00 is the 18th here, the 19th in
+   UTC. */
+async function notesForDay(day: string): Promise<Map<string, NoteRow>> {
   const out = new Map<string, NoteRow>();
-  if (!noteIds.length) return out;
+  const from = new Date(laMidnightUtc(day)).toISOString();
+  const to = new Date(laMidnightUtc(day) + 26 * 3600000).toISOString();   // 26h covers either DST shape
   const url = DB_URL + "/rest/v1/" + NOTES_TABLE +
-    "?select=visit_id,client_id,note,visit_at&visit_id=in." + encodeURIComponent(inList(noteIds));
+    "?select=visit_id,client_id,note,visit_at" +
+    "&visit_at=gte." + encodeURIComponent(from) +
+    "&visit_at=lt." + encodeURIComponent(to) +
+    "&order=visit_at.asc&limit=" + MAX_DAY_NOTES;
   const r = await fetch(url, { headers: dbHeaders(), signal: AbortSignal.timeout(20000) });
   if (!r.ok) throw new UpstreamError(502, "Could not read the care notes (HTTP " + r.status + ").");
-  (await r.json() as NoteRow[]).forEach((n) => out.set(n.visit_id, n));
+  for (const n of await r.json() as NoteRow[]) {
+    /* the 26-hour window can reach into the next Pacific day; keep only this one */
+    if (!n.visit_at || dayKey(n.visit_at) !== day) continue;
+    out.set(n.visit_id, n);
+    out.set(browserNoteId(n.visit_id), n);
+  }
   return out;
 }
 
@@ -437,8 +488,7 @@ async function askClaude(units: Unit[]): Promise<Map<string, { whatHappened: str
 type WantUnit = { noteId: string; catKey: string };
 
 async function summariseAlerts(day: string, wanted: WantUnit[]): Promise<Result> {
-  const noteIds = [...new Set(wanted.map((w) => w.noteId))];
-  const notes = await notesByIds(noteIds);
+  const notes = await notesForDay(day);
 
   const units: Unit[] = [];
   let dropped = 0;
@@ -452,7 +502,7 @@ async function summariseAlerts(day: string, wanted: WantUnit[]): Promise<Result>
     const text = cleanNote(note.note);
     if (!text) { dropped++; continue; }
     const id = w.noteId + "__" + w.catKey;
-    units.push({ id, noteId: w.noteId, catKey: w.catKey, clientId: note.client_id, text, sig: sig([note.visit_id, text]) });
+    units.push({ id, noteId: w.noteId, visitId: note.visit_id, catKey: w.catKey, clientId: note.client_id, text, sig: sig([note.visit_id, text]) });
   }
 
   const saved = await savedByIds(units.map((u) => u.id));
@@ -466,7 +516,7 @@ async function summariseAlerts(day: string, wanted: WantUnit[]): Promise<Result>
     const rows = stale.filter((u) => fresh.has(u.id)).map((u) => {
       const f = fresh.get(u.id)!;
       return {
-        id: u.id, note_id: u.noteId, cat_key: u.catKey, client_id: u.clientId,
+        id: u.id, note_id: u.visitId, cat_key: u.catKey, client_id: u.clientId,
         what_happened: f.whatHappened, scheduler_action: f.schedulerAction,
         source_sig: u.sig, model: MODEL, prompt_version: PROMPT_VERSION,
       };

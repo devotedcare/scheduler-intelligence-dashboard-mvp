@@ -18909,28 +18909,42 @@ function guideTypePicker(editing){
 /* ===================== CARE NOTES REVIEW (Care Quality Dashboard) ===================== */
 const CARE_CATEGORIES=[
   {key:'falls', label:'Falls', prio:'critical', icon:'alerts', guide:'What To Do If a Client Falls', guideLabel:'Fall Prevention Guide',
-   keywords:['fall','fell','had a fall','tripped and fell','slipped and fell'],
+   /* Bare 'fall'/'falling' fired 39 times across 719 real notes and was a genuine
+      incident ONCE. It is always 'fell asleep', 'falling leaves', fall PREVENTION or
+      fear of falling. Only completed-event forms live here now; see careKwFires(). */
+   keywords:['fell','had a fall','had fallen','has fallen','have fallen','tripped and fell','slipped and fell','found her on the floor','found him on the floor','found on the floor','lowered to the floor'],
    actions:['Contact caregiver immediately','Verify incident documentation','Contact family','Notify office management','Review fall prevention measures','Send Fall Prevention Guide']},
   {key:'hospitalization', label:'Hospitalizations', prio:'critical', icon:'shield', guide:null,
    keywords:['hospital','hospitalized','admitted','inpatient'],
    actions:['Confirm client status and hospital','Contact family for updates','Notify office management','Pause or adjust scheduled shifts','Document hospitalization and expected return','Plan a safe return-to-care check-in']},
   {key:'er', label:'ER Visits', prio:'critical', icon:'shield', guide:null,
-   keywords:['emergency room',' er ','to er','911','ambulance','e.r.'],
+   /* bare '911' matched a film the client was watching */
+   keywords:['emergency room',' er ','to er','called 911','call 911','calling 911','ambulance','e.r.'],
    actions:['Confirm what happened and current status','Contact family','Notify office management','Review the care plan for risk factors','Document the ER visit and outcome','Monitor closely on the next shift']},
   {key:'medication', label:'Medication Issues', prio:'high', icon:'pill', guide:null,
    keywords:['refused medication','refused her medication','refused his medication','missed dose','missed medication','wrong dose','double dose','medication error','med error','skipped medication','would not take her pills','did not take her pills','would not take his pills'],
    actions:['Contact caregiver for details','Confirm what was missed or refused','Notify Care Quality Coordinator','Contact family / responsible party','Review the medication schedule','Monitor closely on the next shift']},
   {key:'safety', label:'Safety Concerns', prio:'high', icon:'shield', guide:'Safe Transfer Guide', guideLabel:'Safe Transfer Guide',
-   keywords:['safety','hazard','unsafe','loose rug','almost tripped','nearly slipped','unsteady','trip hazard','during transfer','transfer from'],
+   /* 'during transfer'/'transfer from' are ROUTINE care, and bare 'safety' is a duty
+      word ('make sure the patient safety etc'). Hazards and near-misses only. */
+   /* 'near-slip' and the weight-bearing phrases are in SAFETY, not falls: nobody fell,
+      and not in changeCondition either, so one sentence raises one row. */
+   keywords:['hazard','unsafe','not safe','risky','loose rug','almost tripped','nearly slipped','almost slipped','nearly fell','almost fell','unsteady','trip hazard','near miss','near-slip','near slip','trouble standing','not bearing weight'],
    actions:['Contact caregiver for details','Address or remove the hazard','Review the home for other risks','Notify office management','Send Safe Transfer Guide','Document the safety concern']},
   {key:'refused', label:'Refused Care', prio:'high', icon:'x', guide:null,
    keywords:['refused care','refused medication','refused to take','would not let me','declined care','refusing care'],
    actions:['Contact caregiver for details','Review the care plan and client preferences','Notify Care Quality Coordinator','Contact family if care is being declined','Document the refusal and follow-up plan']},
   {key:'changeCondition', label:'Changes in Condition', prio:'high', icon:'flag', guide:null,
-   keywords:['more confused than usual','change in condition','different from last','getting worse','noticeable decline','not himself','not herself','chest pain'],
+   /* 'migraine' 3 fires / 3 right and 'panic attack' 1 / 1 across 719 notes. They are
+      also the whole of what a PAIN category would have recovered -- see CLAUDE.md for
+      why that category was measured and rejected. */
+   keywords:['more confused than usual','change in condition','different from last','getting worse','noticeable decline','not himself','not herself','chest pain','panic attack','migraine'],
    actions:['Review previous notes for a trend','Notify Care Quality Coordinator','Contact family if significant change','Update the care plan if needed','Monitor closely and reassess']},
   {key:'agitation', label:'Agitation', prio:'high', icon:'spark', guide:'What To Do If a Client Is Agitated', guideLabel:'Agitated Client Response Guide',
-   keywords:['agitat','aggressive','combative','yelling','trying to leave','restless and'],
+   /* 'restless and' is a sentence conjunction, not a phrase ('restless and took a nap').
+      Bare 'restless' was measured too: it recovers one true alert and adds six false,
+      every false one a note that says the client was NOT agitated. */
+   keywords:['agitat','aggressive','combative','yelling','trying to leave'],
    actions:['Contact caregiver for additional details','Review previous care notes','Notify Care Quality Coordinator','Send Agitated Client Response Guide','Contact family if behavior is worsening','Monitor for recurring incidents']},
   {key:'confusion', label:'Confusion', prio:'medium', icon:'user', guide:'What To Do If a Client Is Agitated', guideLabel:'Agitated Client Response Guide',
    keywords:['confus','disoriented','did not recognize','didn\u2019t recognize','not recognize'],
@@ -18942,11 +18956,24 @@ const CARE_CATEGORIES=[
    keywords:['upset','complaint','complain','unhappy','frustrated','wants to speak with the office','not happy'],
    actions:['Call the family the same day','Listen fully and document the concern','Notify Care Quality Coordinator','Identify a structured next step within policy','Follow up to confirm resolution']},
   {key:'foodIntake', label:'Poor Food Intake', prio:'medium', icon:'pill', guide:'Nutrition & Hydration Guide', guideLabel:'Nutrition & Hydration Guide',
-   keywords:['ate only','few bites','refused dinner','refused lunch','refused breakfast','poor appetite','barely ate','did not eat','didn\u2019t eat','skipped','not eating'],
+   /* bare 'skipped' matched oral care and a medication name, never a meal */
+   keywords:['ate only','few bites','refused dinner','refused lunch','refused breakfast','refused to eat','poor appetite','no appetite','barely ate','did not eat','didn\u2019t eat','not eating','skipped breakfast','skipped lunch','skipped dinner','skipped a meal','skipped his meal','skipped her meal'],
    actions:['Review previous care notes','Monitor for a recurring pattern','Notify family if needed','Follow up with caregiver','Send Nutrition & Hydration Guide','Encourage detailed meal documentation']},
   {key:'fluidIntake', label:'Poor Fluid Intake', prio:'medium', icon:'pill', guide:'Nutrition & Hydration Guide', guideLabel:'Nutrition & Hydration Guide',
    keywords:['little water','drank very little','not drinking','poor fluid','dehydrat','barely drank','low fluid'],
    actions:['Review previous care notes','Watch for signs of dehydration','Notify family if needed','Follow up with caregiver','Send Nutrition & Hydration Guide','Encourage detailed fluid documentation']},
+  /* SKIN & BLEEDING -- every keyword is an EVENT VERB, never a condition noun, and
+     that is the whole design. Routine skin care talks in nouns ('applied barrier
+     cream on her bed sore'), so it never reaches a verb and needs no suppressor --
+     one was tried and it killed true alerts, because caregivers cream new injuries too.
+     Measured over all 719 notes: 'sore' 44 fires/3 true, 'wound' 15/2, 'bed sore' 13/1,
+     'blood' 61/1 (it is 'blood pressure'), 'rash' 8/1. NEVER add a bare skin noun here.
+     This category also depends on careNegated(): it is the only thing stopping 'bleed'
+     firing on 'Bed sore is still the same, but not bleeding'. Re-measure skin if that
+     gate is ever weakened. The zero-fire keywords are deliberate future-proofing. */
+  {key:'skin', label:'Skin & Bleeding', prio:'high', icon:'shield', guide:null,
+   keywords:['bleed','blood on','skin came off','noticed bed sore','starting to peel','skin tear','new bed sore','new pressure sore','unstageable','excoriat','abrasion','laceration'],
+   actions:['Contact caregiver for details','Confirm home health or the nurse knows','Contact family','Notify Care Quality Coordinator','Review repositioning and skin care in the care plan','Monitor closely on the next shift']},
   {key:'documentation', label:'Documentation Issues', prio:'low', icon:'forms', guide:'How to Complete Care Notes', guideLabel:'Care Notes Documentation Guide',
    keywords:[],
    actions:['Review missing information','Contact caregiver','Send Care Notes Documentation Guide','Provide coaching if repeated']},
@@ -18970,13 +18997,105 @@ if(state.cnShowAll===undefined) state.cnShowAll=false;
 if(state.cnOpenGroups===undefined) state.cnOpenGroups={critical:true,review:false,documentation:false};
 if(!state.cdExpanded) state.cdExpanded={};
 
+/* ── WHICH CLIENTS ARE FLAGGED ──────────────────────────────────────────────
+   This decides the whole Clients Needing Attention board, for free, in the
+   browser. carealerts-summary is only told WHICH note and WHICH category; if
+   this is wrong, the summary faithfully reports that nothing happened, which
+   is exactly what the desk saw on 2026-09-24 -- a CRITICAL 'Falls' alert on a
+   note whose only fall was 'Fell asleep on the couch'.
+
+   It used to be t.indexOf(keyword) >= 0. Measured against 177 labelled
+   (note x category) pairs drawn from all 719 real notes, that was 41%
+   correct; three mechanisms take it to 90%, removing 94 false alerts across
+   the corpus at the cost of one true one. Falls alone went 39 -> 1, and the
+   survivor is the single real fall in the table.
+
+   Claude: keep the mechanisms, and re-measure if you change a keyword. The
+   failures were never exotic -- they were 'fell asleep', 'no agitation noted',
+   'hospital bed' and 'complains of knee pain'. ─────────────────────────────*/
+
+/* Deleted from the note before matching: the word in a different sense cannot
+   then fire at all. */
+const CARE_BLANK={
+  falls:[/\b(fall|falls|fallen|falling|fell)\s+(back\s+)?(to\s+)?(a\s*)?sleep\w*/gi,
+         /\b(fall|falls|fallen|falling)\s+(leaves|leaf|rain|snow|apart|short|behind|through)\b/gi],
+  hospitalization:[/\bhospitals?\s+(bed|beds|bedside|gown|gowns|mattress\w*|chair|table|tray|rail|bill|bills|vet|vets|veterinary)\b/gi]
+};
+
+/* A negator reaches the keyword only while nothing RESETS the clause between
+   them. 'Ed did not have PT today due to having chest pain' negates the PT,
+   not the pain -- a real alert the first version of this window swallowed. */
+const CARE_BREAK=/\b(due to|because|owing to|but|however|so|although|though|except|instead)\b/i;
+const CARE_NEGW=/\b(no|not|non|never|none|nothing|denies|denied|without|free of|didn'?t|doesn'?t|wasn'?t|hasn'?t|isn'?t)\b/i;
+function careNegated(before){
+  let m,last=null; const re=new RegExp(CARE_NEGW.source,'gi');
+  while((m=re.exec(before))) last=m;               /* the NEAREST negator, not the first */
+  if(!last) return false;
+  const gap=before.slice(last.index+last[0].length);
+  if(gap.length>30) return false;                  /* too far to be the same statement */
+  if(/[.;!?\n]/.test(gap)) return false;           /* a new sentence started */
+  return !CARE_BREAK.test(gap);
+}
+
+/* Two gates, deliberately NOT one. CARE_HYPO is generic -- a thing that did not
+   happen. CARE_PREVENT is risk and avoidance talk, which is the language of
+   FALLS documentation; 'risky' in a safety note is a real hazard being reported,
+   and applying the prevention gate everywhere silently ate exactly that alert. */
+const CARE_HYPO=/\b(if|unless|might|may|could|would|should|in case|to avoid|so as not|to keep|trying not|in order not)\b[^.;!?\n]{0,30}$/i;
+const CARE_PREVENT=/\b(prevent\w*|pervention|precaution\w*|risk\w*|fear\w*|afraid|scared|worried|prone|history of)\b[^.;!?\n]{0,30}$/i;
+const CARE_PREVENT_CATS={falls:1};
+/* hospitalization needs an ADMISSION or a TRANSPORT, not the word 'hospital' */
+const CARE_ADMIT=/\b(taken|took|transport\w*|brought|rushed|sent|went|going|drove|admitted|readmitted|discharged?|ambulance|paramedic\w*|911|dropped|picked|back from|home from)\b[^.;!?\n]{0,34}$/i;
+/* a family complaint must be about US. 'because I was afraid of her cat' counts
+   -- the caregiver IS the service. 'complains of knee pain' does not. */
+const CARE_SERVICE=/(office|agency|scheduler|schedul|caregiver|aide|staff|supervisor|manager|coordinator|company|service|shift|late|no[- ]show|replacement|billing|invoice|because i\b|with me\b|at me\b|about me\b)/i;
+/* the same note documenting good intake cancels a food-intake flag */
+const CARE_ATE_WELL=/\bate\s+(100|[6-9]\d)\s?%|\b(very good|good)\s+appetite\b|\bate\s+(all|everything|it all)\b/i;
+const CARE_REAL_REFUSAL=/refused|did not eat|didn'?t eat|didn\u2019t eat|no appetite/i;
+
+function careKwFires(text,kwRaw,catKey){
+  /* A keyword written with surrounding spaces (' er ') is the author saying
+     'whole word'. Trim it and enforce that with a real boundary, rather than
+     letting the literal space fight the boundary check -- which is what silently
+     lost a genuine ER visit ('to the ER': the character before the space is the
+     'e' of 'the'). */
+  const wantEnd=/\s$/.test(kwRaw), kw=careNorm(kwRaw).trim();
+  const esc=kw.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+  /* word-START always; word-END only for whole-word keywords, because several
+     are stems on purpose (agitat -> agitated / agitation) */
+  const re=new RegExp('(^|[^a-z0-9])('+esc+')'+(wantEnd?'(?![a-z0-9])':''),'gi');
+  let m;
+  while((m=re.exec(text))){
+    const at=m.index+m[1].length;
+    const before=text.slice(Math.max(0,at-44),at);
+    const after=text.slice(at+kw.length,at+kw.length+60);
+    if(careNegated(before)) continue;
+    if(CARE_HYPO.test(before)) continue;
+    if(CARE_PREVENT_CATS[catKey] && CARE_PREVENT.test(before)) continue;
+    if(catKey==='family' && !CARE_SERVICE.test(before+' '+after)) continue;
+    if(catKey==='hospitalization' && /hospital/i.test(kw) && !CARE_ADMIT.test(before)) continue;
+    return true;
+  }
+  return false;
+}
+
+/* Curly apostrophes are normalised on BOTH sides before matching. The keyword list
+   was typed with \u2019 and caregivers use both: 22 of the 719 live notes carry the
+   curly form, 16 the ASCII one, so "she didn't eat it" missed on a character. */
+function careNorm(s){ return String(s==null?'':s).replace(/[\u2018\u2019\u02bc]/g,"'"); }
 function categorizeNote(text){
-  const t=(text||'').toLowerCase().trim();
-  if(t.length<12) return ['missing'];
+  const raw=careNorm(text).toLowerCase().trim();
+  if(raw.length<12) return ['missing'];
   const hits=[];
-  CARE_CATEGORIES.forEach(c=>{ if(c.keywords&&c.keywords.length && c.keywords.some(k=>t.indexOf(k)>=0)) hits.push(c.key); });
+  CARE_CATEGORIES.forEach(c=>{
+    if(!c.keywords||!c.keywords.length) return;
+    let t=raw;
+    (CARE_BLANK[c.key]||[]).forEach(rx=>{ t=t.replace(rx,' '); });
+    if(c.key==='foodIntake' && CARE_ATE_WELL.test(t) && !CARE_REAL_REFUSAL.test(t)) return;
+    if(c.keywords.some(k=>careKwFires(t,String(k).toLowerCase(),c.key))) hits.push(c.key);
+  });
   const generic=['shift went fine','went fine','all good','no issues','nothing to report'];
-  if(hits.length===0 && (t.length<30 || generic.some(g=>t.indexOf(g)>=0))) hits.push('documentation');
+  if(hits.length===0 && (raw.length<30 || generic.some(g=>raw.indexOf(g)>=0))) hits.push('documentation');
   return hits;
 }
 function cnOv(id){ if(!state.careAlertOverrides) state.careAlertOverrides={}; if(!state.careAlertOverrides[id]) state.careAlertOverrides[id]={}; return state.careAlertOverrides[id]; }
