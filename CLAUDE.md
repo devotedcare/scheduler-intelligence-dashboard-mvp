@@ -150,11 +150,13 @@ errors by design — `savedByIds()` returns an empty map on any failure and
 perfect on screen while re-billing the Anthropic key on every open, forever,
 with nothing anywhere saying so.
 
-> `DB_PASSWORD` is empty in `.env`, so there is no direct Postgres connection.
-> Run SQL through the Management API instead, which takes the same
-> `SUPABASE_ACCESS_TOKEN` as the CLI:
+> **Two ways to run SQL, and the Management API is the one that needs no password.**
+> `DB_PASSWORD` IS set in `.env`, so a direct Postgres connection is available and is
+> the better tool for a multi-statement file — the dashboard SQL editor rolls a whole
+> section back on one bad statement. The Management API is the quicker route for a
+> single file and takes the same `SUPABASE_ACCESS_TOKEN` as the CLI:
 > `POST https://api.supabase.com/v1/projects/gdzgoyawavffjdjpjbfz/database/query`
-> with `{"query": "<the file>"}`.
+> with `{"query": "<the file>"}`. That is how `care-alert-summaries.sql` was run.
 
 ---
 
@@ -801,7 +803,7 @@ request. `GET …?action=status` reports the model in force.
 
 The same page's other AI section. The **browser** decides which clients are
 flagged and why, with its own keyword categoriser (`categorizeNote()` over
-`CARE_CATEGORIES`, 13 keys) — that part is free and needs no function. The
+`CARE_CATEGORIES`, 16 entries — 14 carry keywords and can be emitted; `documentation` and `missing` are raised by length/placeholder rules instead and go to the Care Note Issues panel, never to the function) — that part is free and needs no function. The
 function is told *which* note and *which* category, reads that note itself with
 the service key, and returns **What happened** (1–3 bullets) and **Scheduler
 action** (1–2), saved per note × category in `public.care_alert_summaries`.
@@ -925,7 +927,8 @@ Measured over all 719 notes:
 
 Any one of them repeats Falls. The verbs — `bleed`, `blood on`, `skin came off`,
 `noticed bed sore`, `starting to peel` — fire 6 times between them and are right every
-time. The other six keywords fire zero times today and are deliberate future-proofing.
+time. The other seven — `skin tear`, `new bed sore`, `new pressure sore`, `unstageable`, `excoriat`, `abrasion`, `laceration` — fire zero times
+today and are deliberate future-proofing. Twelve keywords in total.
 
 > **This category silently depends on `careNegated()`.** It is the only thing stopping
 > `bleed` firing on *"Bed sore is still the same, but not bleeding"*. Re-measure skin if

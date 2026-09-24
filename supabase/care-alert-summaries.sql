@@ -15,7 +15,12 @@
 --
 -- One row per NOTE x CATEGORY:
 --
---   id   <care_notes.visit_id>__<CARE_CATEGORIES key, e.g. falls>
+--   id   cn<visit_id, non-alphanumerics -> _>__<CARE_CATEGORIES key, e.g. falls>
+--
+-- NOTE: that is index.html's MUNGED note id, not the raw AxisCare visit_id --
+-- fetchCareNotes() keeps no copy of the real one, so the browser can only ever
+-- name a note by the munged form, and this key has to match what it looks up.
+-- The real visit_id is in note_id.
 --
 -- the same id careConcernRowHtml()/buildCareAlerts() already use in
 -- index.html for the tracked alert (assign/status/actions), so a row
@@ -44,7 +49,7 @@
 -- comm_summaries (section 9) and care_note_summaries (section 10b).
 -- ==============================================================
 create table if not exists public.care_alert_summaries (
-  id               text        primary key,   -- <visit_id>__<cat_key>
+  id               text        primary key,   -- cn<munged visit_id>__<cat_key>, see above
   note_id          text        not null,      -- care_notes.visit_id
   cat_key          text        not null,      -- a CARE_CATEGORIES key, e.g. 'falls'
   client_id        bigint,
