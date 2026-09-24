@@ -1106,6 +1106,41 @@ revoke all on public.care_alert_summaries from anon, authenticated;
 
 
 -- ==============================================================
+-- 10e. Caregiver "About" summaries  (written on demand)
+--
+-- The caregiver profile's "About [Name]" section used to be one computed
+-- sentence. This holds the AI-generated replacement: a structured judgement
+-- read from everything on file about one caregiver. ONE ROW PER CAREGIVER,
+-- keyed by caregiver id, overwritten on every regeneration.
+--
+-- Unlike the sibling summary functions, caregiver-about-summary does NOT
+-- read its own source data: assignment history comes from AxisCare visits
+-- the browser fetches through the Netlify proxy, unreachable from Supabase.
+-- The browser assembles the whole dossier and sends it -- the same
+-- trade-off devi-agent already makes for the whole board. source_sig is
+-- still computed SERVER-SIDE from the dossier text the request carries,
+-- never trusted from the caller. See
+-- supabase/functions/caregiver-about-summary/index.ts.
+-- ==============================================================
+create table if not exists public.caregiver_about_summaries (
+  id             text        primary key,   -- caregiver id
+  sections       jsonb       not null,      -- {overall, strongestExperience[], bestFit[], schedulingConsiderations[], reliability[], importantHistory[]}
+  source_sig     text        not null,      -- fingerprint of the dossier text behind this row
+  model          text        not null,
+  prompt_version int         not null,
+  created_at     timestamptz not null default now(),
+  updated_at     timestamptz not null default now()
+);
+
+comment on table public.caregiver_about_summaries is
+  'AI-generated "About [Name]" caregiver summary, one row per caregiver, overwritten on regeneration. Written on demand by the caregiver-about-summary Edge Function.';
+
+-- Security -- NO anon access at all, the same as the sibling summary tables.
+alter table public.caregiver_about_summaries enable row level security;
+revoke all on public.caregiver_about_summaries from anon, authenticated;
+
+
+-- ==============================================================
 -- 11. The lock - no table is reachable with the anon key
 --
 -- The same statements as supabase/app-gate-lock.sql, kept here so a

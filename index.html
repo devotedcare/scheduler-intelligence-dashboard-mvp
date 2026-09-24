@@ -2351,9 +2351,21 @@ body.ai-white .view{flex:1 1 auto;min-height:0;display:flex;flex-direction:colum
 .cgh-line svg{color:var(--ink-faint);flex:0 0 auto}
 .cgh-line span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cgh-about{flex:1 1 300px;min-width:0;border-left:1px solid var(--line);padding-left:20px}
-.cgh-abouth{font-size:14px;font-weight:800;color:var(--ink);margin-bottom:8px}
+.cgh-abouth{font-size:14px;font-weight:800;color:var(--ink);margin-bottom:8px;display:flex;align-items:center;gap:8px}
 .cgh-aboutx{font-size:13.5px;line-height:1.55;color:var(--ink)}
 @media(max-width:900px){.cgh-about{border-left:none;padding-left:0;border-top:1px solid var(--line);padding-top:14px}}
+/* The AI "About" summary — a short overall paragraph, then compact
+   labelled bullet sections. No cards, no boxes: same discipline as
+   Clients Needing Attention (.cd-attn-*) — thin structure, no clutter. */
+.cgh-ai-badge{font-size:9.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;color:var(--brand);background:var(--panel-head);border:1px solid var(--line);border-radius:20px;padding:2px 8px}
+.cgh-ai-body .cd-sumbar{margin:0 0 10px;padding:7px 10px;border-radius:var(--r)}
+.cgh-ai-overall{font-size:13.5px;line-height:1.55;color:var(--ink);margin-bottom:10px}
+.cgh-ai-sec{margin-bottom:9px}
+.cgh-ai-sec:last-child{margin-bottom:0}
+.cgh-ai-lbl{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--ink-faint);margin-bottom:3px}
+.cgh-ai-bl{margin:0;padding-left:17px;list-style:disc}
+.cgh-ai-bl li{font-size:13px;color:var(--ink);line-height:1.45}
+.cgh-ai-bl li+li{margin-top:2px}
 .cg-alert .ws-flags{margin:0}
 .cgp{display:flex;flex-direction:column;min-width:0}
 .cgp-t svg{color:var(--ink-faint)}
@@ -12131,22 +12143,22 @@ function aboutList(arr){
   const ox = (arr.length>2 && arr.some(function(x){ return x.indexOf(' and ')>=0; })) ? ',' : '';
   return arr.slice(0,-1).join(', ')+ox+' and '+arr[arr.length-1];
 }
-/* THE SUMMARY READS THE WHOLE PROFILE, not just three fields. Four short
-   sentences, in the order a scheduler decides in: who they are, what they
-   are strongest at, how they have been standing up, and what to watch.
+/* THIS WAS THE WHOLE "About" SECTION until 2026-09-24, and is now the
+   FALLBACK it degrades to. The real "About [Name] — AI Summary" is
+   CGABOUT / caregiver-about-summary, below — see the long comment over
+   CGABOUT for why the render-path/no-Claude-backend argument that used
+   to justify a purely computed sentence here no longer holds: this app
+   now has five Claude-backed functions, and the same render-path
+   problem CNSUM and CALERT already solved (cache the answer, key it on
+   a content fingerprint, never call the model from render()) applies
+   here too.
 
-   Sources: caregiving experience, personality, skills, the rating and its
-   reason, client feedback and concerns, reliability and attendance,
-   tenure and current assignment, assignment restrictions and client blocks,
-   and how many scheduling notes are on file.
-
-   It is COMPUTED, not fetched. This app has no Claude backend — Ask Devi is
-   local pattern matching — and even with one, the About block renders on
-   every profile view, every save and every poll, which is precisely the
-   render-path call that has to be paid for again on each one. Nothing here
-   is inferred either: every clause restates something somebody recorded, so
-   a sparse profile yields a short summary rather than a confident-sounding
-   guess. */
+   Four short sentences, in the order a scheduler decides in: who they
+   are, what they are strongest at, how they have been standing up, and
+   what to watch. COMPUTED, not fetched — every clause restates
+   something somebody recorded, so a sparse profile yields a short
+   summary rather than a confident-sounding guess. This is what shows
+   while the AI summary is loading, and if it can never be reached. */
 function cgAbout(c){
   const first=(c.name||'').split(' ')[0]||'This caregiver';
   const ops=c.ops||{};
@@ -12222,6 +12234,175 @@ function cgAbout(c){
      than an empty box. */
   return (ops.persona && ops.persona.summary) || ops.summary || '';
 }
+/* The DOSSIER the AI "About" summary is built from — every source the
+   scheduler asked for, in one plain-text document. See CGABOUT below for
+   why this is assembled here rather than re-derived inside the Edge
+   Function: AxisCare visit history (assignment history, below) is fetched
+   live through the Netlify proxy and exists nowhere a Supabase function can
+   reach it, so the browser is the only place that can hold the whole
+   picture. Everything else here already renders elsewhere on this exact
+   profile page — this is not new data collection, only a new place it is
+   read from.
+
+   Plain text, not JSON: this goes straight into a Claude prompt as
+   reference material, the same shape deviContext() already sends for the
+   whole board. Capped per section (25-ish rows) so one caregiver with an
+   unusually long history cannot blow out the request; a section past its
+   cap says how many more exist rather than silently dropping them. */
+function cgAiDigestText(c){
+  const L=[], ops=c.ops||{};
+  L.push('CAREGIVER: '+c.name+' (internal id '+c.id+')');
+  L.push('Status: '+((c.active!==false && ops.employmentStatus!=='Inactive')?'Active':'Inactive')+
+    (ops.hireDate?' · hired '+dvWhen(ops.hireDate):' · hire date not recorded')+
+    (c.base?' · base city '+c.base:'')+(c.region?' · region '+c.region:''));
+
+  L.push('');
+  L.push('DRIVING & TRANSPORT:');
+  const drv=(typeof covDrives==='function')?covDrives(c):{tip:'Not available.'};
+  L.push('  '+drv.tip);
+  L.push('  Has own vehicle: '+(hasVal(c.ownVehicle)?(c.ownVehicle?'Yes':'No'):'Not recorded'));
+  L.push('  Preferred service areas: '+((c.prefCities&&c.prefCities.length)?c.prefCities.join(', '):'Not recorded'));
+  L.push('  Maximum travel distance: '+nt(ops.maxMiles,' miles','Not recorded'));
+
+  L.push('');
+  L.push('LANGUAGES: '+((c.languages||[]).length?c.languages.join(', '):'Not recorded')+
+    ' · English proficiency: '+(c.englishProficiency?(ENGLISH_ALIAS[c.englishProficiency]||c.englishProficiency):'Not recorded'));
+
+  L.push('');
+  L.push('WORK PREFERENCES:');
+  const span=(typeof shiftSpan==='function')?shiftSpan(ops):{min:null,max:null};
+  L.push('  Preferred shift length: '+fmtHours(span.min)+' to '+fmtHours(span.max));
+  L.push('  Preferred weekly hours: min '+fmtHours(ops.minHours)+', max '+fmtHours(ops.maxHours));
+  L.push('  Preferred shift times: '+((ops.prefTimes||[]).length?ops.prefTimes.join(', '):'Not recorded'));
+  L.push('  Client gender preference: '+(prefVal(c,'clientGender')||'Not recorded'));
+  L.push('  Smoking home OK: '+prefYN(prefVal(c,'smokingHome')));
+  L.push('  Pets in home OK: '+prefYN(prefVal(c,'pets')));
+  L.push('  Willing to work overnight: '+prefYN(prefVal(c,'overnight')));
+  L.push('  CNA certified: '+prefYN(prefVal(c,'cna')));
+
+  L.push('');
+  const skills=cgChips(c,'skills'), skillsNote=cgChipNote(c,'skills');
+  L.push('SKILLS — hands-on capability, from the profile and AxisCare tags: '+(skills.length?skills.join(', '):'none recorded')+
+    (skillsNote?' — free text on file: "'+skillsNote+'"':''));
+  const exp=cgChips(c,'experience'), expNote=cgChipNote(c,'experience');
+  L.push('EXPERIENCE — conditions cared for (dementia, hospice, etc.), from the profile and AxisCare tags: '+(exp.length?exp.join(', '):'none recorded')+
+    (expNote?' — free text on file: "'+expNote+'"':''));
+  const pers=cgChips(c,'personality');
+  L.push('PERSONALITY / WORKING STYLE: '+(pers.length?pers.join(', '):'not recorded'));
+
+  L.push('');
+  const mc=(typeof AVAIL!=='undefined'&&AVAIL.monthCoverage)?AVAIL.monthCoverage(c.id):null;
+  L.push('AVAILABILITY THIS MONTH: '+(!mc?'not loaded yet'
+    :mc.state==='has'?(mc.days+' day(s) recorded, '+mc.openDays+' of them marked Open · last confirmed by a scheduler: '+(mc.lastHuman?dvWhen(mc.lastHuman):'never'))
+    :'nothing recorded this month'));
+
+  L.push('');
+  L.push('ASSIGNMENT HISTORY — AxisCare visit record (client, first visit, most recent visit, visit count):');
+  const cgvStatus=(typeof CGVISITS!=='undefined')?CGVISITS.status(c.id):'idle';
+  if(cgvStatus!=='ready'){
+    L.push('  '+(cgvStatus==='error'?'Could not load this caregiver’s visit history this session.':'Visit history has not finished loading — not included in this pass.'));
+  } else {
+    const byClient={};
+    cgSchedule(c).forEach(function(v){
+      const key=(v.clientId!=null?v.clientId:v.clientName)||'?';
+      if(!byClient[key]){ const cl=v.clientId!=null?clById(v.clientId):null;
+        byClient[key]={name:v.clientName||(cl?cl.name:'Unknown client'), first:v.day, last:v.day, count:0}; }
+      const b=byClient[key];
+      if(v.day<b.first) b.first=v.day;
+      if(v.day>b.last) b.last=v.day;
+      b.count++;
+    });
+    const today=dateKey(NOW);
+    const rows=Object.keys(byClient).map(k=>byClient[k]).sort((a,b)=>b.last.localeCompare(a.last));
+    if(!rows.length) L.push('  No visits on file in the loaded window.');
+    rows.slice(0,25).forEach(function(r){
+      L.push('  - '+r.name+': '+r.first+' to '+r.last+(r.last>=today?' (current)':'')+', '+r.count+' visit'+(r.count===1?'':'s')+' on file');
+    });
+    if(rows.length>25) L.push('  …and '+(rows.length-25)+' more clients in the visit history');
+  }
+  L.push('  Note: AxisCare records only that a visit happened, never why an assignment ended or changed. Do not state a reason for an assignment ending unless a scheduler note below says so explicitly.');
+
+  /* TWO SEPARATE, GENUINELY DIFFERENT sources feed "attendance" in this
+     app — one auto-logged as a side effect of marking a call-off/no-show/
+     late while managing a shift (c.ops.attendance.events, read through
+     attendanceStats()), the other a scheduler's own standalone Attendance
+     page entry (state.attendance, keyed by caregiver NAME). They are not
+     guaranteed to agree. Both are given, separately labelled, rather than
+     merged into one silently-chosen number. */
+  L.push('');
+  L.push('ATTENDANCE — source 1, auto-logged from shift actions (call-offs / no-shows / late arrivals marked while managing a shift):');
+  const ast=(typeof attendanceStats==='function')?attendanceStats(c):{total:0};
+  if(!ast.total) L.push('  none on file');
+  else {
+    L.push('  '+ast.callOffs+' call-off(s) total ('+ast.callOffsWeek+' this week, '+ast.lastMinute+' with under 12 hours notice) · '+
+      ast.lateArrivals+' late arrival(s) ('+ast.lateMonth+' this month) · '+ast.noShows+' no-show(s) ('+ast.noShowMonth+' this month)');
+    if(ast.lastCallOff) L.push('  Most recent call-off: '+dvWhen(ast.lastCallOff));
+    if(ast.lastNoShow) L.push('  Most recent no-show: '+dvWhen(ast.lastNoShow));
+    if(ast.lastLate) L.push('  Most recent late arrival: '+dvWhen(ast.lastLate));
+  }
+  L.push('ATTENDANCE — source 2, the Attendance page’s own log (a scheduler’s separate manual entries; may not fully overlap with source 1):');
+  const attRows=(state.attendance||[]).filter(a=>a.cg===c.name);
+  if(!attRows.length) L.push('  none on file');
+  else {
+    attRows.slice(0,20).forEach(a=>{
+      L.push('  - '+a.date+' '+attType(a)+(a.client?' · '+a.client:'')+(a.note?' · "'+a.note+'"':'')+
+        ' · coverage '+(!a.coverNeeded?'not needed':a.coverStatus));
+    });
+    if(attRows.length>20) L.push('  …and '+(attRows.length-20)+' more entries');
+  }
+
+  L.push('');
+  L.push('SHIFT-OFFER HISTORY — from the contact log, every time a scheduler logged contacting this caregiver about an open shift:');
+  const allContacts=[];
+  Object.keys(state.contactLog||{}).forEach(function(sid){
+    (state.contactLog[sid]||[]).filter(l=>l.caregiverId===c.id).forEach(l=>allContacts.push(l));
+  });
+  if(!allContacts.length) L.push('  none on file');
+  else {
+    const counts={};
+    allContacts.forEach(l=>{ counts[l.result]=(counts[l.result]||0)+1; });
+    L.push('  '+Object.keys(counts).map(k=>counts[k]+' '+k).join(', '));
+    const declines=allContacts.filter(l=>l.result==='declined'&&l.reason).slice(0,10);
+    if(declines.length) L.push('  Decline reasons given: '+declines.map(l=>'"'+l.reason+'"').join(', '));
+  }
+
+  L.push('');
+  const fb=(typeof cgConcernsFor==='function')?cgConcernsFor(c.id):[];
+  const feedback=fb.filter(f=>fbKind(f)==='feedback'), complaints=fb.filter(f=>fbKind(f)==='complaint');
+  L.push('CLIENT/FAMILY FEEDBACK ON FILE ('+feedback.length+'):');
+  if(!feedback.length) L.push('  none');
+  else feedback.slice(0,15).forEach(f=>L.push('  - '+dvWhen(f.at)+': "'+f.text+'"'));
+  L.push('CONCERNS / COMPLAINTS ON FILE ('+complaints.length+'):');
+  if(!complaints.length) L.push('  none');
+  else complaints.slice(0,15).forEach(f=>L.push('  - '+dvWhen(f.at)+' ['+(f.type||'?')+']: "'+f.text+'"'));
+
+  const notes=(typeof cgNotesList==='function')?cgNotesList(c):[];
+  L.push('SCHEDULER NOTES ON FILE ('+notes.length+'):');
+  if(!notes.length) L.push('  none');
+  else notes.slice(0,15).forEach(n=>L.push('  - '+dvWhen(n.at)+' by '+(n.by||'a scheduler')+': "'+n.text+'"'));
+
+  L.push('');
+  const cgAlerts=(typeof buildCareAlerts==='function')?buildCareAlerts().filter(a=>a.cgId===c.id):[];
+  L.push('CARE-NOTE INCIDENTS FLAGGED — keyword-matched from AxisCare care notes this caregiver wrote. NOT reviewed by a person unless status says Resolved ('+cgAlerts.length+'):');
+  if(!cgAlerts.length) L.push('  none on file');
+  else {
+    cgAlerts.slice(0,20).forEach(a=>{
+      const cl=clById(a.clientId);
+      L.push('  - '+dvWhen(a.at)+' ['+a.category+', status '+a.status+']'+(cl?' — '+cl.name:'')+': "'+cleanNoteText(a.excerpt).slice(0,200)+'"');
+    });
+    if(cgAlerts.length>20) L.push('  …and '+(cgAlerts.length-20)+' more');
+  }
+
+  L.push('');
+  const rt=(typeof cgRating==='function')?cgRating(c):null;
+  L.push('CAREGIVER RATING: '+(rt?rt.stars+' of 5'+(rt.reason?' — "'+rt.reason+'"':'')+(rt.at?' (set '+dvWhen(rt.at)+')':''):'not rated'));
+
+  const blockN=(ops.clientRestr||[]).length, restr=(c.restrictions||[]);
+  L.push('ASSIGNMENT RESTRICTIONS: '+(blockN?blockN+' client(s) this caregiver must not be assigned to':'none on file')+
+    (restr.length?' · AxisCare/profile restriction notes: '+restr.join('; '):''));
+
+  return L.join('\n').slice(0,20000);
+}
 function cap(t){ return t ? t.charAt(0).toUpperCase()+t.slice(1) : t; }
 function tenureShort(d){
   const days=Math.max(0,Math.floor((NOW-new Date(d))/864e5));
@@ -12229,10 +12410,40 @@ function tenureShort(d){
   if(y>=1) return y+' year'+(y===1?'':'s')+' with';
   return (m||1)+' month'+(m===1?'':'s')+' with';
 }
+/* One labelled bullet section of the AI summary, or '' when the model gave
+   nothing for it — "only show what the data actually supports" means an
+   empty section is omitted outright, never printed with a placeholder. */
+function cgAboutSecHtml(label,items){
+  if(!items||!items.length) return '';
+  return `<div class="cgh-ai-sec"><div class="cgh-ai-lbl">${escText(label)}</div><ul class="cgh-ai-bl">${items.map(b=>`<li>${escText(b)}</li>`).join('')}</ul></div>`;
+}
+/* Ready -> the AI's structured judgement. Otherwise -> the old computed
+   sentence (cgAbout(), never invented, never worse than before this
+   existed) plus a status strip saying why the AI version is not showing
+   yet. Never a blank box while the model call is in flight. */
+function cgAboutHtml(c){
+  const first=escText((c.name||'').split(' ')[0]);
+  const st=CGABOUT.status(c.id), sec=CGABOUT.sections(c.id);
+  let bar='';
+  if(st==='loading') bar=`<div class="cd-sumbar work">${ic('refresh',13)} <span>Reading this caregiver’s full history and generating an AI summary…</span></div>`;
+  else if(st==='error'){ const d=CGABOUT.get(c.id)||{};
+    bar=`<div class="cd-sumbar bad">${ic('alerts',13)} <span>Could not generate the AI summary. ${escText(d.error||'')}</span><button class="btn sm" onclick="cgAboutRetry('${c.id}')">Retry</button></div>`;
+  }
+  if(sec){
+    const body=(sec.overall?`<div class="cgh-ai-overall">${escText(sec.overall)}</div>`:'')
+      +cgAboutSecHtml('Strongest Experience',sec.strongestExperience)
+      +cgAboutSecHtml('Best Fit',sec.bestFit)
+      +cgAboutSecHtml('Scheduling Considerations',sec.schedulingConsiderations)
+      +cgAboutSecHtml('Reliability',sec.reliability)
+      +cgAboutSecHtml('Important History',sec.importantHistory);
+    return `<div class="cgh-abouth">About ${first} <span class="cgh-ai-badge">AI Summary</span></div>${bar}<div class="cgh-ai-body">${body}</div>`;
+  }
+  const fallback=cgAbout(c);
+  return `<div class="cgh-abouth">About ${first}</div>${bar}<div class="cgh-aboutx">${fallback?esc(fallback):'<span class="ws-none">No summary written yet.</span>'}</div>`;
+}
 function cgHeaderCard(c){
   const active = c.active!==false && c.ops.employmentStatus!=='Inactive';
   const line=(icon,v)=> v ? `<div class="cgh-line">${ic(icon,13)}<span>${esc(v)}</span></div>` : '';
-  const about=cgAbout(c);
   return `<div class="ws-card cgh">
     <div class="cgh-main">
       ${CGPHOTO.headerHtml(c)}
@@ -12249,8 +12460,7 @@ function cgHeaderCard(c){
       </div>
     </div>
     <div class="cgh-about">
-      <div class="cgh-abouth">About ${esc((c.name||'').split(' ')[0])}</div>
-      <div class="cgh-aboutx">${about?esc(about):'<span class="ws-none">No summary written yet.</span>'}</div>
+      ${cgAboutHtml(c)}
     </div>
   </div>`;
 }
@@ -13902,6 +14112,12 @@ function viewCaregiverWorkspace(c){
   if(state.cgEdit===c.id) return cgEditForm(c);
   if(state.cgAvailEdit===c.id) return cgAvailForm(c);
   if(state.cgStrengthEdit===c.id) return cgStrengthForm(c);
+  /* Deferred (soon(), not called straight): this render function also runs
+     from render()'s 20-second poll and every save while the profile stays
+     open, and cgAiDigestText() is not free to build on every one of those.
+     soon() itself no-ops instantly unless the dossier actually changed, so
+     the real cost here is only ever the string-building, not a request. */
+  CGABOUT.soon(c);
   const ops=c.ops, st=schedStatus(c);
   const openHrs=openHrsOf(c), near40=c.weekHrs>=38, canOT=!near40;
   /* The Desired Hours card that used to render here is gone: shift length,
@@ -19041,6 +19257,129 @@ var CALERT = (function () {
   return { load: load, soon: soon, get: get, status: status, forAlert: forAlert, retry: retry };
 })();
 function calertRetry(day) { CALERT.retry(day, careConcernsForDay(day).map(function (r) { return { noteId: r.noteId, catKey: r.catKey }; })); }
+
+/* =========================================================
+   CGABOUT  —  the AI summary behind "About [Name]"
+   ---------------------------------------------------------
+   The old "About" line (cgAbout(), see above) was one computed sentence.
+   Asked for (2026-09-24): read EVERYTHING on file about this caregiver —
+   profile, skills, assignment history, care notes, feedback, complaints,
+   incidents, attendance, declines, availability, work preferences,
+   languages, driving, distance limits, dementia/hospice/transfer/
+   behavioral/overnight experience, how long they stayed on past cases,
+   recurring patterns — and turn it into a structured judgement a
+   scheduler can act on: Overall / Strongest Experience / Best Fit /
+   Scheduling Considerations / Reliability / Important History.
+
+   supabase/functions/caregiver-about-summary writes it, reading the
+   dossier this browser assembles (cgAiDigestText(), above) and saved in
+   public.caregiver_about_summaries, keyed by caregiver id.
+
+   *** THIS FUNCTION IS BUILT DIFFERENTLY FROM CNSUM / CALERT / CARE-BRIEF,
+   AND THAT IS DELIBERATE — READ THIS BEFORE "FIXING" IT. *** Those three
+   have the Edge Function read its OWN data (care_notes, by an id the
+   browser names) specifically so the browser can never hand the function
+   invented text. That pattern cannot work here: assignment history —
+   "current and previous assignments", "how long they stayed" — comes from
+   CGVISITS, which is AxisCare data fetched through the NETLIFY proxy. A
+   Supabase Edge Function has no path to AxisCare at all; nothing server-
+   side can re-derive it. So the browser has to assemble the dossier, the
+   same way devi-agent already accepts a browser-built context bundle for
+   the whole board and sends it to Claude — this is that same accepted
+   trade-off, applied to one caregiver instead of the whole desk. It is
+   not a new hole: anyone who could open this page already sees every
+   fact that goes into the dossier, rendered elsewhere on this exact page.
+
+   THE SIGNATURE IS COMPUTED SERVER-SIDE, from the digest text the request
+   actually carries — not sent by the browser. That is what makes the
+   cache trustworthy even though the CONTENT is browser-assembled: two
+   requests with byte-identical dossiers always hash the same, so a
+   caregiver nobody's dossier has changed for costs nothing on a repeat
+   view, exactly like CNSUM and CALERT.
+
+   AUTOMATIC UPDATES, the way CNSUM/CALERT already do it: nothing polls.
+   render() re-runs cgAiDigestText() on every render of this profile, soon()
+   compares it (via a LOCAL, browser-only fingerprint — see cgFnv1a) against
+   the last dossier this browser asked about, and only fires a new request
+   when something in it actually changed — new care notes, a new rating, an
+   assignment ending, availability landing, CGVISITS finishing its fetch.
+   That local fingerprint is purely a "don't ask again for no reason" guard;
+   it is NOT the cache key the server trusts.
+
+   NEVER CALLED FROM A RENDER PATH IN THE SPEND SENSE: soon() is reached
+   from viewCaregiverWorkspace(), which only runs while a scheduler has this
+   one profile open — not from a board-wide render. AN ERROR IS NEVER
+   RETRIED BY A RENDER, same rule as CNSUM/CALERT: retry is a button. */
+function cgFnv1a(s){
+  s=String(s||''); var h=0x811c9dc5;
+  for(var i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=(h+((h<<1)+(h<<4)+(h<<7)+(h<<8)+(h<<24)))>>>0; }
+  return s.length.toString(36)+'-'+h.toString(36);
+}
+var CGABOUT = (function () {
+  var cache = {};        /* cgId -> {localSig, status, sections, error, model} */
+  var inflight = {};
+  var timers = {};
+
+  function url() {
+    var u = (window.SCHEDULER_CONFIG || {}).supabaseUrl;
+    return u ? String(u).replace(/\/+$/, '') + '/functions/v1/caregiver-about-summary' : '';
+  }
+  var DEPLOY = 'npx supabase functions deploy caregiver-about-summary --project-ref gdzgoyawavffjdjpjbfz --no-verify-jwt';
+
+  function get(cgId) { return cache[cgId] || null; }
+  function status(cgId) { var d = cache[cgId]; return d ? d.status : 'idle'; }
+  function sections(cgId) { var d = cache[cgId]; return (d && d.status === 'ready') ? d.sections : null; }
+
+  function load(cgId, digest, localSig) {
+    if (inflight[cgId]) return;
+    var base = url();
+    cache[cgId] = { status: 'loading', localSig: localSig };
+    if (!base) { cache[cgId] = { status: 'error', localSig: localSig, error: 'This copy of the dashboard has no Supabase URL.' }; return; }
+    inflight[cgId] = fetch(base, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ caregiverId: cgId, digest: digest })
+    }).then(function (r) {
+      return r.json().catch(function () { return null; }).then(function (b) {
+        /* The gateway answers a missing FUNCTION with {code,message} and
+           no `ok` — the same two-404s trap Quo and CARE document. */
+        if (r.status === 404 && !(b && b.ok === false)) {
+          throw new Error('The caregiver-about-summary function is not deployed. Committing does not deploy it — it needs: ' + DEPLOY);
+        }
+        if (!r.ok || !b || !b.ok) throw new Error((b && (b.error || b.message)) || ('HTTP ' + r.status));
+        cache[cgId] = { status: 'ready', localSig: localSig, sections: b.sections, model: b.model || null };
+      });
+    }).then(null, function (err) {
+      var msg = (err && err.message) || String(err);
+      if (err && err.name === 'TypeError') {
+        msg = 'Could not reach the caregiver-about-summary function. It may not be deployed yet (' + DEPLOY + '), or the connection dropped.';
+      }
+      cache[cgId] = { status: 'error', localSig: localSig, error: msg };
+    }).then(function () {
+      delete inflight[cgId];
+      try { if (state.cgOpen === cgId) render(); } catch (x) {}
+    });
+  }
+
+  /* Debounced per caregiver (a scheduler paging quickly between profiles
+     must not fire one request per frame), and skipped entirely when the
+     dossier has not changed since the last request this browser made. */
+  function soon(c) {
+    if (!c || !c.id) return;
+    var digest = cgAiDigestText(c), localSig = cgFnv1a(digest);
+    var cur = cache[c.id];
+    if (cur && cur.localSig === localSig) return;
+    if (timers[c.id]) clearTimeout(timers[c.id]);
+    timers[c.id] = setTimeout(function () {
+      delete timers[c.id];
+      if (state.cgOpen === c.id) load(c.id, digest, localSig);
+    }, 500);
+  }
+  function retry(c) { if (!c || inflight[c.id]) return; delete cache[c.id]; soon(c); render(); }
+
+  return { soon: soon, retry: retry, get: get, status: status, sections: sections };
+})();
+function cgAboutRetry(id) { var c = cgById(id); if (c) CGABOUT.retry(c); }
 
 /* =========================================================
    SUMS  —  read-only access to the care-note summaries
