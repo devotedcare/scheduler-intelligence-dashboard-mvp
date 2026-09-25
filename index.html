@@ -998,15 +998,29 @@
   .wk-bucket.on .wk-bcount{color:var(--brand)}
   .wk-detail{margin-top:14px;padding:0;overflow:hidden}
   .wk-detailhead{display:flex;align-items:center;gap:10px;padding:12px 15px;border-bottom:1px solid var(--line);background:var(--panel-head)}
-  .wk-detailheadmain{display:flex;flex-direction:column;gap:2px;min-width:0}
+  /* Grows to fill the row, which is what pushes Filter and Close to the
+     right edge — same level as the title text, not stacked under it. */
+  .wk-detailheadmain{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1 1 auto}
   .wk-detailtitle{font-size:13.5px;font-weight:800;color:var(--ink)}
   .wk-detailbreak{font-size:12px;font-weight:650;color:var(--ink-soft)}
-  .wk-close{margin-left:auto;background:none;border:none;font-size:18px;line-height:1;color:var(--ink-faint);cursor:pointer;padding:2px 4px}
+  .wk-close{margin-left:0;background:none;border:none;font-size:18px;line-height:1;color:var(--ink-faint);cursor:pointer;padding:2px 4px}
   .wk-close:hover{color:var(--ink)}
-  /* One row, four compact dropdowns — reuses .ein's border/colour but
-     overrides its width:100% so they sit side by side instead of stacking. */
-  .wk-detailfilters{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 15px;border-bottom:1px solid var(--line)}
-  select.wk-fsel{width:auto;min-width:96px;padding:6px 10px;font-size:12.5px;font-weight:650}
+  /* ONE "Filter" dropdown — every filter (gender, driving, CNA, city) lives
+     inside this single popover, never as separate dropdowns beside it. */
+  .wk-filterwrap{position:relative;flex:0 0 auto}
+  .wk-filterbtn{display:inline-flex;align-items:center;gap:5px;font-family:inherit;font-size:12.5px;font-weight:650;color:var(--ink);background:#fff;border:1px solid var(--line-strong);border-radius:var(--r);height:30px;padding:0 11px;cursor:pointer}
+  .wk-filterbtn:hover{border-color:var(--brand)}
+  .wk-filterbtn.on{border-color:var(--brand);color:var(--brand);background:#F2F7FA}
+  .wk-filtercar{font-size:10px;color:var(--ink-faint)}
+  .wk-filterbtn.on .wk-filtercar{color:var(--brand)}
+  .wk-filtermenu{position:absolute;top:calc(100% + 6px);right:0;z-index:20;background:#fff;border:1px solid var(--line);border-radius:var(--r);box-shadow:0 6px 18px rgba(0,0,0,.14);min-width:190px;padding:6px;display:flex;flex-direction:column}
+  .wk-fitem{display:flex;align-items:center;gap:8px;width:100%;text-align:left;font-family:inherit;font-size:13px;font-weight:600;color:var(--ink);background:none;border:none;border-radius:6px;padding:8px 9px;cursor:pointer}
+  .wk-fitem:hover{background:var(--panel-head)}
+  .wk-fitem.on{color:var(--brand);background:#EEF4F8;font-weight:700}
+  .wk-fitem .wk-fick{width:14px;flex:0 0 auto;display:flex;color:var(--brand)}
+  .wk-fcity{padding:8px 9px 2px;border-top:1px solid var(--line-soft);margin-top:4px}
+  .wk-fcitylabel{display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--ink-faint);margin-bottom:5px}
+  select.wk-fsel{width:100%;padding:6px 9px;font-size:12.5px;font-weight:650}
   .wk-cglist{display:flex;flex-direction:column}
   .wk-cgrow{display:flex;align-items:center;gap:10px;padding:9px 15px;border-bottom:1px solid var(--line-soft)}
   .wk-cgrow:last-child{border-bottom:none}
@@ -9054,9 +9068,10 @@ function wkSelectBucket(dateStr,label,start,end){
   /* A second click on the same bucket closes it — the natural way to
      dismiss the list without hunting for a separate close control. */
   state.wkSel=(sel && sel.date===dateStr && sel.label===label) ? null : {date:dateStr, label:label, start:start, end:end};
+  state.wkFilterMenuOpen=false;
   render();
 }
-function wkClearSel(){ state.wkSel=null; render(); }
+function wkClearSel(){ state.wkSel=null; state.wkFilterMenuOpen=false; render(); }
 function wkCgRowHtml(cg){
   const meta=[cg.base, cg.driver?'Driver':'No car', hasVal(cg.reliability)?cg.reliability+'% reliable':null].filter(Boolean).join(' · ');
   return `<div class="wk-cgrow">
@@ -9073,9 +9088,15 @@ function wkCgRowHtml(cg){
    grid at all. */
 function wkFilters(){ return state.wkFilter || (state.wkFilter={type:'',gender:'',driving:'',city:''}); }
 function wkSetFilter(key,val){ wkFilters()[key]=val; render(); }
-const WK_TYPE_OPTS=[['','All Types'],['cna','CNA'],['noncna','Non-CNA']];
-const WK_GENDER_OPTS=[['','All'],['F','Female'],['M','Male']];
-const WK_DRIVING_OPTS=[['','All'],['driver','Driver'],['non','No Car']];
+/* ONE dropdown, not four. wkSetFilter toggles a value straight from the
+   menu, so Female/Male/Driver/CNA are single-click on/off items rather than
+   their own <select>s — clicking an already-active one clears it back to
+   All, matching the toggle-on-second-click pattern wkSelectBucket() already
+   uses for the grid itself. */
+function wkToggleFilterVal(key,val){ const f=wkFilters(); wkSetFilter(key, f[key]===val ? '' : val); }
+function wkFilterMenuOpen(){ return !!state.wkFilterMenuOpen; }
+function wkToggleFilterMenu(){ state.wkFilterMenuOpen=!state.wkFilterMenuOpen; render(); }
+function wkCloseFilterMenu(){ if(state.wkFilterMenuOpen){ state.wkFilterMenuOpen=false; render(); } }
 function wkNormCity(v){
   return (typeof AxisRoster!=='undefined'&&AxisRoster.normCity) ? AxisRoster.normCity(v) : (String(v||'').trim()||null);
 }
@@ -9110,21 +9131,51 @@ function wkGenderBreakdown(list){
   if(u) parts.push(u+' Unknown');
   return parts.join(' · ');
 }
-function wkDetailFilterSelect(label,key,opts){
-  const cur=wkFilters()[key]||'';
-  const optHtml=opts.map(function(o){
-    return `<option value="${esc(o[0])}" ${cur===o[0]?'selected':''}>${escText(o[1])}</option>`;
-  }).join('');
-  return `<select class="ein wk-fsel" aria-label="${esc(label)}" onchange="wkSetFilter('${key}',this.value)">${optHtml}</select>`;
+/* ONE menu item, toggled on click — Female/Male/Driver/CNA all render
+   through this so the four read identically. */
+function wkFilterItem(label,key,val){
+  const on=wkFilters()[key]===val;
+  return `<button type="button" class="wk-fitem${on?' on':''}" onclick="wkToggleFilterVal('${key}','${val}')">
+    <span class="wk-fick">${on?ic('check',12):''}</span>${escText(label)}
+  </button>`;
 }
-function renderWeekDetailFilters(){
-  return `<div class="wk-detailfilters">
-    ${wkDetailFilterSelect('Type','type',WK_TYPE_OPTS)}
-    ${wkDetailFilterSelect('Gender','gender',WK_GENDER_OPTS)}
-    ${wkDetailFilterSelect('Driving','driving',WK_DRIVING_OPTS)}
-    ${wkDetailFilterSelect('City','city',wkCityOpts())}
+/* The one popover — Female, Male, Driver, CNA and City all live inside it,
+   in that order, rather than as separate dropdowns beside the button. */
+function renderWeekFilterMenu(){
+  const cityOpts=wkCityOpts();
+  const curCity=wkFilters().city||'';
+  const cityOptHtml=cityOpts.map(function(o){
+    return `<option value="${esc(o[0])}" ${curCity===o[0]?'selected':''}>${escText(o[1])}</option>`;
+  }).join('');
+  return `<div class="wk-filtermenu" onclick="event.stopPropagation()">
+    ${wkFilterItem('Female','gender','F')}
+    ${wkFilterItem('Male','gender','M')}
+    ${wkFilterItem('Driver','driving','driver')}
+    ${wkFilterItem('CNA','type','cna')}
+    <div class="wk-fcity">
+      <span class="wk-fcitylabel">City</span>
+      <select class="wk-fsel" aria-label="City" onchange="wkSetFilter('city',this.value)">${cityOptHtml}</select>
+    </div>
   </div>`;
 }
+function renderWeekFilterButton(){
+  const f=wkFilters(), active=!!(f.type||f.gender||f.driving||f.city);
+  const open=wkFilterMenuOpen();
+  return `<div class="wk-filterwrap">
+    <button type="button" class="wk-filterbtn${active?' on':''}" onclick="wkToggleFilterMenu()">Filter <span class="wk-filtercar">${open?'▾':'▸'}</span></button>
+    ${open?renderWeekFilterMenu():''}
+  </div>`;
+}
+/* Click anywhere else and the menu closes — same mousedown-capture pattern
+   CGPHOTO's menu uses, so a click on whatever is underneath never both
+   closes the menu AND fires on that element. */
+try{
+  document.addEventListener('mousedown', function(ev){
+    if(!state.wkFilterMenuOpen) return;
+    const w=ev.target && ev.target.closest ? ev.target.closest('.wk-filterwrap') : null;
+    if(!w) wkCloseFilterMenu();
+  }, true);
+}catch(e){}
 function renderWeekSelDetail(){
   const sel=state.wkSel; if(!sel) return '';
   const full=new Date(sel.date+'T12:00:00').toLocaleDateString('en-US',{weekday:'long'});
@@ -9139,9 +9190,9 @@ function renderWeekSelDetail(){
         <span class="wk-detailtitle">${escText(full)} ${escText(sel.label)} — ${list.length} Available Caregiver${list.length===1?'':'s'}</span>
         ${list.length?`<span class="wk-detailbreak">${escText(wkGenderBreakdown(list))}</span>`:''}
       </div>
+      ${renderWeekFilterButton()}
       <button class="wk-close" onclick="wkClearSel()" aria-label="Close">×</button>
     </div>
-    ${renderWeekDetailFilters()}
     <div class="wk-cglist">${rows}</div>
   </div>`;
 }
