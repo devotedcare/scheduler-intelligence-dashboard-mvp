@@ -1002,11 +1002,20 @@
      right edge — same level as the title text, not stacked under it. */
   .wk-detailheadmain{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1 1 auto}
   .wk-detailtitle{font-size:13.5px;font-weight:800;color:var(--ink)}
-  .wk-detailbreak{font-size:12px;font-weight:650;color:var(--ink-soft)}
   .wk-close{margin-left:0;background:none;border:none;font-size:18px;line-height:1;color:var(--ink-faint);cursor:pointer;padding:2px 4px}
   .wk-close:hover{color:var(--ink)}
-  /* ONE "Filter" dropdown — every filter (gender, driving, CNA, city) lives
-     inside this single popover, never as separate dropdowns beside it. */
+  /* Female / Male — small, compact quick-toggles beside Filter, not part of
+     its dropdown. Same size and look as .wk-filterbtn so the three read as
+     one group. */
+  .wk-genderbtns{display:flex;gap:6px;flex:0 0 auto}
+  .wk-genderbtn{display:inline-flex;align-items:center;gap:4px;font-family:inherit;font-size:12.5px;font-weight:650;color:var(--ink);background:#fff;border:1px solid var(--line-strong);border-radius:var(--r);height:30px;padding:0 10px;cursor:pointer}
+  .wk-genderbtn:hover{border-color:var(--brand)}
+  .wk-genderbtn.on{border-color:var(--brand);color:var(--brand);background:#F2F7FA}
+  .wk-gcount{font-variant-numeric:tabular-nums;font-weight:800;color:var(--ink-soft)}
+  .wk-genderbtn.on .wk-gcount{color:var(--brand)}
+  /* ONE "Filter" dropdown — driving, CNA and city live inside this single
+     popover, never as separate dropdowns beside it. Gender is not one of
+     these any more — see .wk-genderbtns above. */
   .wk-filterwrap{position:relative;flex:0 0 auto}
   .wk-filterbtn{display:inline-flex;align-items:center;gap:5px;font-family:inherit;font-size:12.5px;font-weight:650;color:var(--ink);background:#fff;border:1px solid var(--line-strong);border-radius:var(--r);height:30px;padding:0 11px;cursor:pointer}
   .wk-filterbtn:hover{border-color:var(--brand)}
@@ -1026,6 +1035,9 @@
   .wk-cgrow:last-child{border-bottom:none}
   .wk-cgname{font-family:inherit;font-size:13px;font-weight:700;color:var(--brand);background:none;border:none;padding:0;cursor:pointer;text-align:left}
   .wk-cgname:hover{text-decoration:underline}
+  /* The caregiver's actual hours for this date — sits right beside the name,
+     sized to content so it never gets squeezed by .wk-cgmeta's flex-grow. */
+  .wk-cgtime{font-size:12.5px;font-weight:650;color:var(--ink);flex:0 0 auto;white-space:nowrap;font-variant-numeric:tabular-nums}
   .wk-cgmeta{font-size:12px;color:var(--ink-soft);flex:1 1 auto;min-width:0}
   /* status bar */
   .cov-status{background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:13px 16px;margin-bottom:14px}
@@ -9072,10 +9084,31 @@ function wkSelectBucket(dateStr,label,start,end){
   render();
 }
 function wkClearSel(){ state.wkSel=null; state.wkFilterMenuOpen=false; render(); }
-function wkCgRowHtml(cg){
+/* The caregiver's REAL stated availability window for this date, not the
+   bucket they were found under — mirrors coverageDetail()'s own window
+   match (carryWindows/nextWindows/mergeWins, the overnight-aware merge)
+   rather than reusing its boolean, so an overnight Night-bucket row still
+   resolves to the actual segment that covers it. Every row this is called
+   for already passed coverageDetail(cg,dateStr,start,end).cov==='full' in
+   wkAvailableCaregivers(), so a real window is expected here — null is a
+   defensive fallback, not the normal case. */
+function wkAvailWindow(cg,dateStr,start,end){
+  const d=AVAIL.dayAvail(cg.id, dateStr);
+  if(end<=start) end+=24;
+  if(d.state==='unloaded'||d.state==='error'||d.state==='unconfigured'||d.state==='blocked') return null;
+  let wins=d.wins.concat(AVAIL.carryWindows(cg.id, dateStr));
+  if(end>24) wins=wins.concat(AVAIL.nextWindows(cg.id, dateStr));
+  if(!wins.length) return null;
+  wins=AVAIL.mergeWins(wins);
+  for(const w of wins){ if(w[0]<=start && w[1]>=end) return w; }
+  return null;
+}
+function wkCgRowHtml(cg,dateStr,start,end){
+  const win=wkAvailWindow(cg,dateStr,start,end);
   const meta=[cg.base, cg.driver?'Driver':'No car', hasVal(cg.reliability)?cg.reliability+'% reliable':null].filter(Boolean).join(' · ');
   return `<div class="wk-cgrow">
     <button type="button" class="wk-cgname" onclick="openCgFromCoverage('${cg.id}')" title="Open ${escText(cg.name)}’s calendar">${escText(cg.name)}</button>
+    ${win?`<span class="wk-cgtime">${escText(fmtClock(win[0])+' – '+fmtClock(win[1]))}</span>`:''}
     ${meta?`<span class="wk-cgmeta">${escText(meta)}</span>`:''}
     <button class="btn sm" onclick="manualCall('${cg.id}')">${ic('phone',11)} Call</button>
   </div>`;
@@ -9107,7 +9140,12 @@ function wkCityOpts(){
   const cities=Array.from(new Set(wkActiveCaregivers().map(cg=>wkNormCity(cg.base)).filter(Boolean))).sort();
   return [['','All']].concat(cities.map(c=>[c,c]));
 }
-function wkFilterMatch(cg){
+/* Gender is split out of the "other" checks so Female/Male's own displayed
+   counts (renderWeekGenderButtons) can be computed against the SAME set of
+   caregivers wkFilterMatch narrows to before gender is applied — otherwise
+   selecting Female would collapse the Male count to 0 instead of showing
+   the honest count a scheduler could switch to. */
+function wkFilterMatchExceptGender(cg){
   const f=wkFilters();
   /* CNA is a tag somebody recorded in AxisCare, so ops.prefs.cna (a typed
      answer) is checked first and the class tag second — the same prefVal()
@@ -9115,32 +9153,47 @@ function wkFilterMatch(cg){
      an explicit No and simply unanswered. */
   if(f.type==='cna' && prefVal(cg,'cna')!==true) return false;
   if(f.type==='noncna' && prefVal(cg,'cna')===true) return false;
-  if(f.gender && cg.gender!==f.gender) return false;
   if(f.driving==='driver' && !cg.driver) return false;
   if(f.driving==='non' && cg.driver) return false;
   if(f.city && wkNormCity(cg.base)!==f.city) return false;
   return true;
 }
+function wkFilterMatch(cg){
+  if(!wkFilterMatchExceptGender(cg)) return false;
+  const f=wkFilters();
+  if(f.gender && cg.gender!==f.gender) return false;
+  return true;
+}
 function wkFilteredCaregivers(dateStr,start,end){
   return wkAvailableCaregivers(dateStr,start,end).filter(wkFilterMatch);
 }
-function wkGenderBreakdown(list){
-  let f=0,m=0,u=0;
-  list.forEach(function(cg){ if(cg.gender==='F') f++; else if(cg.gender==='M') m++; else u++; });
-  const parts=[f+' Female', m+' Male'];
-  if(u) parts.push(u+' Unknown');
-  return parts.join(' · ');
+/* Female/Male counts, ignoring the current gender selection itself so both
+   buttons always show real, switchable counts — see the comment above. */
+function wkGenderCounts(dateStr,start,end){
+  const base=wkAvailableCaregivers(dateStr,start,end).filter(wkFilterMatchExceptGender);
+  let f=0,m=0;
+  base.forEach(function(cg){ if(cg.gender==='F') f++; else if(cg.gender==='M') m++; });
+  return {f:f,m:m};
 }
-/* ONE menu item, toggled on click — Female/Male/Driver/CNA all render
-   through this so the four read identically. */
+/* Female and Male are now their own quick-toggle buttons beside Filter, not
+   options inside it — one click narrows straight to that gender, a second
+   click on the same one clears it, same toggle rule Driver/CNA use. */
+function renderWeekGenderButtons(dateStr,start,end){
+  const counts=wkGenderCounts(dateStr,start,end), gender=wkFilters().gender;
+  const btn=(label,val,count)=>`<button type="button" class="wk-genderbtn${gender===val?' on':''}" onclick="wkToggleFilterVal('gender','${val}')">${escText(label)} <span class="wk-gcount">${count}</span></button>`;
+  return `<div class="wk-genderbtns">${btn('Female','F',counts.f)}${btn('Male','M',counts.m)}</div>`;
+}
+/* ONE menu item, toggled on click — Driver/CNA render through this so the
+   two read identically. */
 function wkFilterItem(label,key,val){
   const on=wkFilters()[key]===val;
   return `<button type="button" class="wk-fitem${on?' on':''}" onclick="wkToggleFilterVal('${key}','${val}')">
     <span class="wk-fick">${on?ic('check',12):''}</span>${escText(label)}
   </button>`;
 }
-/* The one popover — Female, Male, Driver, CNA and City all live inside it,
-   in that order, rather than as separate dropdowns beside the button. */
+/* The one popover — Driver, CNA and City live inside it. Gender has its own
+   buttons beside Filter now (renderWeekGenderButtons), so it is not one of
+   these options any more. */
 function renderWeekFilterMenu(){
   const cityOpts=wkCityOpts();
   const curCity=wkFilters().city||'';
@@ -9148,8 +9201,6 @@ function renderWeekFilterMenu(){
     return `<option value="${esc(o[0])}" ${curCity===o[0]?'selected':''}>${escText(o[1])}</option>`;
   }).join('');
   return `<div class="wk-filtermenu" onclick="event.stopPropagation()">
-    ${wkFilterItem('Female','gender','F')}
-    ${wkFilterItem('Male','gender','M')}
     ${wkFilterItem('Driver','driving','driver')}
     ${wkFilterItem('CNA','type','cna')}
     <div class="wk-fcity">
@@ -9159,7 +9210,7 @@ function renderWeekFilterMenu(){
   </div>`;
 }
 function renderWeekFilterButton(){
-  const f=wkFilters(), active=!!(f.type||f.gender||f.driving||f.city);
+  const f=wkFilters(), active=!!(f.type||f.driving||f.city);
   const open=wkFilterMenuOpen();
   return `<div class="wk-filterwrap">
     <button type="button" class="wk-filterbtn${active?' on':''}" onclick="wkToggleFilterMenu()">Filter <span class="wk-filtercar">${open?'▾':'▸'}</span></button>
@@ -9182,14 +9233,14 @@ function renderWeekSelDetail(){
   const totalAvail=wkAvailableCaregivers(sel.date, sel.start, sel.end).length;
   const list=wkFilteredCaregivers(sel.date, sel.start, sel.end).sort((a,b)=>a.name.localeCompare(b.name));
   const filtersActive=!!(wkFilters().type||wkFilters().gender||wkFilters().driving||wkFilters().city);
-  const rows=list.length ? list.map(wkCgRowHtml).join('')
+  const rows=list.length ? list.map(cg=>wkCgRowHtml(cg, sel.date, sel.start, sel.end)).join('')
     : `<div class="ws-none">${totalAvail && filtersActive ? 'No available caregivers match these filters.' : 'No caregivers have availability entered for this window.'}</div>`;
   return `<div class="ws-card wk-detail">
     <div class="wk-detailhead ${wkDayColorClass(sel.date)}">
       <div class="wk-detailheadmain">
         <span class="wk-detailtitle">${escText(full)} ${escText(sel.label)} — ${list.length} Available Caregiver${list.length===1?'':'s'}</span>
-        ${list.length?`<span class="wk-detailbreak">${escText(wkGenderBreakdown(list))}</span>`:''}
       </div>
+      ${renderWeekGenderButtons(sel.date, sel.start, sel.end)}
       ${renderWeekFilterButton()}
       <button class="wk-close" onclick="wkClearSel()" aria-label="Close">×</button>
     </div>
