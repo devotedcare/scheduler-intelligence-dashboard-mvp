@@ -17597,6 +17597,26 @@ const CG_REQUIRED=[
   {label:'Client Blocks — Do Not Assign',
    ok:c=>(c.ops.clientRestr||[]).every(r=>hasVal(r.reason)&&hasVal(r.level))}
 ];
+/* Company-wide data, computed client-side from the shared roster and the
+   shared caregiver_availability table — so it must read the SAME on every
+   browser once both have actually loaded here. Neither is instant: the
+   roster is fetched at boot, and AVAIL.monthCoverage() is asked for the
+   first time whichever browser opens this tab first (see the comment in
+   cgNeedsUpdate()). Reading either one before it is ready does not error —
+   it just silently answers as if that caregiver had nothing to flag, so a
+   browser that has not finished loading yet shows a smaller, wrong count
+   with nothing on screen saying why. That is what made the same shared
+   number look like it depended on which scheduler's browser you were
+   reading it from: whoever's tab finished loading first saw the real
+   count, everyone else saw an honest-looking but incomplete one. Callers
+   must check this before trusting cgNeedsUpdate().length as final. */
+function cgNeedsUpdateReady(){
+  if(rosterLoading()) return false;
+  try{
+    const cs=(typeof AVAIL!=='undefined'&&AVAIL.monthCoverageInfo)?AVAIL.monthCoverageInfo():null;
+    return !cs || cs.state==='ready';
+  }catch(e){ return true; }
+}
 /* A caregiver appears once, carrying every reason they need attention. */
 function cgNeedsUpdate(){
   const out=[];
@@ -18427,10 +18447,16 @@ function setSuTab(t){ state.suTab = t==='needs' ? 'needs' : 'recent'; render(); 
 function viewSchedUpdates(){
   const tab = state.suTab==='needs' ? 'needs' : 'recent';
   const needs = cgNeedsUpdate();
+  /* The badge must never show a confident number while the data it is
+     counted from is still loading on THIS browser — see cgNeedsUpdateReady()
+     for why. A small "…" reads honestly as "still checking"; a wrong small
+     number reads as the real answer and is how this looked like it depended
+     on who was logged in. */
+  const ready = cgNeedsUpdateReady();
   const tb=(k,label,n)=>'<button class="cgnav-t'+(tab===k?' on':'')+'" onclick="setSuTab(\''+k+'\')">'+
     label+(n?'<span class="su-n">'+n+'</span>':'')+'</button>';
   const head='<div class="upd-head"><span class="upd-h">Caregiver Record Status</span></div>'+
-    '<nav class="cgnav su-nav">'+tb('recent','Recent Updates')+tb('needs','Needs Update',needs.length)+'</nav>';
+    '<nav class="cgnav su-nav">'+tb('recent','Recent Updates')+tb('needs','Needs Update',ready?needs.length:'…')+'</nav>';
   return head + (tab==='needs' ? suNeedsHTML(needs) : suRecentHTML());
 }
 /* TAB 1 — what was changed, by whom, newest first. Everything one person
@@ -18465,15 +18491,23 @@ function suNeedsHTML(needs){
      check would make a short list look like good news. */
   let note='';
   try{
-    const cs=(typeof AVAIL!=='undefined'&&AVAIL.monthCoverageInfo)?AVAIL.monthCoverageInfo():null;
-    if(cs && cs.state!=='ready'){
-      note='<div class="demo-banner cal-meta'+(cs.state==='loading'||cs.state==='idle'?' load':' err')+'">'+
-        (cs.state==='loading'||cs.state==='idle'
-          ? '<span class="cs-spin"></span><span>Checking each caregiver\u2019s availability calendar\u2026</span>'
-          : '<span class="db-ic">\u26A0</span><span><b>Availability could not be checked.</b> '+
-            esc(cs.err||'Supabase is not reachable')+' \u2014 the profile checks below are still accurate, '+
-            'but nobody is being flagged for missing availability.</span>')+
-        '</div>';
+    /* The roster itself is still loading \u2014 every check below reads
+       state.caregivers, so this is the more fundamental incompleteness and
+       takes priority over the narrower availability note. */
+    if(rosterLoading()){
+      note='<div class="demo-banner cal-meta load"><span class="cs-spin"></span>'+
+        '<span>Loading the caregiver roster\u2026 this list is not final yet.</span></div>';
+    }else{
+      const cs=(typeof AVAIL!=='undefined'&&AVAIL.monthCoverageInfo)?AVAIL.monthCoverageInfo():null;
+      if(cs && cs.state!=='ready'){
+        note='<div class="demo-banner cal-meta'+(cs.state==='loading'||cs.state==='idle'?' load':' err')+'">'+
+          (cs.state==='loading'||cs.state==='idle'
+            ? '<span class="cs-spin"></span><span>Checking each caregiver\u2019s availability calendar\u2026</span>'
+            : '<span class="db-ic">\u26A0</span><span><b>Availability could not be checked.</b> '+
+              esc(cs.err||'Supabase is not reachable')+' \u2014 the profile checks below are still accurate, '+
+              'but nobody is being flagged for missing availability.</span>')+
+          '</div>';
+      }
     }
   }catch(e){}
   if(!needs.length) return note+emptyState('Nothing needs attention',
