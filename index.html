@@ -976,7 +976,8 @@
   .wk-nav-a:hover:not(:disabled){border-color:var(--brand);color:var(--brand)}
   .wk-nav-a:disabled{color:var(--ink-faint);border-color:var(--line);cursor:default}
   .wk-navlabel{font-size:18px;font-weight:800;color:var(--ink);min-width:130px;text-align:center;letter-spacing:.4px}
-  .wk-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
+  .wk-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:10px}
+  @media(max-width:1200px){.wk-grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
   @media(max-width:900px){.wk-grid{grid-template-columns:repeat(2,1fr)}}
   @media(max-width:560px){.wk-grid{grid-template-columns:1fr}}
   .wk-day{border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
@@ -995,6 +996,8 @@
   .wk-dayhead.wk-c-wed,.wk-detailhead.wk-c-wed{background:#F1EAFA}
   .wk-dayhead.wk-c-thu,.wk-detailhead.wk-c-thu{background:#FCF1DF}
   .wk-dayhead.wk-c-fri,.wk-detailhead.wk-c-fri{background:#FBE8EF}
+  .wk-dayhead.wk-c-sat,.wk-detailhead.wk-c-sat{background:#E2F4F4}
+  .wk-dayhead.wk-c-sun,.wk-detailhead.wk-c-sun{background:#FDECE3}
   /* var(--ink-faint) read as too light to call "easy to see" — moved to
      --ink-soft, which is still visibly secondary to the day name beside it
      but is a real readable medium-dark gray, not a faded one. */
@@ -9025,7 +9028,7 @@ function viewCoverage(){
    question at a glance instead — "how many caregivers are free, and when,
    this week" — with names withheld until a specific day/time is picked.
 
-   Monday-Friday only, always, three fixed windows per day (Morning 6am-2pm,
+   Sunday-Saturday (Monday-Friday only until 2026-09-25), fixed windows per day (Morning 6am-2pm,
    Afternoon 2pm-10pm, Night 10pm-6am — the same 8-hour split the Care Notes
    AM/PM windows use, split a third time for the overnight stretch). No
    client, no city, no skills: those questions belong to a SPECIFIC shift,
@@ -9045,9 +9048,9 @@ function viewCoverage(){
    calling queue to work through immediately the way the shift command
    centre's is.
 
-   DATA: coverageDetail() reads AVAIL's per-date index, so the 5 shown
-   dates plus one day on each side (Sunday for Monday-morning carry-in,
-   the following Saturday for Friday-night carry-out — the same "day
+   DATA: coverageDetail() reads AVAIL's per-date index, so the 7 shown
+   dates plus one day on each side (the Saturday before for Sunday-morning
+   carry-in, the following Sunday for Saturday-night carry-out — the same "day
    before, day after" fetch runCoverageSearch() already does) are asked
    for with AVAIL.fetchDates(...,true) whenever the WEEK changes. Not on
    every render: render() fires on every save and every 20-second poll
@@ -9068,17 +9071,20 @@ const WK_BUCKETS=[['Morning',6,14],['Afternoon',14,22],['Overnight',22,30],['Who
 /* One soft color per weekday, keyed off dayKeyFromDate(). Used on both the
    grid's day header and the selected-day results header below it, so the
    two visually match — see the .wk-c-* rules by .wk-dayhead. */
-const WK_DAY_COLOR={Mon:'wk-c-mon',Tue:'wk-c-tue',Wed:'wk-c-wed',Thu:'wk-c-thu',Fri:'wk-c-fri'};
+const WK_DAY_COLOR={Sun:'wk-c-sun',Mon:'wk-c-mon',Tue:'wk-c-tue',Wed:'wk-c-wed',Thu:'wk-c-thu',Fri:'wk-c-fri',Sat:'wk-c-sat'};
 function wkDayColorClass(ds){ return WK_DAY_COLOR[dayKeyFromDate(ds)]||''; }
-function wkMonday(ds){
-  const d=new Date(ds+'T12:00:00'), day=d.getDay();
-  d.setDate(d.getDate()+(day===0?-6:1-day));
+/* The week runs Sunday–Saturday, the same as the caregiver calendar's month
+   grid (cal-dow), so the two screens line up. It was Monday–Friday only
+   until 2026-09-25. */
+function wkSunday(ds){
+  const d=new Date(ds+'T12:00:00');
+  d.setDate(d.getDate()-d.getDay());
   return toDateInput(d);
 }
-function wkWeekDates(start){ return [0,1,2,3,4].map(n=>addDaysStr(start,n)); }
+function wkWeekDates(start){ return [0,1,2,3,4,5,6].map(n=>addDaysStr(start,n)); }
 function wkRangeLabel(start){
   const dates=wkWeekDates(start);
-  const a=new Date(start+'T12:00:00'), b=new Date(dates[4]+'T12:00:00');
+  const a=new Date(start+'T12:00:00'), b=new Date(dates[6]+'T12:00:00');
   const mon=d=>d.toLocaleDateString('en-US',{month:'short'}).toUpperCase();
   return a.getMonth()===b.getMonth()
     ? mon(a)+' '+a.getDate()+'–'+b.getDate()
@@ -9091,9 +9097,9 @@ function wkAvailableCaregivers(dateStr,start,end){
 /* Fetches once per week shown, not once per render — see the header
    comment above for why. */
 function wkEnsureWeek(){
-  if(!state.wkStart) state.wkStart=wkMonday(toDateInput(NOW));
+  if(!state.wkStart) state.wkStart=wkSunday(toDateInput(NOW));
   if(state.wkAvail && state.wkAvail.start===state.wkStart) return;
-  const need=[addDaysStr(state.wkStart,-1)].concat(wkWeekDates(state.wkStart), [addDaysStr(state.wkStart,5)]);
+  const need=[addDaysStr(state.wkStart,-1)].concat(wkWeekDates(state.wkStart), [addDaysStr(state.wkStart,7)]);
   state.wkAvail={status:'loading', start:state.wkStart, error:null};
   AVAIL.fetchDates(need, true).then(function(){
     state.wkAvail={status:'ready', start:state.wkStart, error:null};
@@ -9101,8 +9107,8 @@ function wkEnsureWeek(){
     state.wkAvail={status:'error', start:state.wkStart, error:(e&&e.message)||String(e)};
   }).then(function(){ try{ if(state.view==='coverage') render(); }catch(x){} });
 }
-function wkPrevWeek(){ state.wkStart=addDaysStr(state.wkStart||wkMonday(toDateInput(NOW)), -7); state.wkSel=null; render(); }
-function wkNextWeek(){ state.wkStart=addDaysStr(state.wkStart||wkMonday(toDateInput(NOW)), 7); state.wkSel=null; render(); }
+function wkPrevWeek(){ state.wkStart=addDaysStr(state.wkStart||wkSunday(toDateInput(NOW)), -7); state.wkSel=null; render(); }
+function wkNextWeek(){ state.wkStart=addDaysStr(state.wkStart||wkSunday(toDateInput(NOW)), 7); state.wkSel=null; render(); }
 function wkRetryWeek(){ state.wkAvail=null; render(); }
 function wkSelectBucket(dateStr,label,start,end){
   const sel=state.wkSel;
