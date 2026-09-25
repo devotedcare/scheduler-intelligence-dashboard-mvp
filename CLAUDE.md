@@ -106,7 +106,7 @@ layout or wording change, or anything already answered in this file.
 |---|---|
 | `index.html`, `README.md`, docs | **a commit** → Netlify, live in ~2 min |
 | `netlify/functions/*` (`axiscare`, `carenotes-sync`, `openshifts-sync`, `availability-copy`) | a commit → Netlify |
-| `supabase/functions/*` — **eight**: `app-gate`, `devi-agent`, `quo`, `care-brief`, `comms-summary`, `carenotes-summary`, `carealerts-summary`, `caregiver-about-summary` | **`npx supabase functions deploy`, never a commit** |
+| `supabase/functions/*` — **nine**: `app-gate`, `devi-agent`, `quo`, `care-brief`, `comms-summary`, `carenotes-summary`, `carealerts-summary`, `caregiver-about-summary`, `care-plan` | **`npx supabase functions deploy`, never a commit** |
 | `supabase/*.sql` | run against the database by hand |
 | `config.js` | generated at deploy time from Netlify env vars. Editing it does nothing; the committed copy is intentionally empty |
 
@@ -952,6 +952,186 @@ the note. That is a deliberate departure from `CNSUM`'s raw-note fallback,
 because here the raw note is the exact thing the screen was asked to stop
 showing. *Full alert* still has the original text.
 
+### The alert is PROSE, and it NAMES the client — `PROMPT_VERSION 2`
+
+Mitch supplied the target verbatim on 2026-09-25 and it is worth keeping here, because it
+is the shape to measure against:
+
+> Jose had a restless night with frequent waking and movement between his bedroom and living
+> room. Around 11:00 PM, he became agitated and attempted to hit the caregiver with his belt.
+> The caregiver kept his distance for safety while Jose's wife attempted to redirect him back
+> to his room.
+>
+> **Scheduler Attention:** Jose's attempted physical aggression toward the caregiver requires
+> follow-up and should be documented as a safety concern.
+
+Four things changed to reach it:
+
+- **Prose, not bullets.** `careAttnBulletsHtml()` printed a *What happened* heading over a
+  `<ul>`, which read as a form. It is now `careAttnProseHtml()` — paragraphs, and **no
+  heading at all** over the account, because the row above already gives the client, the
+  category, the shift and the caregiver. Only *Scheduler Attention* keeps its label, because
+  that one changes who the sentence is addressed to.
+- **The CLIENT IS NAMED.** *"Jose became agitated"*, not *"Client became agitated"*. The
+  caregiver stays *"the caregiver"* (the row names them) and third parties go by relationship
+  — *"his wife"*, *"the nurse"*.
+  **This is the OPPOSITE of `carenotes-summary`'s rule, deliberately.** That screen is for
+  scanning fifteen clients and the name is redundant on the row; this one is a safety
+  incident somebody has to act on, and a scheduler should see the person in the sentence.
+  **Claude: do not carry either rule across to the other screen.**
+- **The incident gets its CONTEXT.** v1 excluded everything that was not the flagged issue;
+  a restless night is what makes the incident legible. Unrelated routine care — meals, vital
+  rounds, TV — still stays out.
+- **`MAX_BULLET_CHARS` 140 → 420.** Mitch's first paragraph is ~290 characters, so at 140
+  the parser would have silently dropped the target shape on arrival.
+
+#### The accuracy bug this exposed, and the two retries it forced
+
+v1 stored, for Jose 2026-09-24: *"Client attempted to **grab** caregiver's belt to prevent
+caregiver from moving away."* The note reads *"jose try to hot me me belt"* — he tried to
+**hit** the caregiver **with** the belt. v1 reversed it and made a serious incident sound
+minor. The TRIAGE prompt in the same file already had the rule that catches this (*read the
+MEANING*); the keyword-extraction prompt did not. It does now, with that failure as its
+worked example.
+
+Then two reliability failures, both measured on the same note — Jose 2026-09-20, the one
+where he threatens to shoot the caregiver:
+
+1. **A non-JSON answer.** Asking for flowing prose made the model intermittently reply in
+   prose instead of the array — twice in three calls. Now **retried once**.
+2. **A VALID array that silently omits an id.** Worse, and the parse retry could never catch
+   it: the array came back well-formed with three of four ids, so the row saved nothing and
+   the board degraded to *"Could not analyse this note automatically"* — on the single most
+   serious alert it had. **The model quietly drops the hardest note in a batch.** A missing
+   id is now retried **alone**, where it has no other note to be lost behind.
+
+> Retrying a GENERATE is safe in a way retrying a SEND is not — nothing has been written and
+> the worst case is paying twice. Compare *A send is never retried* under Quo.
+
+**Claude: if a critical row ever reads "Could not analyse this note automatically", suspect
+the omitted-id path before the prompt.** It fails silently, at HTTP 200, on exactly the notes
+that matter most.
+
+#### A triage alert must be findable by ID, or "Full alert" opens BLANK
+
+**Claude: `buildCareAlerts()` can only ever hold KEYWORD alerts.** It is derived from
+`categorizeNote()` over every note, so a TRIAGE-found alert -- whose category is by
+definition one the keywords do NOT produce for that note -- was never in it. Every lookup
+that went through it failed on triage rows.
+
+Measured 2026-09-25: **10 of 24 rows on the board**, i.e. every triage finding. And the
+symptom was worse than a no-op, because `renderAlertDetail()` called `closeModal()` on a
+miss while `openAlertDetail()` then re-added the backdrop -- so the reader got a **blank
+white box**, which reads as a broken page rather than as nothing happening.
+
+`careAlertById(id)` is the single lookup now: it tries `buildCareAlerts()` and otherwise
+builds the same shape from the note plus `CARE_CAT_BY_KEY` plus the overrides, so
+`alertDetailHtml()`, the action ticks, the status buttons and the assignment all work on a
+triage alert unchanged. The id stays `noteId__catKey`, which is what `careAlertOverrides`
+is keyed by, so a tick made in the modal is the same tick the row remembers.
+
+Two call sites needed it: `renderAlertDetail()` and `sendAlertGuide()` (Send Guide silently
+did nothing on a triage row). `toggleAlertAction`, `setAlertStatus` and `assignAlert` were
+already safe because they go through `cnOv(id)` rather than the alert list.
+
+> `openAlertDetail()` now shows the backdrop **only if the render found something**. A blank
+> modal is a worse failure than no modal.
+
+### The TRIAGE pass — the model reads the WHOLE date, not only the flagged notes
+
+**Added 2026-09-25 (Mitch): *"an agent that thinks rather than just summarising the care
+notes."*** Until then the keyword screen was a **gate**: `carealerts-summary` was handed
+only the notes `categorizeNote()` had already flagged, so the model could not see
+anything the word list missed. Measured on the live mirror: **747 notes, 90 fire a
+keyword, 657 (88%) fire nothing.** One of the 657 read *"She has a lot of pain in her
+ankle and leg! Her ankle is swollen, I applied pain cream!"* — nothing raised it, and no
+prompt change could, because the gate sat **upstream of the model**.
+
+The keyword screen is now a **floor, not a gate**. Every unit the browser asks for is
+still extracted exactly as before; the triage pass only ADDS.
+
+```
+browser  CALERT.soon(day, keyword units)   <- the floor, unchanged
+function askTriage(day, ALL the day's notes)   ONE model call, ~0.8c
+         -> findings {id, catKey, whatHappened, schedulerAction}
+         -> saved in care_alert_summaries under the SAME noteId__catKey id
+         -> care_alert_triage records that this date was reasoned over
+```
+
+**TWO early returns had to go, and one without the other fixes nothing.** Both answered
+"nothing to do" on an empty unit list — the handler in `carealerts-summary` and
+`CALERT.load()` in `index.html`. An empty `units` array is now the NORMAL request on a
+quiet date, and is the whole reason to call the function at all. **Claude: do not
+"optimise" either of them back.**
+
+#### A triage row is stamped `TRIAGE_VERSION`, not `PROMPT_VERSION`
+
+Each version invalidates its own rows and nothing else. Getting this wrong cost a silent
+loss once: triage rows were stamped with the EXTRACTION version, so bumping
+`PROMPT_VERSION` made the day-scoped read back filter every triage row out **while the
+marker still said the date was done** — the findings vanished and never regenerated.
+
+#### `care_alert_triage` exists so a quiet date is free on the second open
+
+One row per date, written **whether or not anything was found**. A date where the pass
+raised nothing leaves no row in `care_alert_summaries` to prove it ran, so without the
+marker every page open would pay for the model again. `model` and `prompt_version` are
+on it for the same reason they are on the summaries: a model switch or a
+`TRIAGE_VERSION` bump re-triages the date, and nothing else does. RLS on, **no policies** —
+the anon key cannot touch it. `supabase/care-alert-triage.sql`, run 2026-09-25.
+
+The read-back is by `note_id` **in** the date's visit ids, so `care_alert_summaries`
+needed no `day` column — the function is already holding every visit id for the date.
+
+#### A finding for an already-flagged client is DROPPED, never swapped in
+
+The panel has always shown **one row per client** (`careConcernsForDay()` keeps the
+highest-priority category and nothing else). So a triage finding for a client the keyword
+screen already flagged is discarded. It is tempting to swap it in when the model's
+category looks better — **do not.** The row id is `noteId__catKey`, and that is also the
+key of `state.careAlertOverrides`, the tracked CLOUD map holding every scheduler's
+assign / status / action-tick state. Re-keying orphans that work for all three desks.
+The value is the clients who had **no row at all**.
+
+#### What it actually raises — measured before it went live
+
+Dry-run over the same six dates the board holds (131 notes), writes suppressed:
+
+| | findings | of which clearly actionable |
+|---|---|---|
+| `TRIAGE_VERSION 1` | 21 | ~10 |
+| **`TRIAGE_VERSION 2`** (live) | **16** | **~13** |
+
+Things it found that the keyword screen structurally cannot: a client who **threatened
+the caregiver with a pistol** and swung a cue stick; a missed Omeprazole with the reason
+undocumented; **insulin not given because there were no needles in the house**; two Xanax
+given with no documented order; a client self-injecting a weight-loss drug; O2 saturation
+at 78%; and Patricia McGrath's new ankle swelling — the note that prompted the whole
+change.
+
+The three v1 → v2 fixes, each from a measured failure:
+
+- **It cannot know a client's normal, so it read chronic as new.** Virginia Eddy's nightly
+  toileting log became *"got up 9 times … clarify if this is typical"*. The pass sees ONE
+  date, which is the same structural limit that got the PAIN category rejected. v2 only
+  calls something a change **if the note itself says it is new**, and is forbidden to ask
+  the desk to *"clarify whether this is typical"* — a row that asks the scheduler to work
+  out whether there is a problem is worse than no row.
+- **Bullets that named the reaction and not the event.** *"Family said they would call the
+  doctor"* — about what? The first bullet must now carry the event.
+- **A one-off that had already resolved.** *"Agitated at the start of the shift, calmed
+  down after"* is a shift, not an alert.
+
+> **Numbers are ALLOWED here, unlike in `carenotes-summary`.** *"O2 saturation 78%"* and
+> *"glucose 343"* are the whole point of the row — a scheduler acting on a reading needs
+> the reading. The care-note summary bans numbers because nobody acts on that screen.
+> Two screens, two rules, deliberately.
+
+**KNOWN, accepted:** Jose Ortiz's fragmented nights are still raised occasionally even
+though they are his baseline, and one *"reported readings to the family"* bullet survived
+the event rule. Roughly 3 of 16. Both would need the client's recent notes as context,
+which is a bigger change — see *Still open*.
+
 ### The note id the browser sends is MUNGED — match it, never expect `visit_id`
 
 **Claude: `fetchCareNotes()` is the only builder of `state.careNotes`, and it
@@ -1032,6 +1212,29 @@ pain"* is not, *"because I was afraid of her cat"* is), and `CARE_ATE_WELL`.
 **Claude: re-measure if you change a keyword.** The harness and the labelled set
 are the point — every failure here was ordinary (`fell asleep`, `no agitation`,
 `hospital bed`, `complains of knee pain`), and all of them looked fine by eye.
+
+### Caregiver Safety — added 2026-09-25, and it is CRITICAL
+
+A 17th category, `prio: 'critical'`. Aggression toward the **caregiver**, which nothing
+covered: `safety` is environmental (`loose rug`, `trip hazard`, `unsteady`) and the
+three real incidents on this account were reaching the board as *Agitation* alone. Mitch
+asked for them to read as a safety concern, and critical outranks agitation so they now
+own the client's row.
+
+Measured over all 747 notes: **3 fire, all three genuine, zero false positives.** All
+three are one client; one includes a **threat with a pistol**.
+
+Same EVENT VERB rule as Skin & Bleeding — never a bare noun, because *belt*, *mad* and
+*aggressive* describe the situation rather than something that happened to the caregiver.
+Two candidates were dropped on measurement: `punched` matched *"2 punched eggs"*
+(poached, misspelled) and `grabbed my` matched *"grabbed my medication for Client"*.
+
+> **`'hot me '` IS A TYPO AND ITS TRAILING SPACE IS LOAD-BEARING.** A real note reads
+> *"jose try to hot me me belt"* — and it is the only keyword that catches that incident.
+> Without the trailing space `careKwFires()` enforces no word END, so it also fires on
+> *"a hot meal"*, *"hot meatloaf"* and *"hot melon"*; it stayed quiet on this corpus by
+> luck alone. The whole-word form is quiet on all three and still catches the note. Twelve
+> boundary cases are pinned in the scratchpad measurement; the same applies to `'hit me '`.
 
 ### Skin & Bleeding — added 2026-09-24, and every keyword is an EVENT VERB
 
@@ -2969,6 +3172,142 @@ where plain ASCII is 25. Use `-`, `'` and `...`. A regression test renders every
 template and asserts it stays GSM-7.
 
 ---
+
+## The Care Plan Agent — `care-plan`
+
+One living care plan per client, on the client page beside the Concierge matching card.
+Mitch's spec, 2026-09-25: what a caregiver needs to know to care for this client **today**,
+plus a separate list of things that genuinely need the office.
+
+> **It lives HERE, in the scheduling app.** Mitch's document is headed *Client Concierge
+> Dashboard* because she reused the header, and I read that as the agent belonging to
+> Concierge and said so. Carlo corrected it: **it belongs here and Concierge reuses it.**
+
+```
+browser   carePlanCard(cl) -> CAREPLAN.load(axisId, name)   a client id, nothing else
+function  Concierge concierge_records.data.careNeeds + fallRisk/cognitive/hospice
+          this app  public.care_notes, last 60 days, newest 60
+          this app  public.client_care_plans   the plan being maintained
+          -> {sections:[{title,items}], attention:[{issue,found,whyItMatters,action,source}]}
+```
+
+**The browser sends a client id and nothing else**, exactly as `care-brief` does, and for
+the same reason: a design where the browser read the clinical record and posted it up would
+make every client's mobility, continence and cognition readable by anyone with the site URL.
+There is no `fields` parameter.
+
+### MEDICATIONS ARE READ HERE, AND NOT IN `care-brief`
+
+Carlo, 2026-09-25: *"include the medication so that the model can properly give more
+accurate suggestion."* `PROMPT_VERSION 2` reads `medManage`, `medInstr`,
+`routineAM`, `routinePM`, `routineDay`, `feeding` and `other` — the seven fields
+`care-brief` deliberately never touches — and the medication filter is **gone from this
+function**, on the way in and on the way out.
+
+**This does not overturn Mitch's rule, because that rule is about a different audience.**
+*"Do NOT include medications"* was written for `care-brief`, whose whole output is **one
+line of an outbound TEXT** to a caregiver who has not accepted the shift yet: forwarded,
+screenshotted, read on a lock screen, beside a client named by given name only. A care plan
+is read by the **assigned** caregiver and the office, inside the PIN-gated dashboard.
+
+| | fields | medication filter |
+|---|---|---|
+| `care-brief` | `SAFE_FIELDS` (7) | in, out, **and a second-model check**. UNCHANGED |
+| `care-plan` | `READ_FIELDS` (14) | none |
+
+**Claude: do not "harmonise" these two lists.** They differ on purpose, `care-brief`'s
+tests assert its own, and `?action=status` on each prints its list so the difference is
+visible without reading the source.
+
+Stated plainly: there is **no mechanical backstop** on medication content in `care-plan`
+any more. The only guards are the prompt's rules and the caveat printed under the card.
+`redact()` stays — phone numbers, emails and links add nothing to a care plan.
+
+#### PERMISSION is the hard part, not the data
+
+`index.html`'s own medication guide says **"Caregivers remind and observe only — they do
+not give or administer medications"**. Measured: **177 of 748 live care notes document a
+caregiver giving one.** That contradiction is real and it is not this agent's to settle.
+Mitch's spec is explicit — *never assume a caregiver is permitted to administer something
+just because it appears in the record.* So the prompt:
+
+- states what the record says about responsibility, and says *not recorded* when it is not
+- **never** asserts or implies that a caregiver may administer anything
+- sends an unclear or contradicted responsibility to the **attention** list, which is where
+  her spec puts *"unclear caregiver responsibility"*
+- names a drug only where the name is what a caregiver needs — a reminder time, a handling
+  instruction, or something the notes show happening with it (refused, ran out, not given)
+- never writes a dose or schedule it was not given, and never suggests a change to one
+
+`MED_NOTE` is printed under the card and is now a caveat about **permission**, not about
+missing data: *"Medication lines describe what is recorded for this client. They are not
+authority to give anything."*
+
+### The plan IS stored in the Scheduling database
+
+Which `care-brief`'s header says the clinical record never is. A care plan cannot be a
+living document otherwise. RLS on, **no policies**, service-role only — the reasoning is in
+`supabase/client-care-plans.sql`. With medications now included, what is at rest here is a
+fuller clinical record than anything before it, and the dashboard still has **no per-person
+login**: anyone who can open the site can read any plan.
+
+### It is regenerated only when its INPUTS change
+
+`source_sig` fingerprints the Concierge record **and** the notes behind the plan, so a new
+note that says nothing new costs nothing; `model` and `prompt_version` rewrite it the way
+they do everywhere else here. *Rebuild from the latest notes* on the card sends `force`.
+
+**Section titles are a FIXED list** (`SECTIONS`, twelve of them) so the card stays stable and
+a model cannot invent a heading. A section that does not apply is **omitted** — never filled
+with *"None"* or *"Not applicable"*, per the spec. An unknown title is dropped on parse.
+
+### What it produced on the first real client
+
+Jose Ortiz, 10 notes, `claude-opus-5`. The plan read as a caregiver briefing — Spanish and
+English, fear of water on his head so shower seated with a handheld head, walker every time
+he is up, legs elevated once he lies down, settles wherever he is safe rather than being put
+back to bed. Three attention items, each with a source:
+
+- **a possible firearm in the home** — it connected a 9/20 remark (*"lucky I did not shoot
+  you with my pistol"*) with two separate belt incidents written by different caregivers on
+  9/19 and 9/24, and asked the office to confirm with the family whether a gun is secured
+- **a conflict it could not resolve** — the assessment says walker every time and never
+  walking alone; five nights of notes record him up many times with no walker mentioned
+- **no agreed plan for night-time aggression**, on the grounds that two incidents is a
+  pattern and caregivers currently have no instruction beyond backing off
+
+That is the difference between reasoning and summarising, and it is the thing to protect if
+this prompt is ever touched.
+
+**`PROMPT_VERSION 2` — with medications — went further, and on the one thing that matters
+most it behaved correctly.** A *Medication support* section appeared saying the family
+provides everything and his daughter organises the box, that **caregivers remind and
+observe**, and that **only a caregiver the nurse has trained and signed off may give the
+insulin — if you have not been signed off, do not give it, call the office.** It stated the
+recorded rule and granted no permission.
+
+The attention list then found two things nothing else in this app could:
+
+- **the insulin sign-off is unverified.** The assessment says only nurse-signed-off
+  caregivers may give it; the notes show two named caregivers giving it most nights, and on
+  9/20 somebody *held* the insulin and the amlodipine with no written parameters. It asked
+  the office to confirm in writing who is signed off and to obtain hold parameters.
+- **two prescribed doses missed in a week for want of supplies** — no needles on 9/21, and
+  a pharmacy that had not supplied a syringe for the Ozempic on 9/18 — with the observation
+  that the plan says nothing about the Ozempic or who gives it.
+
+> **It is `claude-opus-5` and it is not cheap** — roughly 30–50¢ a client depending on how
+> many notes they have, against 1.8¢ for a whole date of care-note summaries. Justified by
+> being the highest-stakes text this app writes, written once and then maintained rather than
+> regenerated. `CAREPLAN_MODEL` switches it; `CAREPLAN_EFFORT` is not sent to Haiku, which
+> 400s on it. `max_tokens` is **32000 because it includes thinking** and Opus 5 thinks by
+> default — the trap every other function here documents.
+
+**KNOWN: it prints readings.** Jose's plan carries *"recent BP 123/61 to 160/78; blood sugar
+159-184"*. The medication filter does not catch a vital sign, and for a care plan a reading is
+arguably context a caregiver wants — but it is more clinical detail at rest in this database
+than anything before it. Raised rather than fixed; `carenotes-summary` bans numbers because
+nobody acts on that screen, and this screen is the opposite.
 
 ## The care-needs line — `care-brief`
 

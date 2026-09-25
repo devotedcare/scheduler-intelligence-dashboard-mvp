@@ -93,13 +93,20 @@ const SEND_EFFORT = !!EFFORT && !/haiku/i.test(MODEL);
 
 /* Bump when PROMPT or the bullet rules change in a way that should rewrite
    rows already saved. They are rewritten on their next open. */
-const PROMPT_VERSION = 1;
+const PROMPT_VERSION = 2;
 
 const API = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION = "2023-06-01";
 const TZ = "America/Los_Angeles";
 const TIMEOUT_MS = 60000;
 const TABLE = "care_alert_summaries";
+const TRIAGE_TABLE = "care_alert_triage";
+/* Bumping this re-triages every date, exactly as PROMPT_VERSION rewrites every summary. */
+const TRIAGE_VERSION = 2;
+/* A ceiling on what one date may raise. A date is ~19 notes; if the model wants to flag
+   more than this it has misunderstood the job, and a flooded panel is worse than the
+   keyword screen it replaced. The excess is dropped and logged, never silently kept. */
+const MAX_TRIAGE_FIND = 8;
 const NOTES_TABLE = "care_notes";
 
 /* A page open asking for more than this is refused rather than sent -- well
@@ -120,7 +127,10 @@ const MAX_NOTE_CHARS = 8000;
    at the one thing this function exists to do. */
 const MIN_WHAT = 1, MAX_WHAT = 3;
 const MIN_ACTION = 1, MAX_ACTION = 2;
-const MAX_BULLET_CHARS = 140;
+/* A PARAGRAPH, not a bullet, since PROMPT_VERSION 2. Mitch's own example runs to ~290
+   characters in its first paragraph, so 140 would have truncated the target shape on
+   arrival and the row would have silently lost its longest sentence. */
+const MAX_BULLET_CHARS = 420;
 
 const RATE_MAX = 300;                     // requests per caller per hour; a cached read counts
 const RATE_TOTAL = 1500;                  // per isolate per hour
@@ -153,6 +163,10 @@ const CATEGORIES: Record<string, { label: string; actions: string[] }> = {
      an unknown catKey is dropped silently, so a category added to the browser alone
      would never be summarised and the row would read "could not analyse". */
   skin: { label: "Skin & Bleeding", actions: ["Contact caregiver for details", "Confirm home health or the nurse knows", "Contact family", "Notify Care Quality Coordinator", "Review repositioning and skin care in the care plan", "Monitor closely on the next shift"] },
+  /* Aggression toward the CAREGIVER, added 2026-09-25 with the index.html category of
+     the same key. `safety` above is environmental (hazards, near-misses); this is
+     something the client did to the person caring for them, and it ranks critical. */
+  cgSafety: { label: "Caregiver Safety", actions: ["Call the caregiver today to check they are alright", "Confirm whether they are willing to return to this client", "Notify office management and document as a safety incident", "Contact family about the behaviour", "Review whether this placement is still appropriate", "Send Agitated Client Response Guide"] },
 };
 
 class UpstreamError extends Error {
@@ -286,7 +300,11 @@ type SavedRow = { id: string; source_sig: string; model: string; prompt_version:
 type Unit = { id: string; noteId: string; visitId: string; catKey: string; clientId: number | null; text: string; sig: string };
 type Result = {
   day: string;
-  units: { id: string; whatHappened: string[]; schedulerAction: string[] }[];
+  /* found:true means the TRIAGE pass raised this, not the browser's keyword screen -- so
+     the browser knows to add a row for it rather than look for one it already has.
+     catKey and clientId travel with a found alert for the same reason. */
+  units: { id: string; whatHappened: string[]; schedulerAction: string[]; found?: boolean; catKey?: string; clientId?: number | null }[];
+  triaged?: boolean; found?: number;
   generated: number; reused: number; dropped: number; model: string; saveFailed?: number;
 };
 
@@ -332,6 +350,48 @@ async function notesForDay(day: string): Promise<Map<string, NoteRow>> {
   return out;
 }
 
+/* Has this date already been reasoned over by this model and this triage prompt? The
+   marker exists so a date where NOTHING was found still costs one model call ever,
+   rather than one per page open -- there would be no row in care_alert_summaries to
+   prove the pass had run. */
+async function triageDone(day: string): Promise<boolean> {
+  try {
+    const r = await fetch(DB_URL + "/rest/v1/" + TRIAGE_TABLE +
+      "?day=eq." + encodeURIComponent(day) + "&select=model,prompt_version", { headers: dbHeaders() });
+    if (!r.ok) return false;
+    const rows = await r.json() as { model: string; prompt_version: number }[];
+    return !!(rows && rows[0] && rows[0].model === MODEL && rows[0].prompt_version === TRIAGE_VERSION);
+  } catch { return false; }
+}
+
+async function markTriaged(day: string, notesSeen: number, found: number): Promise<void> {
+  try {
+    await fetch(DB_URL + "/rest/v1/" + TRIAGE_TABLE + "?on_conflict=day", {
+      method: "POST",
+      headers: dbHeaders({ "content-type": "application/json", Prefer: "resolution=merge-duplicates,return=minimal" }),
+      body: JSON.stringify([{ day, model: MODEL, prompt_version: TRIAGE_VERSION, notes_seen: notesSeen, found, updated_at: new Date().toISOString() }]),
+      signal: AbortSignal.timeout(15000),
+    });
+  } catch (e) { console.warn("[carealerts-summary] triage marker failed:", (e as Error)?.message); }
+}
+
+/* Every saved alert for this date, keyed by id. The table has no day column and needs
+   none: we are already holding every visit_id for the date. This is how a TRIAGE-found
+   alert comes back on a later open, when the browser does not know to ask for it. */
+async function rowsForVisits(visitIds: string[]): Promise<Map<string, SavedRow & { cat_key: string; note_id: string; client_id: number | null }>> {
+  const out = new Map<string, SavedRow & { cat_key: string; note_id: string; client_id: number | null }>();
+  if (!visitIds.length) return out;
+  try {
+    const r = await fetch(DB_URL + "/rest/v1/" + TABLE + "?found_by=eq.triage&note_id=in.(" +
+      visitIds.map((v) => '"' + v.replace(/"/g, '""') + '"').join(",") +
+      ")&select=id,note_id,cat_key,client_id,source_sig,model,prompt_version,what_happened,scheduler_action",
+      { headers: dbHeaders() });
+    if (!r.ok) return out;
+    for (const row of await r.json() as any[]) out.set(row.id, row);
+  } catch (e) { console.warn("[carealerts-summary] day read failed:", (e as Error)?.message); }
+  return out;
+}
+
 async function savedByIds(ids: string[]): Promise<Map<string, SavedRow>> {
   const out = new Map<string, SavedRow>();
   if (!ids.length) return out;
@@ -374,18 +434,38 @@ const PROMPT = [
   "You are given several such notes, each with an id, its category, and the full note text.",
   "Produce, for EVERY note given:",
   "",
-  "  whatHappened     1 to " + MAX_WHAT + " short bullets -- ONLY the specific incident/issue that",
-  "                    matches the stated category. Each bullet is one short, factual sentence,",
-  "                    under " + MAX_BULLET_CHARS + " characters.",
-  "  schedulerAction   1 to " + MAX_ACTION + " short bullets -- what THIS scheduler needs to do about",
-  "                    THIS specific note. Use the category's typical actions (given below each",
-  "                    note) as a starting menu, but pick and phrase only what this note's own",
-  "                    details call for -- never paste the menu verbatim as the answer.",
+  "  whatHappened     1 to " + MAX_WHAT + " short PARAGRAPHS of flowing prose, each under",
+  "                    " + MAX_BULLET_CHARS + " characters. Not bullet points and not a checklist.",
+  "  schedulerAction   1 or 2 sentences stating what needs to happen and why.",
   "",
-  "EXCLUDE anything not part of the flagged issue, even if the note mentions it: routine meals,",
-  "medication administration that is not the issue itself, vital-sign readings, casual",
-  "conversation, TV or other leisure activity, routine toileting or hygiene, and minute-by-minute",
-  "narration of the shift. If the note is about a fall, do not mention what the client ate that day.",
+  "HOW IT SHOULD READ. The way you would tell a scheduler about it on the phone: what the",
+  "shift was like, then the incident, then what followed.",
+  "",
+  "NAME THE CLIENT, by the first name the note uses. \"Jose became agitated around 11:00 PM\",",
+  "not \"Client became agitated\". The row above your text already shows the client and the",
+  "caregiver, but a scheduler reading a safety incident should see the person in the sentence.",
+  "Call the caregiver \"the caregiver\" -- the row names them. Anyone else goes by relationship",
+  "where the note gives one: \"his wife\", \"her daughter\", \"the nurse\".",
+  "",
+  "GIVE THE INCIDENT ITS CONTEXT. A restless night, a difficult afternoon, repeated waking --",
+  "that frame is what makes the incident understandable, so include it briefly.",
+  "But do NOT list routine care that has nothing to do with it: meals, vital-sign rounds,",
+  "medication rounds, TV, chit-chat, or a minute-by-minute retelling of the shift. If the note",
+  "is about a fall, do not mention what the client ate. Include a pattern only where it is part",
+  "of the story -- \"he continued waking through the night\" earns its place; \"he had yogurt at",
+  "1am\" does not.",
+  "",
+  "TIMES AND FIGURES ARE ALLOWED HERE, and are often the point: \"around 11:00 PM\", \"oxygen at",
+  "78%\", \"blood sugar 343\". A scheduler acting on this needs them. (The care-note summary on",
+  "the same page bans numbers outright. That screen is for scanning fifteen clients; this one is",
+  "for acting on one. Two screens, two rules, deliberately -- do not carry either rule across.)",
+  "",
+  "SCHEDULER ACTION IS A STATEMENT, not an imperative menu. Say what requires attention and",
+  "why, the way a supervisor would write it:",
+  "  \"Jose's attempted physical aggression toward the caregiver requires follow-up and should",
+  "   be documented as a safety concern.\"",
+  "The category's typical actions are given below each note as a PROMPT FOR YOUR THINKING --",
+  "never paste them back as the answer.",
   "",
   "OUTPUT: a JSON array and nothing else. No markdown, no code fence, no preamble. One object per",
   'note, in the order given: [{"id":"<the id>","whatHappened":["...","..."],"schedulerAction":["..."]}]',
@@ -397,12 +477,28 @@ const PROMPT = [
   "- Never give medical advice and never suggest a treatment or a medication change.",
   "- Do not reproduce the note's own sentences verbatim -- state the facts plainly and briefly, in",
   "  your own short wording. This is an extraction, not a lightly-edited copy.",
-  "- Notes may mix English and Tagalog, be lightly punctuated, or be typed on a phone. Write the",
-  "  bullets in plain English regardless of how the note is written.",
+  "- Notes may mix English and Tagalog, be lightly punctuated, typed on a phone, or full of",
+  "  obvious typos. READ THE MEANING and never soften, reverse or hedge what happened.",
+  "  \"jose try to hot me me belt\" means he tried to HIT the caregiver WITH his belt. An earlier",
+  "  version of this summary rendered that as \"attempted to grab the caregiver's belt\", which",
+  "  reversed it and made a serious incident sound minor. If a typo leaves you genuinely unsure,",
+  "  say what the note says in its own terms rather than guessing a milder reading.",
   "- Contact details already appear as [phone number], [email address] or [link]. Do not mention",
   "  those placeholders in a bullet.",
   "- If the note genuinely gives nothing beyond the category itself (e.g. it says only that a fall",
-  "  happened, with no further detail), say that plainly in one bullet rather than inventing detail.",
+  "  happened, with no further detail), say that plainly in one paragraph rather than inventing",
+  "  detail.",
+  "",
+  "WORKED EXAMPLE of the shape and voice. Invented details -- never reuse its wording:",
+  "",
+  "  whatHappened[0]  Alma had a restless night with frequent waking and movement between her",
+  "                   bedroom and the living room. Around 11:00 PM she became agitated and",
+  "                   tried to strike the caregiver with a walking stick. The caregiver kept",
+  "                   her distance while Alma's son redirected her back to her room.",
+  "  whatHappened[1]  Alma went on waking through the night, moving between her bedroom,",
+  "                   bathroom and the living room, with periods of sleep in between.",
+  "  schedulerAction  Alma's attempted physical aggression toward the caregiver requires",
+  "                   follow-up and should be documented as a safety concern.",
 ].join("\n");
 
 function blockFor(u: Unit): string {
@@ -426,7 +522,7 @@ function clampBullets(v: unknown, min: number, max: number): string[] | null {
   return out.length >= min ? out : null;
 }
 
-async function askClaude(units: Unit[]): Promise<Map<string, { whatHappened: string[]; schedulerAction: string[] }>> {
+async function askClaude(units: Unit[], attempt = 1): Promise<Map<string, { whatHappened: string[]; schedulerAction: string[] }>> {
   const content = "Notes to extract: " + units.length + "\n\n" + units.map(blockFor).join("\n\n");
 
   /* max_tokens INCLUDES THINKING -- the trap care-brief, devi-agent,
@@ -464,7 +560,20 @@ async function askClaude(units: Unit[]): Promise<Map<string, { whatHappened: str
     const m = /\[[\s\S]*\]/.exec(text);
     if (m) { try { parsed = JSON.parse(m[0]); } catch { /* fall through */ } }
   }
-  if (!Array.isArray(parsed)) throw new UpstreamError(502, "The model did not return a JSON array.");
+  /* ONE RETRY ON A PARSE FAILURE. Measured 2026-09-25: asking for flowing PROSE made the
+     model intermittently answer in prose instead of the JSON array -- twice in three calls
+     on one note, and the note in question was a caregiver-safety incident involving a
+     threat with a firearm. A failed call saves nothing, so the row degraded to "Could not
+     analyse this note automatically" and waited for a human to press Retry.
+     Retrying a GENERATE is safe in a way retrying a SEND is not: nothing has been written,
+     and the worst case is paying for the call twice. */
+  if (!Array.isArray(parsed)) {
+    if (attempt < 2) {
+      console.warn("[carealerts-summary] non-JSON answer, retrying once");
+      return await askClaude(units, attempt + 1);
+    }
+    throw new UpstreamError(502, "The model did not return a JSON array, on two attempts.");
+  }
 
   const want = new Set(units.map((u) => u.id));
   const out = new Map<string, { whatHappened: string[]; schedulerAction: string[] }>();
@@ -480,6 +589,219 @@ async function askClaude(units: Unit[]): Promise<Map<string, { whatHappened: str
     if (!whatHappened || !schedulerAction) continue;
     out.set(id, { whatHappened, schedulerAction });
   }
+
+  /* RETRY THE IDS THE MODEL SIMPLY LEFT OUT.
+     Measured 2026-09-25, and this is the failure that matters most. Jose Ortiz's
+     2026-09-20 note -- the one where he threatens to shoot the caregiver and swings a cue
+     stick -- was omitted from a VALID four-id array about half the time. Not a refusal, not
+     a parse error: the array came back well-formed with three of the four ids in it, so the
+     non-JSON retry above never fired, the row saved nothing, and the board degraded to
+     "Could not analyse this note automatically" on the single most serious alert it had.
+     The model quietly drops the hardest note in a batch.
+
+     So a missing id is retried once, alone -- a batch of one has no other note to lose it
+     behind. Safe for the same reason the parse retry is: nothing has been written yet. */
+  const missing = units.filter((u) => !out.has(u.id));
+  if (missing.length && attempt < 2) {
+    console.warn("[carealerts-summary] model omitted " + missing.length + " of " + units.length +
+      " id(s), retrying them alone: " + missing.map((u) => u.id).join(", "));
+    for (const u of missing) {
+      try {
+        const again = await askClaude([u], attempt + 1);
+        const got = again.get(u.id);
+        if (got) out.set(u.id, got);
+      } catch (e) {
+        /* One stubborn note must not cost the others their answers. */
+        console.warn("[carealerts-summary] retry failed for " + u.id + ": " + ((e as Error)?.message ?? "unknown"));
+      }
+    }
+  }
+  return out;
+}
+
+// --- the triage pass ---------------------------------------------------------------
+
+/* WHY THIS EXISTS, in one paragraph, because it is the expensive half of this file.
+
+   Until 2026-09-25 this function only ever saw notes that categorizeNote() had already
+   flagged by keyword. Measured on the live mirror: 747 notes, 90 flagged, 657 (88%)
+   never shown to the model at all. One of the 657 read "She has a lot of pain in her
+   ankle and leg! Her ankle is swollen, I applied pain cream!" -- nothing raised it.
+   CLAUDE.md records that a PAIN category was measured and REJECTED (41 fires, 5 real)
+   because a word list cannot separate new pain from four clients' chronic managed pain.
+   That separation is a judgement, so it is made here instead.
+
+   The keyword screen is kept as a FLOOR, not a gate: every unit the browser asks for is
+   still extracted exactly as before. This pass only ADDS. */
+
+const TRIAGE_PROMPT = [
+  "You are the alert triage for Devoted Care, a home-care agency in Ventura County.",
+  "",
+  "You are given EVERY caregiver shift note for one date. Decide which of them a scheduler",
+  "has to act on today, and say what happened and what to do about it.",
+  "",
+  "MOST SHIFTS RAISE NOTHING. That is the normal answer. A short list is a good list, and an",
+   "empty list is a good day. A long list is worse than useless: it buries the one note that",
+  "mattered. Returning [] is correct and expected on a quiet date.",
+  "",
+  "RAISE IT when the note shows something the OFFICE must do something about:",
+  "  - the client was hurt or something NEW appeared: a fall, an injury, new pain, new",
+  "    swelling, bleeding, a new sore, a burn",
+  "  - a real change from how this client usually is",
+  "  - aggression, a threat, or anything frightening toward the CAREGIVER",
+  "  - care refused, or care the caregiver could not give",
+  "  - the caregiver asked for help, raised a concern, or had to leave the house",
+  "  - a medication problem: missed, refused, run out, doubled, wrong",
+  "  - somebody outside the agency became involved: 911, paramedics, a nurse, a hospital,",
+  "    or a family member complaining about us",
+  "",
+  "DO NOT RAISE IT for:",
+  "  - AN ONGOING CONDITION BEING MANAGED AS USUAL. This is the most common mistake. A",
+  "    client with chronic wheezing who was given her breathing treatment is her care plan",
+  "    WORKING, not news. Using oxygen, having dementia, being on hospice, having a",
+  "    catheter, being incontinent: none of these is an alert for existing.",
+  "  - routine care of any kind, however much of it the note lists",
+  "  - one ordinary variation: a small meal, a restless night, one refused shower, one",
+  "    difficult transfer",
+  "  - SOMETHING THAT ALREADY RESOLVED WITH NOTHING LEFT TO DO. \"He was agitated at the",
+  "    start of the shift and calmed down after\" is a shift, not an alert.",
+  "  - anything you are guessing at, or would have to assume to make interesting",
+  "",
+  "YOU ARE SEEING ONE DAY, AND YOU DO NOT KNOW THIS CLIENT'S NORMAL. This is the trap that",
+  "matters most, because a long overnight log looks dramatic and may be exactly how this",
+  "client always is. So: only call something a CHANGE if the NOTE ITSELF says it is new,",
+  "different, worse, or unlike before. Never ask the scheduler to \"clarify whether this is",
+  "typical\" -- if you have to ask, you are not looking at evidence of a change, and a row",
+  "that asks the desk to work out whether there is a problem is worse than no row. A night",
+  "of frequent toileting, broken sleep, wandering or repeated questions is BASELINE for",
+  "several clients here and must not be raised on its own.",
+  "",
+  "THE TEST IS ONE QUESTION: would a scheduler pick up the phone today because of this?",
+  "If not, leave it out.",
+  "",
+  "AT MOST ONE ALERT PER NOTE, and only the most important thing in that note.",
+  "",
+  "CATEGORY: choose the single best key from this list. Use the key exactly as written:",
+  "CAT_LINES",                 /* replaced with the real key list in askTriage() */
+  "",
+  "OUTPUT: a JSON array and nothing else. No markdown, no code fence, no preamble.",
+  "One object per note you are raising -- and NO object for a note you are not:",
+  "[{\"id\":\"<the note id>\",\"catKey\":\"<a key from the list>\",\"whatHappened\":[\"...\"],\"schedulerAction\":[\"...\"]}]",
+  "Use the ids verbatim. Never invent an id. An empty array is a valid answer.",
+  "",
+  "  whatHappened     1 to " + MAX_WHAT + " short factual bullets, each under " + MAX_BULLET_CHARS + " characters.",
+  "                   THE FIRST BULLET MUST SAY WHAT HAPPENED, not who was told about it.",
+  "                   \"Family said they would call the doctor\" and \"caregiver notified the",
+  "                   family and was told to monitor hourly\" are reactions with the event",
+  "                   missing -- name the event first, then the reaction if it matters.",
+  "  schedulerAction  1 to " + MAX_ACTION + " short bullets: what the office does about THIS note.",
+  "",
+  "RULES:",
+  "- Use ONLY what the note says. Never infer a diagnosis, a cause, a severity or an outcome",
+  "  that was not written. If the note is vague, your bullets are vague.",
+  "- Never give medical advice and never suggest a treatment or a medication change.",
+  "- Do not copy the note's sentences. State the fact plainly in your own short wording.",
+  "- Notes may mix English and Tagalog, be lightly punctuated, typed on a phone, or contain",
+  "  obvious typos. Read the MEANING. \"he try to hot me me belt\" means he tried to hit the",
+  "  caregiver with a belt; report it as that.",
+  "- Contact details already read [phone number], [email address] or [link]. Do not mention",
+  "  those placeholders.",
+  "- Never name the caregiver or the client in a bullet. The row already shows both.",
+  "",
+  "WORKED EXAMPLES. Invented -- never reuse their wording, names or details:",
+  "",
+  "  RAISE. The note says: \"11am she said her ankle hurt a lot and it looked puffy, I put",
+  "  pain cream on it. She ate half her lunch.\"",
+  "    catKey          changeCondition",
+  "    whatHappened    New ankle pain with visible swelling; caregiver applied pain cream.",
+  "    schedulerAction Call the caregiver for detail and ask whether the family or nurse knows.",
+  "",
+  "  DO NOT RAISE. The note says: \"Mild wheezing again this morning, gave her the breathing",
+  "  treatment and she settled. Oxygen back on. Ate all her breakfast.\"",
+  "    Nothing. This is her ongoing condition being managed exactly as usual.",
+  "",
+  "  DO NOT RAISE. The note says: \"Helped with a shower, made lunch, we watched TV, changed",
+  "  briefs twice, she slept well.\"",
+  "    Nothing. A routine shift.",
+].join("\n");
+
+/* One block per note. The id is the BROWSER form -- see browserNoteId() -- because that is
+   what every alert in this system is keyed by, and a triage-found alert has to line up with
+   careAlertOverrides in index.html like any other. */
+function triageBlock(n: NoteRow, id: string): string {
+  return "### " + id + "\nFull note:\n" + redact(cleanNote(n.note)).slice(0, MAX_NOTE_CHARS);
+}
+
+type Found = { id: string; catKey: string; whatHappened: string[]; schedulerAction: string[] };
+
+async function askTriage(day: string, notes: NoteRow[], attempt = 1): Promise<Found[]> {
+  const catLines = Object.keys(CATEGORIES).map((k) => "  " + k + "  (" + CATEGORIES[k].label + ")").join("\n");
+  const system = TRIAGE_PROMPT.replace("CAT_LINES", catLines);
+  const content = "Date: " + day + "\nNotes on this date: " + notes.length + "\n\n" +
+    notes.map((n) => triageBlock(n, browserNoteId(n.visit_id))).join("\n\n");
+
+  const body: Record<string, unknown> = {
+    model: MODEL,
+    max_tokens: 16000,          // INCLUDES THINKING -- see askClaude
+    system,
+    messages: [{ role: "user", content }],
+  };
+  if (SEND_EFFORT) body.output_config = { effort: EFFORT };
+
+  const r = await fetch(API, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-api-key": ANTHROPIC_KEY, "anthropic-version": ANTHROPIC_VERSION },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+  });
+  const data = await r.json().catch(() => null) as any;
+  if (!r.ok) throw new UpstreamError(502, "Anthropic: " + (data?.error?.message || ("HTTP " + r.status)));
+  if (data?.stop_reason === "refusal") throw new UpstreamError(502, "The model declined to read these notes.");
+  const text = ((data?.content ?? []) as any[]).filter((p) => p?.type === "text").map((p) => p.text || "").join("").trim();
+  console.info("[carealerts-summary] TRIAGE " + day + " notes=" + notes.length +
+    " in=" + (data?.usage?.input_tokens ?? "?") + " out=" + (data?.usage?.output_tokens ?? "?"));
+  if (!text) {
+    throw new UpstreamError(502, data?.stop_reason === "max_tokens"
+      ? "The triage pass spent its whole budget thinking and returned no text."
+      : "The triage pass returned no text (stop_reason: " + String(data?.stop_reason ?? "unknown") + ").");
+  }
+
+  let parsed: any = null;
+  try { parsed = JSON.parse(text); } catch {
+    const m = /\[[\s\S]*\]/.exec(text);
+    if (m) { try { parsed = JSON.parse(m[0]); } catch { /* fall through */ } }
+  }
+  /* An unparseable answer is NOT an empty date -- throwing keeps the marker unwritten so
+     the next open tries again, instead of recording "nothing found" forever. */
+  if (!Array.isArray(parsed)) {
+    if (attempt < 2) {
+      console.warn("[carealerts-summary] triage gave a non-JSON answer, retrying once");
+      return await askTriage(day, notes, attempt + 1);
+    }
+    throw new UpstreamError(502, "The triage pass did not return a JSON array, on two attempts.");
+  }
+
+  /* Defensive exactly as askClaude is: an unknown id, an id outside this date, an unknown
+     category, a repeat, or bullets that fail the table's CHECK constraints are dropped.
+     Losing one finding beats losing the date. */
+  const known = new Map<string, NoteRow>();
+  notes.forEach((n) => known.set(browserNoteId(n.visit_id), n));
+  const seen = new Set<string>();
+  const out: Found[] = [];
+  let bad = 0;
+  for (const item of parsed) {
+    const id = String(item?.id ?? "");
+    const catKey = String(item?.catKey ?? "");
+    if (!known.has(id) || seen.has(id) || !CATEGORIES[catKey]) { bad++; continue; }
+    const what = clampBullets(item?.whatHappened, MIN_WHAT, MAX_WHAT);
+    const act = clampBullets(item?.schedulerAction, MIN_ACTION, MAX_ACTION);
+    if (!what || !act) { bad++; continue; }
+    seen.add(id);
+    out.push({ id, catKey, whatHappened: what, schedulerAction: act });
+    if (out.length >= MAX_TRIAGE_FIND) break;
+  }
+  if (bad) console.warn("[carealerts-summary] triage dropped " + bad + " malformed finding(s)");
+  if (parsed.length > MAX_TRIAGE_FIND) console.warn("[carealerts-summary] triage capped at " + MAX_TRIAGE_FIND + " of " + parsed.length);
   return out;
 }
 
@@ -536,6 +858,84 @@ async function summariseAlerts(day: string, wanted: WantUnit[]): Promise<Result>
     if (f) { out.units.push({ id: u.id, whatHappened: f.whatHappened, schedulerAction: f.schedulerAction }); continue; }
     const row = current(saved.get(u.id), u) ? saved.get(u.id) : undefined;
     if (row) out.units.push({ id: u.id, whatHappened: row.what_happened, schedulerAction: row.scheduler_action });
+  }
+
+  /* ---------- THE TRIAGE PASS ----------
+
+     Everything above answers the browser's keyword screen. This reads the WHOLE date and
+     reasons about every note, because the screen is a floor and not a gate: 657 of 747
+     live notes fire no keyword and were never shown to the model at all.
+
+     It runs ONCE per date per model+prompt (the care_alert_triage marker). On any later
+     open the findings come back from care_alert_summaries, read by note_id, with no model
+     call -- the same "written once, read back forever" rule as the rest of this screen. */
+  const dayNotes: NoteRow[] = [];
+  const seenVisit = new Set<string>();
+  /* notesForDay keys every note TWICE, by visit_id and by browserNoteId, so iterating the
+     map without this would send every note to the model twice. */
+  for (const n of notes.values()) {
+    if (seenVisit.has(n.visit_id)) continue;
+    seenVisit.add(n.visit_id);
+    dayNotes.push(n);
+  }
+  const askedIds = new Set(units.map((u) => u.id));
+
+  if (dayNotes.length) {
+    const done = await triageDone(day);
+    if (done) {
+      /* Read back whatever the pass found last time. A row whose id the browser already
+         asked about is skipped -- it is in out.units already. */
+      const rows = await rowsForVisits(dayNotes.map((n) => n.visit_id));
+      for (const row of rows.values()) {
+        if (askedIds.has(row.id) || !CATEGORIES[row.cat_key]) continue;
+        if (row.model !== MODEL || row.prompt_version !== TRIAGE_VERSION) continue;
+        out.units.push({
+          id: row.id, whatHappened: row.what_happened, schedulerAction: row.scheduler_action,
+          found: true, catKey: row.cat_key, clientId: row.client_id,
+        });
+      }
+      out.triaged = true;
+      out.found = out.units.filter((u) => u.found).length;
+    } else if (genCapped()) {
+      /* Out of model budget for this hour: the keyword answers above still stand, and the
+         marker stays unwritten so a later open triages the date properly. */
+      out.triaged = false;
+    } else {
+      const findings = await askTriage(day, dayNotes);
+      const byBrowserId = new Map<string, NoteRow>();
+      dayNotes.forEach((n) => byBrowserId.set(browserNoteId(n.visit_id), n));
+      const rows: Record<string, unknown>[] = [];
+      for (const fd of findings) {
+        const id = fd.id + "__" + fd.catKey;
+        if (askedIds.has(id)) continue;             // the keyword screen already had it
+        const note = byBrowserId.get(fd.id);
+        if (!note) continue;                        // askTriage validated this, belt and braces
+        rows.push({
+          id, note_id: note.visit_id, cat_key: fd.catKey, client_id: note.client_id,
+          what_happened: fd.whatHappened, scheduler_action: fd.schedulerAction,
+          source_sig: sig([note.visit_id, cleanNote(note.note)]),
+          /* TRIAGE_VERSION, not PROMPT_VERSION: this row was written by the TRIAGE prompt,
+             so the triage version is what should invalidate it. Storing the extraction
+             version here meant a PROMPT_VERSION bump orphaned every triage row -- the
+             read-back filtered them out while the marker still said the date was done, so
+             the findings vanished silently and never regenerated. */
+          model: MODEL, prompt_version: TRIAGE_VERSION, found_by: "triage",
+        });
+        out.units.push({
+          id, whatHappened: fd.whatHappened, schedulerAction: fd.schedulerAction,
+          found: true, catKey: fd.catKey, clientId: note.client_id,
+        });
+      }
+      const stored = rows.length ? await dbPut(rows) : true;
+      /* The marker is written even when nothing was found -- that is what stops a quiet
+         date paying for the model on every open. It is NOT written if the save failed,
+         because then the findings exist nowhere and must be regenerated. */
+      if (stored) await markTriaged(day, dayNotes.length, rows.length);
+      out.generated += stored ? rows.length : 0;
+      if (!stored && rows.length) out.saveFailed = (out.saveFailed ?? 0) + rows.length;
+      out.triaged = stored;
+      out.found = rows.length;
+    }
   }
   return out;
 }
@@ -600,7 +1000,12 @@ Deno.serve(async (req) => {
     seen.add(id);
     wanted.push({ noteId, catKey });
   }
-  if (!wanted.length) return json(cors, 200, { ok: true, day, units: [], generated: 0, reused: 0, dropped: rawUnits.length, model: MODEL });
+  /* NO EARLY RETURN ON AN EMPTY LIST since 2026-09-25. It used to answer "nothing to do"
+     here, which was the whole gate: a date where the keyword screen flagged nothing never
+     reached the model at all, and 657 of 747 live notes fire no keyword. An empty `units`
+     is now the NORMAL request on a quiet date -- the triage pass in summariseAlerts() is
+     the reason to call this function at all. index.html had the same early return in
+     CALERT.load() and it went at the same time; one without the other fixes nothing. */
 
   const key = day + "|" + [...seen].sort().join(",");
   try {
