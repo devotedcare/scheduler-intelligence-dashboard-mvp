@@ -19564,7 +19564,7 @@ function careDocIssuesForDay(dateStr){
 }
 
 /* =========================================================
-   CNSUM  —  the AI summary behind "Yesterday's Summary"
+   CNSUM  —  the AI summary behind "Care Notes Summary"
    ---------------------------------------------------------
    Section 1 of this page used to print the caregiver's raw AxisCare
    note under a heading that said Summary, which is the one thing a
@@ -20200,7 +20200,7 @@ function viewCareNotes(){
 
   /* Clients Needing Attention leads the page — the scheduler should
      understand who needs a look and why before anything else renders.
-     Yesterday's Summary and Care Note Issues follow, in that order; Care
+     Care Notes Summary and Care Note Issues follow, in that order; Care
      Note Issues is documentation quality (CARE_CATEGORIES prio 'low'),
      genuinely the least urgent of the three, so it belongs last. */
   return `${careDayNav(dateStr)}
@@ -20210,7 +20210,7 @@ function viewCareNotes(){
      <div class="cd-flist">${concernRows}</div>
    </div>
    <div class="ws-card cd-summary">
-     <div class="cd-shead"><span class="cd-stitle">${ic('forms',16)} Yesterday's Summary</span><span class="cd-ssub">Summarised by Devi from the caregivers’ AxisCare notes — AM and PM for every client with a note this day. Click "View Original Notes" for what they actually wrote.</span></div>
+     <div class="cd-shead"><span class="cd-stitle">${ic('forms',16)} Care Notes Summary</span><span class="cd-ssub">Summarised by Devi from the caregivers’ AxisCare notes — AM and PM for every client with a note this day. Click "View Original Notes" for what they actually wrote.</span></div>
      ${cnSumStrip(dateStr)}
      ${rows.length?'<div class="cd-thead"><span>Client</span><span>AM Shift</span><span>PM Shift</span><span>Action</span></div>':''}
      <div class="cd-slist">${summaryRows}</div>

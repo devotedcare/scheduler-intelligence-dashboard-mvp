@@ -112,7 +112,7 @@ const SEND_EFFORT = !!EFFORT && !/haiku/i.test(MODEL);
       through her morning routine"). It now writes a neutral, mostly
       passive shift report and leads with whatever the scheduler needs to
       know, ahead of routine care. Asked for by Mitch, 2026-09-25. */
-const PROMPT_VERSION = 7;
+const PROMPT_VERSION = 9;
 
 const API = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION = "2023-06-01";
@@ -311,6 +311,10 @@ type Row = {
 type Unit = {
   key: string; clientId: number; clientName: string; shift: "am" | "pm";
   notes: Note[]; sig: string;
+  /* sig fingerprints the visit ids AND the text, so two visits carrying the same
+     pasted note have DIFFERENT sigs. textSig fingerprints the text alone, which is
+     what identifies a block the model would be asked about twice. */
+  textSig: string;
 };
 type DayResult = {
   day: string;
@@ -404,7 +408,7 @@ function unitsFor(day: string, notes: Note[]): Unit[] {
     const key = day + "|" + n.client_id + "|" + shift;
     let u = by.get(key);
     if (!u) {
-      u = { key, clientId: Number(n.client_id), clientName: String(n.client_name || "Client"), shift, notes: [], sig: "" };
+      u = { key, clientId: Number(n.client_id), clientName: String(n.client_name || "Client"), shift, notes: [], sig: "", textSig: "" };
       by.set(key, u);
     }
     u.notes.push(n);
@@ -418,6 +422,7 @@ function unitsFor(day: string, notes: Note[]): Unit[] {
     u.notes.sort((a, b) => String(a.visit_at).localeCompare(String(b.visit_at)) ||
       String(a.visit_id).localeCompare(String(b.visit_id)));
     u.sig = sig(u.notes.map((n) => n.visit_id + "\u0001" + cleanNote(n.note)));
+    u.textSig = sig(u.notes.map((n) => cleanNote(n.note)));
   }
   /* client name then AM before PM, so the model reads a client's day in order */
   list.sort((a, b) => a.clientName.localeCompare(b.clientName) || a.shift.localeCompare(b.shift));
@@ -444,7 +449,7 @@ const PROMPT = [
   "FIVE sentences and 75 words for a block that holds two or more notes.",
   "",
   "OUTPUT: a JSON array and nothing else. No markdown, no code fence, no preamble. One object per",
-  'block, in the order given: [{"id":"<the block id>","summary":"<the summary>"}]',
+  "block, in the order given: [{\"id\":\"<the block id>\",\"summary\":\"<the summary>\"}]",
   "Every id you were given must appear exactly once. Use the ids verbatim.",
   "",
   "EVERY BLOCK CARRIES ITS OWN WORD BUDGET, on a \"Budget:\" line in its header. Honour that",
@@ -452,33 +457,95 @@ const PROMPT = [
   "client with one block gets the lot and a client with an AM and a PM block gets half each.",
   "Do not borrow from the other block. One sentence is the normal shape for a half-share.",
   "",
-  "This is a SCAN, not a record. A scheduler reads fifteen clients before 9am and can open any",
-  "original note in one click, so your job is what GENERALLY happened -- not what happened.",
-  "Twenty words saying the day was ordinary beat forty listing every task in it. Count the",
-  "words before you answer. If you are over, cut care tasks first and never cut something the",
-  "office has to act on. Plain prose -- no headings, labels, bullets or quotation marks.",
+  "SHORT AND SPECIFIC ARE NOT OPPOSITES, and you need both. Short means mentioning FEWER",
+  "things. It NEVER means naming the same things more vaguely.",
   "",
-  "HOW IT SHOULD READ. A concise report TO THE SCHEDULER, not a story about the caregiver.",
-  "The page already prints who the caregiver was and which client this is, directly above",
-  "your text -- so never name the caregiver and never make the caregiver the subject of a",
-  "sentence (\"Emelina helped Brenda through her morning routine\" is exactly what NOT to",
-  "write). Write about WHAT HAPPENED instead, the way one line of a shift report leads into",
-  "the next: mostly passive or subject-less (\"Morning routine completed\", \"Client was found",
-  "...\", \"Medications given\"), never \"the caregiver did X\" as a stand-in either. Flowing",
-  "prose that GROUPS related care -- not a timestamped log, not a checklist. Routine tasks",
-  "belong together in one clause; they do not each need their own sentence.",
+  "NEVER name a CATEGORY of care in place of the care itself. These are banned outright:",
+  "\"morning routine\", \"evening routine\", \"night routine\", \"personal care\", \"home care\",",
+  "\"pet care\", \"household tasks\", \"light housework\", \"care provided\", \"care given\",",
+  "\"care completed\", \"assistance as needed\", \"assisted as needed\". Write the actual thing:",
+  "  NOT \"pet and home care completed\"",
+  "  BUT \"Caregiver fed the birds, cleaned the litter box and swept the porch\"",
+  "  NOT \"morning routine completed with shower\"",
+  "  BUT \"Caregiver helped Client shower, then dressed her and made breakfast\"",
+  "A scheduler cannot act on a category. If it will not all fit, drop the least important",
+  "item COMPLETELY and write what is left concretely -- never compress by going vaguer.",
   "",
-  "These two are illustrations, not real notes -- never reuse their wording, details or times:",
+  "A scheduler reads fifteen clients before 9am and can open any original note in one click,",
+  "so a quiet day should still be short. Count the words before you answer. If you are over,",
+  "cut care tasks first and never cut something the office has to act on. Plain prose -- no",
+  "headings, labels, bullets or quotation marks.",
   "",
-  "  Routine, nothing to flag:   Morning routine completed, including a shower, meals and",
-  "                              light housework. Physical therapy exercises were completed",
-  "                              with side steps and walking practice. Family visited in the",
+  "HOW IT SHOULD READ. A short handover report TO THE SCHEDULER, in plain sentences that say",
+  "who did what.",
+  "",
+  "NEVER WRITE A PERSONAL NAME for the caregiver or the client -- the page already prints both",
+  "directly above your text, so a name there is wasted words. Write the ordinary words",
+  "\"Caregiver\" and \"Client\" instead, and use them as real subjects:",
+  "  \"Caregiver helped Client shower and dress, then made her breakfast.\"",
+  "  \"Client refused a shower but let Caregiver change her clothes.\"",
+  "  \"Caregiver took Client to the farmers market and made lunch when they got back.\"",
+  "That is the voice the desk asked for. Do NOT retreat into subject-less fragments like",
+  "\"Morning routine completed\" or \"Medications given\" -- a whole summary written that way",
+  "reads as a checklist and tells the scheduler less than it looks like it does.",
+  "",
+  "Not every sentence needs a subject, and repeating \"Caregiver ... Caregiver ... Caregiver\"",
+  "at the head of every sentence is worse than varying it -- join clauses with \"then\" and",
+  "\"and\", and let the client be the subject when the client is who acted (\"Client slept",
+  "through\", \"Client ate almost nothing at lunch\"). Flowing prose that groups related care --",
+  "not a timestamped log, not a checklist.",
+  "",
+  "NEVER SPEND A CLAUSE ON THE SHIFT WINDOW ITSELF. \"Evening and overnight care included...\",",
+  "\"Overnight:\", \"Caregiver cared for Client through the evening and night\" -- the column this",
+  "lands in is already headed AM Shift or PM Shift, so a clause that only names the window",
+  "says nothing. Open with something that HAPPENED.",
+  "Saying WHEN something happened is fine where it carries information -- \"woke in the night\",",
+  "\"refused dinner\", \"settled by morning\". What is banned is a phrase about the window with no",
+  "action in it.",
+  "",
+  "AND WRITE NO NUMBERS -- this is the rule most often lost, so it is repeated here beside",
+  "the register and again in RULES below. No clock times, no counts, no volumes, no doses.",
+  "\"woke around 3:00 AM\" is \"woke in the night\"; \"fed at 9:20 PM and 3:30 AM\" is \"fed",
+  "twice overnight\"; \"three brief changes\" is \"changed several times\". SPELLING A NUMBER OUT",
+  "DOES NOT MAKE IT ALLOWED -- \"at three o'clock\" and \"bedtime at eleven\" are clock times and",
+  "are banned exactly as the digits are. The one exception is a figure somebody REACTED to,",
+  "and it is spelled out in RULES.",
+  "",
+  "TWO CLIENTS IN ONE BLOCK. Most blocks are one person, and \"Client\" is right for them.",
+  "A COUPLE is one block with two people in it -- there \"the client\" is wrong and confusing,",
+  "so use the first names the note uses and say which of them each thing happened to.",
+  "",
+  "These are illustrations, not real notes -- never reuse their wording, details or times:",
+  "",
+  "  Routine, nothing to flag:   Caregiver helped Client shower and dress, then made",
+  "                              breakfast and washed up afterwards. They did side-step and",
+  "                              walking exercises together. Both sons visited in the",
   "                              afternoon.",
   "",
-  "  Needs a scheduler's eye:    Client was anxious and perseverating on waking, with mild",
-  "                              wheezing and a pale complexion that did not resolve after a",
-  "                              breathing treatment. Abdomen was distended. A heating pad was",
-  "                              applied and the visiting nurse assessed the catheter.",
+  "  Needs a scheduler's eye:    Client woke anxious and kept repeating herself, wheezing and",
+  "                              pale, and a breathing treatment did not settle it. Her",
+  "                              abdomen was distended, so Caregiver used a heating pad and",
+  "                              the visiting nurse checked the catheter.",
+  "",
+  "  A couple, one block:        Caregiver gave Ambrose his laxative and took both of them to",
+  "                              a nail appointment. Winifred had a sponge bath, and Caregiver",
+  "                              changed briefs for both.",
+  "",
+  "  NOT this -- the window named, then the clock:",
+  "                              Evening and overnight care included peri-care and brief",
+  "                              changes. Client woke around 1:15 AM when Ensure was",
+  "                              offered, and was ready for breakfast by 7:30 AM.",
+  "  The same shift, written right:",
+  "                              Caregiver gave peri-care and changed briefs. Client woke once",
+  "                              in the night and took Ensure, then slept until morning.",
+  "",
+  "  NOT this -- a category instead of the care:",
+  "                              Pet and home care completed. Evening routine included lotion",
+  "                              and oxygen setup.",
+  "  The same shift, written right:",
+  "                              Caregiver fed the birds, cleaned the litter box and swept the",
+  "                              porch, then massaged Client's legs with lotion and set up her",
+  "                              oxygen for the night.",
   "",
   "PRIORITISE, in this order, and lead with whichever of these the notes actually contain:",
   "1. a change in the client's condition, or anything unusual the caregiver observed",
@@ -501,11 +568,12 @@ const PROMPT = [
   "  was not written. If the note is vague, your summary is vague -- do not improve it.",
   "- Never give medical advice and never suggest a treatment or a medication change.",
   "- Keep medication names and doses only where the note is reporting what happened with them",
-  '  (refused, vomited, ran out). Do not list a routine medication pass beyond "medications given".',
-  "- NEVER name the caregiver, by first name or otherwise, and never write \"the caregiver\" as",
-  "  a stand-in subject either -- that identity is already shown separately, above your text.",
-  "  A family member, nurse or doctor the note mentions may be referred to by role (\"the",
-  "  nurse\", \"her son\") but never invent one who is not in the note.",
+  "  (refused, vomited, ran out). Do not list a routine medication pass beyond \"medications given\".",
+  "- NEVER write the caregiver's or the client's personal NAME -- both are already shown",
+  "  above your text. Use the plain words \"Caregiver\" and \"Client\", and use them as subjects.",
+  "  The ONE exception is a couple, below. A family member, nurse or doctor the note mentions",
+  "  may be referred to by role (\"the nurse\", \"her son\") but never invent one who is not in",
+  "  the note.",
   "- WRITE NO NUMBERS. No clock times, no vital signs, no blood sugars, no intake or output",
   "  volumes, no doses, no counts of brief changes, bathroom trips or repositionings, no menu",
   "  quantities. The scheduler cannot act on a reading and the note behind the button already",
@@ -538,8 +606,13 @@ const PROMPT = [
 function blockFor(u: Unit, share: number): string {
   const head = "### " + u.key + "\n" +
     "Client: " + u.clientName + "\n" +
+    /* NO GLOSS ON THE PM WINDOW. This line used to read "PM (2:00 PM - 6:00 AM,
+       evening and overnight)" -- handing the model, in the user message inches above the
+       notes, the exact phrase the system prompt forbids it to open with. All 7 of the
+       live rows that opened "Evening and overnight care included..." were PM blocks. The
+       hours say what the window is; the prompt says what it covers. */
     "Shift: " + (u.shift === "am" ? "AM (6:00 AM - 2:00 PM)"
-                                  : "PM (2:00 PM - 6:00 AM, evening and overnight)") + "\n" +
+                                  : "PM (2:00 PM - 6:00 AM)") + "\n" +
     "Budget: " + share + " words\n";
   const body = u.notes.map((n) => {
     /* FIRST NAME, from care_notes.caregiver_name -- the agency's own spelling.
@@ -560,11 +633,29 @@ async function askClaude(day: string, units: Unit[]): Promise<Map<string, string
   units.forEach((u) => blocks.set(u.clientId, (blocks.get(u.clientId) ?? 0) + 1));
   const share = new Map<number, number>();
   blocks.forEach((n, id) => share.set(id, Math.max(15, Math.round(DAY_BUDGET_WORDS / n / 5) * 5)));
+  /* A caregiver sometimes pastes the SAME note onto both of a client's visits for a
+     date -- 13 client-days in the live mirror, 6% of the two-block ones, six clients.
+     Handed that daytime note under a heading reading "PM (2:00 PM - 6:00 AM, evening and
+     overnight)", the model invents an overnight to fill the heading, and has written
+     summaries that CONTRADICT the note it was given. So ask once per distinct note text
+     and copy the answer to its twins: that cannot fabricate, it is what the page showed
+     anyway whenever this behaved, and it costs fewer tokens. A prompt rule was tried
+     first and held in one candidate but not the next -- the wrong kind of guarantee for
+     invented clinical content. The share above is deliberately still computed from the
+     REAL block count, so collapsing changes no summary's length. */
+  const twins = new Map<string, Unit[]>();
+  for (const u of units) {
+    const k = u.clientId + "\u0001" + u.textSig;
+    const g = twins.get(k);
+    if (g) g.push(u); else twins.set(k, [u]);
+  }
+  const send = [...twins.values()].map((g) => g[0]);
+
   const content =
     "Date: " + new Date(laMidnightUtc(day) + 12 * 3600000).toLocaleDateString("en-US",
       { timeZone: TZ, weekday: "long", month: "long", day: "numeric", year: "numeric" }) + "\n" +
-    "Blocks to summarise: " + units.length + "\n\n" +
-    units.map((u) => blockFor(u, share.get(u.clientId) ?? DAY_BUDGET_WORDS)).join("\n\n");
+    "Blocks to summarise: " + send.length + "\n\n" +
+    send.map((u) => blockFor(u, share.get(u.clientId) ?? DAY_BUDGET_WORDS)).join("\n\n");
 
   /* max_tokens INCLUDES THINKING. Haiku does not think unless asked, but a
      CARENOTES_MODEL switch to Sonnet 5 or Opus 5 does by default, and a budget
@@ -610,7 +701,7 @@ async function askClaude(day: string, units: Unit[]): Promise<Map<string, string
   }
   if (!Array.isArray(parsed)) throw new UpstreamError(502, "The model did not return a JSON array of summaries.");
 
-  const want = new Set(units.map((u) => u.key));
+  const want = new Set(send.map((u) => u.key));
   const out = new Map<string, string>();
   for (const item of parsed) {
     const id = String(item?.id ?? "");
@@ -625,6 +716,15 @@ async function askClaude(day: string, units: Unit[]): Promise<Map<string, string
        summary saved forever is worse than none, and the next open tries again. */
     if (!s || s.length > MAX_CHARS) continue;
     out.set(id, s);
+  }
+
+  /* every twin gets the answer its representative got. A representative the model
+     dropped leaves its whole group unsummarised, which is the existing behaviour for a
+     dropped block: that block alone falls back to its raw note. */
+  for (const group of twins.values()) {
+    const s = out.get(group[0].key);
+    if (s === undefined) continue;
+    for (let i = 1; i < group.length; i++) out.set(group[i].key, s);
   }
   return out;
 }

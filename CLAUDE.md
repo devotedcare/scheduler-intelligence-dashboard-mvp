@@ -132,13 +132,38 @@ npx supabase functions deploy <name> --project-ref gdzgoyawavffjdjpjbfz --no-ver
 > Tokens). A genuinely expired one fails late: the upload starts, then
 > `unexpected deploy status 401`.
 
+> **WHEN THE ANTHROPIC KEY IS OUT OF BUDGET.** It happened on 2026-09-24 — *"You have
+> reached your specified workspace API usage limits"* — and **cleared on 2026-09-25,
+> days before the reset date the error itself stated**. So test the key before believing
+> a stated reset date, and before planning around one:
+>
+> ```
+> curl -s -X POST https://api.anthropic.com/v1/messages \
+>   -H "x-api-key: $CLAUDE_API_KEY" -H "anthropic-version: 2023-06-01" \
+>   -H "content-type: application/json" \
+>   -d '{"model":"claude-haiku-4-5","max_tokens":8,"messages":[{"role":"user","content":"hi"}]}'
+> ```
+>
+> It is one key for the whole workspace, so while it is out **every AI feature degrades
+> to its designed fallback**: an unsummarised date shows the **raw notes**, *Clients
+> Needing Attention* shows its retry strip, *Summary by Devi* fails on a conversation
+> nobody has opened before, and Ask Devi falls back to the local router. **Saved rows are
+> unaffected**, because reading one makes no model call. Texting still works:
+> `ctCareReady()` counts an error as a *finished* answer, so only *still coming* blocks
+> Send, and the weekend template goes out without the care-needs line, saying why.
+>
+> **Never bump a `PROMPT_VERSION` while the key is out.** It marks every saved row stale,
+> and each regeneration then fails — dropping the WHOLE Care Notes board to raw notes
+> rather than just the one date somebody happened to open.
+
 **A Supabase function can look deployed and not be.** Netlify going green says
 nothing about it. If `index.html` lands first, the feature shows its error state
 — which is always designed to be the pre-feature page, not a break.
 
 `npx supabase functions list --project-ref gdzgoyawavffjdjpjbfz` is the check,
 and it is worth running after any merge that adds one. **`caregiver-about-summary`
-is still unrun as of 2026-09-24** — merged that day, called from a live
+is still unrun as of 2026-09-25** — re-verified that day against the live
+project: seven functions are deployed and this is the missing eighth. Called from a live
 `index.html`, so the caregiver *About* summary falls back to its one-line
 sentence. It needs `supabase/caregiver-about-summaries.sql` run first, then the
 deploy. (`carealerts-summary` was in the same state and was fixed and deployed
@@ -591,9 +616,15 @@ cannot even *read* `care_notes`: the browser reads it through `app-gate`.
 ## The day review is SUMMARISED — `carenotes-summary`
 
 The Care Notes page opens on one date and shows one row per client with an **AM
-Shift** and a **PM Shift** column. Those cells used to print the caregiver's raw
-AxisCare note verbatim under a card headed **Yesterday's Summary** — which is the
-one thing a summary section is not.
+Shift** and a **PM Shift** column. The card is headed **Care Notes Summary**. Those
+cells used to print the caregiver's raw AxisCare note verbatim under a heading that
+said Summary — which is the one thing a summary section is not.
+
+> It was called **Yesterday's Summary** until 2026-09-25, when Mitch had it renamed:
+> the page opens on yesterday, but the day arrows reach any date, so the old name was
+> wrong on every date but one. Two comments in `index.html` name the section as
+> well and were renamed with it — `grep` for the card by its new name and you find all
+> three.
 
 > The unit is **client × date × shift** throughout — the function calls it a
 > *block* and that is what `blockFor()` builds. Only the presentation changed on
@@ -614,6 +645,34 @@ request**, about **1.8¢**, and the entire history backfills for under 50 cents.
 Asking per client-shift would be ~26 requests for the same tokens and would
 throw away the one thing a whole-date pass can see: **the same client's AM and
 PM read together**, and one client's day beside the next.
+
+### Two blocks with the SAME note text are asked ONCE
+
+A caregiver sometimes pastes the same note onto both of a client's visits for a date.
+Measured on the live mirror: **215 client-days have both an AM and a PM block, and 13 of
+them (6%) carry byte-identical note text in both** — six different clients, recurring
+weekly.
+
+Handed that daytime note under a heading reading *"PM (2:00 PM – 6:00 AM, evening and
+overnight)"*, the model **invents an overnight to fill the heading**. Measured on one
+client: *"Client slept through the night, changed and repositioned as needed… No pad
+leakage overnight… no wheezing"* — against a note that describes a day shift, records
+urine in the pad, and records mild wheezing. Invented **and contradictory** clinical
+content, written into a clinical record.
+
+`askClaude()` therefore groups units by `clientId + textSig`, sends **one block per
+distinct note text**, and copies the answer to its twins. Three things about it:
+
+- `textSig` fingerprints the **note text alone**. `sig` includes the visit ids, so two
+  visits carrying the same pasted note have *different* sigs and would never group.
+- **A prompt rule was tried first and is not enough.** It fixed the case in one candidate
+  and failed in the next — the wrong kind of guarantee for invented clinical content.
+  Asking once and copying **cannot** fabricate. Same principle as the word budget being
+  divided in code because the model cannot divide: deterministic beats instructed.
+- Each twin still gets **its own row**, with its own `source_sig` and `source_count`, so
+  the browser's raw-note fallback is unaffected and a note edited on one visit alone
+  still regenerates just that row. The word budget is still computed from the **real**
+  block count, so collapsing changes no summary's length.
 
 ### Written once, read back forever
 
@@ -693,7 +752,7 @@ empty.
 `escText()`, never `esc()`. These are written by caregivers in AxisCare — people
 outside the desk — and the model's output is arbitrary text too.
 
-`PROMPT_VERSION` is **6**. The rules that are load-bearing rather than style,
+`PROMPT_VERSION` is **9**. The rules that are load-bearing rather than style,
 each pinned by what a scheduler would do with a wrong one:
 
 - **Never infer a diagnosis, a cause, a severity or an outcome that was not
@@ -704,16 +763,52 @@ each pinned by what a scheduler would do with a wrong one:
   (refused, vomited, ran out). A routine pass is "medications given".
 - A note that says **essentially nothing** is reported as saying nothing.
 - **A block may hold more than one note.** The PM window runs 14:00–06:00, so an
-  evening and an overnight caregiver both write into it; every note must be
-  covered and each caregiver named. v1 described a block as one caregiver's one
-  visit and lost a caregiver's whole shift.
-- **The caregiver is the subject** — *"Edna watered the plants"*, not
-  *"Client was assisted"*. Her first name comes from `care_notes.caregiver_name`,
-  the agency's own spelling, never from inside the note body (one caregiver was
-  *"Aliyah"* in one block and *"Aaliyah"* in the next).
-- **Never characterise the caregiver.** *"Edna reports very minimal detail"* is a
-  performance judgement, model-written, saved in a clinical table. The note may
-  be thin — say that about the NOTE.
+  evening and an overnight caregiver both write into it. **Every note must be
+  covered** — v1 described a block as one caregiver's one visit and lost a
+  caregiver's whole shift. Since v8 the block does **not** say how many people
+  wrote it or separate their visits out: it reads as one shift. A block holding
+  two or more notes is allowed five sentences and 75 words instead of the usual.
+- **No personal NAMES, but "Caregiver" and "Client" ARE the subjects.** This line has
+  moved twice in two days and the current shape is the one that survives both
+  complaints, so read the whole arc before changing it:
+  - v4 made the caregiver the subject **by name** — *"Emelina helped Brenda through her
+    morning routine"*. Mitch: both names are redundant, because the row already prints
+    **Caregiver: <name>** above the text and the row itself IS the client.
+  - v8 therefore banned the names **and** the stand-in subject, asking for passive or
+    subject-less prose. Mitch, reading that on the live board: *"it is now too vague to
+    understand… it doesn't show what the caregiver did."* Measured, he was right —
+    **80% of 663 sentences had no human subject** and **33% of blocks** carried an
+    umbrella phrase like *"morning routine"* or *"household tasks"*.
+  - v9 keeps the NAME ban and drops the SUBJECT ban: *"Caregiver helped Client shower
+    and dress, then made breakfast"*. That is close to Mitch's own wording. Measured
+    over the same six dates: **subject-less 80% → 37%, umbrella 33% → 4%.**
+  **Claude: do not restore either ban.** The name ban is Mitch's; the subject ban was
+  a wrong reading of it, and it is what produced the vagueness. A run of transitive
+  acts sharing one agent has no natural agentless English form, so forbidding the
+  subject forces the model to nominalise — which is the vagueness, grammatically.
+- **An act belongs to whoever did it.** Mandating "Caregiver" as subject pushes the
+  model to make the caregiver the agent of everything, including the CLIENT's own acts —
+  a note saying the client let the cat out came back as *"Caregiver let the cat out"*.
+  The prompt says to use Client as the subject where Client is who acted.
+- **A COUPLE keeps both first names.** *"The client"* is wrong and confusing for two
+  people. One client on this account is a couple — Duane & Lynne Georgeson — and
+  **10 of 10** of their blocks name both. Mitch's own caveat, pinned by a worked example.
+- **Never spend a CLAUSE on the shift window — but saying *when* is fine.** Mitch's
+  words were *"eliminate the 'through the evening and night' words **without any
+  actions**"*, and that qualifier is the rule: a clause naming only the window says
+  nothing the column header does not, while *"woke in the night"* is the most useful
+  thing a PM cell can carry. v8's blanket ban forbade both and was still broken by 7 of
+  127 rows. **0 of 127 under v9.**
+- **The block header must not hand the model the banned phrase.** `blockFor()` wrote
+  *"Shift: PM (2:00 PM - 6:00 AM, evening and overnight)"* into the **user** message,
+  inches above the notes, while the ban sat thousands of characters away in the system
+  prompt — and all 7 of those rows were PM blocks. The gloss is gone; the hours say
+  what the window is. **Claude: do not put it back.**
+- **Never characterise how well somebody documented their shift.** *"Reported minimal
+  detail"*, *"gave little"*, *"documented poorly"* — each is a performance judgement
+  about a person, model-written, saved in a clinical record. The note may genuinely be
+  thin: say that about the NOTE. (The example used to read *"Edna reports very minimal
+  detail"*; since v8 no caregiver is named, so the judgement is what remains to forbid.)
 - **WRITE NO NUMBERS.** No clock times, vitals, blood sugars, intake or output
   volumes, doses, or counts of brief changes and bathroom trips. Describe the
   pattern: *"restless and up to the toilet all night"*. **One exception: a figure
@@ -722,6 +817,44 @@ each pinned by what a scheduler would do with a wrong one:
 - **The worked examples are invented people** (Rosa, Mr Alder), and the prompt
   says never to reuse a name, reading or time appearing in the instructions. v4's
   examples used real names off the live board, which a model can mistake for data.
+
+> **v7 shipped untested and regressed the numbers badly — MEASURE A PROMPT BEFORE
+> DEPLOYING IT.** PR #17 rewrote the register correctly, but the session that wrote it
+> had no Anthropic key and no network, and says so in its own commit message. Run
+> against the live notes for one date it was **~23× worse on clock times and ~10× worse
+> on numbers** than v6 (0.1 → 2.3 and 0.4 → 5.8 per 100 words). The WRITE NO NUMBERS
+> rule was still in it, verbatim — it stopped working because ~25 lines of new register
+> material went in **above** it, and every worked example was a positive one with no
+> number in it to strip. The same shape as v3, which v5 fixed the same way. v8 moved the
+> rule up beside the register and added a NEGATIVE example showing a clock time being
+> removed: **0.26 clock times and 0.38 digits per 100 words across all 127 rows, at 33
+> words a block against v6's 37.** v7 was never deployed, so the desk never saw it.
+
+> **THIS PROMPT IS OBEYED THROUGH WORKED REWRITES, AND EVERY EXTRA RULE COSTS NUMBER
+> DISCIPLINE.** Six candidates were measured over the same six dates (127 blocks each,
+> the blocks the live board holds). *numbers* is the share of blocks carrying any digit
+> or spelled-out clock/measure:
+>
+> | | mean | numbers | umbrella | dead opener | subject-less |
+> |---|---|---|---|---|---|
+> | v8 (was live) | 33.0w | 8% | 33% | 7 | 80% |
+> | **v9 (shipped)** | **39.8w** | **13%** | **4%** | **0** | **37%** |
+> | v9f | 38.2w | 24% | 9% | 1 | 66% |
+> | v9e | 40.9w | 27% | 2% | 0 | 54% |
+> | v9g | 46.1w | 33% | 8% | 0 | 52% |
+>
+> The shipped v9 is the **least-instructed** candidate that fixes the complaint, and
+> that is not a coincidence. Every richer candidate was worse on numbers: v9g added five
+> separately well-evidenced rules and was worst of all, and a variant that added one
+> rule aimed squarely at spelled-out percentages **doubled** the leak it targeted.
+> Naming number forms in the prompt appears to prime them. Two corollaries:
+>
+> - **The three worked rewrites in the numbers block are what hold the rule** — *"woke
+>   around 3:00 AM" is "woke in the night"*, and the other two. A candidate that cut them
+>   to one leaked on 7 of 23 blocks; one that replaced them with a six-line table of
+>   banned forms leaked 7 spelled-out clock times. **Never trade a rewrite for a rule.**
+> - **Measure before shipping, over several dates.** v8 itself ranges from 0.00 to 1.72
+>   digits per 100 words across its six dates, so one date decides nothing.
 
 #### The length budget is split in CODE, because the model cannot divide
 
@@ -3121,8 +3254,10 @@ mean slicing rendered HTML, which the rule above forbids.
 
 `"yesterday".includes("ester")` is **true**, so every question containing the word
 *yesterday* was answered with Ester Siron's profile card — **4 of 10** ordinary
-scheduling questions hijacked, on a desk whose care-note screen is literally
-*"Yesterday's Summary"*.
+scheduling questions hijacked, on a desk where *yesterday* is the commonest word in a
+care-notes question, because that is the date the page opens on. (The screen was headed
+*"Yesterday's Summary"* when this was found; it is **Care Notes Summary** now, which
+changes nothing about the bug.)
 
 ```js
 new RegExp('(^|[^a-z0-9])' + esc(first) + '([^a-z0-9]|$)').test(q)

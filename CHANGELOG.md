@@ -1446,6 +1446,109 @@ the browser sends a note id the function could never have matched.
 
 ---
 
+## 2026-09-25 — the summaries stop naming anybody, and v7's regression is caught
+
+Mitch read the live board and called both names redundant — *"Emelina helped Brenda
+through her morning routine"* — because the row already prints the caregiver above the
+text and the row itself is the client. He also named the opener *"Meryll cared for
+Brenda through the evening and night"*, which spends its first clause on the shift
+window the column header already gives. PR #17 had rewritten the register for exactly
+this, but shipped untested — and run against the real notes it had regressed the number
+discipline by an order of magnitude.
+
+- **`PROMPT_VERSION 8`, deployed, and all 127 saved rows regenerated.** Head-to-head on
+  one date (2026-09-23, 23 blocks), against v6 — what the desk was actually seeing —
+  and v7, which sat in the repo and was never deployed:
+
+  | | v6 | v7 | **v8** |
+  |---|---|---|---|
+  | words per block | 37 | 38 | **30** |
+  | clock times per 100 words | 0.1 | 2.3 | **0.00** |
+  | any digit per 100 words | 0.4 | 5.8 | **0.00** |
+  | opens by naming the shift | 0 | most PM blocks | **0 of 23** |
+
+  Across the whole board after regeneration — 127 rows, 6 dates, 19 clients: **33 words
+  a block, 0.26 clock times and 0.38 digits per 100 words, 0 caregiver names, 0 of 117
+  single-client blocks naming the client, and 10 of 10 couple blocks naming both.**
+- **v7 was right about the register and wrong about everything it displaced.** Its own
+  commit records that the session had no Anthropic key and no network, so it could not
+  be run. WRITE NO NUMBERS was still in the prompt verbatim; it stopped working because
+  ~25 lines of new register and priority material went in above it, and every worked
+  example was a positive one with no number in it to strip. Exactly the v3 failure that
+  v5 fixed the same way. **Deploying it as written would have regressed the live
+  board.**
+- **Three changes, no rewrite.** The number rule moved up beside the register with a
+  NEGATIVE worked example showing a clock time being removed; opening with the shift
+  window was banned outright; and a couple keeps both first names, because *"the
+  client"* is wrong for two people — Mitch's caveat, pinned by its own example.
+- **KNOWN, written but NOT shipped: v9.** 7 of the 127 rows still open *"Evening and
+  overnight care included…"*, every one of them a quiet PM block where the model has no
+  incident to lead with and reaches for the window to fill the gap. v9 bans that literal
+  string and gives the quiet-shift case its own worked example, so the rule has
+  something to fall back to. It was **reverted unshipped**: the Anthropic key hit its
+  workspace budget mid-test, an untested prompt is what caused this entry, and bumping
+  the version would mark all 127 rows stale and drop the whole board to raw notes until
+  the budget resets.
+- **The Anthropic key was out of budget for part of the day**, workspace-wide, and the
+  error named 2026-10-01 as the reset. It **cleared the same day**, hours later, so do not
+  trust a stated reset date — test the key. While it was out, every AI feature degraded to
+  its designed fallback; saved rows were unaffected because reading one makes no model
+  call, and texting kept working because `ctCareReady()` treats an error as a finished
+  answer.
+
+---
+
+## 2026-09-25 (later) — the summaries say who did what again: `PROMPT_VERSION 9`
+
+Mitch read the v8 board and rejected it: *"it is now too vague to understand the care
+notes. It doesn't show what the caregiver did… we can use Caregiver help client."* He
+was right, and v8 had over-read his earlier complaint: he objected to the two NAMES
+being redundant, not to there being a subject at all.
+
+- **Measured first.** Across the 127 live v8 rows, **80% of 663 sentences had no human
+  subject** and **33% of blocks** carried an umbrella phrase — *"morning routine"*,
+  *"household tasks"*, *"pet and home care completed"*. A run of transitive acts sharing
+  one agent has no natural agentless English form, so banning the subject forces the
+  model to nominalise. The vagueness was grammatical.
+- **Two causes, not one.** The other half was a literal instruction to abstract, added
+  with the brevity push on 2026-09-24: *"your job is what GENERALLY happened — not what
+  happened"*, with a worked example (*"Morning routine completed, including a shower"*)
+  modelling exactly the phrasing Mitch objected to.
+- **v9 keeps the name ban and drops the subject ban.** Measured over the same six dates:
+
+  | | mean | numbers | umbrella | dead opener | subject-less |
+  |---|---|---|---|---|---|
+  | v8 (was live) | 33.0w | 8% | 33% | 7 | 80% |
+  | **v9 (shipped)** | **39.8w** | **13%** | **4%** | **0** | **37%** |
+
+- **Six candidates were measured; the least-instructed one won.** Every richer variant
+  was worse on number discipline — one that added a rule aimed squarely at spelled-out
+  percentages **doubled** the leak it targeted, and a five-rule variant was worst of all.
+  The three worked rewrites in the numbers block are what hold that rule; a candidate
+  that cut them to one leaked on 7 of 23 blocks. **Never trade a rewrite for a rule.**
+- **Two code fixes shipped with it.**
+  - `blockFor()` was writing *"PM (2:00 PM - 6:00 AM, evening and overnight)"* into the
+    **user** message, inches above the notes — handing the model the exact phrase the
+    system prompt forbids. All 7 dead openers were PM blocks. Gloss removed; **0 now.**
+  - `askClaude()` now asks **once per distinct note text** and copies the answer.
+    13 of 215 two-block client-days carry byte-identical notes in both blocks, and the
+    model was inventing an overnight to fit the PM heading — in one measured case
+    contradicting the note it was given. A prompt rule held in one candidate and failed
+    in the next; asking once cannot fabricate.
+- **The card is now headed *Care Notes Summary*, not *Yesterday's Summary*.** Mitch's
+  call: the page opens on yesterday but the day arrows reach any date, so the old name was
+  wrong on every date but one. Renamed in the heading and in the two `index.html` comments
+  that named the section.
+- **Known residue, measured not guessed.** Numbers leak on 13% of blocks against v8's
+  8%, concentrated in **spelled-out percentages** ("ate ninety percent") on two of six
+  dates; the clock-time and digit rates are both *lower* than v8's. Blocks naming a
+  relationship the note does not went 8/127 to 12/127, and several of those are fair
+  generalisations the detector cannot see (one note says *"tatay Juan"* — Tagalog for
+  father — which the summary renders as "a family member"). Mean length is up 33.0w to
+  39.8w. All three were accepted as the price of the register fix.
+
+---
+
 ## Still open
 
 - Attendance, punctuality and the "Not tracked" caregiver metrics — all
@@ -1457,12 +1560,17 @@ the browser sends a note id the function could never have matched.
 
 Carried forward, and added since:
 
-- **`caregiver-about-summary` is not deployed**, and
-  `care_alert_summaries` nor `caregiver_about_summaries` exists. Both functions are
-  called by a live `index.html`, so *Clients Needing Attention* and the caregiver
-  *About* summary show their not-deployed message on the desk. Each needs its SQL run
-  and then `npx supabase functions deploy <name> --project-ref gdzgoyawavffjdjpjbfz
-  --no-verify-jwt`.
+- **`caregiver-about-summary` is not deployed and `caregiver_about_summaries`
+  does not exist.** Verified 2026-09-25: seven functions are deployed and it is the
+  missing eighth. It is called by a live `index.html`, so the caregiver *About*
+  summary falls back to its one-line sentence on the desk. It needs
+  `supabase/caregiver-about-summaries.sql` run **first**, then
+  `npx supabase functions deploy caregiver-about-summary --project-ref
+  gdzgoyawavffjdjpjbfz --no-verify-jwt` — that order, because these functions swallow
+  database errors by design and one deployed without its table looks perfect while
+  re-billing the Anthropic key on every open. *Clients Needing Attention* is no longer
+  in this state: `carealerts-summary` and `care_alert_summaries` both landed
+  2026-09-24.
 - **A cancelled AxisCare visit leaves its carve hole.** The uncarved intent is never
   stored, so availability the carve cut does not grow back when the visit is removed.
   Re-saving the day in the panel is the workaround.
@@ -1475,3 +1583,17 @@ Carried forward, and added since:
   week and the board never mentions it.
 - **Per-person logins.** The desk PIN is one shared credential; the AxisCare proxy and
   four of the eight Edge Functions still answer anyone with the URL.
+- **Care-note summaries leak a number on 13% of blocks** (v8 was 8%), almost all of them
+  **spelled-out percentages** — *"ate ninety percent of her breakfast"* — on two of the six
+  dates. The clock-time and digit rates are both *lower* than v8's, so this is a narrow
+  residue rather than a general regression. Every attempt to fix it in the prompt made it
+  worse: a rule aimed squarely at percentages doubled the leak. The next thing to try is
+  not another rule — it is a fourth worked rewrite, or a deterministic check.
+- **Summaries name a relationship the note does not on 12 of 127 blocks** (v8: 8). Some
+  are fair generalisations a detector cannot see — one note says *"tatay Juan"*, Tagalog
+  for father, which the summary renders as "a family member" — but not all are.
+- **A summary can still render a PLAN as a completed act.** Some notes are written as a
+  to-do list (*"need to change her before I go"*, *"give her meds at night"*). A rule for
+  this was drafted and left out, because every added rule measurably cost number
+  discipline. It is the strongest candidate for the next change, and it should be
+  measured over all six dates before shipping.
