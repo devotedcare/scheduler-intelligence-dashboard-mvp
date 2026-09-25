@@ -19467,6 +19467,9 @@ const CARE_VERY_SHORT_WORDS=12;   // under this is close to nothing written
 function careDayKey(d){ try{ return new Date(d).toLocaleDateString('en-CA',{timeZone:CARE_TZ}); }catch(e){ return ''; } }
 function carePacHour(d){ try{ return parseInt(new Date(d).toLocaleString('en-US',{timeZone:CARE_TZ,hour:'2-digit',hour12:false}),10); }catch(e){ return null; } }
 function careTimeLabel(d){ try{ return new Date(d).toLocaleTimeString('en-US',{timeZone:CARE_TZ,hour:'numeric',minute:'2-digit'}); }catch(e){ return ''; } }
+/* Pacific, like every other date on this page — a repeat flag has to name the note it
+   matched, and a date read off the viewer's clock would name the wrong day. */
+function careDateLabel(d){ try{ return new Date(d).toLocaleDateString('en-US',{timeZone:CARE_TZ,month:'short',day:'numeric'}); }catch(e){ return ''; } }
 function careShiftOf(d){ const h=carePacHour(d); if(h==null) return 'pm'; return (h>=6&&h<14)?'am':'pm'; }
 function careTodayPac(){ return careDayKey(new Date()); }
 function careDayShift(dateStr,delta){ const d=new Date(dateStr+'T12:00:00'); d.setDate(d.getDate()+delta); return careDayKey(d); }
@@ -19475,12 +19478,23 @@ function cleanNoteText(t){ return String(t||'').replace(/^[\s\-\u2013\u2014\u202
 function careWordCount(t){ const s=cleanNoteText(t); return s?s.split(/\s+/).length:0; }
 /* Word-overlap similarity, not string equality \u2014 catches a note that
    was copy-pasted and lightly edited, which a straight compare misses. */
+/* JACCARD — intersection over UNION, not over the smaller note.
+   It was min(|a|,|b|) until 2026-09-25, which made a short note score 1.00 whenever
+   its vocabulary happened to sit inside a longer one, however different the two
+   shifts were. Care notes share a large vocabulary (repositioning, vital signs,
+   moisturizer, meds, diaper), so that fired constantly: 105 pairs flagged, of which
+   47 were under 0.5 by union and only 16 were genuine near-duplicates. One flagged
+   pair was a 158-word note against a 52-word one at 0.17 union similarity.
+   Union scoring gives 24 pairs and keeps every real copy-paste.
+   Stopword removal was measured too and does NOT fix it — the shared words are care
+   words, not function words. Do not swap this back to min(). */
 function careNoteSimilarity(a,b){
   const wa=new Set((cleanNoteText(a).toLowerCase().match(/[a-z']+/g))||[]);
   const wb=new Set((cleanNoteText(b).toLowerCase().match(/[a-z']+/g))||[]);
   if(!wa.size||!wb.size) return 0;
   let inter=0; wa.forEach(w=>{ if(wb.has(w)) inter++; });
-  return inter/Math.min(wa.size,wb.size);
+  const union=wa.size+wb.size-inter;
+  return union?inter/union:0;
 }
 function careTypicalWords(clientId,excludeId){
   const list=(state.careNotes||[]).filter(n=>n.clientId===clientId&&n.id!==excludeId).map(n=>careWordCount(n.text)).sort((a,b)=>a-b);
@@ -19526,22 +19540,26 @@ function careConcernsForDay(dateStr){
 function careDocIssuesForDay(dateStr){
   const rows=careDayClients(dateStr), out=[];
   rows.forEach(r=>{
-    [['am','AM Shift (6:00 AM \u2013 2:00 PM)'],['pm','PM Shift (2:00 PM \u2013 10:00 PM)']].forEach(function(pair){
-      const win=pair[0], label=pair[1], list=r[win];
+    /* The third element is the window's REAL length in hours. AM is 06:00-14:00 and PM
+       is 14:00-06:00 -- see careShiftOf(). The PM label read "2:00 PM - 10:00 PM" and both
+       headlines said "8-hour" until 2026-09-25, which understated the PM window by half a
+       day and described a two-caregiver overnight as one short shift. */
+    [['am','AM Shift (6:00 AM \u2013 2:00 PM)',8],['pm','PM Shift (2:00 PM \u2013 6:00 AM)',16]].forEach(function(pair){
+      const win=pair[0], label=pair[1], hrs=pair[2], list=r[win];
       if(!list.length) return;   // no note recorded \u2014 shown in Section 1, not asserted as a problem here
       const words=list.reduce((s,n)=>s+careWordCount(n.text),0);
       const cgNames=[...new Set(list.map(n=>{ const c=cgById(n.cgId); return c?c.name:'The caregiver'; }))].join(', ');
       const primary=list[0];
       if(words<CARE_VERY_SHORT_WORDS){
         out.push({clientId:r.clientId,noteId:primary.id,at:primary.at,label,
-          headline:words+'-word note for an 8-hour shift',
+          headline:words+'-word note for a '+hrs+'-hour shift',
           detail:cgNames+' documented only '+words+' word'+(words===1?'':'s')+' for this window. Review to confirm the shift is fully captured before assuming anything was missed.'});
         return;
       }
       if(words<CARE_SHORT_WORDS){
         out.push({clientId:r.clientId,noteId:primary.id,at:primary.at,label,
           headline:'Very little documentation for a long shift',
-          detail:cgNames+' documented '+words+' words across '+list.length+' note'+(list.length===1?'':'s')+' for this 8-hour window \u2014 thinner than usual. Worth a quick check with the caregiver.'});
+          detail:cgNames+' documented '+words+' words across '+list.length+' note'+(list.length===1?'':'s')+' for this '+hrs+'-hour window \u2014 thinner than usual. Worth a quick check with the caregiver.'});
         return;
       }
       list.forEach(function(n){
@@ -19549,9 +19567,16 @@ function careDocIssuesForDay(dateStr){
         /* Only compares against an EARLIER note, so a repeated pair is
            flagged once — on the later, repeating note — not twice. */
         const dup=(state.careNotes||[]).find(o=>o.id!==n.id&&o.cgId===n.cgId&&o.clientId===n.clientId&&new Date(o.at)<new Date(n.at)&&careWordCount(n.text)>=8&&careNoteSimilarity(n.text,o.text)>=0.75);
+        /* NAME THE NOTE IT MATCHED. Without the date every one of these read as the
+           same sentence with a different caregiver in it -- 11 of 12 rows on one live
+           date were identical -- and the scheduler had nothing to compare against.
+           The match can be the SAME day (the PM window runs to 6am and can hold two
+           visits), and "repeats their Sep 23 note" while reading Sep 23 is nonsense,
+           so that case says so instead of printing the date twice. */
+        const dupSame=dup&&careDayKey(dup.at)===careDayKey(n.at);
         if(dup) out.push({clientId:r.clientId,noteId:n.id,at:n.at,label,
-          headline:'Note closely repeats an earlier one',
-          detail:(cg?cg.name:'The caregiver')+'\u2019s note for this shift closely matches wording used in another of their notes for this client. May be a copy-paste habit \u2014 worth confirming the details are specific to this visit.'});
+          headline:'Note closely repeats their '+(dupSame?'earlier note that day':careDateLabel(dup.at)+' note'),
+          detail:(cg?cg.name:'The caregiver')+' wrote nearly the same words for this client '+(dupSame?'earlier the same day':'on '+careDateLabel(dup.at))+'. Worth confirming the details are specific to this visit.'});
       });
       const typical=careTypicalWords(r.clientId,null);
       if(typical!=null&&typical>=25&&words<typical*0.4)

@@ -1549,6 +1549,34 @@ being redundant, not to there being a subject at all.
 
 ---
 
+## 2026-09-25 (later still) — Care Note Issues stops saying the same thing
+
+Mitch: *"All I see is the same thing on it."* Measured across the 21 dates the browser
+holds: **102 of 127 rows (80%) were the copy-paste rule**, and on 2026-09-23 **11 of 12
+rows were one sentence with a different caregiver name in it**.
+
+- **The similarity measure was the bug.** `careNoteSimilarity()` divided the word
+  overlap by the SMALLER note, so a short note whose vocabulary sat inside a longer one
+  scored 1.00 however different the two shifts were — and care notes share a big
+  vocabulary. Of the 105 pairs it flagged, **47 were under 0.5** by intersection-over-
+  union and only 16 were genuine duplicates; the worst was a 158-word note against a
+  52-word one at **0.17**. Now Jaccard at the same 0.75 threshold: **24 pairs**, every
+  real copy-paste kept. Panel total **127 → 49 rows**, rule 3 from 80% to 49%.
+  Stopword removal was measured too and does not help — the shared words are care words.
+- **A repeat row now names the note it matched** — *"Note closely repeats their Sep 21
+  note"* — which is both the useful fact and what stops every row reading alike. A
+  same-day match says *"earlier note that day"* rather than printing the date you are
+  already looking at.
+- **The PM window was mislabelled.** It read *"PM Shift (2:00 PM – 10:00 PM)"* and both
+  short-note rows said *"8-hour shift"*, but `careShiftOf()` puts PM at 2:00 PM – 6:00 AM.
+  Sixteen hours, often two caregivers, described as one short shift. Now 8 and 16.
+- **CLAUDE.md was wrong about what feeds this panel.** It said the `documentation` and
+  `missing` categories go to Care Note Issues. They do not — the panel reads no category
+  at all; those two go to `buildCareAlerts()` for Ask Devi. Corrected, along with a note
+  that `alertBucket()` is dead code.
+
+---
+
 ## Still open
 
 - Attendance, punctuality and the "Not tracked" caregiver metrics — all

@@ -936,7 +936,7 @@ request. `GET …?action=status` reports the model in force.
 
 The same page's other AI section. The **browser** decides which clients are
 flagged and why, with its own keyword categoriser (`categorizeNote()` over
-`CARE_CATEGORIES`, 16 entries — 14 carry keywords and can be emitted; `documentation` and `missing` are raised by length/placeholder rules instead and go to the Care Note Issues panel, never to the function) — that part is free and needs no function. The
+`CARE_CATEGORIES`, 16 entries — 14 carry keywords and can be emitted; `documentation` and `missing` are raised by length/placeholder rules instead and are filtered out of this panel by `careConcernsForDay()`, never reaching the function). **They do NOT feed the Care Note Issues panel** — that is `careDocIssuesForDay()`, which reads no category at all; the two go to `buildCareAlerts()`, which Ask Devi's router builders read. (`alertBucket()` looks like it routes them somewhere and is **dead code** — defined once, called nowhere.) — that part is free and needs no function. The
 function is told *which* note and *which* category, reads that note itself with
 the service key, and returns **What happened** (1–3 bullets) and **Scheduler
 action** (1–2), saved per note × category in `public.care_alert_summaries`.
@@ -1066,6 +1066,49 @@ today and are deliberate future-proofing. Twelve keywords in total.
 > **This category silently depends on `careNegated()`.** It is the only thing stopping
 > `bleed` firing on *"Bed sore is still the same, but not bleeding"*. Re-measure skin if
 > that gate is ever weakened.
+
+### Care Note Issues — documentation quality, and NOT an AI panel
+
+The third section of the Care Notes page. `careDocIssuesForDay()` is the whole of it:
+browser-side arithmetic over the notes already in `state.careNotes`, no model call, no
+Edge Function, no table, and **no `CARE_CATEGORIES`**. Per client × shift, four checks —
+the first two `return`, so they suppress the rest for that window:
+
+| | Fires when | Row |
+|---|---|---|
+| 1 | window under 12 words | *"N-word note for a 8/16-hour shift"* |
+| 2 | window under 30 words | *"Very little documentation for a long shift"* |
+| 3 | a note repeats an **earlier** one by the same caregiver for the same client | *"Note closely repeats their Sep 21 note"* |
+| 4 | window under 40% of this client's median note | *"Shorter than usual for this client"* |
+
+**The similarity measure is Jaccard — intersection over UNION — and must stay that way.**
+It was `intersection / min(|a|,|b|)` until 2026-09-25, which scores 1.00 whenever the
+shorter note's vocabulary happens to sit inside the longer one. Care notes share a large
+vocabulary (*repositioning, vital signs, moisturizer, meds, diaper*), so it fired almost
+constantly: **102 of 127 rows (80%) were rule 3**, and on one live date **11 of 12 rows
+were the same sentence with a different caregiver in it**. Measured over the 105 pairs it
+flagged: 47 scored under 0.5 by union and only 16 were genuine near-duplicates; one was a
+158-word note against a 52-word one at 0.17. Union scoring gives **24 pairs** and keeps
+every real copy-paste. Whole panel: **127 rows → 49**, rule 3 from 80% to 49%.
+
+> **Stopword removal does NOT fix it** — measured, because it is the obvious next idea.
+> The shared words are *care* words, not function words, so filtering *the/and/she* barely
+> moves it. Do not swap `min()` back in, and do not "improve" this with a stoplist.
+
+**A repeat row names the note it matched** (*"their Sep 21 note"*), because without it
+every row read identically and the scheduler had nothing to compare against. The match
+can be the **same day** — the PM window runs to 6am and can hold two visits — and
+*"repeats their Sep 23 note"* while reading Sep 23 is nonsense, so that case reads
+*"earlier note that day"* instead.
+
+**The window lengths are real: AM is 8 hours, PM is 16.** Both were labelled as ending
+10:00 PM and described as *"8-hour"* until 2026-09-25 — which understated PM by half a
+day and called a two-caregiver overnight one short shift. `careShiftOf()` is the truth:
+AM 06:00–14:00, PM 14:00–06:00.
+
+> **It only sees what the browser holds.** `fetchCareNotes()` reads `limit=400` ordered
+> newest-first against 746 rows, so rules 3 and 4 — which scan `state.careNotes` — compare
+> against the newest 400 only. A copy-paste against an older note is invisible.
 
 ### A PAIN category was measured and REJECTED — do not revisit it on a hunch
 
