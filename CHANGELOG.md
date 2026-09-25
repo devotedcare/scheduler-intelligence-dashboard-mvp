@@ -1577,6 +1577,30 @@ rows were one sentence with a different caregiver name in it**.
 
 ---
 
+## 2026-09-25 (later still) — Find Coverage drops two warning chips
+
+Mitch: the *Long drive* and *Heavy week* chips *"just confuse them, since schedulers
+already know the caregivers"*. A UI change only — she asked for the ranking to stay
+exactly as it is, and it has.
+
+- **Both penalties still score, untouched.** −25 when a drive is more than 20% past a
+  caregiver's stated `maxMiles` in road miles; −8 at 32–39 h booked and −25 at 40 h or
+  more. Only the `why.push` calls went, exactly as the green chips were handled on
+  2026-09-21 — drop the chip, keep the term.
+- **All three wordings of the hours chip went together**, not just the one quoted:
+  *Heavy week — 44 h with this shift*, the under-40 *39 h that week with this shift*,
+  and the *36 h booked that week* fallback for a shift AxisCare gave no end for. One
+  signal in three registers, and the reason for removing it applies to each.
+- **The drive is still on screen** in the grey facts line (*"Camarillo · ~15 mins
+  away"*). Only the amber warning went, not the distance.
+- `shiftLen` **was removed** from `coverageMatches()`: it existed only to compute
+  *"…with this shift"* and had no other reader. What it did, and why it read `q.end`
+  rather than the clash-window `end`, is recorded where it used to sit.
+- The calling list now carries **at most two** chips at once (driving, client gender)
+  rather than four.
+
+---
+
 ## Still open
 
 - Attendance, punctuality and the "Not tracked" caregiver metrics — all

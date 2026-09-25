@@ -8150,11 +8150,19 @@ function cgWants(cg, cl, drv, start, end){
      WHAT THE CAREGIVER ACTUALLY SAID, IN MILES, STAYS IN THE TOOLTIP. The
      minutes are our conversion of their miles at this route's own speed, and
      must never read as something they stated in minutes. */
+  /* NO CHIP SINCE 2026-09-25 (Mitch). "Long drive - ~20 min past their limit" told
+     the desk something it already knows: the schedulers know their caregivers and
+     where they live, so the chip crowded the row without adding anything.
+
+     THE SCORE IS UNTOUCHED. -25 still applies on exactly the same test - more than
+     20% past their stated maxMiles, measured in ROAD miles - so the calling order is
+     bit for bit what it was. Only the chip went. Same treatment the green chips got
+     on 2026-09-21: drop the chip, keep the term.
+
+     The row still shows the drive in its grey facts line ("Camarillo - ~15 mins
+     away"), so the distance has not disappeared from the screen, only the warning. */
   if(drv && !drv.same && drv.mi>0 && hasVal(ops.maxMiles) && drv.mi>ops.maxMiles*1.2){
     out.score-=25;
-    var over=drv.min-ops.maxMiles*drv.min/drv.mi;
-    out.why.push({t:'Long drive — '+fmtDrive(over,true)+' past their limit', k:'minus',
-      tip:'They told us they travel up to '+ops.maxMiles+' mi. This drive is about '+drv.mi+' road miles ('+fmtDrive(drv.min)+'), more than 20% past that.'});
   }
   /* The client's gender against the caregiver's own stated comfort. Silent
      when either side is unrecorded: "nobody asked" is not a preference.
@@ -8377,22 +8385,15 @@ function coverageMatches(q){
      Fixed 2026-09-21. */
   var ds=q.date, start=q.start;
   var end=(typeof q.end==='number' && isFinite(q.end)) ? q.end : q.start+1;
-  /* THE SHIFT'S OWN LENGTH, for the overtime arithmetic below and nothing
-     else. Deliberately NOT `end` above: that substitutes start+1 when
-     AxisCare gave no end, which is the right guess for "is this hour busy"
-     and the wrong one for "what would this take them to" - it would quietly
-     claim a one-hour shift and understate the total on the one chip whose
-     whole job is that number. No end means no total, and the chip falls
-     back to the booked hours alone.
-
-     An end at or before the start wraps (an overnight), and an end EQUAL
-     to the start is a 24-hour live-in - the same reading covClash() and
-     coverageDetail() give it. */
-  var shiftLen=null;
-  if(typeof q.end==='number' && isFinite(q.end) && typeof q.start==='number' && isFinite(q.start)){
-    var slen=q.end-q.start; if(!(slen>0)) slen+=24;
-    if(slen>0 && slen<=24) shiftLen=Math.round(slen*10)/10;
-  }
+  /* THE SHIFT'S OWN LENGTH was computed here, for the weekly-hours chip and nothing
+     else. The chip went on 2026-09-25 and took its only reader with it, so it is gone
+     rather than left dead. What it did, in case it is wanted again: it read q.end
+     directly and NOT the `end` above, because `end` substitutes start+1 when AxisCare
+     gave no end - the right guess for "is this hour busy", the wrong one for "what
+     would this take them to". An end at or before the start wraps (an overnight), and
+     an end equal to the start is a 24-hour live-in, the reading covClash() and
+     coverageDetail() both give it. The daily-overtime figure noted below would need
+     this back, per DAY rather than per shift. */
   var driveAudit=null;                     /* built once, and only if a client needs a driver */
   var prefs=covClientPrefs(cl);
   var sh=q.shiftId?state.shifts.find(function(x){ return x.id===q.shiftId; }):null;
@@ -8580,9 +8581,11 @@ function coverageMatches(q){
        fills generates some. A weekly threshold was never going to describe
        that.
 
-       So the chip claims only what this app can stand behind: HOW LOADED
+       So the chip claimed only what this app can stand behind: HOW LOADED
        somebody already is, and what this shift would make it. Nothing here
-       is a statement about pay.
+       is a statement about pay. (The chip itself was removed on 2026-09-25 -
+       see below - but this reasoning stands, and it is the reason nobody may
+       re-add one that says "overtime".)
 
        WHY THE APP CANNOT TALK ABOUT PAY AT ALL, verified 2026-09-23 against
        the live account so nobody re-litigates it:
@@ -8599,10 +8602,10 @@ function coverageMatches(q){
          · `chargeRate` appears zero times in index.html and `payRate` has no
            readers, so none of it reaches a scheduler anyway.
 
-       ONE RULE, not two. The score still bands on the hours already booked
-       (-8 at 32-39, -25 at 40+, unchanged), but the WORDING keys on the
-       total the shift would produce, so a scheduler reads one sentence
-       whichever band it came from.
+       THE SCORE OUTLIVED THE CHIP. It still bands on the hours already
+       booked - -8 at 32-39, -25 at 40+, unchanged since it was written - so
+       a heavily-booked caregiver still sinks down the calling list exactly
+       as before. What went on 2026-09-25 is the sentence that said so.
 
        KNOWN BETTER, NOT BUILT: the real overtime figure is derivable from the
        same COVHIST visits - sum max(0, that DAY's hours - 8) across the week,
@@ -8612,21 +8615,21 @@ function coverageMatches(q){
        California uses 8 h/day for household employees but 9 h/day for
        personal attendants, and which applies turns on the duty mix. Its own
        decision, deliberately not smuggled in with a rewording. */
-    if(hrs!=null && hrs>=32){
-      score-=(hrs>=40 ? 25 : 8);
-      /* shiftLen is null only when AxisCare gave no end - see its comment.
-         Then there is no honest total and the chip states the booked hours. */
-      var after=(shiftLen!=null) ? Math.round((hrs+shiftLen)*10)/10 : null;
-      var wkTip=hrs+' h already booked in AxisCare for the Monday–Sunday week this shift falls in'+
-        (after!=null ? ', which this '+shiftLen+' h shift would take to '+after+' h' : '')+
-        '. Scheduled hours, not clocked time.';
-      if(after==null)      why.push({t:hrs+' h booked that week', k:'minus', tip:wkTip});
-      else if(after>=40)   why.push({t:'Heavy week — '+after+' h with this shift', k:'minus', tip:wkTip});
-      /* Under 40 even with the shift - a short shift on a 34 h week. The -8
-         still applies because they are close, but "heavy" would overstate a
-         39 h week, so the number goes out on its own. */
-      else                 why.push({t:after+' h that week with this shift', k:'minus', tip:wkTip});
-    }
+    /* NO CHIP SINCE 2026-09-25 (Mitch), same reason as the travel one above: the
+       schedulers know their caregivers, and being told "Heavy week - 44 h with this
+       shift" about somebody whose hours they already carry in their head confused
+       more than it helped.
+
+       THE SCORE IS UNTOUCHED - -25 at 40 h and over, -8 at 32-39, on the same
+       COVHIST hours - so the calling order is exactly what it was.
+
+       ALL THREE WORDINGS WENT TOGETHER, not just the one Mitch quoted: the 40+
+       "Heavy week - 44 h with this shift", the under-40 "39 h that week with this
+       shift", and the "36 h booked that week" fallback for a shift AxisCare gave no
+       end for. They are one signal in three registers, and the reason for removing
+       it applies to each. If the desk ever wants the hours back, this is where they
+       were, and covWeekHours() still computes them. */
+    if(hrs!=null && hrs>=32) score-=(hrs>=40 ? 25 : 8);
     out.push({cg:cg, score:score, why:why, worked:worked, preferred:preferred, onList:onList, drv:drv,
               dmin:drv?drv.min:null, hrs:hrs,
               availState:availState, availLabel:availLabel, excluded:null});
@@ -9707,9 +9710,10 @@ function covMatchRow(r,q,rank){
     `<span title="${esc(driveTip(place, cl&&cl.city, r.drv))}">${place.city ? escText(place.city)+' · ' : ''}${drive}</span>`,
     seenBefore
   ].filter(Boolean).join(' · ');
-  /* Warnings only - red first, then amber - and never capped: there are at
-     most four at once (driving, travel limit, client gender, weekly hours), and a
-     reason NOT to call must never be the thing that gets cut. */
+  /* Warnings only - red first, then amber - and never capped: since the travel-limit
+     and weekly-hours chips were removed on 2026-09-25 there are at most two at once
+     (driving, client gender), and a reason NOT to call must never be the thing that
+     gets cut. Both removed terms still SCORE; only their chips went. */
   const why=r.why.slice().sort((a,b)=>(a.k==='crit'?0:1)-(b.k==='crit'?0:1))
     .map(w=>`<span class="cvm-tag ${w.k}"${w.tip?` title="${esc(w.tip)}"`:''}>${w.t}</span>`).join('');
   /* The tick box is only offered to somebody who can actually be texted.

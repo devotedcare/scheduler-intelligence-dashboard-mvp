@@ -2014,17 +2014,44 @@ What is left is warnings, never capped, red first:
 | Doesn't drive clients | **red** | `covDrives()` says no |
 | Driving records disagree | amber | the driving records contradict each other |
 | Driving not recorded | amber | nobody has recorded anything |
-| Long drive — ~20 min past their limit | amber | more than 20% past their `maxMiles`; the chip states the MINUTES PAST |
 | Prefers female / male clients | amber | a *typed* client-gender preference the client does not fit |
-| Heavy week — 44 h with this shift | amber | the shift would take them to 40 h or more |
-| 39 h that week with this shift | amber | 32–39 booked, but a short shift keeps the total under 40 |
 
 Every chip carries its evidence in a tooltip (`why[].tip`).
 
-#### It is a WORKLOAD chip, not an overtime one
+#### Two chips were REMOVED on 2026-09-25, and their SCORES were not
 
-**Claude: do not put the word "overtime" back on this chip.** It was there for a
-day, it was wrong, and the reason is a fact about the agency rather than wording.
+**Claude: do not read their absence as the term being gone.** Mitch had the
+*Long drive* and *Heavy week* chips taken off — *"the schedulers already know the
+caregivers, it just confuses them"* — and asked explicitly for the ranking to stay
+as it was. So both penalties still apply, on the same tests, at the same weights:
+
+| Removed chip | The term that REMAINS |
+|---|---|
+| *Long drive — ~20 min past their limit* | **−25** when the drive is more than 20% past their stated `maxMiles` in road miles |
+| *Heavy week — 44 h with this shift* | **−8** at 32–39 h booked, **−25** at 40 h or more |
+
+All **three** wordings of the hours chip went together — the 40+ *Heavy week*, the
+under-40 *39 h that week with this shift*, and the *36 h booked that week* fallback
+for a shift AxisCare gave no end for. They are one signal in three registers.
+
+Two consequences worth knowing:
+
+- **A row can now sit well below another for a reason nowhere on screen.** That was
+  already true of the drive term, preferred hours and the driving bonus — it is now
+  true of two of the three biggest penalties. The accepted cost of chips-as-warnings.
+- **The drive itself is still shown**, as grey text on the facts line (*"Camarillo ·
+  ~15 mins away"*). Only the warning went, not the distance.
+
+> `shiftLen` in `coverageMatches()` went with the chip — it existed only to say
+> *"…with this shift"* and had no other reader. What it did is recorded in the comment
+> where it used to sit, because the daily-overtime figure below would want it back.
+
+#### It is a WORKLOAD score, not an overtime one
+
+**Claude: do not put the word "overtime" on this, and do not bring the chip back
+wearing it.** The chip itself was removed on 2026-09-25 (above); this section is why
+the *word* was wrong long before that, and it still governs anything that ever
+reports these hours to a scheduler.
 
 **This agency pays DAILY overtime — hours over 8 in a shift — not weekly overtime
 over 40.** Carlo, 2026-09-23. His example settles it: 4 × 10h + 1 × 4h is 44 h
@@ -2035,19 +2062,20 @@ It matters more here than elsewhere: the dominant shift is **twelve hours — 26
 497** — and **71% of all visits exceed 8 h**. Under daily overtime almost every
 shift the desk fills generates some.
 
-So the chip claims only what the app can stand behind: **how loaded somebody
-already is, and what this shift would make it.**
+So the chip claimed only what the app can stand behind: **how loaded somebody
+already is, and what this shift would make it** — never anything about pay. It read:
 
-| booked | the shift | chip |
+| booked | the shift | the chip that used to show |
 |---|---|---|
 | 32 h | 12 h | `Heavy week — 44 h with this shift` |
 | 42 h | 12 h | `Heavy week — 54 h with this shift` |
 | 36 h | 3 h | `39 h that week with this shift` — under 40, so no judgement word |
 | any | no end from AxisCare | `36 h booked that week` |
 
-**One rule, not two.** The score still bands on hours already booked — −8 at
-32–39, −25 at 40+, unchanged — but the wording keys on the total the shift would
-produce. The tooltip says the hours are **scheduled, not clocked**.
+**The score outlived the chip.** It still bands on hours already booked — −8 at
+32–39, −25 at 40+, unchanged — so a heavily-booked caregiver still sinks down the
+calling list. The hours are **scheduled, not clocked**, and that caveat has to travel
+with them if they are ever shown again.
 
 **Why this app may not talk about pay at all.** AxisCare's API is silent on pay
 computation — see *What AxisCare does NOT have*. Its only overtime concept is the
@@ -2281,22 +2309,23 @@ fire. It is now measured against road miles.
 none, the −25 fired on 2.4× as many pairs, and most of the new ones were within
 20% of the limit — inside the noise of where each city's point sits.
 
-**The chip states the EXCESS** — *Long drive — ~20 min past their limit* — and
-**the excess is computed from the RAW values and rounded once.** Subtracting the
-two rounded figures on screen disagrees with the truth on **19 of the 149** pairs
-that fire. `fmtDrive()` carries the hours form, which one caregiver genuinely
-needs (Lemoore to Ventura County is 247 minutes against a stated 30 miles).
-`driveRound()` floors at 5, so the shortest firing drive reads *~5 min past*
-rather than a number this data cannot honestly give.
+The same city, or a city not in the table, never fires it. It fires on **149** pairs
+of the live roster against the live clients.
 
-> **"Long drive" is an absolute word on a relative test, and that was weighed.**
-> 25 of the 149 firings are on drives of 25 minutes or less. Carlo chose it anyway
-> over *Past their limit — ~20 min further*, for punchiness. Read it as "long **for
-> them**".
-
-What the caregiver actually said, in miles, stays in the tooltip — the minutes are
-our conversion at this route's own speed and must never read as something they
-stated in minutes. The same city, or a city not in the table, never fires it.
+> **The chip that reported this was removed on 2026-09-25** — see *Two chips were
+> REMOVED*. The −25 and the 20% leeway above are untouched; what went was the amber
+> *Long drive — ~20 min past their limit* and the arithmetic that existed only to
+> word it: the excess was computed from the RAW values and rounded once, because
+> subtracting the two rounded figures on screen disagreed with the truth on 19 of
+> the 149 pairs. If the excess is ever put in front of a scheduler again, that is the
+> trap to avoid, and what the caregiver actually said — **miles**, not minutes —
+> must travel with it: the minutes are our conversion at this route's own speed.
+>
+> `fmtDrive()` and `driveRound()` are **still live** — the facts line
+> (*"Camarillo · ~15 mins away"*) uses them, `fmtDrive()` carries the hours form one
+> caregiver genuinely needs (Lemoore to Ventura County is 247 minutes against a
+> stated 30 miles), and `driveRound()` floors at 5 because this data cannot
+> honestly give a finer number.
 
 #### Preferred cities must go through `normCity` too
 
