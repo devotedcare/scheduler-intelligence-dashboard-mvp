@@ -975,7 +975,7 @@
   .wk-nav-a{font-family:inherit;font-size:15px;line-height:1;color:var(--ink-soft);background:#fff;border:1px solid var(--line-strong);border-radius:7px;width:28px;height:28px;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
   .wk-nav-a:hover:not(:disabled){border-color:var(--brand);color:var(--brand)}
   .wk-nav-a:disabled{color:var(--ink-faint);border-color:var(--line);cursor:default}
-  .wk-navlabel{font-size:14px;font-weight:800;color:var(--ink);min-width:110px;text-align:center;letter-spacing:.3px}
+  .wk-navlabel{font-size:18px;font-weight:800;color:var(--ink);min-width:130px;text-align:center;letter-spacing:.4px}
   .wk-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
   @media(max-width:900px){.wk-grid{grid-template-columns:repeat(2,1fr)}}
   @media(max-width:560px){.wk-grid{grid-template-columns:1fr}}
@@ -984,7 +984,7 @@
   /* The day/date is the thing a scheduler orients on first, so it reads
      larger and darker than the Morning/Afternoon/Night rows below it —
      see .wk-blabel, which is deliberately smaller and lighter than this. */
-  .wk-dayhead{padding:9px 10px;background:var(--panel-head);border-bottom:1px solid var(--line);font-size:14px;font-weight:800;color:var(--ink);display:flex;align-items:center;justify-content:space-between;gap:6px}
+  .wk-dayhead{padding:9px 10px;background:var(--panel-head);border-bottom:1px solid var(--line);font-size:15.5px;font-weight:800;color:var(--ink);display:flex;align-items:center;justify-content:space-between;gap:6px}
   /* One soft color per weekday, carried down to the results header below
      when that day's bucket is selected — same classes, same fill, on both
      .wk-dayhead (the grid) and .wk-detailhead (the selected-day results
@@ -1006,7 +1006,7 @@
   .wk-bucket.wait{cursor:default}
   /* Deliberately smaller and lighter than .wk-dayhead above it — the
      day/date is what should stand out, not the time-of-day label. */
-  .wk-blabel{font-size:11.5px;font-weight:550;color:var(--ink-soft)}
+  .wk-blabel{font-size:11px;font-weight:500;color:var(--ink-soft)}
   .wk-bcount{font-size:12px;font-weight:700;color:var(--ink)}
   .wk-bucket.on .wk-bcount{color:var(--brand)}
   .wk-detail{margin-top:14px;padding:0;overflow:hidden}
