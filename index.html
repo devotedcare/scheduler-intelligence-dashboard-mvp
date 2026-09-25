@@ -1035,6 +1035,9 @@
   .wk-cgrow:last-child{border-bottom:none}
   .wk-cgname{font-family:inherit;font-size:13px;font-weight:700;color:var(--brand);background:none;border:none;padding:0;cursor:pointer;text-align:left}
   .wk-cgname:hover{text-decoration:underline}
+  /* The caregiver's actual hours for this date — sits right beside the name,
+     sized to content so it never gets squeezed by .wk-cgmeta's flex-grow. */
+  .wk-cgtime{font-size:12.5px;font-weight:650;color:var(--ink);flex:0 0 auto;white-space:nowrap;font-variant-numeric:tabular-nums}
   .wk-cgmeta{font-size:12px;color:var(--ink-soft);flex:1 1 auto;min-width:0}
   /* status bar */
   .cov-status{background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:13px 16px;margin-bottom:14px}
@@ -9081,10 +9084,31 @@ function wkSelectBucket(dateStr,label,start,end){
   render();
 }
 function wkClearSel(){ state.wkSel=null; state.wkFilterMenuOpen=false; render(); }
-function wkCgRowHtml(cg){
+/* The caregiver's REAL stated availability window for this date, not the
+   bucket they were found under — mirrors coverageDetail()'s own window
+   match (carryWindows/nextWindows/mergeWins, the overnight-aware merge)
+   rather than reusing its boolean, so an overnight Night-bucket row still
+   resolves to the actual segment that covers it. Every row this is called
+   for already passed coverageDetail(cg,dateStr,start,end).cov==='full' in
+   wkAvailableCaregivers(), so a real window is expected here — null is a
+   defensive fallback, not the normal case. */
+function wkAvailWindow(cg,dateStr,start,end){
+  const d=AVAIL.dayAvail(cg.id, dateStr);
+  if(end<=start) end+=24;
+  if(d.state==='unloaded'||d.state==='error'||d.state==='unconfigured'||d.state==='blocked') return null;
+  let wins=d.wins.concat(AVAIL.carryWindows(cg.id, dateStr));
+  if(end>24) wins=wins.concat(AVAIL.nextWindows(cg.id, dateStr));
+  if(!wins.length) return null;
+  wins=AVAIL.mergeWins(wins);
+  for(const w of wins){ if(w[0]<=start && w[1]>=end) return w; }
+  return null;
+}
+function wkCgRowHtml(cg,dateStr,start,end){
+  const win=wkAvailWindow(cg,dateStr,start,end);
   const meta=[cg.base, cg.driver?'Driver':'No car', hasVal(cg.reliability)?cg.reliability+'% reliable':null].filter(Boolean).join(' · ');
   return `<div class="wk-cgrow">
     <button type="button" class="wk-cgname" onclick="openCgFromCoverage('${cg.id}')" title="Open ${escText(cg.name)}’s calendar">${escText(cg.name)}</button>
+    ${win?`<span class="wk-cgtime">${escText(fmtClock(win[0])+' – '+fmtClock(win[1]))}</span>`:''}
     ${meta?`<span class="wk-cgmeta">${escText(meta)}</span>`:''}
     <button class="btn sm" onclick="manualCall('${cg.id}')">${ic('phone',11)} Call</button>
   </div>`;
@@ -9209,7 +9233,7 @@ function renderWeekSelDetail(){
   const totalAvail=wkAvailableCaregivers(sel.date, sel.start, sel.end).length;
   const list=wkFilteredCaregivers(sel.date, sel.start, sel.end).sort((a,b)=>a.name.localeCompare(b.name));
   const filtersActive=!!(wkFilters().type||wkFilters().gender||wkFilters().driving||wkFilters().city);
-  const rows=list.length ? list.map(wkCgRowHtml).join('')
+  const rows=list.length ? list.map(cg=>wkCgRowHtml(cg, sel.date, sel.start, sel.end)).join('')
     : `<div class="ws-none">${totalAvail && filtersActive ? 'No available caregivers match these filters.' : 'No caregivers have availability entered for this window.'}</div>`;
   return `<div class="ws-card wk-detail">
     <div class="wk-detailhead ${wkDayColorClass(sel.date)}">
