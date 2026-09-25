@@ -998,9 +998,15 @@
   .wk-bucket.on .wk-bcount{color:var(--brand)}
   .wk-detail{margin-top:14px;padding:0;overflow:hidden}
   .wk-detailhead{display:flex;align-items:center;gap:10px;padding:12px 15px;border-bottom:1px solid var(--line);background:var(--panel-head)}
+  .wk-detailheadmain{display:flex;flex-direction:column;gap:2px;min-width:0}
   .wk-detailtitle{font-size:13.5px;font-weight:800;color:var(--ink)}
+  .wk-detailbreak{font-size:12px;font-weight:650;color:var(--ink-soft)}
   .wk-close{margin-left:auto;background:none;border:none;font-size:18px;line-height:1;color:var(--ink-faint);cursor:pointer;padding:2px 4px}
   .wk-close:hover{color:var(--ink)}
+  /* One row, four compact dropdowns — reuses .ein's border/colour but
+     overrides its width:100% so they sit side by side instead of stacking. */
+  .wk-detailfilters{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 15px;border-bottom:1px solid var(--line)}
+  select.wk-fsel{width:auto;min-width:96px;padding:6px 10px;font-size:12.5px;font-weight:650}
   .wk-cglist{display:flex;flex-direction:column}
   .wk-cgrow{display:flex;align-items:center;gap:10px;padding:9px 15px;border-bottom:1px solid var(--line-soft)}
   .wk-cgrow:last-child{border-bottom:none}
@@ -9059,17 +9065,83 @@ function wkCgRowHtml(cg){
     <button class="btn sm" onclick="manualCall('${cg.id}')">${ic('phone',11)} Call</button>
   </div>`;
 }
+/* Filters live INSIDE the revealed caregiver-list panel, not on the grid — the
+   grid's "N available" counts stay exactly as they are, unfiltered, so the
+   weekly overview never changes shape. wkFilteredCaregivers() layers on top
+   of the existing wkAvailableCaregivers() (grid counts keep calling that
+   directly) so there is one narrowing rule for the list without touching the
+   grid at all. */
+function wkFilters(){ return state.wkFilter || (state.wkFilter={type:'',gender:'',driving:'',city:''}); }
+function wkSetFilter(key,val){ wkFilters()[key]=val; render(); }
+const WK_TYPE_OPTS=[['','All Types'],['cna','CNA'],['noncna','Non-CNA']];
+const WK_GENDER_OPTS=[['','All'],['F','Female'],['M','Male']];
+const WK_DRIVING_OPTS=[['','All'],['driver','Driver'],['non','No Car']];
+function wkNormCity(v){
+  return (typeof AxisRoster!=='undefined'&&AxisRoster.normCity) ? AxisRoster.normCity(v) : (String(v||'').trim()||null);
+}
+/* Built from the roster, not hardcoded — AxisCare city strings vary caregiver
+   to caregiver ("Oxnard" isn't a fixed short list), so this always offers
+   exactly the cities that exist. */
+function wkCityOpts(){
+  const cities=Array.from(new Set(wkActiveCaregivers().map(cg=>wkNormCity(cg.base)).filter(Boolean))).sort();
+  return [['','All']].concat(cities.map(c=>[c,c]));
+}
+function wkFilterMatch(cg){
+  const f=wkFilters();
+  /* CNA is a tag somebody recorded in AxisCare, so ops.prefs.cna (a typed
+     answer) is checked first and the class tag second — the same prefVal()
+     rule as everywhere else a caregiver's tags are read. Non-CNA covers both
+     an explicit No and simply unanswered. */
+  if(f.type==='cna' && prefVal(cg,'cna')!==true) return false;
+  if(f.type==='noncna' && prefVal(cg,'cna')===true) return false;
+  if(f.gender && cg.gender!==f.gender) return false;
+  if(f.driving==='driver' && !cg.driver) return false;
+  if(f.driving==='non' && cg.driver) return false;
+  if(f.city && wkNormCity(cg.base)!==f.city) return false;
+  return true;
+}
+function wkFilteredCaregivers(dateStr,start,end){
+  return wkAvailableCaregivers(dateStr,start,end).filter(wkFilterMatch);
+}
+function wkGenderBreakdown(list){
+  let f=0,m=0,u=0;
+  list.forEach(function(cg){ if(cg.gender==='F') f++; else if(cg.gender==='M') m++; else u++; });
+  const parts=[f+' Female', m+' Male'];
+  if(u) parts.push(u+' Unknown');
+  return parts.join(' · ');
+}
+function wkDetailFilterSelect(label,key,opts){
+  const cur=wkFilters()[key]||'';
+  const optHtml=opts.map(function(o){
+    return `<option value="${esc(o[0])}" ${cur===o[0]?'selected':''}>${escText(o[1])}</option>`;
+  }).join('');
+  return `<select class="ein wk-fsel" aria-label="${esc(label)}" onchange="wkSetFilter('${key}',this.value)">${optHtml}</select>`;
+}
+function renderWeekDetailFilters(){
+  return `<div class="wk-detailfilters">
+    ${wkDetailFilterSelect('Type','type',WK_TYPE_OPTS)}
+    ${wkDetailFilterSelect('Gender','gender',WK_GENDER_OPTS)}
+    ${wkDetailFilterSelect('Driving','driving',WK_DRIVING_OPTS)}
+    ${wkDetailFilterSelect('City','city',wkCityOpts())}
+  </div>`;
+}
 function renderWeekSelDetail(){
   const sel=state.wkSel; if(!sel) return '';
   const full=new Date(sel.date+'T12:00:00').toLocaleDateString('en-US',{weekday:'long'});
-  const list=wkAvailableCaregivers(sel.date, sel.start, sel.end).sort((a,b)=>a.name.localeCompare(b.name));
+  const totalAvail=wkAvailableCaregivers(sel.date, sel.start, sel.end).length;
+  const list=wkFilteredCaregivers(sel.date, sel.start, sel.end).sort((a,b)=>a.name.localeCompare(b.name));
+  const filtersActive=!!(wkFilters().type||wkFilters().gender||wkFilters().driving||wkFilters().city);
   const rows=list.length ? list.map(wkCgRowHtml).join('')
-    : `<div class="ws-none">No caregivers have availability entered for this window.</div>`;
+    : `<div class="ws-none">${totalAvail && filtersActive ? 'No available caregivers match these filters.' : 'No caregivers have availability entered for this window.'}</div>`;
   return `<div class="ws-card wk-detail">
     <div class="wk-detailhead ${wkDayColorClass(sel.date)}">
-      <span class="wk-detailtitle">${escText(full)} ${escText(sel.label)} — ${list.length} Available Caregiver${list.length===1?'':'s'}</span>
+      <div class="wk-detailheadmain">
+        <span class="wk-detailtitle">${escText(full)} ${escText(sel.label)} — ${list.length} Available Caregiver${list.length===1?'':'s'}</span>
+        ${list.length?`<span class="wk-detailbreak">${escText(wkGenderBreakdown(list))}</span>`:''}
+      </div>
       <button class="wk-close" onclick="wkClearSel()" aria-label="Close">×</button>
     </div>
+    ${renderWeekDetailFilters()}
     <div class="wk-cglist">${rows}</div>
   </div>`;
 }
