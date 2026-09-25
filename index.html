@@ -9055,7 +9055,14 @@ function viewCoverage(){
    path. Force:true on that one per-week fetch, though, because a stale
    coverage answer is the worst kind of wrong (CLAUDE.md, "the round trip
    is cheap; do not optimise it back into a cache hit"). */
-const WK_BUCKETS=[['Morning',6,14],['Afternoon',14,22],['Night',22,30]];
+/* "Overnight" was "Night" until this rename — nothing else in the file
+   hardcodes that label, so this is the one place it lives. "Whole Day" asks
+   coverageDetail() to fully cover 0-24, which only a caregiver with an
+   Open block spanning the entire date (or Open segments that together do)
+   can satisfy — the same all-or-nothing full-coverage rule every other
+   bucket already uses, just asked over the whole day instead of a slice
+   of it. */
+const WK_BUCKETS=[['Morning',6,14],['Afternoon',14,22],['Overnight',22,30],['Whole Day',0,24]];
 /* One soft color per weekday, keyed off dayKeyFromDate(). Used on both the
    grid's day header and the selected-day results header below it, so the
    two visually match — see the .wk-c-* rules by .wk-dayhead. */
