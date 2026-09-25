@@ -969,14 +969,22 @@
   /* the simple weekly availability view — flat, compact, no large cards.
      Names stay hidden until a bucket is clicked; see .wk-detail below. */
   .wk-card{padding:14px 16px}
-  .wk-nav{display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:12px}
-  .wk-navlabel{font-size:14px;font-weight:800;color:var(--ink);min-width:150px;text-align:center;letter-spacing:.3px}
+  .wk-nav{display:flex;align-items:center;justify-content:center;gap:14px;margin-bottom:12px}
+  /* Icon-only, same square-arrow-button convention the Attendance month
+     nav (.at-mo-a) already uses elsewhere in the app. */
+  .wk-nav-a{font-family:inherit;font-size:15px;line-height:1;color:var(--ink-soft);background:#fff;border:1px solid var(--line-strong);border-radius:7px;width:28px;height:28px;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
+  .wk-nav-a:hover:not(:disabled){border-color:var(--brand);color:var(--brand)}
+  .wk-nav-a:disabled{color:var(--ink-faint);border-color:var(--line);cursor:default}
+  .wk-navlabel{font-size:18px;font-weight:800;color:var(--ink);min-width:130px;text-align:center;letter-spacing:.4px}
   .wk-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
   @media(max-width:900px){.wk-grid{grid-template-columns:repeat(2,1fr)}}
   @media(max-width:560px){.wk-grid{grid-template-columns:1fr}}
   .wk-day{border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
   .wk-day.today{border-color:var(--brand)}
-  .wk-dayhead{padding:8px 10px;background:var(--panel-head);border-bottom:1px solid var(--line);font-size:12.5px;font-weight:800;color:var(--ink);display:flex;align-items:center;justify-content:space-between;gap:6px}
+  /* The day/date is the thing a scheduler orients on first, so it reads
+     larger and darker than the Morning/Afternoon/Night rows below it —
+     see .wk-blabel, which is deliberately smaller and lighter than this. */
+  .wk-dayhead{padding:9px 10px;background:var(--panel-head);border-bottom:1px solid var(--line);font-size:15.5px;font-weight:800;color:var(--ink);display:flex;align-items:center;justify-content:space-between;gap:6px}
   /* One soft color per weekday, carried down to the results header below
      when that day's bucket is selected — same classes, same fill, on both
      .wk-dayhead (the grid) and .wk-detailhead (the selected-day results
@@ -987,25 +995,69 @@
   .wk-dayhead.wk-c-wed,.wk-detailhead.wk-c-wed{background:#F1EAFA}
   .wk-dayhead.wk-c-thu,.wk-detailhead.wk-c-thu{background:#FCF1DF}
   .wk-dayhead.wk-c-fri,.wk-detailhead.wk-c-fri{background:#FBE8EF}
-  .wk-daydate{font-size:10.5px;font-weight:700;color:var(--ink-faint);white-space:nowrap}
+  /* var(--ink-faint) read as too light to call "easy to see" — moved to
+     --ink-soft, which is still visibly secondary to the day name beside it
+     but is a real readable medium-dark gray, not a faded one. */
+  .wk-daydate{font-size:12px;font-weight:700;color:var(--ink-soft);white-space:nowrap}
   .wk-bucket{display:flex;align-items:center;justify-content:space-between;width:100%;text-align:left;background:none;border:none;border-top:1px solid var(--line-soft);font-family:inherit;padding:8px 10px;cursor:pointer}
   .wk-day .wk-bucket:first-of-type{border-top:none}
   .wk-bucket:hover{background:var(--panel-head)}
   .wk-bucket.on{background:var(--panel-head);box-shadow:inset 2px 0 0 var(--brand)}
   .wk-bucket.wait{cursor:default}
-  .wk-blabel{font-size:12.5px;font-weight:650;color:var(--ink-soft)}
+  /* Deliberately smaller and lighter than .wk-dayhead above it — the
+     day/date is what should stand out, not the time-of-day label. */
+  .wk-blabel{font-size:11px;font-weight:500;color:var(--ink-soft)}
   .wk-bcount{font-size:12px;font-weight:700;color:var(--ink)}
   .wk-bucket.on .wk-bcount{color:var(--brand)}
   .wk-detail{margin-top:14px;padding:0;overflow:hidden}
   .wk-detailhead{display:flex;align-items:center;gap:10px;padding:12px 15px;border-bottom:1px solid var(--line);background:var(--panel-head)}
+  /* Grows to fill the row, which is what pushes Filter and Close to the
+     right edge — same level as the title text, not stacked under it. */
+  .wk-detailheadmain{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1 1 auto}
   .wk-detailtitle{font-size:13.5px;font-weight:800;color:var(--ink)}
-  .wk-close{margin-left:auto;background:none;border:none;font-size:18px;line-height:1;color:var(--ink-faint);cursor:pointer;padding:2px 4px}
+  .wk-close{margin-left:0;background:none;border:none;font-size:18px;line-height:1;color:var(--ink-faint);cursor:pointer;padding:2px 4px}
   .wk-close:hover{color:var(--ink)}
+  /* Female / Male — small, compact quick-toggles beside Filter, not part of
+     its dropdown. Same size and look as .wk-filterbtn so the three read as
+     one group. */
+  .wk-genderbtns{display:flex;gap:6px;flex:0 0 auto}
+  .wk-genderbtn{display:inline-flex;align-items:center;gap:4px;font-family:inherit;font-size:12.5px;font-weight:650;color:var(--ink);background:#fff;border:1px solid var(--line-strong);border-radius:var(--r);height:30px;padding:0 10px;cursor:pointer}
+  .wk-genderbtn:hover{border-color:var(--brand)}
+  .wk-genderbtn.on{border-color:var(--brand);color:var(--brand);background:#F2F7FA}
+  .wk-gcount{font-variant-numeric:tabular-nums;font-weight:800;color:var(--ink-soft)}
+  .wk-genderbtn.on .wk-gcount{color:var(--brand)}
+  /* ONE "Filter" dropdown — driving, CNA and city live inside this single
+     popover, never as separate dropdowns beside it. Gender is not one of
+     these any more — see .wk-genderbtns above. */
+  .wk-filterwrap{position:relative;flex:0 0 auto}
+  .wk-filterbtn{display:inline-flex;align-items:center;gap:5px;font-family:inherit;font-size:12.5px;font-weight:650;color:var(--ink);background:#fff;border:1px solid var(--line-strong);border-radius:var(--r);height:30px;padding:0 11px;cursor:pointer}
+  .wk-filterbtn:hover{border-color:var(--brand)}
+  .wk-filterbtn.on{border-color:var(--brand);color:var(--brand);background:#F2F7FA}
+  .wk-filtercar{font-size:10px;color:var(--ink-faint)}
+  .wk-filterbtn.on .wk-filtercar{color:var(--brand)}
+  .wk-filtermenu{position:absolute;top:calc(100% + 6px);right:0;z-index:20;background:#fff;border:1px solid var(--line);border-radius:var(--r);box-shadow:0 6px 18px rgba(0,0,0,.14);min-width:190px;padding:6px;display:flex;flex-direction:column}
+  .wk-fitem{display:flex;align-items:center;gap:8px;width:100%;text-align:left;font-family:inherit;font-size:13px;font-weight:600;color:var(--ink);background:none;border:none;border-radius:6px;padding:8px 9px;cursor:pointer}
+  .wk-fitem:hover{background:var(--panel-head)}
+  .wk-fitem.on{color:var(--brand);background:#EEF4F8;font-weight:700}
+  .wk-fitem .wk-fick{width:14px;flex:0 0 auto;display:flex;color:var(--brand)}
+  .wk-fcity{padding:8px 9px 2px;border-top:1px solid var(--line-soft);margin-top:4px}
+  .wk-fcitylabel{display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--ink-faint);margin-bottom:5px}
+  select.wk-fsel{width:100%;padding:6px 9px;font-size:12.5px;font-weight:650}
   .wk-cglist{display:flex;flex-direction:column}
   .wk-cgrow{display:flex;align-items:center;gap:10px;padding:9px 15px;border-bottom:1px solid var(--line-soft)}
   .wk-cgrow:last-child{border-bottom:none}
+  /* Same small-avatar convention as the Caregivers list row (.cgf-ri-photo),
+     scaled down a step for this denser row — square, rounded corners, a
+     plain camera glyph when there is no photo. */
+  .wk-cgphoto{width:32px;height:32px;flex:0 0 auto;border-radius:8px;overflow:hidden;background:var(--panel-head);display:flex;align-items:center;justify-content:center;line-height:0}
+  .wk-cgphoto img{width:100%;height:100%;object-fit:cover;display:block}
+  .wk-cgphoto.noimg{color:var(--ink-faint)}
+  .wk-cgphoto.noimg svg{display:block;width:16px;height:16px}
   .wk-cgname{font-family:inherit;font-size:13px;font-weight:700;color:var(--brand);background:none;border:none;padding:0;cursor:pointer;text-align:left}
   .wk-cgname:hover{text-decoration:underline}
+  /* The caregiver's actual hours for this date — sits right beside the name,
+     sized to content so it never gets squeezed by .wk-cgmeta's flex-grow. */
+  .wk-cgtime{font-size:12.5px;font-weight:650;color:var(--ink);flex:0 0 auto;white-space:nowrap;font-variant-numeric:tabular-nums}
   .wk-cgmeta{font-size:12px;color:var(--ink-soft);flex:1 1 auto;min-width:0}
   /* status bar */
   .cov-status{background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:13px 16px;margin-bottom:14px}
@@ -2804,7 +2856,6 @@ html.pg-held .pingate{display:none!important}
 .cd-cname{display:block}
 .cd-cname b{font-size:14px;color:var(--ink)}
 .cd-ccount{display:block;font-size:11px;font-weight:700;color:var(--ink-faint);margin-top:1px}
-.cd-shiftlabel{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--ink-faint);margin-bottom:5px}
 .cd-noteblock+.cd-noteblock{margin-top:9px;padding-top:9px;border-top:1px solid var(--line-soft)}
 .cd-noteby{font-size:11.5px;font-weight:700;color:var(--ink-soft);margin-bottom:2px}
 .cd-notetx{font-size:13px;color:var(--ink);line-height:1.5;white-space:pre-wrap}
@@ -9003,7 +9054,14 @@ function viewCoverage(){
    path. Force:true on that one per-week fetch, though, because a stale
    coverage answer is the worst kind of wrong (CLAUDE.md, "the round trip
    is cheap; do not optimise it back into a cache hit"). */
-const WK_BUCKETS=[['Morning',6,14],['Afternoon',14,22],['Night',22,30]];
+/* "Overnight" was "Night" until this rename — nothing else in the file
+   hardcodes that label, so this is the one place it lives. "Whole Day" asks
+   coverageDetail() to fully cover 0-24, which only a caregiver with an
+   Open block spanning the entire date (or Open segments that together do)
+   can satisfy — the same all-or-nothing full-coverage rule every other
+   bucket already uses, just asked over the whole day instead of a slice
+   of it. */
+const WK_BUCKETS=[['Morning',6,14],['Afternoon',14,22],['Overnight',22,30],['Whole Day',0,24]];
 /* One soft color per weekday, keyed off dayKeyFromDate(). Used on both the
    grid's day header and the selected-day results header below it, so the
    two visually match — see the .wk-c-* rules by .wk-dayhead. */
@@ -9048,26 +9106,177 @@ function wkSelectBucket(dateStr,label,start,end){
   /* A second click on the same bucket closes it — the natural way to
      dismiss the list without hunting for a separate close control. */
   state.wkSel=(sel && sel.date===dateStr && sel.label===label) ? null : {date:dateStr, label:label, start:start, end:end};
+  state.wkFilterMenuOpen=false;
   render();
 }
-function wkClearSel(){ state.wkSel=null; render(); }
-function wkCgRowHtml(cg){
-  const meta=[cg.base, cg.driver?'Driver':'No car', hasVal(cg.reliability)?cg.reliability+'% reliable':null].filter(Boolean).join(' · ');
+function wkClearSel(){ state.wkSel=null; state.wkFilterMenuOpen=false; render(); }
+/* The caregiver's REAL stated availability window for this date, not the
+   bucket they were found under — mirrors coverageDetail()'s own window
+   match (carryWindows/nextWindows/mergeWins, the overnight-aware merge)
+   rather than reusing its boolean, so an overnight Night-bucket row still
+   resolves to the actual segment that covers it. Every row this is called
+   for already passed coverageDetail(cg,dateStr,start,end).cov==='full' in
+   wkAvailableCaregivers(), so a real window is expected here — null is a
+   defensive fallback, not the normal case. */
+function wkAvailWindow(cg,dateStr,start,end){
+  const d=AVAIL.dayAvail(cg.id, dateStr);
+  if(end<=start) end+=24;
+  if(d.state==='unloaded'||d.state==='error'||d.state==='unconfigured'||d.state==='blocked') return null;
+  let wins=d.wins.concat(AVAIL.carryWindows(cg.id, dateStr));
+  if(end>24) wins=wins.concat(AVAIL.nextWindows(cg.id, dateStr));
+  if(!wins.length) return null;
+  wins=AVAIL.mergeWins(wins);
+  for(const w of wins){ if(w[0]<=start && w[1]>=end) return w; }
+  return null;
+}
+function wkCgRowHtml(cg,dateStr,start,end){
+  const win=wkAvailWindow(cg,dateStr,start,end);
+  /* Driving status is dropped here on purpose — it is already one of the
+     Filter dropdown's options, so showing it again on every row repeated
+     information the scheduler can already narrow by. City stays: it is not
+     offered anywhere else on this row and is needed at a glance. */
+  const meta=[cg.base, hasVal(cg.reliability)?cg.reliability+'% reliable':null].filter(Boolean).join(' · ');
+  const photo=cgPhotoUrl(cg,64);   /* 2x the 32px slot */
+  const av=photo
+    ? `<div class="wk-cgphoto"><img src="${esc(photo)}" alt="" loading="lazy" decoding="async" onerror="cgPhotoFail(this)"></div>`
+    : `<div class="wk-cgphoto noimg">${ic('camera',14)}</div>`;
   return `<div class="wk-cgrow">
+    ${av}
     <button type="button" class="wk-cgname" onclick="openCgFromCoverage('${cg.id}')" title="Open ${escText(cg.name)}’s calendar">${escText(cg.name)}</button>
+    ${win?`<span class="wk-cgtime">${escText(fmtClock(win[0])+' – '+fmtClock(win[1]))}</span>`:''}
     ${meta?`<span class="wk-cgmeta">${escText(meta)}</span>`:''}
     <button class="btn sm" onclick="manualCall('${cg.id}')">${ic('phone',11)} Call</button>
   </div>`;
 }
+/* Filters live INSIDE the revealed caregiver-list panel, not on the grid — the
+   grid's "N available" counts stay exactly as they are, unfiltered, so the
+   weekly overview never changes shape. wkFilteredCaregivers() layers on top
+   of the existing wkAvailableCaregivers() (grid counts keep calling that
+   directly) so there is one narrowing rule for the list without touching the
+   grid at all. */
+function wkFilters(){ return state.wkFilter || (state.wkFilter={type:'',gender:'',driving:'',city:''}); }
+function wkSetFilter(key,val){ wkFilters()[key]=val; render(); }
+/* ONE dropdown, not four. wkSetFilter toggles a value straight from the
+   menu, so Female/Male/Driver/CNA are single-click on/off items rather than
+   their own <select>s — clicking an already-active one clears it back to
+   All, matching the toggle-on-second-click pattern wkSelectBucket() already
+   uses for the grid itself. */
+function wkToggleFilterVal(key,val){ const f=wkFilters(); wkSetFilter(key, f[key]===val ? '' : val); }
+function wkFilterMenuOpen(){ return !!state.wkFilterMenuOpen; }
+function wkToggleFilterMenu(){ state.wkFilterMenuOpen=!state.wkFilterMenuOpen; render(); }
+function wkCloseFilterMenu(){ if(state.wkFilterMenuOpen){ state.wkFilterMenuOpen=false; render(); } }
+function wkNormCity(v){
+  return (typeof AxisRoster!=='undefined'&&AxisRoster.normCity) ? AxisRoster.normCity(v) : (String(v||'').trim()||null);
+}
+/* Built from the roster, not hardcoded — AxisCare city strings vary caregiver
+   to caregiver ("Oxnard" isn't a fixed short list), so this always offers
+   exactly the cities that exist. */
+function wkCityOpts(){
+  const cities=Array.from(new Set(wkActiveCaregivers().map(cg=>wkNormCity(cg.base)).filter(Boolean))).sort();
+  return [['','All']].concat(cities.map(c=>[c,c]));
+}
+/* Gender is split out of the "other" checks so Female/Male's own displayed
+   counts (renderWeekGenderButtons) can be computed against the SAME set of
+   caregivers wkFilterMatch narrows to before gender is applied — otherwise
+   selecting Female would collapse the Male count to 0 instead of showing
+   the honest count a scheduler could switch to. */
+function wkFilterMatchExceptGender(cg){
+  const f=wkFilters();
+  /* CNA is a tag somebody recorded in AxisCare, so ops.prefs.cna (a typed
+     answer) is checked first and the class tag second — the same prefVal()
+     rule as everywhere else a caregiver's tags are read. Non-CNA covers both
+     an explicit No and simply unanswered. */
+  if(f.type==='cna' && prefVal(cg,'cna')!==true) return false;
+  if(f.type==='noncna' && prefVal(cg,'cna')===true) return false;
+  if(f.driving==='driver' && !cg.driver) return false;
+  if(f.driving==='non' && cg.driver) return false;
+  if(f.city && wkNormCity(cg.base)!==f.city) return false;
+  return true;
+}
+function wkFilterMatch(cg){
+  if(!wkFilterMatchExceptGender(cg)) return false;
+  const f=wkFilters();
+  if(f.gender && cg.gender!==f.gender) return false;
+  return true;
+}
+function wkFilteredCaregivers(dateStr,start,end){
+  return wkAvailableCaregivers(dateStr,start,end).filter(wkFilterMatch);
+}
+/* Female/Male counts, ignoring the current gender selection itself so both
+   buttons always show real, switchable counts — see the comment above. */
+function wkGenderCounts(dateStr,start,end){
+  const base=wkAvailableCaregivers(dateStr,start,end).filter(wkFilterMatchExceptGender);
+  let f=0,m=0;
+  base.forEach(function(cg){ if(cg.gender==='F') f++; else if(cg.gender==='M') m++; });
+  return {f:f,m:m};
+}
+/* Female and Male are now their own quick-toggle buttons beside Filter, not
+   options inside it — one click narrows straight to that gender, a second
+   click on the same one clears it, same toggle rule Driver/CNA use. */
+function renderWeekGenderButtons(dateStr,start,end){
+  const counts=wkGenderCounts(dateStr,start,end), gender=wkFilters().gender;
+  const btn=(label,val,count)=>`<button type="button" class="wk-genderbtn${gender===val?' on':''}" onclick="wkToggleFilterVal('gender','${val}')">${escText(label)} <span class="wk-gcount">${count}</span></button>`;
+  return `<div class="wk-genderbtns">${btn('Female','F',counts.f)}${btn('Male','M',counts.m)}</div>`;
+}
+/* ONE menu item, toggled on click — Driver/CNA render through this so the
+   two read identically. */
+function wkFilterItem(label,key,val){
+  const on=wkFilters()[key]===val;
+  return `<button type="button" class="wk-fitem${on?' on':''}" onclick="wkToggleFilterVal('${key}','${val}')">
+    <span class="wk-fick">${on?ic('check',12):''}</span>${escText(label)}
+  </button>`;
+}
+/* The one popover — Driver, CNA and City live inside it. Gender has its own
+   buttons beside Filter now (renderWeekGenderButtons), so it is not one of
+   these options any more. */
+function renderWeekFilterMenu(){
+  const cityOpts=wkCityOpts();
+  const curCity=wkFilters().city||'';
+  const cityOptHtml=cityOpts.map(function(o){
+    return `<option value="${esc(o[0])}" ${curCity===o[0]?'selected':''}>${escText(o[1])}</option>`;
+  }).join('');
+  return `<div class="wk-filtermenu" onclick="event.stopPropagation()">
+    ${wkFilterItem('Driver','driving','driver')}
+    ${wkFilterItem('CNA','type','cna')}
+    <div class="wk-fcity">
+      <span class="wk-fcitylabel">City</span>
+      <select class="wk-fsel" aria-label="City" onchange="wkSetFilter('city',this.value)">${cityOptHtml}</select>
+    </div>
+  </div>`;
+}
+function renderWeekFilterButton(){
+  const f=wkFilters(), active=!!(f.type||f.driving||f.city);
+  const open=wkFilterMenuOpen();
+  return `<div class="wk-filterwrap">
+    <button type="button" class="wk-filterbtn${active?' on':''}" onclick="wkToggleFilterMenu()">Filter <span class="wk-filtercar">${open?'▾':'▸'}</span></button>
+    ${open?renderWeekFilterMenu():''}
+  </div>`;
+}
+/* Click anywhere else and the menu closes — same mousedown-capture pattern
+   CGPHOTO's menu uses, so a click on whatever is underneath never both
+   closes the menu AND fires on that element. */
+try{
+  document.addEventListener('mousedown', function(ev){
+    if(!state.wkFilterMenuOpen) return;
+    const w=ev.target && ev.target.closest ? ev.target.closest('.wk-filterwrap') : null;
+    if(!w) wkCloseFilterMenu();
+  }, true);
+}catch(e){}
 function renderWeekSelDetail(){
   const sel=state.wkSel; if(!sel) return '';
   const full=new Date(sel.date+'T12:00:00').toLocaleDateString('en-US',{weekday:'long'});
-  const list=wkAvailableCaregivers(sel.date, sel.start, sel.end).sort((a,b)=>a.name.localeCompare(b.name));
-  const rows=list.length ? list.map(wkCgRowHtml).join('')
-    : `<div class="ws-none">No caregivers have availability entered for this window.</div>`;
+  const totalAvail=wkAvailableCaregivers(sel.date, sel.start, sel.end).length;
+  const list=wkFilteredCaregivers(sel.date, sel.start, sel.end).sort((a,b)=>a.name.localeCompare(b.name));
+  const filtersActive=!!(wkFilters().type||wkFilters().gender||wkFilters().driving||wkFilters().city);
+  const rows=list.length ? list.map(cg=>wkCgRowHtml(cg, sel.date, sel.start, sel.end)).join('')
+    : `<div class="ws-none">${totalAvail && filtersActive ? 'No available caregivers match these filters.' : 'No caregivers have availability entered for this window.'}</div>`;
   return `<div class="ws-card wk-detail">
     <div class="wk-detailhead ${wkDayColorClass(sel.date)}">
-      <span class="wk-detailtitle">${escText(full)} ${escText(sel.label)} — ${list.length} Available Caregiver${list.length===1?'':'s'}</span>
+      <div class="wk-detailheadmain">
+        <span class="wk-detailtitle">${escText(full)} ${escText(sel.label)} — ${list.length} Available Caregiver${list.length===1?'':'s'}</span>
+      </div>
+      ${renderWeekGenderButtons(sel.date, sel.start, sel.end)}
+      ${renderWeekFilterButton()}
       <button class="wk-close" onclick="wkClearSel()" aria-label="Close">×</button>
     </div>
     <div class="wk-cglist">${rows}</div>
@@ -9081,9 +9290,9 @@ function renderWeekAvailability(){
   const loading=state.wkAvail.status==='loading', error=state.wkAvail.status==='error';
 
   const nav=`<div class="wk-nav">
-    <button class="btn sm" ${prevOff?'disabled':''} onclick="wkPrevWeek()">${ic('chevL',14)} Previous Week</button>
+    <button class="wk-nav-a" ${prevOff?'disabled':''} onclick="wkPrevWeek()" aria-label="Previous week">${ic('chevL',14)}</button>
     <div class="wk-navlabel">${escText(wkRangeLabel(start))}</div>
-    <button class="btn sm" ${nextOff?'disabled':''} onclick="wkNextWeek()">Next Week ${ic('chev',14)}</button>
+    <button class="wk-nav-a" ${nextOff?'disabled':''} onclick="wkNextWeek()" aria-label="Next week">${ic('chev',14)}</button>
   </div>`;
 
   const statusBar=loading
@@ -17474,6 +17683,26 @@ const CG_REQUIRED=[
   {label:'Client Blocks — Do Not Assign',
    ok:c=>(c.ops.clientRestr||[]).every(r=>hasVal(r.reason)&&hasVal(r.level))}
 ];
+/* Company-wide data, computed client-side from the shared roster and the
+   shared caregiver_availability table — so it must read the SAME on every
+   browser once both have actually loaded here. Neither is instant: the
+   roster is fetched at boot, and AVAIL.monthCoverage() is asked for the
+   first time whichever browser opens this tab first (see the comment in
+   cgNeedsUpdate()). Reading either one before it is ready does not error —
+   it just silently answers as if that caregiver had nothing to flag, so a
+   browser that has not finished loading yet shows a smaller, wrong count
+   with nothing on screen saying why. That is what made the same shared
+   number look like it depended on which scheduler's browser you were
+   reading it from: whoever's tab finished loading first saw the real
+   count, everyone else saw an honest-looking but incomplete one. Callers
+   must check this before trusting cgNeedsUpdate().length as final. */
+function cgNeedsUpdateReady(){
+  if(rosterLoading()) return false;
+  try{
+    const cs=(typeof AVAIL!=='undefined'&&AVAIL.monthCoverageInfo)?AVAIL.monthCoverageInfo():null;
+    return !cs || cs.state==='ready';
+  }catch(e){ return true; }
+}
 /* A caregiver appears once, carrying every reason they need attention. */
 function cgNeedsUpdate(){
   const out=[];
@@ -18304,10 +18533,16 @@ function setSuTab(t){ state.suTab = t==='needs' ? 'needs' : 'recent'; render(); 
 function viewSchedUpdates(){
   const tab = state.suTab==='needs' ? 'needs' : 'recent';
   const needs = cgNeedsUpdate();
+  /* The badge must never show a confident number while the data it is
+     counted from is still loading on THIS browser — see cgNeedsUpdateReady()
+     for why. A small "…" reads honestly as "still checking"; a wrong small
+     number reads as the real answer and is how this looked like it depended
+     on who was logged in. */
+  const ready = cgNeedsUpdateReady();
   const tb=(k,label,n)=>'<button class="cgnav-t'+(tab===k?' on':'')+'" onclick="setSuTab(\''+k+'\')">'+
     label+(n?'<span class="su-n">'+n+'</span>':'')+'</button>';
   const head='<div class="upd-head"><span class="upd-h">Caregiver Record Status</span></div>'+
-    '<nav class="cgnav su-nav">'+tb('recent','Recent Updates')+tb('needs','Needs Update',needs.length)+'</nav>';
+    '<nav class="cgnav su-nav">'+tb('recent','Recent Updates')+tb('needs','Needs Update',ready?needs.length:'…')+'</nav>';
   return head + (tab==='needs' ? suNeedsHTML(needs) : suRecentHTML());
 }
 /* TAB 1 — what was changed, by whom, newest first. Everything one person
@@ -18342,15 +18577,23 @@ function suNeedsHTML(needs){
      check would make a short list look like good news. */
   let note='';
   try{
-    const cs=(typeof AVAIL!=='undefined'&&AVAIL.monthCoverageInfo)?AVAIL.monthCoverageInfo():null;
-    if(cs && cs.state!=='ready'){
-      note='<div class="demo-banner cal-meta'+(cs.state==='loading'||cs.state==='idle'?' load':' err')+'">'+
-        (cs.state==='loading'||cs.state==='idle'
-          ? '<span class="cs-spin"></span><span>Checking each caregiver\u2019s availability calendar\u2026</span>'
-          : '<span class="db-ic">\u26A0</span><span><b>Availability could not be checked.</b> '+
-            esc(cs.err||'Supabase is not reachable')+' \u2014 the profile checks below are still accurate, '+
-            'but nobody is being flagged for missing availability.</span>')+
-        '</div>';
+    /* The roster itself is still loading \u2014 every check below reads
+       state.caregivers, so this is the more fundamental incompleteness and
+       takes priority over the narrower availability note. */
+    if(rosterLoading()){
+      note='<div class="demo-banner cal-meta load"><span class="cs-spin"></span>'+
+        '<span>Loading the caregiver roster\u2026 this list is not final yet.</span></div>';
+    }else{
+      const cs=(typeof AVAIL!=='undefined'&&AVAIL.monthCoverageInfo)?AVAIL.monthCoverageInfo():null;
+      if(cs && cs.state!=='ready'){
+        note='<div class="demo-banner cal-meta'+(cs.state==='loading'||cs.state==='idle'?' load':' err')+'">'+
+          (cs.state==='loading'||cs.state==='idle'
+            ? '<span class="cs-spin"></span><span>Checking each caregiver\u2019s availability calendar\u2026</span>'
+            : '<span class="db-ic">\u26A0</span><span><b>Availability could not be checked.</b> '+
+              esc(cs.err||'Supabase is not reachable')+' \u2014 the profile checks below are still accurate, '+
+              'but nobody is being flagged for missing availability.</span>')+
+          '</div>';
+      }
     }
   }catch(e){}
   if(!needs.length) return note+emptyState('Nothing needs attention',
@@ -19829,17 +20072,16 @@ function careShiftSummaryHtml(list,clientId,shift){
      fall whose note "View Original Notes" cannot show is worse than the note. */
   if(sum && sum.summary && sum.sourceCount===list.length){
     const by=[...new Set(list.map(n=>{ const c=cgById(n.cgId); return c?c.name:'Caregiver'; }))].join(', ');
-    const when=list.map(n=>careTimeLabel(n.at)).join(', ');
     const long=sum.summary.length>CD_TRUNC_CHARS;
     const shown=(long&&!expanded)?cdTrunc(sum.summary):sum.summary;
-    return `<div class="cd-sum"><div class="cd-noteby">${escText(by)} \u00b7 ${escText(when)}</div><div class="cd-sumtx">${escText(shown)}</div>${long?cdMoreBtn(key,expanded):''}</div>`;
+    return `<div class="cd-sum"><div class="cd-noteby">Caregiver: ${escText(by)}</div><div class="cd-sumtx">${escText(shown)}</div>${long?cdMoreBtn(key,expanded):''}</div>`;
   }
   const totalLen=list.reduce((s,n)=>s+cleanNoteText(n.text).length,0);
   const many=list.length>1||totalLen>CD_TRUNC_CHARS;
   const shownList=(many&&!expanded)?list.slice(0,1):list;
   const blocks=shownList.map(n=>{
     const cg=cgById(n.cgId), tx=cleanNoteText(n.text);
-    return `<div class="cd-noteblock"><div class="cd-noteby">${escText(cg?cg.name:'Caregiver')} \u00b7 ${careTimeLabel(n.at)}</div><div class="cd-notetx">${escText((many&&!expanded)?cdTrunc(tx):tx)}</div></div>`;
+    return `<div class="cd-noteblock"><div class="cd-noteby">Caregiver: ${escText(cg?cg.name:'Caregiver')}</div><div class="cd-notetx">${escText((many&&!expanded)?cdTrunc(tx):tx)}</div></div>`;
   }).join('');
   const hidden=(many&&!expanded)?list.length-1:0;
   const label=hidden?('View more ('+hidden+' more note'+(hidden===1?'':'s')+')'):undefined;
@@ -19868,8 +20110,8 @@ function careClientRowHtml(r){
   const cl=clById(r.clientId), name=cl?cl.name:'Unknown client';
   return `<div class="cd-crow">
     <div class="cd-ccell cd-col-name"><div class="cd-cname"><b>${escText(name)}</b></div><span class="cd-ccount">${r.notes.length} note${r.notes.length===1?'':'s'}</span></div>
-    <div class="cd-ccell cd-col-shift"><div class="cd-shiftlabel">AM Shift (6:00 AM \u2013 2:00 PM)</div>${careShiftSummaryHtml(r.am,r.clientId,'am')}</div>
-    <div class="cd-ccell cd-col-shift"><div class="cd-shiftlabel">PM Shift (2:00 PM \u2013 10:00 PM)</div>${careShiftSummaryHtml(r.pm,r.clientId,'pm')}</div>
+    <div class="cd-ccell cd-col-shift">${careShiftSummaryHtml(r.am,r.clientId,'am')}</div>
+    <div class="cd-ccell cd-col-shift">${careShiftSummaryHtml(r.pm,r.clientId,'pm')}</div>
     <div class="cd-ccell cd-col-action"><button class="btn sm" onclick="openClientNotesModal('${r.clientId}','${state.cnDay}')">${ic('eye',13)} View Original Notes \u203a</button></div>
   </div>`;
 }
