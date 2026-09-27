@@ -9312,7 +9312,51 @@ function wkAvailWindows(cg,dateStr,start,end){
     for(const w of wins){ if(w[0]<=start && w[1]>=end) return [w]; }
     return null;
   }
-  return wkOverlapWindows(cg,dateStr,start,end);
+  return wkDisplayWindows(cg,dateStr,start,end);
+}
+/* DISPLAY ONLY — inclusion (wkAvailableCaregivers/wkOverlapWindows) is
+   untouched and still decides who qualifies. This decides what time to show
+   for a caregiver who qualifies via a block carried in from the day before.
+
+   AVAIL.carryWindows() clips a previous-day overnight block's start to 0
+   (Math.max(0, b.start-24)) so the OVERLAP MATH works in today's 0..24
+   frame — that clip is never a saved time, only a date-boundary artifact.
+   A caregiver who saved "8:00 PM – 8:00 AM" on Sunday never typed
+   midnight, and Monday's own Availability Calendar has no row for them at
+   all (the row lives entirely on Sunday) — so showing "12:00 AM –
+   8:00 AM" under Monday invents a time nobody saved. This reads the
+   ORIGINAL previous-day row directly (via AVAIL.forDay, not
+   AVAIL.carryWindows) and displays that saved window unclipped instead.
+
+   The next-day direction (Overnight bucket only, end>24) needs no such fix:
+   AVAIL's own nextWindows() only ever ADDS 24 uniformly, it never clamps a
+   boundary to 0 or 24, so shifting doesn't change what fmtClock() shows
+   (fmtClock wraps mod 24 regardless of magnitude) — its shape already IS
+   the real saved window. */
+function wkDisplayWindows(cg,dateStr,start,end){
+  const d=AVAIL.dayAvail(cg.id, dateStr);
+  if(end<=start) end+=24;
+  if(d.state==='unloaded'||d.state==='error'||d.state==='unconfigured') return null;
+  const out=[];
+  d.wins.forEach(function(w){ if(w[0]<end && w[1]>start) out.push(w); });
+  const prevDs=addDaysStr(dateStr,-1);
+  AVAIL.forDay(cg.id, prevDs).forEach(function(b){
+    if(b.status!=='Open' || b.allDay || b.end<=24) return;
+    /* Same overlap test AVAIL.carryWindows() makes internally — this is
+       what decides whether the spillover reaches this bucket at all — but
+       what gets pushed for display is [b.start,b.end], the row exactly as
+       saved, never the clipped [0, b.end-24]. */
+    const clipped=[Math.max(0,b.start-24), b.end-24];
+    if(clipped[0]<end && clipped[1]>start) out.push([b.start, b.end]);
+  });
+  if(end>24){
+    const nxt=AVAIL.dayAvail(cg.id, addDaysStr(dateStr,1));
+    if(nxt.state==='open') nxt.wins.forEach(function(w){
+      const shifted=[w[0]+24, w[1]+24];
+      if(shifted[0]<end && shifted[1]>start) out.push(shifted);
+    });
+  }
+  return out.length?out:null;
 }
 /* "All day" rather than the literal clock times for a window spanning a
    full 24h or more (an all-day Open, or one merged with a neighbouring
@@ -9320,7 +9364,11 @@ function wkAvailWindows(cg,dateStr,start,end){
 function wkFmtWin(w){ return (w[1]-w[0]>=24) ? 'All day' : (fmtClock(w[0])+' – '+fmtClock(w[1])); }
 function wkCgRowHtml(cg,dateStr,start,end){
   const wins=wkAvailWindows(cg,dateStr,start,end);
-  const timeLabel=wins&&wins.length ? wins.map(wkFmtWin).join(', ') : '';
+  /* De-duplicated by LABEL, not by window — two distinct real windows (an
+     all-day today plus an all-day tomorrow, kept separate on purpose so
+     each keeps its own saved shape) can still format to the identical
+     "All day", and showing that twice is noise, not information. */
+  const timeLabel=wins&&wins.length ? Array.from(new Set(wins.map(wkFmtWin))).join(', ') : '';
   /* Driving status is dropped here on purpose — it is already one of the
      Filter dropdown's options, so showing it again on every row repeated
      information the scheduler can already narrow by. City stays: it is not
