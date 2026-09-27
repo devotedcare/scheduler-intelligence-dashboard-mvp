@@ -19790,8 +19790,15 @@ function careDocIssuesForDay(dateStr){
     /* The third element is the window's REAL length in hours. AM is 06:00-14:00 and PM
        is 14:00-06:00 -- see careShiftOf(). The PM label read "2:00 PM - 10:00 PM" and both
        headlines said "8-hour" until 2026-09-25, which understated the PM window by half a
-       day and described a two-caregiver overnight as one short shift. */
-    [['am','AM Shift (6:00 AM \u2013 2:00 PM)',8],['pm','PM Shift (2:00 PM \u2013 6:00 AM)',16]].forEach(function(pair){
+       day and described a two-caregiver overnight as one short shift.
+
+       The label itself is plain "AM Shift"/"PM Shift" -- no clock range beside it. That
+       range is careShiftOf()'s own internal AM/PM split, never a caregiver's scheduled
+       shift, and printing it next to a client's name read as exactly that (Mitch,
+       2026-09-27) -- "PM Shift (2:00 PM - 6:00 AM)" looked like the caregiver was
+       rostered 2pm-6am. The real hours still show: the headline spells out the window's
+       actual length ("N-word note for a 16-hour shift"). */
+    [['am','AM Shift',8],['pm','PM Shift',16]].forEach(function(pair){
       const win=pair[0], label=pair[1], hrs=pair[2], list=r[win];
       if(!list.length) return;   // no note recorded \u2014 shown in Section 1, not asserted as a problem here
       const words=list.reduce((s,n)=>s+careWordCount(n.text),0);
@@ -20434,11 +20441,6 @@ function careClientRowHtml(r){
    land, or a plain "analysing / could not analyse" line while they
    don't. "Full alert" is where the original note still lives. */
 function careAttnBadgeClass(prio){ return (prio==='critical'||prio==='high')?'crit':'soon'; }
-/* The PM window is 14:00-06:00 -- see careShiftOf(). This said "2:00 PM - 10:00 PM" until
-   2026-09-25, understating it by half a day, and it was the SECOND place with that error:
-   careDocIssuesForDay() had its own copy of the same wrong label. If a third appears,
-   these should become one constant. */
-const CARE_SHIFT_WINDOW_LABEL={am:'AM Shift (6:00 AM \u2013 2:00 PM)',pm:'PM Shift (2:00 PM \u2013 6:00 AM)'};
 /* PROSE, NOT BULLETS, since 2026-09-25. Mitch supplied the target shape: the incident told
    as a couple of short paragraphs, then one "Scheduler Attention" statement. The old
    version printed a "What happened" heading over a <ul>, which read as a form.
@@ -20455,7 +20457,6 @@ function careAttnActionHtml(items){
 }
 function careConcernRowHtml(row){
   const cl=clById(row.clientId), cg=cgById(row.cgId);
-  const shift=careShiftOf(row.at), win=CARE_SHIFT_WINDOW_LABEL[shift]||'';
   const id=row.noteId+'__'+row.catKey;
   const ex=CALERT.forAlert(state.cnDay,id);
   /* "Analysing" is only true while the request is genuinely still in
@@ -20472,7 +20473,7 @@ function careConcernRowHtml(row){
     <div class="cd-attn-head">
       <span class="cd-attn-name">${escText(cl?cl.name:'Client')}</span>
       <span class="cd-attn-badge ${careAttnBadgeClass(row.prio)}">${escText(row.category)}</span>
-      <span class="cd-attn-time">${escText(careTimeLabel(row.at))} \u00b7 ${escText(win)}${cg?' \u00b7 '+escText(cg.name):''}</span>
+      <span class="cd-attn-time">${escText(careTimeLabel(row.at))}${cg?' \u00b7 '+escText(cg.name):''}</span>
     </div>
     ${body}
     <button class="cd-attn-open" onclick="openAlertDetail('${row.noteId}__${row.catKey}')">${ic('eye',12)} Full alert \u203a</button>
