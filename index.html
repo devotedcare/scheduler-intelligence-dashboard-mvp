@@ -9228,47 +9228,22 @@ function wkRangeLabel(start){
     : mon(a)+' '+a.getDate()+' – '+mon(b)+' '+b.getDate();
 }
 function wkActiveCaregivers(){ return state.caregivers.filter(c=>c.active!==false); }
-/* WHO IS AVAILABLE answers a different question from Find Coverage, and must
-   use different logic — Mitch, 2026-09-27. This screen says "does any of this
-   caregiver's day touch this part of the day"; Find Coverage's
-   coverageDetail() says "can they work this whole shift, start to end". Using
-   coverageDetail() for Morning/Afternoon/Overnight here made a caregiver
-   whose real hours were narrower than the full 8-hour bucket (e.g. Open
-   9am–1pm, entirely inside Morning's 6am–2pm) invisible from every bucket,
-   even though their own Availability Calendar correctly showed them Open.
-
-   WHOLE DAY IS THE ONE EXCEPTION and keeps the old full-coverage rule
-   (still coverageDetail() itself, unchanged) — a caregiver with only
-   partial hours must never read as whole-day free. Only start===0 && end
-   ===24 is the Whole Day bucket; nothing else in WK_BUCKETS uses that pair.
-
-   Find Coverage's own callers of coverageDetail() are untouched — this adds
-   a second, overlap-based reading beside it rather than changing the shared
-   function, so shift matching keeps its all-or-nothing rule exactly as it
-   was. */
+/* REVERTED to full-bucket coverage — Mitch, 2026-09-27, after the overlap
+   version (2026-09-27, same day) put caregivers on a bucket's calling list
+   whose real hours only touched part of it: an 8:00 PM–8:00 AM caregiver
+   showed under Morning even though their availability ends at 8:00 AM,
+   hours before Morning's own 2:00 PM close, which read as an eligibility
+   bug, not a display one. ELIGIBILITY MUST MATCH FIND COVERAGE'S OWN RULE:
+   available.start <= bucket.start AND available.end >= bucket.end — the
+   exact same all-or-nothing test coverageDetail() has always made for real
+   shift matching. WK_BUCKETS' own fixed windows (Morning 6a-2p, Afternoon
+   2p-10p, Overnight 10p-6a, Whole Day) are now held to that rule
+   uniformly, Whole Day included — nothing here is a "second reading"
+   beside coverageDetail() any more; it IS coverageDetail(), unchanged and
+   untouched, exactly as Find Coverage's own screens use it. */
 function wkIsWholeDayBucket(start,end){ return start===0 && end===24; }
-/* Every real Open window touching [start,end) — today's own, carried in
-   from the day before, and (only when the bucket itself runs past
-   midnight, i.e. Overnight) carried in from the day after — merged and
-   returned UNCLIPPED, so the caller can show the caregiver's actual hours
-   rather than the bucket's. null when nothing overlaps, or the date has
-   not loaded / errored (the same states coverageDetail() refuses to guess
-   about — an unloaded date is "not answered yet", never "not available"). */
-function wkOverlapWindows(cg,dateStr,start,end){
-  const d=AVAIL.dayAvail(cg.id, dateStr);
-  if(end<=start) end+=24;
-  if(d.state==='unloaded'||d.state==='error'||d.state==='unconfigured') return null;
-  let wins=d.wins.concat(AVAIL.carryWindows(cg.id, dateStr));
-  if(end>24) wins=wins.concat(AVAIL.nextWindows(cg.id, dateStr));
-  if(!wins.length) return null;
-  wins=AVAIL.mergeWins(wins);
-  const hit=wins.filter(w=>w[0]<end && w[1]>start);
-  return hit.length?hit:null;
-}
 function wkAvailableCaregivers(dateStr,start,end){
-  return wkActiveCaregivers().filter(cg=>
-    wkIsWholeDayBucket(start,end) ? coverageDetail(cg,dateStr,start,end).cov==='full'
-                                   : !!wkOverlapWindows(cg,dateStr,start,end));
+  return wkActiveCaregivers().filter(cg=>coverageDetail(cg,dateStr,start,end).cov==='full');
 }
 /* Fetches once per week shown, not once per render — see the header
    comment above for why. */
@@ -9301,10 +9276,16 @@ function wkClearSel(){ state.wkSel=null; state.wkFilterMenuOpen=false; render();
    stretched to look like they cover the whole bucket. Whole Day keeps the
    old full-coverage match (the same test coverageDetail() makes) since a
    caregiver only belongs there by covering the entire day; every other
-   bucket returns whatever of wkOverlapWindows() actually overlaps it — can
-   be more than one window (e.g. a block carried in from the day before
-   plus a separate one recorded today), which is why this returns an array. */
+   bucket now makes exactly the same test (coverageDetail() itself — see
+   wkAvailableCaregivers() above) before this is even reached, so a
+   caregiver only shows here at all when their real hours DO fully cover
+   the bucket. What follows is a DISPLAY question only: which of their real
+   saved windows to show for it — can be more than one (e.g. a block
+   carried in from the day before plus a separate one recorded today, which
+   together are what add up to full coverage), which is why this returns
+   an array. */
 function wkAvailWindows(cg,dateStr,start,end){
+  if(coverageDetail(cg,dateStr,start,end).cov!=='full') return null;
   if(wkIsWholeDayBucket(start,end)){
     const d=AVAIL.dayAvail(cg.id, dateStr);
     if(d.state==='unloaded'||d.state==='error'||d.state==='unconfigured'||d.state==='blocked') return null;
@@ -9314,18 +9295,18 @@ function wkAvailWindows(cg,dateStr,start,end){
   }
   return wkDisplayWindows(cg,dateStr,start,end);
 }
-/* DISPLAY ONLY — inclusion (wkAvailableCaregivers/wkOverlapWindows) is
-   untouched and still decides who qualifies. This decides what time to show
-   for a caregiver who qualifies via a block carried in from the day before.
+/* DISPLAY ONLY, and only ever reached for a caregiver wkAvailWindows() has
+   already confirmed via coverageDetail() fully covers this bucket — this
+   never decides who qualifies, only what time to show them with.
 
    AVAIL.carryWindows() clips a previous-day overnight block's start to 0
-   (Math.max(0, b.start-24)) so the OVERLAP MATH works in today's 0..24
-   frame — that clip is never a saved time, only a date-boundary artifact.
-   A caregiver who saved "8:00 PM – 8:00 AM" on Sunday never typed
-   midnight, and Monday's own Availability Calendar has no row for them at
-   all (the row lives entirely on Sunday) — so showing "12:00 AM –
-   8:00 AM" under Monday invents a time nobody saved. This reads the
-   ORIGINAL previous-day row directly (via AVAIL.forDay, not
+   (Math.max(0, b.start-24)) so coverageDetail()'s own OVERLAP MATH works
+   in today's 0..24 frame — that clip is never a saved time, only a
+   date-boundary artifact. A caregiver who saved "8:00 PM – 8:00 AM" on
+   Sunday never typed midnight, and Monday's own Availability Calendar has
+   no row for them at all (the row lives entirely on Sunday) — so showing
+   "12:00 AM – 8:00 AM" under Monday invents a time nobody saved. This
+   reads the ORIGINAL previous-day row directly (via AVAIL.forDay, not
    AVAIL.carryWindows) and displays that saved window unclipped instead.
 
    The next-day direction (Overnight bucket only, end>24) needs no such fix:
