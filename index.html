@@ -9228,8 +9228,47 @@ function wkRangeLabel(start){
     : mon(a)+' '+a.getDate()+' – '+mon(b)+' '+b.getDate();
 }
 function wkActiveCaregivers(){ return state.caregivers.filter(c=>c.active!==false); }
+/* WHO IS AVAILABLE answers a different question from Find Coverage, and must
+   use different logic — Mitch, 2026-09-27. This screen says "does any of this
+   caregiver's day touch this part of the day"; Find Coverage's
+   coverageDetail() says "can they work this whole shift, start to end". Using
+   coverageDetail() for Morning/Afternoon/Overnight here made a caregiver
+   whose real hours were narrower than the full 8-hour bucket (e.g. Open
+   9am–1pm, entirely inside Morning's 6am–2pm) invisible from every bucket,
+   even though their own Availability Calendar correctly showed them Open.
+
+   WHOLE DAY IS THE ONE EXCEPTION and keeps the old full-coverage rule
+   (still coverageDetail() itself, unchanged) — a caregiver with only
+   partial hours must never read as whole-day free. Only start===0 && end
+   ===24 is the Whole Day bucket; nothing else in WK_BUCKETS uses that pair.
+
+   Find Coverage's own callers of coverageDetail() are untouched — this adds
+   a second, overlap-based reading beside it rather than changing the shared
+   function, so shift matching keeps its all-or-nothing rule exactly as it
+   was. */
+function wkIsWholeDayBucket(start,end){ return start===0 && end===24; }
+/* Every real Open window touching [start,end) — today's own, carried in
+   from the day before, and (only when the bucket itself runs past
+   midnight, i.e. Overnight) carried in from the day after — merged and
+   returned UNCLIPPED, so the caller can show the caregiver's actual hours
+   rather than the bucket's. null when nothing overlaps, or the date has
+   not loaded / errored (the same states coverageDetail() refuses to guess
+   about — an unloaded date is "not answered yet", never "not available"). */
+function wkOverlapWindows(cg,dateStr,start,end){
+  const d=AVAIL.dayAvail(cg.id, dateStr);
+  if(end<=start) end+=24;
+  if(d.state==='unloaded'||d.state==='error'||d.state==='unconfigured') return null;
+  let wins=d.wins.concat(AVAIL.carryWindows(cg.id, dateStr));
+  if(end>24) wins=wins.concat(AVAIL.nextWindows(cg.id, dateStr));
+  if(!wins.length) return null;
+  wins=AVAIL.mergeWins(wins);
+  const hit=wins.filter(w=>w[0]<end && w[1]>start);
+  return hit.length?hit:null;
+}
 function wkAvailableCaregivers(dateStr,start,end){
-  return wkActiveCaregivers().filter(cg=>coverageDetail(cg,dateStr,start,end).cov==='full');
+  return wkActiveCaregivers().filter(cg=>
+    wkIsWholeDayBucket(start,end) ? coverageDetail(cg,dateStr,start,end).cov==='full'
+                                   : !!wkOverlapWindows(cg,dateStr,start,end));
 }
 /* Fetches once per week shown, not once per render — see the header
    comment above for why. */
@@ -9256,27 +9295,32 @@ function wkSelectBucket(dateStr,label,start,end){
   render();
 }
 function wkClearSel(){ state.wkSel=null; state.wkFilterMenuOpen=false; render(); }
-/* The caregiver's REAL stated availability window for this date, not the
-   bucket they were found under — mirrors coverageDetail()'s own window
-   match (carryWindows/nextWindows/mergeWins, the overnight-aware merge)
-   rather than reusing its boolean, so an overnight Night-bucket row still
-   resolves to the actual segment that covers it. Every row this is called
-   for already passed coverageDetail(cg,dateStr,start,end).cov==='full' in
-   wkAvailableCaregivers(), so a real window is expected here — null is a
-   defensive fallback, not the normal case. */
-function wkAvailWindow(cg,dateStr,start,end){
-  const d=AVAIL.dayAvail(cg.id, dateStr);
-  if(end<=start) end+=24;
-  if(d.state==='unloaded'||d.state==='error'||d.state==='unconfigured'||d.state==='blocked') return null;
-  let wins=d.wins.concat(AVAIL.carryWindows(cg.id, dateStr));
-  if(end>24) wins=wins.concat(AVAIL.nextWindows(cg.id, dateStr));
-  if(!wins.length) return null;
-  wins=AVAIL.mergeWins(wins);
-  for(const w of wins){ if(w[0]<=start && w[1]>=end) return w; }
-  return null;
+/* The caregiver's REAL stated availability window(s) for this date, for
+   display — not clipped to the bucket, so a caregiver Open 9am–1pm still
+   reads "9:00 AM – 1:00 PM" under Morning (6am–2pm) rather than being
+   stretched to look like they cover the whole bucket. Whole Day keeps the
+   old full-coverage match (the same test coverageDetail() makes) since a
+   caregiver only belongs there by covering the entire day; every other
+   bucket returns whatever of wkOverlapWindows() actually overlaps it — can
+   be more than one window (e.g. a block carried in from the day before
+   plus a separate one recorded today), which is why this returns an array. */
+function wkAvailWindows(cg,dateStr,start,end){
+  if(wkIsWholeDayBucket(start,end)){
+    const d=AVAIL.dayAvail(cg.id, dateStr);
+    if(d.state==='unloaded'||d.state==='error'||d.state==='unconfigured'||d.state==='blocked') return null;
+    const wins=AVAIL.mergeWins(d.wins.concat(AVAIL.carryWindows(cg.id, dateStr)));
+    for(const w of wins){ if(w[0]<=start && w[1]>=end) return [w]; }
+    return null;
+  }
+  return wkOverlapWindows(cg,dateStr,start,end);
 }
+/* "All day" rather than the literal clock times for a window spanning a
+   full 24h or more (an all-day Open, or one merged with a neighbouring
+   day's) — "12:00 AM – 12:00 AM" reads as zero duration, not a whole day. */
+function wkFmtWin(w){ return (w[1]-w[0]>=24) ? 'All day' : (fmtClock(w[0])+' – '+fmtClock(w[1])); }
 function wkCgRowHtml(cg,dateStr,start,end){
-  const win=wkAvailWindow(cg,dateStr,start,end);
+  const wins=wkAvailWindows(cg,dateStr,start,end);
+  const timeLabel=wins&&wins.length ? wins.map(wkFmtWin).join(', ') : '';
   /* Driving status is dropped here on purpose — it is already one of the
      Filter dropdown's options, so showing it again on every row repeated
      information the scheduler can already narrow by. City stays: it is not
@@ -9289,7 +9333,7 @@ function wkCgRowHtml(cg,dateStr,start,end){
   return `<div class="wk-cgrow">
     ${av}
     <button type="button" class="wk-cgname" onclick="openCgFromCoverage('${cg.id}')" title="Open ${escText(cg.name)}’s calendar">${escText(cg.name)}</button>
-    ${win?`<span class="wk-cgtime">${escText(fmtClock(win[0])+' – '+fmtClock(win[1]))}</span>`:''}
+    ${timeLabel?`<span class="wk-cgtime">${escText(timeLabel)}</span>`:''}
     ${meta?`<span class="wk-cgmeta">${escText(meta)}</span>`:''}
     <button class="btn sm" onclick="manualCall('${cg.id}')">${ic('phone',11)} Call</button>
   </div>`;
