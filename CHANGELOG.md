@@ -1902,6 +1902,73 @@ eyes, which is correct: one per note is the whole point.
 
 ---
 
+## 2026-09-28 (later still) — the Care Note Issues card becomes a warning beside the eye
+
+Mitch: drop the third card; when a note has a documentation issue, show an **amber warning
+beside its eye icon**. Same signal, one fewer card.
+
+**The detail lives in the MODAL, not a tooltip.** It went into a `title=` attribute first;
+Carlo, the same day: *"it is hard to read in the tooltip."* He was right — headline plus
+detail runs to ~250 characters and a native tooltip cannot show that readably. The warning
+is now a **button that opens the same modal the eye opens**, with the issue rendered in
+amber at the TOP of the modal body — a direct child of `.mb`, not nested inside a note
+row — so it reads as a banner for the modal and the complaint and the evidence are in one
+view. The tooltip is a one-line hint — *"Documentation issue — click to read"*.
+
+The Care Notes page is now **two cards**: Clients Needing Attention, then Care Notes
+Summary. (Which retires the reorder from earlier the same day — there is no third card
+left to order.)
+
+### Why it mapped cleanly
+
+`careDocIssuesForDay()` already stamps every issue with the `noteId` it belongs to, so the
+warning lands on the right eye with no guessing and no new matching logic. The function
+itself is unchanged and is now its only reader.
+
+**Measured over the 400 notes the board holds, 21 dates:**
+
+- **47 notes (11.8%) carry a warning** — uncommon enough to mean something
+- **3 of those carry TWO issues**, none carry three, so the modal renders a list rather
+  than assuming one (and the hint reads *"2 documentation issues"*). Rules 1 and 2 return early, but the repeat rule does not and
+  *Shorter than usual* runs after it — that is how a note gets two.
+- rules firing: *Shorter than usual* 16, *Very little documentation* 12, repeats 20,
+  *N-word note* 2
+
+### Cleanup
+
+**Deleted:** `careIssueRowHtml()`, the `issueRows` const, the card markup, and eight CSS
+rules (`.cd-issue`, `.cd-issue:last-child`, `.cd-itop`, `.cd-itop b`, `.cd-iwarn`,
+`.cd-ilabel`, `.cd-ihead`, `.cd-idetail`) plus the three `.cd-flagcard.doc` compounds.
+
+**Deliberately kept, because Clients Needing Attention renders them too:** the
+`.cd-flagcard` base rule, all three `.concern` compounds, `.cd-fhead`, `.cd-ftitle`,
+`.cd-fcount` and `.cd-flist`. Deleting the base rule would take that card's border,
+header background and title colour with it. The amber tokens `--soon-bg/-tx/-solid` stay —
+they have 44/32/28 other uses.
+
+**One comment had to be rewritten rather than left.** The card was the last caller of
+`openClientNotesModal()` with **two** arguments; every caller now passes a `noteId`. The
+comment claiming that default was load-bearing is gone, replaced by one saying plainly that
+the whole-client-day fallback has no caller today and is kept only because it costs nothing.
+
+> **KNOWN, accepted.** The window-length rules attach to `list[0]` but measure the WHOLE
+> window, so in a two-caregiver window the warning sits on the first eye alone. The detail
+> text names every caregiver in the window and says *"this window"*, so it does not read as
+> blaming one person — and only **3 of 788 blocks** have two caregivers.
+
+**82 checks pass** across four harnesses, including: the warning renders in *both* the
+summary and raw branches, sits after the eye, stays one icon when a note has two issues,
+lands on the correct note of two, opens the **same** note the eye does, and draws nothing
+at all for a clean note. On the modal side: the full detail is present, it is a direct child of `.mb` and sits above the
+note rows rather than inside one, a clean note gets no issue block, two issues render as two separated blocks,
+and `<script>` in the issue text comes out escaped.
+
+> The modal recomputes its own issues rather than threading them through the `onclick`
+> string. Measured at **~32ms for one date** over the 400 notes the browser holds —
+> imperceptible on a click, and the same pass already runs once per render of the view.
+
+---
+
 ## Still open
 
 - Attendance, punctuality and the "Not tracked" caregiver metrics — all

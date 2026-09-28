@@ -2888,13 +2888,10 @@ html.pg-held .pingate{display:none!important}
 .cd-sumbar>span{flex:1 1 auto}
 .cd-flagcard{padding:0;overflow:hidden}
 .cd-flagcard.concern{border-top:3px solid var(--crit-solid)}
-.cd-flagcard.doc{border-top:3px solid var(--soon-solid)}
 .cd-fhead{display:flex;align-items:center;gap:8px;padding:13px 15px;border-bottom:1px solid var(--line)}
 .cd-flagcard.concern .cd-fhead{background:var(--crit-bg)}
-.cd-flagcard.doc .cd-fhead{background:var(--soon-bg)}
 .cd-ftitle{display:flex;align-items:center;gap:7px;font-size:13.5px;font-weight:800;color:var(--ink)}
 .cd-flagcard.concern .cd-ftitle{color:var(--crit-tx)}
-.cd-flagcard.doc .cd-ftitle{color:var(--soon-tx)}
 .cd-fcount{margin-left:auto;font-size:12.5px;font-weight:800;color:inherit}
 .cd-flist{display:flex;flex-direction:column}
 /* Clients Needing Attention — the FULL explanation inline, compact rows,
@@ -2921,14 +2918,22 @@ html.pg-held .pingate{display:none!important}
 .cd-attn-wait{font-size:12.5px;color:var(--ink-faint);font-style:italic;margin-bottom:8px}
 .cd-attn-open{font-family:inherit;font-size:12px;font-weight:700;color:var(--brand);background:none;border:none;padding:0;cursor:pointer;display:flex;align-items:center;gap:4px}
 .cd-attn-open:hover{text-decoration:underline}
-.cd-issue{padding:12px 15px;border-bottom:1px solid var(--line-soft)}
-.cd-issue:last-child{border-bottom:none}
-.cd-itop{display:flex;align-items:center;gap:7px;margin-bottom:4px}
-.cd-iwarn{color:var(--soon-solid);display:flex;flex:0 0 auto}
-.cd-itop b{font-size:13px;color:var(--ink)}
-.cd-ilabel{margin-left:auto;font-size:11px;font-weight:700;color:var(--ink-faint)}
-.cd-ihead{font-size:13px;font-weight:700;color:var(--soon-tx);margin-bottom:3px}
-.cd-idetail{font-size:12.5px;color:var(--ink-soft);line-height:1.5;margin-bottom:8px}
+/* The amber documentation warning beside the eye (cdNoteWarn). It replaced the whole
+   Care Note Issues card on 2026-09-28 - same information, one fewer card. --soon-solid
+   is the same amber that card used for the same glyph; --soon-bg/-tx/-solid are the
+   palette's amber family and are widely used elsewhere, so none of them died with it. */
+.cd-warn{display:inline-flex;align-items:center;justify-content:center;vertical-align:-2px;margin-left:3px;padding:2px;border:0;background:none;color:var(--soon-solid);cursor:pointer;border-radius:4px;line-height:0}
+.cd-warn:hover{background:var(--soon-bg)}
+/* The issue itself, INSIDE the note modal. It was a title= tooltip until 2026-09-28;
+   headline plus detail runs to ~250 characters and a native tooltip cannot show that
+   readably. It is a direct child of .mb and sits at the TOP of the modal body, above the
+   note rows rather than inside one - moved there on 2026-09-28 so it reads as a banner
+   for the modal instead of a box wedged between a caregiver's name and their words.
+   .mb scrolls (max-height:62vh), so it scrolls with the content rather than pinning. */
+.cn-nissue{margin:0 0 9px;padding:9px 11px;border-radius:7px;background:var(--soon-bg);border:1px solid var(--soon-solid)}
+.cn-nissue-one+.cn-nissue-one{margin-top:8px;padding-top:8px;border-top:1px solid var(--soon-solid)}
+.cn-nissue-h{display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:800;color:var(--soon-tx);margin-bottom:3px}
+.cn-nissue-d{font-size:12.5px;color:var(--soon-tx);line-height:1.5}
 .cd-empty{padding:16px}
 </style>
 </head>
@@ -20488,7 +20493,32 @@ function cdNoteEye(clientId,noteId,who){
   const lbl=esc('Original note by '+who);
   return `<button class="cd-eye" title="${lbl}" aria-label="${lbl}" onclick="openClientNotesModal('${clientId}','${state.cnDay}','${noteId}')">${ic('eye',12)}</button>`;
 }
-function careShiftSummaryHtml(list,clientId,shift){
+/* The amber warning beside that eye: this note has a documentation issue. It replaced the
+   Care Note Issues card (Mitch, 2026-09-28) - the card's information, without a third card.
+
+   careDocIssuesForDay() already stamps every issue with the noteId it belongs to, so the
+   warning lands on the right eye with no guessing. A note can carry MORE THAN ONE issue -
+   rules 1 and 2 return early, but the repeat rule does not and 'shorter than usual' runs
+   after it - so the tooltip JOINS them. Measured over the 400 notes the board holds: 47
+   notes warn (11.8%), 3 of those carry two issues, none carry three.
+
+   KNOWN: the window-length rules attach to list[0] but measure the WHOLE window, so in a
+   two-caregiver window the warning sits on the first eye only. The detail text names every
+   caregiver in the window and says "this window", so it does not read as blaming one
+   person. 3 of 788 blocks have two caregivers, so it is rare as well as mitigated.
+
+   esc(), not escText(): this is an attribute. */
+function cdNoteWarn(clientId,noteId,issues){
+  if(!issues||!issues.length) return '';
+  /* The tooltip is a HINT, not the content. It used to carry headline + detail, which ran
+     to ~250 characters and was unreadable in a native title box (Carlo, 2026-09-28). The
+     text now lives in the modal, and this button opens the SAME modal the eye opens, so
+     both routes land on the note and its issue together. */
+  const lbl=esc(issues.length===1?'Documentation issue'
+    :issues.length+' documentation issues');
+  return `<button class="cd-warn" title="${lbl}" aria-label="${lbl}" onclick="openClientNotesModal('${clientId}','${state.cnDay}','${noteId}')">${ic('alerts',12)}</button>`;
+}
+function careShiftSummaryHtml(list,clientId,shift,byNote){
   if(!list.length) return `<div class="cd-nonote">No care note recorded for this window.</div>`;
   const sum=CNSUM.forBlock(state.cnDay,clientId,shift);
   /* Only show the summary when it describes EXACTLY the notes this browser is
@@ -20499,7 +20529,7 @@ function careShiftSummaryHtml(list,clientId,shift){
     /* One name AND ONE EYE PER NOTE, not a deduped name list: each eye opens its own
        note, so two notes by the same caregiver correctly get two eyes. */
     const by=list.map(n=>{ const c=cgById(n.cgId), who=c?c.name:'Caregiver';
-      return `<span class="cd-byone">${escText(who)}${cdNoteEye(clientId,n.id,who)}</span>`; }).join('');
+      return `<span class="cd-byone">${escText(who)}${cdNoteEye(clientId,n.id,who)}${cdNoteWarn(clientId,n.id,(byNote||{})[n.id])}</span>`; }).join('');
     return `<div class="cd-sum"><div class="cd-noteby">Caregiver: ${by}</div><div class="cd-sumtx">${escText(sum.summary)}</div></div>`;
   }
   /* EVERY note is drawn now, each truncated and each with its own eye. This used to
@@ -20509,7 +20539,7 @@ function careShiftSummaryHtml(list,clientId,shift){
      here without adding a way back to the notes it hides. */
   const blocks=list.map(n=>{
     const cg=cgById(n.cgId), who=cg?cg.name:'Caregiver', tx=cleanNoteText(n.text);
-    return `<div class="cd-noteblock"><div class="cd-noteby">Caregiver: ${escText(who)}${cdNoteEye(clientId,n.id,who)}</div><div class="cd-notetx">${escText(tx.length>CD_TRUNC_CHARS?cdTrunc(tx):tx)}</div></div>`;
+    return `<div class="cd-noteblock"><div class="cd-noteby">Caregiver: ${escText(who)}${cdNoteEye(clientId,n.id,who)}${cdNoteWarn(clientId,n.id,(byNote||{})[n.id])}</div><div class="cd-notetx">${escText(tx.length>CD_TRUNC_CHARS?cdTrunc(tx):tx)}</div></div>`;
   }).join('');
   return blocks;
 }
@@ -20532,12 +20562,12 @@ function calertStrip(dateStr){
     return `<div class="cd-sumbar bad">${ic('alerts',13)} <span>Could not analyse these notes automatically. ${escText(d.error||'')}</span><button class="btn sm" onclick="calertRetry('${dateStr}')">Retry</button></div>`; }
   return '';
 }
-function careClientRowHtml(r){
+function careClientRowHtml(r,byNote){
   const cl=clById(r.clientId), name=cl?cl.name:'Unknown client';
   return `<div class="cd-crow">
     <div class="cd-ccell cd-col-name"><div class="cd-cname"><b>${escText(name)}</b></div><span class="cd-ccount">${r.notes.length} note${r.notes.length===1?'':'s'}</span></div>
-    <div class="cd-ccell cd-col-shift">${careShiftSummaryHtml(r.am,r.clientId,'am')}</div>
-    <div class="cd-ccell cd-col-shift">${careShiftSummaryHtml(r.pm,r.clientId,'pm')}</div>
+    <div class="cd-ccell cd-col-shift">${careShiftSummaryHtml(r.am,r.clientId,'am',byNote)}</div>
+    <div class="cd-ccell cd-col-shift">${careShiftSummaryHtml(r.pm,r.clientId,'pm',byNote)}</div>
   </div>`;
 }
 /* Full detail inline \u2014 a scheduler must understand what happened without
@@ -20592,28 +20622,34 @@ function careConcernRowHtml(row){
     <button class="cd-attn-open" onclick="openAlertDetail('${row.noteId}__${row.catKey}')">${ic('eye',12)} Full alert \u203a</button>
   </div>`;
 }
-function careIssueRowHtml(issue){
-  const cl=clById(issue.clientId);
-  return `<div class="cd-issue">
-    <div class="cd-itop"><span class="cd-iwarn">${ic('alerts',13)}</span><b>${escText(cl?cl.name:'Client')}</b><span class="cd-ilabel">${escText(issue.label)}</span></div>
-    <div class="cd-ihead">${escText(issue.headline)}</div>
-    <div class="cd-idetail">${escText(issue.detail)}</div>
-    <button class="btn sm" onclick="openClientNotesModal('${issue.clientId}','${state.cnDay}')">${ic('eye',13)} View Original Notes \u203a</button>
-  </div>`;
-}
 /* Read-only \u2014 the original AxisCare text, unedited, always reachable
    from either flagged section as well as the summary row. */
-/* noteId is OPTIONAL and scopes the modal to ONE note - what the per-caregiver eye
-   sends. Called with two arguments it still shows the whole client-day, which is
-   what the Care Note Issues card relies on. Keep that default. */
+/* noteId scopes the modal to ONE note - what the per-caregiver eye sends, and since
+   the Care Note Issues card was removed on 2026-09-28 EVERY caller passes it. The
+   whole-client-day fallback below therefore has no caller today; it is kept because
+   it costs nothing and a future caller may want it. Do not read its presence as
+   evidence that something still relies on it. */
 function openClientNotesModal(clientId,dateStr,noteId){
   const cl=clById(clientId);
   const notes=careNotesForDay(dateStr).filter(n=>n.clientId===clientId&&(!noteId||n.id===noteId)).sort((a,b)=>new Date(a.at)-new Date(b.at));
+  /* Recomputed here rather than threaded through the onclick string. Measured at ~32ms
+     for one date over the 400 notes the browser holds - imperceptible on a click, and
+     the same pass already runs once per render of the Care Notes view. */
+  const dayIssues=careDocIssuesForDay(dateStr);
+  /* ONE block for the whole modal, a direct child of .mb rather than nested inside each
+     .ad-rel (Carlo, 2026-09-28). Every caller passes a noteId, so in practice this is the
+     one note's issues sitting at the top of the body. The whole-client-day fallback would
+     pool them, which stays legible because each detail names its caregiver. */
+  const shown={}; notes.forEach(n=>{ shown[n.id]=true; });
+  const mine=dayIssues.filter(i=>shown[i.noteId]);
+  const warn=mine.length?`<div class="cn-nissue">`+mine.map(i=>
+    `<div class="cn-nissue-one"><div class="cn-nissue-h">${ic('alerts',13)} ${escText(i.headline)}</div>`+
+    `<div class="cn-nissue-d">${escText(i.detail)}</div></div>`).join('')+`</div>`:'';
   const rows=notes.length?notes.map(n=>{ const cg=cgById(n.cgId);
     return `<div class="ad-rel"><div class="ad-rel-meta">${escText(cg?cg.name:'Caregiver')} \u00b7 ${cnWhen(n.at)}</div><div class="ad-rel-tx">\u201c${escText(n.text)}\u201d</div></div>`;
   }).join(''):`<div class="ad-empty">No original notes found for this date.</div>`;
   mEl.classList.add('mwide');
-  mEl.innerHTML=`<div class="mh"><span class="mt">Original Care Note${noteId?'':'s'} \u2014 ${escText(cl?cl.name:'Client')}</span><button class="mc" onclick="closeModal()">\u00d7</button></div><div class="mb">${rows}</div>`;
+  mEl.innerHTML=`<div class="mh"><span class="mt">Original Care Note${noteId?'':'s'} \u2014 ${escText(cl?cl.name:'Client')}</span><button class="mc" onclick="closeModal()">\u00d7</button></div><div class="mb">${warn}${rows}</div>`;
   mbg.classList.add('show');
 }
 
@@ -20645,12 +20681,15 @@ function viewCareNotes(){
   });
   concerns.sort((a,b)=>CARE_PRIO_RANK[a.prio]-CARE_PRIO_RANK[b.prio]||new Date(b.at)-new Date(a.at));
 
-  const summaryRows=rows.length?rows.map(careClientRowHtml).join(''):
+  /* Issues indexed by the note they belong to, built ONCE per render.
+     careDocIssuesForDay() scans state.careNotes for near-duplicates, so calling it per
+     cell would be O(cells x notes) on every poll. */
+  const issuesByNote={};
+  issues.forEach(i=>{ (issuesByNote[i.noteId]=issuesByNote[i.noteId]||[]).push(i); });
+  const summaryRows=rows.length?rows.map(r=>careClientRowHtml(r,issuesByNote)).join(''):
     `<div class="cd-empty"><div class="cn-clear sm">${ic('check',14)} No AxisCare care notes synced for this date.</div></div>`;
   const concernRows=concerns.length?concerns.map(careConcernRowHtml).join(''):
     `<div class="cd-empty"><div class="cn-clear sm">${ic('check',14)} No client concerns flagged for this date.</div></div>`;
-  const issueRows=issues.length?issues.map(careIssueRowHtml).join(''):
-    `<div class="cd-empty"><div class="cn-clear sm">${ic('check',14)} No documentation issues flagged for this date.</div></div>`;
 
   /* Clients Needing Attention leads the page — the scheduler should
      understand who needs a look and why before anything else renders.
@@ -20670,10 +20709,6 @@ function viewCareNotes(){
      <div class="cd-fhead"><span class="cd-ftitle">${ic('alerts',15)} Clients Needing Attention</span><span class="cd-fcount">${concerns.length}</span></div>
      ${calertStrip(dateStr)}
      <div class="cd-flist">${concernRows}</div>
-   </div>
-   <div class="ws-card cd-flagcard doc">
-     <div class="cd-fhead"><span class="cd-ftitle">${ic('forms',15)} Care Note Issues</span><span class="cd-fcount">${issues.length}</span></div>
-     <div class="cd-flist">${issueRows}</div>
    </div>
    <div class="ws-card cd-summary">
      <div class="cd-shead"><span class="cd-stitle">${ic('forms',16)} Care Notes Summary</span><span class="cd-ssub">Summarised by Devi from the caregivers’ AxisCare notes — AM and PM for every client with a note this day. Click the eye beside a caregiver\u2019s name for what they actually wrote.</span></div>
