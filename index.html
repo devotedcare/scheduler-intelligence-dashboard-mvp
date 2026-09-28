@@ -20580,24 +20580,32 @@ function viewCareNotes(){
 
   /* Clients Needing Attention leads the page — the scheduler should
      understand who needs a look and why before anything else renders.
-     Care Notes Summary and Care Note Issues follow, in that order; Care
-     Note Issues is documentation quality (CARE_CATEGORIES prio 'low'),
-     genuinely the least urgent of the three, so it belongs last. */
+     Care Note Issues is SECOND and Care Notes Summary last (Mitch,
+     2026-09-28): the two flagged cards sit together at the top, so what
+     needs acting on is read before the day's full account.
+
+     The order is presentation ONLY. CNSUM.soon() and CALERT.soon() are
+     both called above, before this return, so moving a card cannot change
+     when either generates - and both strips are pure status reads.
+
+     (The note here used to call Care Note Issues "CARE_CATEGORIES prio
+     'low'". It reads no category at all: careDocIssuesForDay() is
+     browser-side arithmetic over note length and Jaccard similarity.) */
   return `${careDayNav(dateStr)}
    <div class="ws-card cd-flagcard concern">
      <div class="cd-fhead"><span class="cd-ftitle">${ic('alerts',15)} Clients Needing Attention</span><span class="cd-fcount">${concerns.length}</span></div>
      ${calertStrip(dateStr)}
      <div class="cd-flist">${concernRows}</div>
    </div>
+   <div class="ws-card cd-flagcard doc">
+     <div class="cd-fhead"><span class="cd-ftitle">${ic('forms',15)} Care Note Issues</span><span class="cd-fcount">${issues.length}</span></div>
+     <div class="cd-flist">${issueRows}</div>
+   </div>
    <div class="ws-card cd-summary">
      <div class="cd-shead"><span class="cd-stitle">${ic('forms',16)} Care Notes Summary</span><span class="cd-ssub">Summarised by Devi from the caregivers’ AxisCare notes — AM and PM for every client with a note this day. Click "View Original Notes" for what they actually wrote.</span></div>
      ${cnSumStrip(dateStr)}
      ${rows.length?'<div class="cd-thead"><span>Client</span><span>AM Shift</span><span>PM Shift</span><span>Action</span></div>':''}
      <div class="cd-slist">${summaryRows}</div>
-   </div>
-   <div class="ws-card cd-flagcard doc">
-     <div class="cd-fhead"><span class="cd-ftitle">${ic('forms',15)} Care Note Issues</span><span class="cd-fcount">${issues.length}</span></div>
-     <div class="cd-flist">${issueRows}</div>
    </div>`;
 }
 

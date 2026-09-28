@@ -1824,6 +1824,26 @@ which is what Mitch asked for and keeps the selection inside the visible week.
 
 ---
 
+## 2026-09-28 (later) — Care Note Issues moves to second on the Care Notes page
+
+Mitch: the order is now **Clients Needing Attention, Care Note Issues, Care Notes
+Summary**. The two flagged cards sit together at the top, so what needs acting on is read
+before the day's full account.
+
+- A markup swap of two sibling blocks inside `viewCareNotes()` and nothing else.
+- **Checked first, because this file has form on ordering being load-bearing** (the
+  documented `cmFit()`-after-`pfxFit()` rule). It is not, here: `CNSUM.soon()` and
+  `CALERT.soon()` are both called *above* the return, so markup order cannot change when
+  either generates or spends; `cnSumStrip()` and `calertStrip()` are pure status reads;
+  and no CSS on `.cd-flagcard` / `.cd-summary` uses `:first-child`, `:nth-*` or a
+  sibling combinator. Each class is defined once, so no `.mwide`-style override.
+- **A wrong claim in the comment went with it.** It read that Care Note Issues is
+  *"documentation quality (CARE_CATEGORIES prio 'low')"*. It reads **no category at all** —
+  `careDocIssuesForDay()` is browser-side arithmetic over note length and Jaccard
+  similarity. The replacement says so, and records that the order is presentation only.
+
+---
+
 ## Still open
 
 - Attendance, punctuality and the "Not tracked" caregiver metrics — all
