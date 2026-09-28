@@ -2953,16 +2953,41 @@ status code alone no longer identifies who answered.
 list to the top — the one thing a master/detail must not do — and the summary landing
 a second later did it again.
 
-**The thread IS chat bubbles — reversed on purpose.** The old app avoided them and
-the first version here followed it; **Mitch asked for "messenger vibes" having seen
-both**, so this is a decision rather than drift. Do not quietly revert it on the
-grounds that the old app did it differently — that question was already asked and
-answered. Caregiver left, desk right, attribution *under* the bubble,
-`white-space:pre-wrap` to keep the line breaks people typed. **An undelivered text
-gets a red bubble and "Not delivered"** — one live thread shows the same message sent
-twice, both undelivered, before a third got through, which the sender had no way of
-knowing. **The RAIL stays a flat list**; bubbles are for reading one conversation, not
-scanning fifty.
+**The thread is a LINEAR TRANSCRIPT — time, bold name, the words.** It was left/right
+chat bubbles from 2026-09-11 to 2026-09-28, and **both shapes were Mitch's call**: she
+asked for "messenger vibes" having seen a flat run, then asked for the flat run back
+having seen bubbles live on the board. **Claude: this note replaces the old one — do not
+restore bubbles citing "that question was already asked and answered."** It was asked
+twice and the later answer is this one.
+
+```
+10:38 PM  Angel: Hi Alejandra, I noticed you haven't clocked out. Please let us
+know if you have any issues with the Axiscare app. Thank you!
+10:39 PM  Alejandra: Sorry forgot too ok do so
+```
+
+**The NAME now carries who-said-what, which is why it is bold.** Under bubbles the SIDE
+carried it and the name underneath was only a check; linear, the name is the only signal.
+Both names are **first name only** — the caregiver's from `cgName`, the desk's from
+`staffName()`, which the rail shares. A mock-up showing a full surname is not what this
+renders.
+
+**Every message is flattened to ONE paragraph** by `cmFlat()` — whitespace runs
+collapse to a single space. The desk’s outbound templates carry blank lines between the
+greeting, the offer and the sign-off, and rendering those verbatim made one message eight
+rows tall and broke the time column (Carlo, 2026-09-28). **`white-space:pre-wrap` was
+therefore removed from `.cm-tx`** — it is the right call for a bubble, which is a shape
+around one message, and the wrong one for a row in a column of rows. `overflow-wrap:anywhere`
+stays and still stops a pasted URL blowing out the pane.
+
+**"Not delivered" MUST survive** — with the red bubble gone it is the only failure mark
+left, and one live thread shows the same message sent twice, both undelivered, before a
+third got through, which the sender had no way of knowing. **The RAIL stays a flat list**,
+as it always was.
+
+> The `.cm-msg` 80%/560px cap went with the bubbles. It existed to stop a *bubble*
+> running to ~760px on the 1440px dialog; a transcript line is meant to run the pane and
+> the reading measure is held by the dialog width.
 
 `cmSel` is module-level and keyed by caregiver, **not** in `state`: it is one
 person's cursor inside one open dialog.

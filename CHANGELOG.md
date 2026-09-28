@@ -1913,7 +1913,7 @@ detail runs to ~250 characters and a native tooltip cannot show that readably. T
 is now a **button that opens the same modal the eye opens**, with the issue rendered in
 amber at the TOP of the modal body — a direct child of `.mb`, not nested inside a note
 row — so it reads as a banner for the modal and the complaint and the evidence are in one
-view. The tooltip is a one-line hint — *"Documentation issue — click to read"*.
+view. The tooltip is a one-line hint — *"Documentation issue"*.
 
 The Care Notes page is now **two cards**: Clients Needing Attention, then Care Notes
 Summary. (Which retires the reorder from earlier the same day — there is no third card
@@ -1966,6 +1966,67 @@ and `<script>` in the issue text comes out escaped.
 > The modal recomputes its own issues rather than threading them through the `onclick`
 > string. Measured at **~32ms for one date** over the 400 notes the browser holds —
 > imperceptible on a click, and the same pass already runs once per render of the view.
+
+---
+
+## 2026-09-28 (last) — the text thread becomes a linear transcript
+
+Mitch, with a before/after screenshot: the Communication Logs modal should read as a
+transcript, not a chat app.
+
+```
+10:38 PM  Angel: Hi Alejandra, I noticed you haven't clocked out. Please let us
+know if you have any issues with the Axiscare app. Thank you!
+10:39 PM  Alejandra: Sorry forgot too ok do so
+```
+
+**This reverses a decision Mitch herself made on 2026-09-11** ("messenger vibes", having
+seen a flat run first). She has now seen bubbles live and asked for the flat run back.
+Both were her call; CLAUDE.md and the CSS comment both said *do not revert this*, so both
+were rewritten rather than left to send the next session the wrong way.
+
+- `.cm-msg` / `.cm-bub` / `.cm-cap` / `.cm-in` / `.cm-out` are gone; `.cm-line`,
+  `.cm-ts`, `.cm-from` and `.cm-tx` replace them. Every one of those classes was used
+  only by this thread — the rail and the card share the `.cm-` prefix but none of these.
+- **The name is bold because the inversion demands it.** Under bubbles the SIDE carried
+  who-said-what; linear, the name is the only signal.
+- **Two declarations were re-homed, not deleted:** `white-space:pre-wrap` and
+  `overflow-wrap:anywhere` moved from `.cm-bub` to `.cm-tx`. Losing the first would
+  reflow a three-line shift offer into one paragraph.
+- **"Not delivered" survives.** With no red bubble it is the only failure mark left, and
+  it is load-bearing: one live thread has the same message sent twice, both undelivered.
+- The `.cm-msg` 80%/560px cap went with the bubbles — it existed to stop a *bubble*
+  running to ~760px on the wide dialog.
+
+### One message, one paragraph
+
+The first cut kept `white-space:pre-wrap` from the bubble era. Carlo, seeing it live:
+*"can we trim the next line characters... I just want the messages to be consistent."*
+
+He was right, and the reason is structural. The desk’s outbound templates carry blank lines
+between the greeting, the offer and the sign-off. In a **bubble** that costs nothing — the
+bubble is a shape drawn around one message. In a **transcript** it made one message eight
+rows tall, so the time column the whole layout is read by stopped lining up.
+
+`cmFlat()` collapses every whitespace run to a single space, and `white-space:pre-wrap` came
+off `.cm-tx`. Only the spacing changes — a test asserts **not one word is lost**.
+
+> The same declaration is still right, and untouched, on `.dpn-tx` (day-panel notes),
+> `.upd-text` (operations updates) and `.cd-notetx` (care notes). Those are blocks of
+> someone’s writing, not rows in a column. Do not "harmonise" them.
+
+**KNOWN:** the mock-up shows *"Angel Lano"*; this renders *"Angel"*. `staffName()` is
+first-name-only by design and the **rail shares it**, so widening it here would change the
+rail too. Left as is — say if the full name is wanted.
+
+**30 checks pass:** three lines for three messages, no bubble classes left, time before
+name before words, bold name with a colon, staff and caregiver first names with their
+Office/Caregiver fallbacks, *Not delivered* present when failed and absent when not,
+`(no text)` for an empty body, an empty thread drawing no line, markup in both the
+message and the caregiver name escaped, and calls still rendering their summary untouched. On the
+flattening: no newline or double space survives into the markup, the greeting and sign-off
+end up on one run, every word of the real template is still present, and a whitespace-only
+message correctly falls through to `(no text)`.
 
 ---
 
