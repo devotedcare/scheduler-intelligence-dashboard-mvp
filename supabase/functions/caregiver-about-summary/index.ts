@@ -2,24 +2,35 @@
 //
 // WHAT THIS IS FOR
 //
-// Asked for 2026-09-24: turn the caregiver profile's "About" line -- one
-// computed sentence built from three or four fields -- into a real judgement
-// a scheduler can act on, read from EVERYTHING on file about this caregiver:
-// profile, skills, assignment history, care notes, feedback, complaints,
-// incidents, attendance (both sources -- see below), shift declines,
-// availability, work preferences, languages, driving, travel limits,
-// dementia/hospice/transfer/behavioral/overnight experience, how long they
-// stayed on past cases, recurring patterns. Six sections, fixed shape:
+// Asked for 2026-09-24, REWRITTEN 2026-09-28 (Mitch): the first version
+// ("v1") turned the caregiver profile's old one-line computed "About" into
+// six labelled sections — Overall / Strongest Experience / Best Fit /
+// Scheduling Considerations / Reliability / Important History. Reported
+// back: "this is not a summary, it is simply displaying too much caregiver
+// data in sections and bullet points."
 //
-//   overall                    2-4 sentences
-//   strongestExperience[]      only what the data actually supports
-//   bestFit[]                  what kind of client/shift, and WHY
-//   schedulingConsiderations[] driving, travel, availability, work prefs, limits
-//   reliability[]              factual, from attendance/call-offs/no-shows/
-//                              lateness -- never "reliable"/"unreliable"
-//                              without the facts that say so
-//   importantHistory[]         meaningful feedback/incidents/problems/
-//                              strengths -- never routine filler
+// THIS IS A CAREGIVER INSIGHTS AGENT, not a report generator. Its job is to
+// read everything on file about ONE caregiver — profile, skills, assignment
+// history, care notes, feedback, complaints, incidents, attendance (both
+// sources — see below), shift-offer history, availability, work
+// preferences, languages, driving, travel limits, communication history —
+// and SYNTHESIZE it into one short, useful judgement, not list it back out.
+// Fixed shape, two fields:
+//
+//   summary    ONE short paragraph (about 3-5 sentences): what kind of
+//              caregiver this is, what care they have ACTUAL experience
+//              with, what assignments the evidence supports, and any
+//              scheduling information that matters.
+//   flags[]    a SHORT list of concerns or things worth verifying before
+//              assigning them — often empty. Never padded just to have
+//              something to show.
+//
+// A scheduler should be able to read the result in about 10-15 seconds and
+// understand the caregiver well enough to help make an assignment decision.
+// See the EVIDENCE RULE in the prompt below — the model must distinguish
+// what the caregiver's profile CLAIMS from what actual assignment/work
+// history and care notes/scheduler records ACTUALLY show, never treating
+// the first as proof of the second.
 //
 // ── THIS FUNCTION IS BUILT DIFFERENTLY FROM CARENOTES-SUMMARY / CARE-BRIEF /
 //    CARE-ALERT-SUMMARY, AND THAT IS DELIBERATE ──────────────────────────────
@@ -60,8 +71,9 @@
 //
 // ── THE MODEL HAS NO TOOLS. NOTHING IT WRITES REACHES ANY OTHER RECORD ──────
 //
-// It reads the dossier and returns six pieces of text. Same safety argument
-// as devi-agent, comms-summary, carenotes-summary and care-alert-summary.
+// It reads the dossier and returns a paragraph and a short flag list. Same
+// safety argument as devi-agent, comms-summary, carenotes-summary and
+// care-alert-summary.
 //
 // ── PHI ───────────────────────────────────────────────────────────────────
 //
@@ -95,9 +107,12 @@ const MODEL = (Deno.env.get("CGABOUT_MODEL") || "claude-haiku-4-5").trim();
 const EFFORT = (Deno.env.get("CGABOUT_EFFORT") || "low").trim();
 const SEND_EFFORT = !!EFFORT && !/haiku/i.test(MODEL);
 
-/* Bump when the prompt or the bullet rules change in a way that should
-   rewrite summaries already saved. They are rewritten on their next open. */
-const PROMPT_VERSION = 1;
+/* Bump when the prompt or the output rules change in a way that should
+   rewrite summaries already saved. They are rewritten on their next open.
+   2 -> the short-paragraph-plus-flags rewrite (2026-09-28); every row saved
+   under the old six-section shape is stale under this version and will not
+   match it, so it regenerates once, the same way a model switch does. */
+const PROMPT_VERSION = 2;
 
 const API = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION = "2023-06-01";
@@ -109,12 +124,12 @@ const TABLE = "caregiver_about_summaries";
    into an enormous one. */
 const MAX_DIGEST_CHARS = 24000;
 
-const MAX_OVERALL_CHARS = 900;
-const MAX_BULLET_CHARS = 220;
-const MAX_BULLETS: Record<string, number> = {
-  strongestExperience: 6, bestFit: 4, schedulingConsiderations: 6,
-  reliability: 6, importantHistory: 6,
-};
+/* A "10-15 second read" — about 3-5 sentences. This is a hard ceiling, not
+   the target; the prompt asks for the real length and this only catches a
+   model that ignores it. */
+const MAX_SUMMARY_CHARS = 700;
+const MAX_FLAG_CHARS = 220;
+const MAX_FLAGS = 4;
 
 const RATE_MAX = 300;
 const RATE_TOTAL = 1500;
@@ -214,11 +229,7 @@ function sig(parts: string[]): string {
 
 // --- the database ---------------------------------------------------------------
 
-type Sections = {
-  overall: string;
-  strongestExperience: string[]; bestFit: string[]; schedulingConsiderations: string[];
-  reliability: string[]; importantHistory: string[];
-};
+type Sections = { summary: string; flags: string[] };
 type SavedRow = { id: string; sections: Sections; source_sig: string; model: string; prompt_version: number };
 type Out = { sections: Sections; model: string; generated: boolean };
 
@@ -253,70 +264,80 @@ async function dbPut(row: Record<string, unknown>): Promise<boolean> {
 // --- the model -------------------------------------------------------------------
 
 const PROMPT = [
-  "You write the \"About\" summary for a caregiver's profile on a home-care scheduling desk.",
-  "You are given a DOSSIER: everything on file about ONE caregiver, assembled from their profile,",
-  "skills, assignment history, care notes, feedback, complaints, incidents, attendance, shift-offer",
-  "history, availability, work preferences, languages, driving, travel limits and ratings.",
+  "You are the CAREGIVER INSIGHTS AGENT for a home-care scheduling desk. Your job is to understand",
+  "ONE caregiver and give the scheduler a SHORT, useful operational summary -- not a report, not a",
+  "restatement of their file. You are given a DOSSIER: everything on file about this caregiver --",
+  "profile, skills, assignment history, care notes, feedback, complaints, incidents, attendance",
+  "(two separate sources -- see below), shift-offer history, availability, work preferences,",
+  "languages, driving, travel limits, communication history and ratings.",
   "",
-  "GOAL: a scheduler who reads this should immediately understand what kind of caregiver this is,",
-  "what clients they are experienced with, what to know before assigning them, and whether anything",
-  "in their history is worth checking first -- WITHOUT reading the raw dossier.",
+  "GOAL: a scheduler should be able to read your output in about 10-15 seconds and understand this",
+  "caregiver well enough to help decide an assignment -- WITHOUT reading the raw dossier. That means",
+  "SYNTHESIS, not a list. Do not write one sentence per topic and call it a paragraph -- write it the",
+  "way a colleague would describe this caregiver in one breath.",
   "",
-  "Produce exactly six sections as JSON:",
+  "Your \"summary\" is ONE short paragraph, about 3 to 5 sentences, weaving together whatever of the",
+  "following the dossier actually supports:",
+  "  1. What kind of caregiver this is.",
+  "  2. What care they have ACTUAL experience with (see the EVIDENCE RULE below -- this is the part",
+  "     most likely to be got wrong).",
+  "  3. What kinds of clients or assignments the evidence supports.",
+  "  4. Scheduling information that matters -- availability, driving, shift preferences, travel",
+  "     limits -- but only if there is something worth saying; do not force a sentence about it.",
   "",
-  '  "overall"                    2 to 4 sentences: what kind of caregiver this appears to be,',
-  "                                 based on their ACTUAL recorded history. Not a label -- an",
-  "                                 explanation.",
-  '  "strongestExperience"        an array of short bullets naming ONLY the conditions/skills the',
-  "                                 dossier actually supports (e.g. dementia, hospice, transfers,",
-  "                                 two-person assist, behavioral clients, overnight, facility",
-  "                                 experience). Empty array if nothing stands out.",
-  '  "bestFit"                    an array of short bullets on what kind of clients or shifts this',
-  "                                 caregiver appears best suited for, and WHY -- tie each one to a",
-  "                                 specific fact (experience, ratings, feedback, preferences).",
-  '  "schedulingConsiderations"   an array of short bullets: driving/license status, availability',
-  "                                 or travel limits, meaningful work preferences, and any",
-  "                                 assignment limitation a scheduler needs to know before assigning",
-  "                                 them.",
-  '  "reliability"                an array of short, FACTUAL bullets built from attendance,',
-  "                                 call-offs, no-shows, lateness and shift-offer history. Name",
-  "                                 recurring patterns ONLY when several records actually support",
-  "                                 one (e.g. \"three late arrivals in the last month\", not \"is",
-  "                                 sometimes late\"). If there is not enough history to see a",
-  "                                 pattern, say that plainly instead of guessing at one.",
-  '  "importantHistory"           an array of short bullets: meaningful client/family feedback,',
-  "                                 incidents, assignment problems, strengths, or recurring",
-  "                                 concerns. Never routine information that does not help",
-  "                                 scheduling -- a quiet, uneventful record needs no bullet here.",
+  "Then, and only if something genuinely needs attention, add a SHORT \"flags\" list: concerns or",
+  "things worth VERIFYING before assigning this caregiver. Most caregivers will have zero or one.",
+  "Never invent a flag to have something to show, and never use it to repeat something the summary",
+  "already said plainly.",
+  "",
+  "THE EVIDENCE RULE -- the most important rule here, and the reason a plain \"skills list\" is not a",
+  "caregiver-insights judgement. The dossier mixes THREE different kinds of evidence and they are not",
+  "interchangeable:",
+  "  - CAREGIVER-REPORTED: the profile's Skills/Experience chips, or anything the caregiver said",
+  "    about themselves. Say \"lists dementia experience\" or \"reports X,\" never \"is experienced in X\"",
+  "    from this alone.",
+  "  - ACTUAL WORK HISTORY: real assignments and visits on file (ASSIGNMENT HISTORY). This is the",
+  "    strongest evidence of what they have genuinely done.",
+  "  - OBSERVED: what care notes, scheduler notes, or client/family feedback actually describe",
+  "    happening. Also strong evidence.",
+  "A claimed skill with no work history or observed evidence behind it is a REPORTED skill, not proven",
+  "experience -- say so plainly when it matters, e.g. \"lists dementia experience on their profile,",
+  "though no assignment or note on file confirms it yet.\" Do not upgrade a reported skill into",
+  "demonstrated experience just because it appears in the dossier.",
   "",
   "OUTPUT: a single JSON object and nothing else. No markdown, no code fence, no preamble:",
-  '{"overall":"...","strongestExperience":["..."],"bestFit":["..."],"schedulingConsiderations":["..."],"reliability":["..."],"importantHistory":["..."]}',
+  '{"summary":"...","flags":["..."]}',
   "",
   "HARD RULES:",
-  "- NEVER invent information. Every claim must trace to something the dossier actually says. A",
-  "  short dossier gets a short, honest summary -- not a padded one.",
+  "- SHORT. One paragraph, about 3-5 sentences. Do NOT produce labelled sections -- no \"Strongest",
+  "  Experience,\" \"Best Fit,\" \"Scheduling Considerations,\" \"Reliability,\" \"Important History,\" or",
+  "  anything shaped like them. That format was tried and rejected as too much data, not a summary.",
+  "- Do not repeat information the scheduler can already see elsewhere on this same profile page --",
+  "  name, phone, hire date, the raw skill/experience chip list, the star rating number -- unless you",
+  "  need it to support a specific claim the dossier makes possible.",
+  "- NEVER invent information. Every claim must trace to something the dossier actually says. A thin",
+  "  dossier gets a short, honest, thin summary -- never a padded one.",
   "- NEVER call the caregiver \"good\", \"bad\", \"reliable\" or \"unreliable\" (or any close synonym)",
-  "  without the specific facts, in the same bullet, that support it.",
+  "  without the specific fact, in the same sentence, that supports it.",
+  "- If there is not enough history to judge experience, fit, or reliability, SAY so plainly -- \"not",
+  "  enough history on file yet\" is a complete, honest answer. Do not guess to fill space.",
   "- The dossier may hand you TWO separately-labelled attendance sources that do not fully overlap.",
-  "  If they tell a different story, SAY they disagree rather than silently picking one to believe.",
+  "  If they tell a different story, say they disagree rather than silently picking one to believe.",
   "- If any other part of the dossier conflicts with another part, say plainly that the records",
   "  conflict rather than choosing one silently.",
   "- The dossier explicitly does not know WHY an assignment ended unless a scheduler note says so.",
   "  Do not guess a reason. You may still note the pattern itself (e.g. several short assignments)",
   "  without asserting a cause.",
-  "- Missing information is a fact worth stating, not something to skip past. Say plainly when a",
-  "  section has little or nothing to go on (e.g. \"No attendance history is on file\"), rather than",
-  "  omitting the section or writing around the gap.",
   "- Do not give medical advice, and do not speculate about anything not explicitly in the dossier.",
   "- Contact details already appear as [phone number], [email address] or [link]. Do not mention",
-  "  those placeholders in a bullet.",
+  "  those placeholders.",
 ].join("\n");
 
 async function askClaude(digest: string): Promise<Sections> {
   const content = "DOSSIER:\n\n" + redact(digest);
 
   /* max_tokens INCLUDES THINKING -- the trap every sibling function
-     documents. A budget sized for six short sections alone returns HTTP 200
+     documents. A budget sized for a short paragraph alone returns HTTP 200
      with an empty text block the instant CGABOUT_MODEL points at a model
      that thinks by default. */
   const body: Record<string, unknown> = {
@@ -355,29 +376,25 @@ async function askClaude(digest: string): Promise<Sections> {
   }
 
   const cleanBullet = (s: string) => redact(s).replace(/\s*\n+\s*/g, " ").replace(/^["'"'•\-]+|["'"']+$/g, "").trim();
-  const arr = (v: unknown, cap: number): string[] => {
+  const flags = (v: unknown): string[] => {
     if (!Array.isArray(v)) return [];
     const out: string[] = [];
     for (const item of v) {
       if (typeof item !== "string") continue;
       const s = cleanBullet(item);
-      if (!s || s.length > MAX_BULLET_CHARS) continue;
+      if (!s || s.length > MAX_FLAG_CHARS) continue;
       out.push(s);
-      if (out.length >= cap) break;
+      if (out.length >= MAX_FLAGS) break;
     }
     return out;
   };
 
-  const overallRaw = typeof parsed.overall === "string" ? cleanBullet(parsed.overall) : "";
-  if (!overallRaw) throw new UpstreamError(502, "The model did not return an overall summary.");
+  const summaryRaw = typeof parsed.summary === "string" ? cleanBullet(parsed.summary) : "";
+  if (!summaryRaw) throw new UpstreamError(502, "The model did not return a summary.");
 
   return {
-    overall: overallRaw.length > MAX_OVERALL_CHARS ? overallRaw.slice(0, MAX_OVERALL_CHARS).trim() : overallRaw,
-    strongestExperience: arr(parsed.strongestExperience, MAX_BULLETS.strongestExperience),
-    bestFit: arr(parsed.bestFit, MAX_BULLETS.bestFit),
-    schedulingConsiderations: arr(parsed.schedulingConsiderations, MAX_BULLETS.schedulingConsiderations),
-    reliability: arr(parsed.reliability, MAX_BULLETS.reliability),
-    importantHistory: arr(parsed.importantHistory, MAX_BULLETS.importantHistory),
+    summary: summaryRaw.length > MAX_SUMMARY_CHARS ? summaryRaw.slice(0, MAX_SUMMARY_CHARS).trim() : summaryRaw,
+    flags: flags(parsed.flags),
   };
 }
 
