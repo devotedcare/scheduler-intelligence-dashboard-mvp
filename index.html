@@ -133,6 +133,8 @@
   .nav a .pill.crit{background:var(--crit-solid);color:#fff}
   .nav a .pill.soon{background:var(--soon-solid);color:#fff}
   .nav a .pill.neut{background:rgba(255,255,255,.14);color:#C7D6E2}
+  .nav-sec{padding:14px 9px 4px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.7px;color:#6C849A;flex:0 0 auto}
+  .nav-sec:first-child{padding-top:2px}
 
   /* ===== "Working as", pinned to the bottom of the sidebar ===== */
   .whoami{flex:0 0 auto;margin:auto 10px 12px;padding:11px 10px 0;border-top:1px solid rgba(255,255,255,.22)}
@@ -4212,21 +4214,34 @@ const I = {
 };
 const ic = (k,sz=17) => `<svg class="ico" width="${sz}" height="${sz}" viewBox="0 0 24 24">${I[k]||''}</svg>`;
 
-/* ============ NAV ============ */
+/* ============ NAV ============
+   Ordered by daily workflow and priority, per section, top to bottom:
+   Ask Devi first (asked before anything else), then the scheduler's
+   immediate daily work, then care, then caregiver-record upkeep
+   (administrative, so it sits below the daily-work group on purpose),
+   then the rest of operations, then reporting last. Section labels
+   ({section:...}) are headings only - they render nothing clickable. */
 const NAVGROUPS=[
   {link:{id:'assistant', label:'Ask Devi'}},
-  {link:{id:'avail', label:'Caregivers'}},
-  /* Sits with Caregivers: both are about the caregiver record itself,
-     rather than about today's board. */
-  {link:{id:'schedupdates', label:'Caregiver Record Status'}},
-  {link:{id:'carenotes', label:'Care Notes Review'}},
+
+  {section:'Daily Scheduling'},
   {link:{id:'open', label:'Open Shifts'}},
   {link:{id:'coverage', label:'Find Coverage'}},
+  /* 'staff' (Build a staffing plan) already carried primary/backup
+     caregiver assignment - it just had no nav entry before this. */
+  {link:{id:'staff', label:'Backup Caregivers'}},
   {link:{id:'attendance', label:'Attendance'}},
-  {link:{id:'tasks', label:'Weekly Tasks'}},
-  /* Moved down to the end-of-shift group. The ids are untouched, so every
-     route, badge and go() call still points where it did. */
   {link:{id:'handoff', label:'Shift Handoff'}},
+
+  {section:'Care Management'},
+  {link:{id:'carenotes', label:'Care Notes Review'}},
+
+  {section:'Caregiver Management'},
+  {link:{id:'avail', label:'Caregivers'}},
+  {link:{id:'schedupdates', label:'Caregiver Record Status'}},
+
+  {section:'Operations'},
+  {link:{id:'tasks', label:'Weekly Tasks'}},
   {link:{id:'updates', label:'Operations Updates'}},
   /* name: still a dropdown - its three pages have nowhere else to live */
   {name:'Scheduler Hub', items:[
@@ -4234,6 +4249,8 @@ const NAVGROUPS=[
     {id:'forms', label:'Forms & Resources'},
     {id:'infographics', label:'Infographics'},
   ]},
+
+  {section:'Reporting'},
   {link:{id:'reports', label:'Reports'}},
 ];
 function badgeFor(id){
@@ -4269,6 +4286,7 @@ const VIEWS={open:viewOpen,coverage:viewCoverage,clientcal:viewClientSchedule,up
 function renderNav(){
   let html='';
   NAVGROUPS.forEach(g=>{
+    if(g.section){ html+=`<div class="nav-sec">${g.section}</div>`; return; }
     if(g.link){ html+=navLink(g.link,false); return; }
     const open=navGroupOpen(g);
     html+=`<button class="nav-grp${open?' open':''}" onclick="toggleNavGroup('${g.name}')">${g.name}<span class="nav-caret">${open?'\u25be':'\u25b8'}</span></button>`;
@@ -7625,7 +7643,7 @@ function renderStaffForm(sq){
 function viewStaffClient(){
   if(!state.staffQuery) state.staffQuery=defaultStaffQuery();
   const sq=state.staffQuery;
-  const head=`<div class="lock-head"><div class="lk-main"><div class="lk-eyebrow">Build a staffing plan</div><div class="lk-client">${sq.clientName||'New client'}</div><div class="lk-meta">${sq.city||'City not set'} \u00b7 ${sq.days.join(', ')||'no days'} \u00b7 ${fmtHr(sq.start)}\u2013${fmtHr(sq.end)}</div></div></div>`;
+  const head=`<div class="lock-head"><div class="lk-main"><div class="lk-eyebrow">Backup Caregivers</div><div class="lk-client">${sq.clientName||'New client'}</div><div class="lk-meta">${sq.city||'City not set'} \u00b7 ${sq.days.join(', ')||'no days'} \u00b7 ${fmtHr(sq.start)}\u2013${fmtHr(sq.end)}</div></div></div>`;
   const {full, partial, reqDays}=staffSearch(sq);
   let results;
   if(!sq.days.length){ results=`<div class="q-empty">Select the days this client needs care to see matching caregivers.</div>`; }
