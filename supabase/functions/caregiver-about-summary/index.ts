@@ -2,35 +2,47 @@
 //
 // WHAT THIS IS FOR
 //
-// Asked for 2026-09-24, REWRITTEN 2026-09-28 (Mitch): the first version
-// ("v1") turned the caregiver profile's old one-line computed "About" into
-// six labelled sections — Overall / Strongest Experience / Best Fit /
+// Asked for 2026-09-24, REWRITTEN 2026-09-28 (Mitch) twice in one day.
+//
+// v1 turned the caregiver profile's old one-line computed "About" into six
+// labelled sections — Overall / Strongest Experience / Best Fit /
 // Scheduling Considerations / Reliability / Important History. Reported
 // back: "this is not a summary, it is simply displaying too much caregiver
 // data in sections and bullet points."
 //
-// THIS IS A CAREGIVER INSIGHTS AGENT, not a report generator. Its job is to
-// read everything on file about ONE caregiver — profile, skills, assignment
-// history, care notes, feedback, complaints, incidents, attendance (both
-// sources — see below), shift-offer history, availability, work
-// preferences, languages, driving, travel limits, communication history —
-// and SYNTHESIZE it into one short, useful judgement, not list it back out.
-// Fixed shape, two fields:
+// v2 replaced that with one paragraph (3-5 sentences) plus a short "flags"
+// list for concerns only. Reported back: "still too dense and takes too
+// long to understand" — the paragraph alone was carrying too much (kind of
+// caregiver AND actual experience AND assignment fit AND scheduling info),
+// so reading it fast still meant parsing one dense multi-clause sentence.
 //
-//   summary    ONE short paragraph (about 3-5 sentences): what kind of
-//              caregiver this is, what care they have ACTUAL experience
-//              with, what assignments the evidence supports, and any
-//              scheduling information that matters.
-//   flags[]    a SHORT list of concerns or things worth verifying before
-//              assigning them — often empty. Never padded just to have
-//              something to show.
+// THIS (v3) IS A CAREGIVER INSIGHTS AGENT, not a report generator. Its job
+// is to read everything on file about ONE caregiver — profile, skills,
+// assignment history, care notes, feedback, complaints, incidents,
+// attendance (both sources — see below), shift-offer history, availability,
+// work preferences, languages, driving, travel limits, communication
+// history — and SYNTHESIZE it into a short, useful judgement, not list it
+// back out. Fixed shape, two fields:
 //
-// A scheduler should be able to read the result in about 10-15 seconds and
-// understand the caregiver well enough to help make an assignment decision.
-// See the EVIDENCE RULE in the prompt below — the model must distinguish
-// what the caregiver's profile CLAIMS from what actual assignment/work
-// history and care notes/scheduler records ACTUALLY show, never treating
-// the first as proof of the second.
+//   summary     2 to 3 SHORT sentences, plain language, ONE idea per
+//               sentence — the headline: who this caregiver is and the
+//               single most important thing to know. Not the whole
+//               picture.
+//   bullets[]   a short list of the caregiver's most important,
+//               individually useful facts — actual care experience,
+//               assignment history, demonstrated strengths, scheduling
+//               considerations, reliability (only with real evidence), and
+//               concerns/verify-before-assigning items, all in ONE flat
+//               list the model itself orders by importance. Most
+//               caregivers need two to six bullets. Never padded.
+//
+// A scheduler should be able to look at this for 5-10 seconds and know:
+// what is this caregiver experienced with, how reliable have they been, and
+// is there anything to check before assigning them? See the EVIDENCE RULE
+// in the prompt below — the model must distinguish what the caregiver's
+// profile CLAIMS from what actual assignment/work history and care
+// notes/scheduler records ACTUALLY show, never treating the first as proof
+// of the second.
 //
 // ── THIS FUNCTION IS BUILT DIFFERENTLY FROM CARENOTES-SUMMARY / CARE-BRIEF /
 //    CARE-ALERT-SUMMARY, AND THAT IS DELIBERATE ──────────────────────────────
@@ -71,8 +83,8 @@
 //
 // ── THE MODEL HAS NO TOOLS. NOTHING IT WRITES REACHES ANY OTHER RECORD ──────
 //
-// It reads the dossier and returns a paragraph and a short flag list. Same
-// safety argument as devi-agent, comms-summary, carenotes-summary and
+// It reads the dossier and returns a short summary and a short bullet list.
+// Same safety argument as devi-agent, comms-summary, carenotes-summary and
 // care-alert-summary.
 //
 // ── PHI ───────────────────────────────────────────────────────────────────
@@ -110,9 +122,14 @@ const SEND_EFFORT = !!EFFORT && !/haiku/i.test(MODEL);
 /* Bump when the prompt or the output rules change in a way that should
    rewrite summaries already saved. They are rewritten on their next open.
    2 -> the short-paragraph-plus-flags rewrite (2026-09-28); every row saved
-   under the old six-section shape is stale under this version and will not
-   match it, so it regenerates once, the same way a model switch does. */
-const PROMPT_VERSION = 2;
+   under the old six-section shape was stale under that version and
+   regenerated once. 3 -> the 2-3-sentence-summary-plus-bullets rewrite
+   (2026-09-28, same day): the v2 paragraph alone was still carrying kind of
+   caregiver AND actual experience AND assignment fit AND scheduling info
+   in one dense multi-clause block, which was "still too dense... takes too
+   long to understand" even at 3-5 sentences. Every v2 row is stale under
+   this version and regenerates once, same mechanism. */
+const PROMPT_VERSION = 3;
 
 const API = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION = "2023-06-01";
@@ -124,12 +141,12 @@ const TABLE = "caregiver_about_summaries";
    into an enormous one. */
 const MAX_DIGEST_CHARS = 24000;
 
-/* A "10-15 second read" — about 3-5 sentences. This is a hard ceiling, not
-   the target; the prompt asks for the real length and this only catches a
-   model that ignores it. */
-const MAX_SUMMARY_CHARS = 700;
-const MAX_FLAG_CHARS = 220;
-const MAX_FLAGS = 4;
+/* A "5-10 second read": 2-3 short sentences for the summary, one short fact
+   per bullet. These are hard ceilings, not the target — the prompt asks
+   for the real length and these only catch a model that ignores it. */
+const MAX_SUMMARY_CHARS = 380;
+const MAX_BULLET_CHARS = 160;
+const MAX_BULLETS = 6;
 
 const RATE_MAX = 300;
 const RATE_TOTAL = 1500;
@@ -229,7 +246,7 @@ function sig(parts: string[]): string {
 
 // --- the database ---------------------------------------------------------------
 
-type Sections = { summary: string; flags: string[] };
+type Sections = { summary: string; bullets: string[] };
 type SavedRow = { id: string; sections: Sections; source_sig: string; model: string; prompt_version: number };
 type Out = { sections: Sections; model: string; generated: boolean };
 
@@ -264,35 +281,41 @@ async function dbPut(row: Record<string, unknown>): Promise<boolean> {
 // --- the model -------------------------------------------------------------------
 
 const PROMPT = [
-  "You are the CAREGIVER INSIGHTS AGENT for a home-care scheduling desk. Your job is to understand",
-  "ONE caregiver and give the scheduler a SHORT, useful operational summary -- not a report, not a",
-  "restatement of their file. You are given a DOSSIER: everything on file about this caregiver --",
-  "profile, skills, assignment history, care notes, feedback, complaints, incidents, attendance",
-  "(two separate sources -- see below), shift-offer history, availability, work preferences,",
-  "languages, driving, travel limits, communication history and ratings.",
+  "You are the CAREGIVER INSIGHTS AGENT for a home-care scheduling desk. A scheduler should be able",
+  "to look at your output for 5-10 seconds and know: what is this caregiver experienced with, how",
+  "reliable have they been, and is there anything to check before assigning them? You are given a",
+  "DOSSIER: everything on file about this caregiver -- profile, skills, assignment history, care",
+  "notes, feedback, complaints, incidents, attendance (two separate sources -- see below), shift-",
+  "offer history, availability, work preferences, languages, driving, travel limits, communication",
+  "history and ratings.",
   "",
-  "GOAL: a scheduler should be able to read your output in about 10-15 seconds and understand this",
-  "caregiver well enough to help decide an assignment -- WITHOUT reading the raw dossier. That means",
-  "SYNTHESIS, not a list. Do not write one sentence per topic and call it a paragraph -- write it the",
-  "way a colleague would describe this caregiver in one breath.",
+  "OUTPUT TWO THINGS:",
   "",
-  "Your \"summary\" is ONE short paragraph, about 3 to 5 sentences, weaving together whatever of the",
-  "following the dossier actually supports:",
-  "  1. What kind of caregiver this is.",
-  "  2. What care they have ACTUAL experience with (see the EVIDENCE RULE below -- this is the part",
-  "     most likely to be got wrong).",
-  "  3. What kinds of clients or assignments the evidence supports.",
-  "  4. Scheduling information that matters -- availability, driving, shift preferences, travel",
-  "     limits -- but only if there is something worth saying; do not force a sentence about it.",
+  "1. \"summary\" -- 2 to 3 SHORT sentences, plain everyday language, ONE idea per sentence. This is",
+  "   the headline, not the whole picture: who this caregiver is and the single most important thing",
+  "   to know. Never pack more than one fact into a sentence.",
   "",
-  "Then, and only if something genuinely needs attention, add a SHORT \"flags\" list: concerns or",
-  "things worth VERIFYING before assigning this caregiver. Most caregivers will have zero or one.",
-  "Never invent a flag to have something to show, and never use it to repeat something the summary",
-  "already said plainly.",
+  "2. \"bullets\" -- a short flat list of this caregiver's most important, individually useful facts,",
+  "   each ONE short bullet, ONE fact. Draw only from what actually matters for THIS caregiver, in",
+  "   whatever order matters most -- you decide the order, and you decide which of these apply. Do",
+  "   not force a bullet for a category that has nothing worth saying:",
+  "     - actual care experience (see the EVIDENCE RULE below)",
+  "     - current or previous assignment experience",
+  "     - strengths actually demonstrated by real work -- not claimed skills",
+  "     - availability or scheduling considerations worth knowing before assigning them",
+  "     - reliability, ONLY if there is enough real evidence to say something -- otherwise leave it",
+  "       out rather than guessing",
+  "     - concerns, or anything worth verifying before assigning them",
+  "   Most caregivers need somewhere between two and six bullets. Never pad the list to look",
+  "   complete, and never write a bullet that just restates the summary.",
   "",
-  "THE EVIDENCE RULE -- the most important rule here, and the reason a plain \"skills list\" is not a",
-  "caregiver-insights judgement. The dossier mixes THREE different kinds of evidence and they are not",
-  "interchangeable:",
+  "PLAIN LANGUAGE. Write the way a scheduler would describe this caregiver out loud to a colleague --",
+  "short, direct, everyday words. No jargon, no clinical language, and no explaining your own",
+  "reasoning or process.",
+  "",
+  "THE EVIDENCE RULE -- the most important judgement call here, and the reason a plain skills list is",
+  "not a caregiver-insights judgement. The dossier mixes THREE different kinds of evidence and they",
+  "are not interchangeable:",
   "  - CAREGIVER-REPORTED: the profile's Skills/Experience chips, or anything the caregiver said",
   "    about themselves. Say \"lists dementia experience\" or \"reports X,\" never \"is experienced in X\"",
   "    from this alone.",
@@ -301,26 +324,32 @@ const PROMPT = [
   "  - OBSERVED: what care notes, scheduler notes, or client/family feedback actually describe",
   "    happening. Also strong evidence.",
   "A claimed skill with no work history or observed evidence behind it is a REPORTED skill, not proven",
-  "experience -- say so plainly when it matters, e.g. \"lists dementia experience on their profile,",
-  "though no assignment or note on file confirms it yet.\" Do not upgrade a reported skill into",
-  "demonstrated experience just because it appears in the dossier.",
+  "experience -- say so plainly when it matters, e.g. \"lists dementia experience, though no assignment",
+  "or note on file confirms it yet.\" Do not upgrade a reported skill into demonstrated experience just",
+  "because it appears somewhere.",
   "",
   "OUTPUT: a single JSON object and nothing else. No markdown, no code fence, no preamble:",
-  '{"summary":"...","flags":["..."]}',
+  '{"summary":"...","bullets":["..."]}',
   "",
   "HARD RULES:",
-  "- SHORT. One paragraph, about 3-5 sentences. Do NOT produce labelled sections -- no \"Strongest",
-  "  Experience,\" \"Best Fit,\" \"Scheduling Considerations,\" \"Reliability,\" \"Important History,\" or",
-  "  anything shaped like them. That format was tried and rejected as too much data, not a summary.",
-  "- Do not repeat information the scheduler can already see elsewhere on this same profile page --",
-  "  name, phone, hire date, the raw skill/experience chip list, the star rating number -- unless you",
-  "  need it to support a specific claim the dossier makes possible.",
-  "- NEVER invent information. Every claim must trace to something the dossier actually says. A thin",
-  "  dossier gets a short, honest, thin summary -- never a padded one.",
+  "- SHORT. 2-3 short sentences for the summary; one short fact per bullet, two to six bullets. Do",
+  "  NOT produce labelled sections -- no \"Strongest Experience,\" \"Best Fit,\" \"Scheduling",
+  "  Considerations,\" \"Reliability,\" \"Important History,\" or anything shaped like them. That format",
+  "  was tried and rejected as too much data, not a summary.",
+  "- Do not repeat facts the scheduler can already see on this same profile page -- age, hire date,",
+  "  days/months/years employed, phone, email, the raw skill/experience chip list, the star rating",
+  "  number -- UNLESS the fact is actually important to an assignment decision. A caregiver hired",
+  "  very recently with almost no history is worth one bullet, worded around what that MEANS (\"very",
+  "  little work history yet\"), never as a restated hire date.",
+  "- Never talk about \"the dossier,\" \"the file,\" or \"the record\" as a thing, and never describe your",
+  "  own input. Write about the caregiver, the way a scheduler would put it. Do not say things like",
+  "  \"the dossier is still quite short\" -- say \"not enough work history yet to judge reliability\".",
+  "- NEVER invent information. Every fact must trace to something the dossier actually says. A thin",
+  "  dossier gets a short, honest result -- never a padded one.",
   "- NEVER call the caregiver \"good\", \"bad\", \"reliable\" or \"unreliable\" (or any close synonym)",
-  "  without the specific fact, in the same sentence, that supports it.",
-  "- If there is not enough history to judge experience, fit, or reliability, SAY so plainly -- \"not",
-  "  enough history on file yet\" is a complete, honest answer. Do not guess to fill space.",
+  "  without the specific fact, in the same bullet or sentence, that supports it.",
+  "- If there is not enough history to judge experience, fit, or reliability, say that plainly and",
+  "  briefly. Do not guess to fill space.",
   "- The dossier may hand you TWO separately-labelled attendance sources that do not fully overlap.",
   "  If they tell a different story, say they disagree rather than silently picking one to believe.",
   "- If any other part of the dossier conflicts with another part, say plainly that the records",
@@ -376,15 +405,15 @@ async function askClaude(digest: string): Promise<Sections> {
   }
 
   const cleanBullet = (s: string) => redact(s).replace(/\s*\n+\s*/g, " ").replace(/^["'"'•\-]+|["'"']+$/g, "").trim();
-  const flags = (v: unknown): string[] => {
+  const bullets = (v: unknown): string[] => {
     if (!Array.isArray(v)) return [];
     const out: string[] = [];
     for (const item of v) {
       if (typeof item !== "string") continue;
       const s = cleanBullet(item);
-      if (!s || s.length > MAX_FLAG_CHARS) continue;
+      if (!s || s.length > MAX_BULLET_CHARS) continue;
       out.push(s);
-      if (out.length >= MAX_FLAGS) break;
+      if (out.length >= MAX_BULLETS) break;
     }
     return out;
   };
@@ -394,7 +423,7 @@ async function askClaude(digest: string): Promise<Sections> {
 
   return {
     summary: summaryRaw.length > MAX_SUMMARY_CHARS ? summaryRaw.slice(0, MAX_SUMMARY_CHARS).trim() : summaryRaw,
-    flags: flags(parsed.flags),
+    bullets: bullets(parsed.bullets),
   };
 }
 

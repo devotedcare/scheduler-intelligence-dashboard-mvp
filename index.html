@@ -13078,27 +13078,35 @@ function tenureShort(d){
   if(y>=1) return y+' year'+(y===1?'':'s')+' with';
   return (m||1)+' month'+(m===1?'':'s')+' with';
 }
-/* The short flag list — concerns/verify-before-assigning items only, never
-   a restatement of the paragraph. '' when there is nothing worth flagging,
-   which is the common case and is not an error state. No section label:
-   a single small line is not the "Strongest Experience / Best Fit / ..."
-   framework this rewrite (2026-09-28) removed, and doesn't need one. */
-function cgAboutFlagsHtml(flags){
-  if(!flags||!flags.length) return '';
-  return `<ul class="cgh-ai-bl">${flags.map(b=>`<li>${escText(b)}</li>`).join('')}</ul>`;
+/* The short bullet list — the caregiver's most important individually
+   useful facts (experience, assignment history, demonstrated strengths,
+   scheduling, reliability where there's evidence, concerns), one flat
+   list in whatever order the agent itself decided matters most. '' when
+   the model returned none, which is a valid, non-error result — not every
+   caregiver needs bullets. No section label: this is not the "Strongest
+   Experience / Best Fit / ..." framework the 2026-09-28 rewrite removed,
+   and the agent — not this renderer — decides what belongs here. */
+function cgAboutBulletsHtml(bullets){
+  if(!bullets||!bullets.length) return '';
+  return `<ul class="cgh-ai-bl">${bullets.map(b=>`<li>${escText(b)}</li>`).join('')}</ul>`;
 }
-/* Ready -> the Caregiver Insights Agent's short paragraph (+ flags, only
-   when there are any). Otherwise -> the old computed sentence (cgAbout(),
-   never invented, never worse than before this existed) plus a status
-   strip saying why the AI version is not showing yet. Never a blank box
-   while the model call is in flight.
+/* Ready -> the Caregiver Insights Agent's short summary + bullets.
+   Otherwise -> the old computed sentence (cgAbout(), never invented,
+   never worse than before this existed) plus a status strip saying why
+   the AI version is not showing yet. Never a blank box while the model
+   call is in flight.
 
-   REWRITTEN 2026-09-28 (Mitch): the six-section render ("this is not a
-   summary, it is simply displaying too much caregiver data in sections and
-   bullet points") is gone along with the six-section prompt in
-   caregiver-about-summary. One short paragraph, read in about 10-15
-   seconds, plus a short flag list only when something needs the
-   scheduler's attention — see PROMPT_VERSION 2 in that function. */
+   REWRITTEN 2026-09-28 (Mitch), twice in one day. First pass: the
+   six-section render ("this is not a summary, it is simply displaying too
+   much caregiver data in sections and bullet points") became one
+   paragraph plus a short flag list. Reported back again: "still too dense
+   ... takes too long to understand" — a 3-5 sentence paragraph carrying
+   four different ideas at once still isn't a fast read. Now: 2-3 SHORT
+   sentences (the headline only) plus a short flat bullet list carrying
+   the actual useful facts — experience, assignment history, strengths,
+   scheduling, reliability, concerns, all decided and ordered by the
+   agent, never by this renderer. See PROMPT_VERSION 3 in
+   caregiver-about-summary. */
 function cgAboutHtml(c){
   const first=escText((c.name||'').split(' ')[0]);
   const st=CGABOUT.status(c.id), sec=CGABOUT.sections(c.id);
@@ -13108,7 +13116,7 @@ function cgAboutHtml(c){
     bar=`<div class="cd-sumbar bad">${ic('alerts',13)} <span>Could not generate the AI summary. ${escText(d.error||'')}</span><button class="btn sm" onclick="cgAboutRetry('${c.id}')">Retry</button></div>`;
   }
   if(sec){
-    const body=(sec.summary?`<div class="cgh-ai-overall">${escText(sec.summary)}</div>`:'')+cgAboutFlagsHtml(sec.flags);
+    const body=(sec.summary?`<div class="cgh-ai-overall">${escText(sec.summary)}</div>`:'')+cgAboutBulletsHtml(sec.bullets);
     return `<div class="cgh-abouth">About ${first} <span class="cgh-ai-badge">AI Summary</span></div>${bar}<div class="cgh-ai-body">${body}</div>`;
   }
   const fallback=cgAbout(c);
@@ -20187,19 +20195,25 @@ function calertRetry(day) { CALERT.retry(day, careConcernsForDay(day).map(functi
    behavioral/overnight experience, communication history, how long they
    stayed on past cases, recurring patterns.
 
-   REWRITTEN 2026-09-28 (Mitch): the first version turned that into six
+   REWRITTEN 2026-09-28 (Mitch), twice in one day. v1 turned that into six
    labelled sections (Overall / Strongest Experience / Best Fit /
    Scheduling Considerations / Reliability / Important History) and was
    reported back as "not a summary — simply displaying too much caregiver
-   data in sections and bullet points." This is a CAREGIVER INSIGHTS AGENT
-   now, not a report: one short paragraph (about 3-5 sentences, a 10-15
-   second read) synthesising what kind of caregiver this is, what care
-   they have ACTUAL experience with, what assignments the evidence
-   supports and any scheduling information that matters — plus a short
-   flag list, only when something genuinely needs the scheduler's
-   attention. See PROMPT_VERSION 2 and the EVIDENCE RULE in
-   caregiver-about-summary for the reported-vs-actual-vs-observed
-   distinction the prompt enforces. `sections` below is `{summary, flags}`.
+   data in sections and bullet points." v2 replaced it with one paragraph
+   (3-5 sentences) plus a flag list, and was reported back AGAIN as "still
+   too dense ... takes too long to understand" — a paragraph carrying kind-
+   of-caregiver AND actual-experience AND assignment-fit AND scheduling-
+   info all at once is still not a fast read, however short.
+
+   v3 (current): a CAREGIVER INSIGHTS AGENT, not a report. `summary` is 2-3
+   SHORT sentences — the headline only, one idea per sentence. `bullets`
+   is a short flat list carrying the actual useful facts (experience,
+   assignment history, demonstrated strengths, scheduling, reliability
+   only with real evidence, concerns) — the agent itself decides which
+   apply and in what order; this file never hard-codes that. See
+   PROMPT_VERSION 3 and the EVIDENCE RULE in caregiver-about-summary for
+   the reported-vs-actual-vs-observed distinction the prompt enforces.
+   `sections` below is `{summary, bullets}`.
 
    supabase/functions/caregiver-about-summary writes it, reading the
    dossier this browser assembles (cgAiDigestText(), above) and saved in
