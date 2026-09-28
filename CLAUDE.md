@@ -951,7 +951,7 @@ AxisCare request per date** (measured 29–35 visits, ~30KB), module-level, neve
 
 | | means |
 |---|---|
-| `true` | a shift was scheduled → **"No care notes recorded for this shift"**, amber |
+| `true` | a shift was scheduled → **"No care notes recorded for this shift"**, amber, with **`Caregiver: <name>` above it** |
 | `false` | none was → **"No shift coverage for this window"** |
 | `null` | not loaded yet, or the fetch failed → the old neutral wording, plus *checking* or *could not check* |
 
@@ -959,6 +959,15 @@ AxisCare request per date** (measured 29–35 visits, ~30KB), module-level, neve
 `AVAIL.dayAvail()` returning a state rather than a boolean, and `loadingState()` vs
 `emptyState()` — a failed lookup that reads as a confident negative is the exact failure
 this screen keeps re-learning.
+
+**The gap cell NAMES who owed the note** (Carlo, 2026-09-28) — the point of the row is
+knowing who to ring. `CNSHIFT` therefore keeps the caregivers per block, not just a
+boolean, and `who()` resolves each through `cgById()` first, falling back to the name
+on the **visit**: the roster holds only ACTIVE caregivers, so somebody since terminated
+would otherwise appear as a gap with nobody attached to it. Two caregivers in one window
+are comma-joined; the same caregiver twice is named once. **No eye and no second warning
+icon** beside the name — the message below already carries one, and there is no note for an
+eye to open.
 
 **Three things deliberately do NOT count as a shift somebody owed a note for:** a
 `removed` visit (cancelled), an **unassigned** one (nobody to write it), and one whose
@@ -1198,6 +1207,51 @@ The three v1 → v2 fixes, each from a measured failure:
 though they are his baseline, and one *"reported readings to the family"* bullet survived
 the event rule. Roughly 3 of 16. Both would need the client's recent notes as context,
 which is a bigger change — see *Still open*.
+
+### ONE VISIT CAN BE IN `care_notes` TWICE — two AxisCare id forms
+
+A scheduled slot is `s=<scheduleId>:d=<date>`. Once AxisCare instantiates it the visit
+becomes `v=<visitId>:s=0:d=<date>`, and the old row is marked `removed:true` with its
+caregiver stripped. `carenotes-sync` upserts on `visit_id` and **never prunes**, so a
+note swept under the old id stays for ever beside the new one.
+
+Confirmed live on **Calvin George Miller Jr, 2026-09-24**:
+
+| id | removed | caregiver | verified |
+|---|---|---|---|
+| `s=1682:d=2026-09-24` | **true** | none | false |
+| `v=57655:s=0:d=2026-09-24` | false | 448 Leonardo Mission Jr. | **true** |
+
+Same client, same instant, byte-identical note. The board drew *"Caregiver: Leonardo
+Mission Jr."* twice and counted **2 notes** for one visit.
+
+**Rare, and measured: 1 of 796 rows.** Both id forms coexist normally — 610 `s=` against
+186 `v=` — so the form alone proves nothing; only a second row for the *same* visit does.
+
+**Fixed at the source, 2026-09-28.** `visitsForDay()` in `carenotes-sync` used to end
+
+```js
+return out.filter(v => !v.removed && v.caregiver && v.caregiver.id != null);
+```
+
+which threw away the one fact the sweep needs to clean up after itself. It returns every
+visit now; the caller writes notes for the workable ones and `pruneRemoved()` deletes the
+notes of the removed ones.
+
+**ON EVIDENCE, NEVER ON ABSENCE** — the rule `openshifts-sync` is built on. Only ids
+AxisCare positively returned as `removed` in that sweep are deleted. A visit merely
+*missing* from a response proves nothing: the page cap, a 429 and a truncated read all look
+identical to "cancelled", and deleting on that would quietly empty the board.
+
+> The prune reaches only dates inside the sweep window (`DEFAULT_DAYS` 3, `FRESH_DAYS` 2).
+> Instantiation happens at or near the visit date, so that covers it in practice; the one
+> historical row, on 2026-09-24, was already outside the window and was deleted by hand.
+
+**There is deliberately NO deduper in the browser.** One existed for a day and was removed:
+a silent collapse in the read path hides the next data problem instead of showing it, and
+this board is meant to be honest about what the table holds. **Claude: do not re-add one.**
+
+---
 
 ### The note id the browser sends is MUNGED — match it, never expect `visit_id`
 

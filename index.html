@@ -20616,7 +20616,14 @@ const CNSHIFT=(function(){
         var hm=/T(\d{2}):(\d{2})/.exec(s); if(!hm) return;
         var h=(+hm[1])+(+hm[2])/60;
         /* the same windows careShiftOf() uses: AM 06:00-14:00, PM 14:00-06:00 */
-        blocks['k'+cl+'|'+((h>=6&&h<14)?'am':'pm')]=true;
+        /* WHO worked it, not just that somebody did - the gap cell names them so the
+           desk knows who to ring. The visit's own name is stored as the fallback: the
+           roster only holds ACTIVE caregivers, so somebody since terminated would
+           otherwise show up as a gap with nobody attached to it. */
+        var k='k'+cl+'|'+((h>=6&&h<14)?'am':'pm');
+        var cgn=((v.caregiver.firstName||'')+' '+(v.caregiver.lastName||'')).trim();
+        var arr=blocks[k]||(blocks[k]=[]);
+        if(!arr.some(function(x){ return x.id===v.caregiver.id; })) arr.push({id:v.caregiver.id, name:cgn});
       });
       days[day]={status:'ready', blocks:blocks, error:null};
     }, function(e){
@@ -20640,17 +20647,37 @@ const CNSHIFT=(function(){
   function had(day, clientId, shift){
     var d=days[day];
     if(!d || d.status!=='ready') return null;
-    return !!d.blocks[clientId+'|'+shift];
+    var a=d.blocks[clientId+'|'+shift];
+    return !!(a && a.length);
+  }
+  /* The caregivers scheduled in that window, [] when none or not loaded. The roster name
+     wins when we have one — it is what the rest of the board shows — and the name off the
+     visit is the fallback for anyone no longer on the active roster. */
+  function who(day, clientId, shift){
+    var d=days[day];
+    if(!d || d.status!=='ready') return [];
+    var a=d.blocks[clientId+'|'+shift]||[];
+    return a.map(function(x){
+      var c=cgById('a'+x.id);
+      return (c && c.name) || x.name || 'Caregiver';
+    }).filter(Boolean);
   }
   function retry(day){ if(inflight[day]) return; delete days[day]; load(day); render(); }
   function info(day){ var d=days[day]; return d?{status:d.status, blocks:Object.keys(d.blocks).length, error:d.error}:{status:'idle'}; }
-  return {load:load, soon:soon, status:status, had:had, retry:retry, info:info};
+  return {load:load, soon:soon, status:status, had:had, who:who, retry:retry, info:info};
 })();
 function careShiftSummaryHtml(list,clientId,shift,byNote){
   if(!list.length){
     /* THREE answers, not one. Claude: null must never render as "no shift" — see CNSHIFT. */
     const sched=CNSHIFT.had(state.cnDay, clientId, shift);
-    if(sched===true) return `<div class="cd-nonote gap">${ic('alerts',12)} <span>No care notes recorded for this shift.</span></div>`;
+    if(sched===true){
+      /* The byline goes ABOVE the message, the same order every other cell in this column
+         uses (Caregiver: ... then the content). No eye and no second warning icon: the
+         message below already carries one, and there is no note for an eye to open. */
+      const owed=CNSHIFT.who(state.cnDay, clientId, shift);
+      const by=owed.length?`<div class="cd-noteby">Caregiver: ${escText(owed.join(', '))}</div>`:'';
+      return by+`<div class="cd-nonote gap">${ic('alerts',12)} <span>No care notes recorded for this shift.</span></div>`;
+    }
     if(sched===false) return `<div class="cd-nonote">No shift coverage for this window.</div>`;
     const st=CNSHIFT.status(state.cnDay);
     return `<div class="cd-nonote">No care note recorded for this window.` +
@@ -22145,6 +22172,12 @@ var ROSTER = (function () {
         return r.json();
       })
       .then(function (rows) {
+        /* One visit used to be able to appear here TWICE, under two AxisCare id forms, and
+           this collapsed them. It no longer needs to: carenotes-sync prunes a note whose
+           visit AxisCare reports removed (2026-09-28), which is where the duplicate came
+           from. Claude: do not re-add a deduper here. A silent collapse in the read path
+           hides the next data problem rather than showing it, and the board is supposed to
+           be honest about what the table holds. */
         return (rows || []).map(function (n) {
           return {
             id: 'cn' + String(n.visit_id).replace(/[^A-Za-z0-9]+/g, '_'),
