@@ -981,7 +981,7 @@ arrows re-render the view and paging back a week would otherwise fire a request 
 
 The same page's other AI section. The **browser** decides which clients are
 flagged and why, with its own keyword categoriser (`categorizeNote()` over
-`CARE_CATEGORIES`, 16 entries — 14 carry keywords and can be emitted; `documentation` and `missing` are raised by length/placeholder rules instead and are filtered out of this panel by `careConcernsForDay()`, never reaching the function). **They do NOT feed the Care Note Issues panel** — that is `careDocIssuesForDay()`, which reads no category at all; the two go to `buildCareAlerts()`, which Ask Devi's router builders read. (`alertBucket()` looks like it routes them somewhere and is **dead code** — defined once, called nowhere.) — that part is free and needs no function. The
+`CARE_CATEGORIES`, 16 entries — 14 carry keywords and can be emitted; `documentation` and `missing` are raised by length/placeholder rules instead and are filtered out of this panel by `careConcernsForDay()`, never reaching the function). **They do NOT feed the Care Note Issues panel** — that is `careDocIssuesForDay()`, which reads no category at all; the two go to `buildCareAlerts()`, which Ask Devi's router builders read. (`alertBucket()` was dead code here and was **deleted on 2026-09-28**.) — that part is free and needs no function. The
 function is told *which* note and *which* category, reads that note itself with
 the service key, and returns **What happened** (1–3 bullets) and **Scheduler
 action** (1–2), saved per note × category in `public.care_alert_summaries`.
@@ -1056,6 +1056,28 @@ where he threatens to shoot the caregiver:
 **Claude: if a critical row ever reads "Could not analyse this note automatically", suspect
 the omitted-id path before the prompt.** It fails silently, at HTTP 200, on exactly the notes
 that matter most.
+
+#### ...but suspect an EMPTY ASK first, and check the table before the model
+
+Reported 2026-09-28: the message appeared intermittently on reload while the rows were
+**already saved** — 19 keyword rows in `care_alert_summaries`, nothing regenerating.
+
+`wanted` is built from `state.careNotes`, which `hydrate()` fills inside a `Promise.all`
+that `viewCareNotes()` paints well before. Reloading *while on this page*, `soon()`’s 400ms
+timer therefore fired with an **empty unit list**. The function answers that correctly — it
+reads `care_notes` itself, so triage still runs — but it builds its reply only from the
+units it was **sent** (`savedByIds(units.map(...))`, then `for (const u of units)`), so no
+keyword row came back. `days[day]` cached that, and `load()` returns early when
+`days[day]` exists — so it was never asked again all session.
+
+**The fix is one line:** `if (!careNotesLoaded()) return;` at the top of `CALERT.load()`.
+`careNotesLoaded()` moved to **file scope** so CNSUM and CALERT share one definition rather
+than drifting. `soon()` asks again on the next render, so nothing else is needed — and
+**do not "fix" it by retrying from a render**, which this page forbids.
+
+> The empty ask is still made once the boot has finished. That is deliberate and a test
+> pins it: a quiet date with no keyword hits still needs the triage pass, and reinstating
+> an early return there is the gate that was removed on 2026-09-25.
 
 #### A triage alert must be findable by ID, or "Full alert" opens BLANK
 

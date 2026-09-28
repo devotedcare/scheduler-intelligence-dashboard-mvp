@@ -2065,6 +2065,49 @@ issues pass. Not started — it is a decision, not a tidy-up.
 
 ---
 
+## 2026-09-28 (last) — "Could not analyse this note automatically" was an empty ask
+
+Carlo: the message appeared on reload, intermittently, and he asked the right question —
+*"I thought we save it in supabase and then fetch it from there."*
+
+**The rows were saved.** 19 keyword rows and 12 triage rows in `care_alert_summaries`, all
+at prompt_version 2, plus 10 dates marked in `care_alert_triage`. No Claude call and no
+AxisCare call was being repeated. **The browser simply never asked for them.**
+
+`CALERT.soon()` fires 400ms after the first paint, but `state.careNotes` is filled inside
+`hydrate()`’s `Promise.all` seconds later. Reloading *while sitting on Care Notes*, the
+ask therefore went out with an **empty unit list**. The function builds its reply only from
+the units it is sent — `savedByIds(units.map(...))`, then `for (const u of units)` — so no
+keyword row came back; `days[day]` cached that, and `load()` returns early when the day
+is already held, so it was never asked again. Hence "sometimes": deterministic on reload,
+fine when navigating to the page after boot.
+
+**One line fixes it** — `if (!careNotesLoaded()) return;` in `CALERT.load()`. CNSUM has
+carried that guard since 2026-09-24 for the same reason; it moved to file scope so the two
+modules share one definition. An earlier draft also re-asked when the wanted set grew —
+dropped as over-engineering, because with the guard the bad cache cannot form.
+
+**11 checks:** nothing sent and nothing cached mid-boot; the real ask goes out once the
+notes land and the row resolves; the empty ask IS still made on a genuinely quiet date once
+boot has finished (reinstating an early return there is the gate removed on 2026-09-25);
+and a day already held is not re-asked.
+
+### Cleanup
+
+Removed `alertBucket()` (1 line, CLAUDE.md already called it dead) and `dayWindow()` (18
+lines, a leftover of the removed weekly-rule availability editor). Both verified as
+appearing **exactly once** in the file immediately before deletion — the only check that
+means anything here, because this app wires handlers as strings inside HTML and call syntax
+proves nothing.
+
+> **Measured, not done:** 106 of the 1,191 top-level functions are referenced nowhere at
+> all — 692 lines, 2.6% of the file. Mostly demo-era leftovers (`buildPriorityBoard` 45
+> lines, `renderAI` 33, `todayAttendanceCard` 28, `generateReport` 22). There is no
+> dynamic dispatch anywhere — `window[`, `eval` and `new Function` are all zero — so
+> the count is trustworthy. Left alone deliberately: that is a sweep of its own, not a
+> tidy-up attached to a bug fix.
+
+---
 ## Still open
 
 - Attendance, punctuality and the "Not tracked" caregiver metrics — all

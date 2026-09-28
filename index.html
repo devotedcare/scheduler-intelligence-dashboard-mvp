@@ -3746,24 +3746,6 @@ function derivePrefSched(c){
   return t;
 }
 const DAY_ORDER=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-function dayWindow(d){
-  if(!d) return null;
-  const t=d.type;
-  if(['Off','Unavailable','Vacation','Sick','Other Agency','Devoted Shift','none'].includes(t)) return null;
-  if(t==='Anytime') return [0,24];
-  if(t==='Morning') return [6,12];
-  if(t==='Afternoon') return [12,17];
-  if(t==='Evening') return [17,22];
-  if(t==='Overnight') return [22,30];
-  const win=d.win;
-  if(win==='Anytime') return [0,24];
-  if(win==='Morning') return [6,12];
-  if(win==='Afternoon') return [12,17];
-  if(win==='Evening') return [17,22];
-  if(win==='Overnight') return [22,30];
-  if(d.start!=null && d.end!=null) return [d.start, d.end];
-  return [0,24];
-}
 function classifyWin(a,b){ if(b-a>=20) return {type:'Anytime'}; if(a>=20) return {type:'Overnight'}; if(b<=12) return {type:'Morning'}; if(a>=16) return {type:'Evening'}; if(a>=11&&b<=18) return {type:'Afternoon'}; return {type:'Custom',start:a,end:b}; }
 /* Decimal hours -> "8a", "2:30p". Minutes matter now: demo shifts were
    always on the hour, real AxisCare visits are not. Whole hours render
@@ -19782,7 +19764,6 @@ function tierPill(t){ return `<span class="cn-tier ${t}">${t==='urgent'?'Urgent'
 const CN_TIER_RANK={urgent:0,followup:1,resolved:2};
 function cnRefreshDetail(){ if(state.cnDetailId && mbg.classList.contains('show')) renderAlertDetail(); }
 
-function alertBucket(a){ if(a.catKey==='documentation'||a.catKey==='missing') return 'documentation'; if(a.priority==='critical'||a.priority==='high') return 'critical'; return 'review'; }
 function actionRow(a){ const t=alertTier(a); return `<button class="ia-row" onclick="openAlertDetail('${a.id}')"><span class="ia-dot ${t}"></span><span class="ia-text">${esc(actionPhrase(a))}</span><span class="ia-tag">${esc(CARE_CAT_BY_KEY[a.catKey].label)}</span><span class="ia-go">Review \u203a</span></button>`; }
 function cnToggleGroup(k){ if(!state.cnOpenGroups) state.cnOpenGroups={}; state.cnOpenGroups[k]=!state.cnOpenGroups[k]; render(); }
 
@@ -19994,6 +19975,15 @@ function careDocIssuesForDay(dateStr){
    and every 20-second poll, and the render is what asks — so a failure
    that retried itself would send one request per render for as long as
    the page stayed open. Retry is a button. */
+/* Have the care notes been fetched at all yet? A boot still in flight is not evidence
+   that a date is empty. Any note at all having arrived is enough -- the fetch assigns
+   state.careNotes in one go.
+
+   FILE SCOPE, not inside CNSUM, since 2026-09-28: CALERT needs the identical test and a
+   second copy would be one more place to drift. */
+function careNotesLoaded() {
+  try { return (state.careNotes || []).length > 0 || !rosterLoading(); } catch (e) { return true; }
+}
 var CNSUM = (function () {
   var days = {};        /* day -> {status, units:{key:summary}, model, generated, reused, error} */
   var inflight = {};
@@ -20004,12 +19994,6 @@ var CNSUM = (function () {
   }
   var DEPLOY = 'npx supabase functions deploy carenotes-summary --project-ref gdzgoyawavffjdjpjbfz --no-verify-jwt';
 
-  /* Have the care notes been fetched at all yet? A boot still in flight is not
-     evidence that a date is empty. Any note at all having arrived is enough --
-     the fetch assigns state.careNotes in one go. */
-  function careNotesLoaded() {
-    try { return (state.careNotes || []).length > 0 || !rosterLoading(); } catch (e) { return true; }
-  }
   function get(day) { return days[day] || null; }
   function status(day) { var d = days[day]; return d ? d.status : 'idle'; }
 
@@ -20165,6 +20149,22 @@ var CALERT = (function () {
 
   function load(day, wanted) {
     if (!day || inflight[day] || days[day]) return;
+    /* THE NOTES MUST HAVE LANDED BEFORE WE ASK, and this one bug is why.
+
+       `wanted` is built from state.careNotes, which hydrate() fills inside a Promise.all
+       that viewCareNotes() paints well before. Reloading while sitting on this page, the
+       400ms soon() timer therefore fired with an EMPTY unit list. The function answers
+       that quite correctly -- it reads care_notes itself, so the triage pass still runs --
+       but it builds its reply only from the units it was SENT, so no keyword row came
+       back. days[day] then cached that, and load() starts by returning when days[day]
+       exists, so it was never asked again: every keyword row read "Could not analyse this
+       note automatically" for the rest of the session, while its row sat in
+       care_alert_summaries already generated and paid for.
+
+       CNSUM has carried the same guard since 2026-09-24. Claude: do not remove it, and do
+       not "fix" this instead by retrying from a render -- an error is never retried by a
+       render on this page, and it does not need to be: soon() asks again on the next one. */
+    if (!careNotesLoaded()) return;
     /* NO EARLY RETURN ON AN EMPTY LIST since 2026-09-25. This used to answer "ready, no
        units" without calling the function at all, which together with the same guard in
        the handler was the whole gate: a date the keyword screen flagged nothing on never
