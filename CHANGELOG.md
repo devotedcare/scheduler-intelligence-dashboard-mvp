@@ -1773,6 +1773,57 @@ every triage-found alert. A bug introduced with the triage merge.
 
 ---
 
+## 2026-09-28 — Find Coverage opens on today and the band you are in
+
+Mitch: *"when I click Find Coverage instead of no click, Monday morning is already
+selected."* The tab opened on an empty week grid; every visit started with the same two
+clicks.
+
+- **The bands were already defined and are the answer to Mitch's "I am not sure what the
+  time slots are":** `WK_BUCKETS` — **Morning 6am-2pm, Afternoon 2pm-10pm,
+  Overnight 10pm-6am** (stored `22..30`, i.e. past midnight), plus Whole Day.
+- `wkBucketAt(h)` derives the band from `WK_BUCKETS` rather than hardcoding hours, so
+  editing a band moves the default with it. Measured over every half hour of the day:
+  **full 24-hour cover, no gaps, no overlaps.** *Whole Day* is skipped — it is a
+  catch-all, not a time of day.
+- `wkSeedNow()` sets `state.wkStart` to this week and `state.wkSel` to today plus that
+  band, and is called from `openCoverageGeneral()` — the sidebar click.
+
+**Claude: seed this from the CLICK, never from a render.** `render()` runs on every save
+and every 20-second poll, so seeding inside `renderWeekAvailability()` would put the
+selection back after `wkClearSel()` or the second-click toggle-off in `wkSelectBucket()`,
+making both dismissal paths look broken, and would snap any other bucket the scheduler
+picked back to the current one every twenty seconds.
+
+**The clock is read fresh, not from `NOW`.** `NOW` is `new Date()` at page load and this
+desk leaves tabs open for days, so seeding from it would open the tab on yesterday.
+`wkStart` is reset with it, or today would not be on the grid at all after the
+scheduler had paged to another week.
+
+### The panel now opens before the fetch lands, so its empty state had to be fixed
+
+Showing the detail card on arrival exposed a false negative that was previously hard to
+reach: `renderWeekSelDetail()` had no loading branch, so during the week fetch it stated
+*"No caregivers have availability entered for this window"* — directly under the grid's own
+*"Loading availability for this week…"* bar. Two contradictory claims on one screen, and
+the confident one was wrong.
+
+It now reads the week's own status: **loading** and **error** get their own lines, the
+caregiver **count is not claimed at all** until the week is ready, and a selection for a
+week other than the one loaded counts as still loading. The genuine empty answer is
+unchanged — a test asserts it still appears once the week really is loaded and really is
+empty. Same rule as `loadingState()` vs `emptyState()` elsewhere.
+
+**Not shared.** `wkSel` / `wkStart` are per-browser and in no `SLICES` entry, so one
+scheduler's default never appears under another's cursor.
+
+**KNOWN, and a one-line change if Mitch wants it the other way:** between midnight and 6am
+the seed selects **today's** Overnight — tonight's 10pm-6am block — not the one currently
+in progress, which belongs to yesterday's row. Today's date is always what is highlighted,
+which is what Mitch asked for and keeps the selection inside the visible week.
+
+---
+
 ## Still open
 
 - Attendance, punctuality and the "Not tracked" caregiver metrics — all

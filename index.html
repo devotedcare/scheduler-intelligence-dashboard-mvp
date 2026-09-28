@@ -6578,7 +6578,7 @@ function aoTrackFoot(ao){ return `<div class="mf ao-foot"><div class="ao-foot-no
    still need the old client/date/time search below - see viewCoverage())
    and then clicked the sidebar link would find that client-specific
    search still showing instead of the generic weekly view. */
-function openCoverageGeneral(){ state.coverageContext='search'; state.dispCalling=null; state.searchQuery=null; go('coverage'); }
+function openCoverageGeneral(){ state.coverageContext='search'; state.dispCalling=null; state.searchQuery=null; wkSeedNow(); go('coverage'); }
 function setCovMode(m){ state.covMode=m; state.dispCalling=null; if(m==='search' && !state.searchQuery){ state.searchQuery=defaultSearchQuery(); } render(); }
 
 function dispStartCall(shiftId,cgId){ const cg=cgById(cgId); state.dispCalling=cgId; toast('Calling '+cg.name+' \u00b7 '+cg.phone); render(); }
@@ -9205,6 +9205,40 @@ function viewCoverage(){
    bucket already uses, just asked over the whole day instead of a slice
    of it. */
 const WK_BUCKETS=[['Morning',6,14],['Afternoon',14,22],['Overnight',22,30],['Whole Day',0,24]];
+/* Which WK_BUCKETS band a clock hour falls in. Derived from the list rather
+   than hardcoded, so editing a band's hours above moves this with it.
+   "Whole Day" is skipped - it is a catch-all, not a time of day. Overnight
+   is stored 22..30, so h>=22 (before midnight) and h<6 (the small hours)
+   are the SAME band. */
+function wkBucketAt(h){
+  for(let i=0;i<WK_BUCKETS.length;i++){
+    const b=WK_BUCKETS[i]; if(b[0]==='Whole Day') continue;
+    if(b[2]<=24){ if(h>=b[1]&&h<b[2]) return b; }
+    else if(h>=b[1]||h<b[2]-24) return b;
+  }
+  return WK_BUCKETS[0];
+}
+/* Open Find Coverage on TODAY and the band the clock is in now, instead of
+   an empty grid (Mitch, 2026-09-28).
+
+   Claude: seed this from openCoverageGeneral() - the sidebar click - and
+   NEVER from a render. render() runs on every save and every 20-second
+   poll, so seeding there would put the selection straight back after
+   wkClearSel() or the second-click toggle-off in wkSelectBucket(), making
+   both dismissal paths look broken, and would snap any other bucket the
+   scheduler picked back to the current one every 20 seconds.
+
+   The clock is read FRESH, not from NOW: NOW is `new Date()` taken at page
+   load and this desk leaves tabs open for days, so NOW would open the tab
+   on yesterday. wkStart is reset with it, or today would not be on the
+   grid at all after the scheduler had paged to another week. */
+function wkSeedNow(){
+  const d=new Date(), ds=toDateInput(d);
+  const b=wkBucketAt(d.getHours()+d.getMinutes()/60);
+  state.wkStart=wkSunday(ds);
+  state.wkSel={date:ds, label:b[0], start:b[1], end:b[2]};
+  state.wkFilterMenuOpen=false;
+}
 /* One soft color per weekday, keyed off dayKeyFromDate(). Used on both the
    grid's day header and the selected-day results header below it, so the
    two visually match — see the .wk-c-* rules by .wk-dayhead. */
@@ -9483,16 +9517,24 @@ try{
 }catch(e){}
 function renderWeekSelDetail(){
   const sel=state.wkSel; if(!sel) return '';
+  /* The week's own load state. The panel can now be on screen BEFORE the fetch
+     lands (wkSeedNow seeds a selection when the tab opens), and an empty list
+     while loading is not the same answer as nobody being available - the same
+     rule as loadingState() vs emptyState() elsewhere. A selection for a week
+     other than the one loaded counts as still loading. */
+  const wkSt=(state.wkAvail && state.wkAvail.start===state.wkStart) ? state.wkAvail.status : 'loading';
   const full=new Date(sel.date+'T12:00:00').toLocaleDateString('en-US',{weekday:'long'});
   const totalAvail=wkAvailableCaregivers(sel.date, sel.start, sel.end).length;
   const list=wkFilteredCaregivers(sel.date, sel.start, sel.end).sort((a,b)=>a.name.localeCompare(b.name));
   const filtersActive=!!(wkFilters().type||wkFilters().gender||wkFilters().driving||wkFilters().city);
   const rows=list.length ? list.map(cg=>wkCgRowHtml(cg, sel.date, sel.start, sel.end)).join('')
-    : `<div class="ws-none">${totalAvail && filtersActive ? 'No available caregivers match these filters.' : 'No caregivers have availability entered for this window.'}</div>`;
+    : wkSt==='loading' ? `<div class="ws-none">Loading availability for this week\u2026</div>`
+      : wkSt==='error' ? `<div class="ws-none">Could not load availability for this week.</div>`
+      : `<div class="ws-none">${totalAvail && filtersActive ? 'No available caregivers match these filters.' : 'No caregivers have availability entered for this window.'}</div>`;
   return `<div class="ws-card wk-detail">
     <div class="wk-detailhead ${wkDayColorClass(sel.date)}">
       <div class="wk-detailheadmain">
-        <span class="wk-detailtitle">${escText(full)} ${escText(sel.label)} — ${list.length} Available Caregiver${list.length===1?'':'s'}</span>
+        <span class="wk-detailtitle">${escText(full)} ${escText(sel.label)}${wkSt==='ready' ? ` — ${list.length} Available Caregiver${list.length===1?'':'s'}` : ''}</span>
       </div>
       ${renderWeekGenderButtons(sel.date, sel.start, sel.end)}
       ${renderWeekFilterButton()}
