@@ -1773,6 +1773,135 @@ every triage-found alert. A bug introduced with the triage merge.
 
 ---
 
+## 2026-09-28 — Find Coverage opens on today and the band you are in
+
+Mitch: *"when I click Find Coverage instead of no click, Monday morning is already
+selected."* The tab opened on an empty week grid; every visit started with the same two
+clicks.
+
+- **The bands were already defined and are the answer to Mitch's "I am not sure what the
+  time slots are":** `WK_BUCKETS` — **Morning 6am-2pm, Afternoon 2pm-10pm,
+  Overnight 10pm-6am** (stored `22..30`, i.e. past midnight), plus Whole Day.
+- `wkBucketAt(h)` derives the band from `WK_BUCKETS` rather than hardcoding hours, so
+  editing a band moves the default with it. Measured over every half hour of the day:
+  **full 24-hour cover, no gaps, no overlaps.** *Whole Day* is skipped — it is a
+  catch-all, not a time of day.
+- `wkSeedNow()` sets `state.wkStart` to this week and `state.wkSel` to today plus that
+  band, and is called from `openCoverageGeneral()` — the sidebar click.
+
+**Claude: seed this from the CLICK, never from a render.** `render()` runs on every save
+and every 20-second poll, so seeding inside `renderWeekAvailability()` would put the
+selection back after `wkClearSel()` or the second-click toggle-off in `wkSelectBucket()`,
+making both dismissal paths look broken, and would snap any other bucket the scheduler
+picked back to the current one every twenty seconds.
+
+**The clock is read fresh, not from `NOW`.** `NOW` is `new Date()` at page load and this
+desk leaves tabs open for days, so seeding from it would open the tab on yesterday.
+`wkStart` is reset with it, or today would not be on the grid at all after the
+scheduler had paged to another week.
+
+### The panel now opens before the fetch lands, so its empty state had to be fixed
+
+Showing the detail card on arrival exposed a false negative that was previously hard to
+reach: `renderWeekSelDetail()` had no loading branch, so during the week fetch it stated
+*"No caregivers have availability entered for this window"* — directly under the grid's own
+*"Loading availability for this week…"* bar. Two contradictory claims on one screen, and
+the confident one was wrong.
+
+It now reads the week's own status: **loading** and **error** get their own lines, the
+caregiver **count is not claimed at all** until the week is ready, and a selection for a
+week other than the one loaded counts as still loading. The genuine empty answer is
+unchanged — a test asserts it still appears once the week really is loaded and really is
+empty. Same rule as `loadingState()` vs `emptyState()` elsewhere.
+
+**Not shared.** `wkSel` / `wkStart` are per-browser and in no `SLICES` entry, so one
+scheduler's default never appears under another's cursor.
+
+**KNOWN, and a one-line change if Mitch wants it the other way:** between midnight and 6am
+the seed selects **today's** Overnight — tonight's 10pm-6am block — not the one currently
+in progress, which belongs to yesterday's row. Today's date is always what is highlighted,
+which is what Mitch asked for and keeps the selection inside the visible week.
+
+---
+
+## 2026-09-28 (later) — Care Note Issues moves to second on the Care Notes page
+
+Mitch: the order is now **Clients Needing Attention, Care Note Issues, Care Notes
+Summary**. The two flagged cards sit together at the top, so what needs acting on is read
+before the day's full account.
+
+- A markup swap of two sibling blocks inside `viewCareNotes()` and nothing else.
+- **Checked first, because this file has form on ordering being load-bearing** (the
+  documented `cmFit()`-after-`pfxFit()` rule). It is not, here: `CNSUM.soon()` and
+  `CALERT.soon()` are both called *above* the return, so markup order cannot change when
+  either generates or spends; `cnSumStrip()` and `calertStrip()` are pure status reads;
+  and no CSS on `.cd-flagcard` / `.cd-summary` uses `:first-child`, `:nth-*` or a
+  sibling combinator. Each class is defined once, so no `.mwide`-style override.
+- **A wrong claim in the comment went with it.** It read that Care Note Issues is
+  *"documentation quality (CARE_CATEGORIES prio 'low')"*. It reads **no category at all** —
+  `careDocIssuesForDay()` is browser-side arithmetic over note length and Jaccard
+  similarity. The replacement says so, and records that the order is presentation only.
+
+---
+
+## 2026-09-28 (last) — the Action column goes, an eye per caregiver replaces it
+
+Mitch: drop the Action column on Care Notes Summary; to read the originals the scheduler
+clicks an **eye beside the caregiver's name**, and gets **that caregiver's note** rather
+than both notes for the client-day.
+
+- The table is three columns now (Client / AM Shift / PM Shift). `.cd-thead` and
+  `.cd-crow` both drop the 148px track; `.cd-col-action` is gone.
+- `cdNoteEye(clientId,noteId,who)` draws the eye. `openClientNotesModal()` gained an
+  **optional third argument**: called with a note id it shows that note alone and titles
+  itself *Original Care Note*; called with two arguments it behaves exactly as before.
+  **That default is load-bearing** — the Care Note Issues card is its other caller and
+  must keep opening the whole client-day.
+
+**The licence rule is why this needed care.** CLAUDE.md: *"View Original Notes being
+reachable is the entire licence for the summary replacing the note rather than sitting
+above it."* Removing that button removed the only route to the raw text, so the eye has to
+cover **every** branch that draws a note — the summary, the raw fallback, and the
+`sourceCount` mismatch. A test asserts exactly that: for 1, 2 and 3 notes, in both
+branches, the number of eyes equals the number of notes and every note id is reachable.
+The comment above `careShiftSummaryHtml()` now says so.
+
+### View more/less is gone entirely, and the row sizes itself
+
+- **The raw branch now draws EVERY note.** It used to render only the first and hide the
+  rest behind *View more (N more notes)*. That button went with the Action column, and it
+  can go **because** each note now carries its own eye. Do not reintroduce
+  `list.slice(0,1)` without restoring a way back to the notes it hides.
+- **The summary branch lost it too.** It was kept for one revision, on the reasoning that
+  the eye opens the original *note* and so does not replace an expander for a long
+  *summary*. Carlo asked whether the row could simply grow instead. **Measured over the
+  live table, he was right:** summaries run to **594 characters (median 289)**, and the
+  220-char clamp fired on **79% of them to hide a median of 90 characters** — four cells
+  in five grew a button to conceal about one sentence. Untruncated, the worst summary is
+  roughly fifteen lines, and it is bounded because `carenotes-summary` budgets ~40 words
+  per client-day. So the summary renders in full and the row sizes itself.
+- **Raw notes still clamp, and that asymmetry is deliberate.** Same measurement: raw notes
+  reach **6,130 characters (median 568)** — a 150-line cell. They keep `cdTrunc` and the
+  eye is the route to the full text.
+- **Dead code went with the button:** `cdMoreBtn`, `cdToggleShift`, `cdBlockKey`,
+  `state.cdExpanded` and the `.cd-more` CSS. `cdTrunc` and `CD_TRUNC_CHARS` stay —
+  the raw branch still needs them.
+
+**Claude: if summaries ever grow, lower `DAY_BUDGET_WORDS` or clamp them — do not bring
+back a toggle that hides a single sentence.** The reasoning and both measurements are in
+the comment above `CD_TRUNC_CHARS`.
+
+**The byline is now one name+eye per NOTE, not a deduped name list.** Two notes by the
+same caregiver correctly get two eyes, because each opens a different note.
+
+**Measured, because "at most 2 eyes per row" was the stated expectation:** across all 795
+live care notes bucketed by Pacific day and the real AM/PM windows, **785 of 788 blocks
+(99.6%) have exactly one caregiver**. Three have two — Duane & Lynne Georgeson 2026-09-23
+AM, Ziad Niazi 2026-09-02 AM, Calvin George Miller Jr 2026-08-21 PM. Those rows show three
+eyes, which is correct: one per note is the whole point.
+
+---
+
 ## Still open
 
 - Attendance, punctuality and the "Not tracked" caregiver metrics — all
