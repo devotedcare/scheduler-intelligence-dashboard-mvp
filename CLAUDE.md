@@ -932,6 +932,51 @@ request. `GET …?action=status` reports the model in force.
 
 ---
 
+## An empty cell says WHICH kind of empty — `CNSHIFT`
+
+*"No care note recorded for this window"* was said for two completely different things:
+nobody was booked, and somebody worked a shift and wrote nothing. Only the second is a
+documentation failure, and it was invisible among the first. Mitch asked for them split
+on 2026-09-28. **Measured over 2026-09-23..27: 17 of 114 client × day × shift blocks had an
+assigned visit and no note** — 15%.
+
+**Nothing in the browser could answer it, and `care_notes` structurally cannot:**
+`carenotes-sync` never stores a visit with no note (*"Visits with no note are never
+stored"*), which is the ambiguity itself. `state.shifts` is future and unassigned only.
+`CGVISITS` is per caregiver, `CLVISITS` per client, and `COVHIST` keeps its visits
+keyed by **caregiver** with the client id thrown away. So `CNSHIFT` fetches: **one
+AxisCare request per date** (measured 29–35 visits, ~30KB), module-level, never in `state`.
+
+### `had()` returns a TRI-STATE, and that is the whole safety of it
+
+| | means |
+|---|---|
+| `true` | a shift was scheduled → **"No care notes recorded for this shift"**, amber |
+| `false` | none was → **"No shift coverage for this window"** |
+| `null` | not loaded yet, or the fetch failed → the old neutral wording, plus *checking* or *could not check* |
+
+**Claude: a `null` must never render as "no shift coverage".** Same rule as
+`AVAIL.dayAvail()` returning a state rather than a boolean, and `loadingState()` vs
+`emptyState()` — a failed lookup that reads as a confident negative is the exact failure
+this screen keeps re-learning.
+
+**Three things deliberately do NOT count as a shift somebody owed a note for:** a
+`removed` visit (cancelled), an **unassigned** one (nobody to write it), and one whose
+wall-clock day is not the date on screen. The day and the AM/PM bucket are read **off the
+timestamp string**, never through `new Date()` — AxisCare stamps its own offset.
+
+`CNSHIFT.soon()` carries the same 400ms debounce as `CNSUM.soon()`, because the day
+arrows re-render the view and paging back a week would otherwise fire a request per date.
+
+> **KNOWN, and the bigger half of the problem.** `careDayClients()` builds its rows from
+> `state.careNotes`, so **a client with a shift and no notes at all has no row** and this
+> fix cannot reach them. Measured over the same five dates: of the 17 gaps, **9 show as an
+> empty cell and 8 are invisible** — Avis Lowe on three of the five dates, plus Margrith
+> Hawkins, Patricia McGrath, Calvin George Miller Jr and Nancy Newton. Closing it means
+> rows built from *visits* rather than notes, which changes what the board is.
+
+---
+
 ## Clients Needing Attention — `carealerts-summary`
 
 The same page's other AI section. The **browser** decides which clients are

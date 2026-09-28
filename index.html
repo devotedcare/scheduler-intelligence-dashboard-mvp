@@ -2885,6 +2885,11 @@ html.pg-held .pingate{display:none!important}
 .cd-byone+.cd-byone{margin-left:10px}
 .cd-notetx{font-size:13px;color:var(--ink);line-height:1.5;white-space:pre-wrap}
 .cd-nonote{font-size:12.5px;color:var(--ink-faint);font-style:italic}
+/* A shift WAS scheduled and nobody wrote it up — the real documentation gap, and the
+   whole reason the two empties were split. Amber and upright, so it does not read as the
+   same quiet grey italic as "no shift coverage". */
+.cd-nonote.gap{display:flex;align-items:center;gap:5px;color:var(--soon-tx);font-style:normal;font-weight:700}
+.cd-nonote-q{font-style:italic;color:var(--ink-faint);font-weight:400}
 .cd-sumtx{font-size:13px;color:var(--ink);line-height:1.5}
 .cd-sumbar{display:flex;align-items:center;gap:8px;padding:8px 16px;font-size:12.5px;font-weight:600;border-bottom:1px solid var(--line)}
 .cd-sumbar.work{color:var(--ink-faint);background:var(--panel-head)}
@@ -20550,8 +20555,108 @@ function cdNoteWarn(clientId,noteId,issues){
     :issues.length+' documentation issues');
   return `<button class="cd-warn" title="${lbl}" aria-label="${lbl}" onclick="openClientNotesModal('${clientId}','${state.cnDay}','${noteId}')">${ic('alerts',12)}</button>`;
 }
+/* CNSHIFT — was a shift SCHEDULED in this client’s AM/PM window on this date?
+
+   "No care note recorded for this window" was said for two completely different things:
+   nobody was booked (nothing to report) and somebody worked and wrote nothing (a real
+   documentation failure). Measured over 2026-09-23..27: 17 of 114 client x day x shift
+   blocks had an assigned visit and no note. Mitch asked for the two to read differently.
+
+   NOTHING IN THE BROWSER COULD ANSWER THIS. care_notes cannot — carenotes-sync never
+   stores a visit with no note, which is the ambiguity itself. state.shifts is future and
+   unassigned only. CGVISITS is per caregiver, CLVISITS per client, COVHIST keeps its
+   visits keyed by CAREGIVER and throws the client id away. So this fetches: ONE AxisCare
+   request per date (measured 29-35 visits, ~30KB).
+
+   Claude: module-level, NEVER in state — a few hundred visits in a tracked CLOUD slice is
+   the 323KB bug through a new door, exactly as CGVISITS documents.
+
+   had() RETURNS A TRI-STATE, and that is the whole safety of this. true = a shift was
+   scheduled, false = none was, null = we do not know yet or the fetch failed. A null must
+   never be rendered as "no shift coverage" — same rule as AVAIL.dayAvail() returning a
+   state rather than a boolean, and loadingState() vs emptyState(). */
+const CNSHIFT=(function(){
+  var days={}, inflight={}, soonT=null, soonDay=null;
+
+  function load(day){
+    if(!day || days[day] || inflight[day]) return;
+    inflight[day]=true;
+    var out=[], pages=0;
+    function page(token){
+      var q={startDate:day, endDate:day};
+      if(token) q.nextPageToken=token;
+      return AxisCare.get('/api/visits', q).then(function(res){
+        var r=(res && res.data && res.data.results) || {};
+        (r.visits||[]).forEach(function(v){ out.push(v); });
+        var next=r.nextPage;
+        /* nextPage is a FULL URL, never a bare id — take the token out of it. */
+        if(next && ++pages<10){
+          var m=/[?&]nextPageToken=([^&]+)/.exec(String(next));
+          if(m) return page(decodeURIComponent(m[1]));
+        }
+        return out;
+      });
+    }
+    page(null).catch(function(e){
+      /* AxisCare answers an empty window with 404. That is an empty day, not a failure. */
+      var msg=(e&&e.message)||String(e);
+      if(/\b404\b|No visits found/i.test(msg)) return [];
+      throw e;
+    }).then(function(visits){
+      var blocks={};
+      visits.forEach(function(v){
+        /* A cancelled visit and an unassigned one both mean nobody owed a note. */
+        if(v.removed) return;
+        if(!v.caregiver || v.caregiver.id==null) return;
+        var cl=v.client && v.client.id; if(cl==null) return;
+        /* Wall clock off the STRING. AxisCare stamps its own offset, so reading this
+           through new Date() and the viewer’s clock files a visit on the wrong day. */
+        var s=String(v.scheduledStartDate||v.startDate||'');
+        if(s.slice(0,10)!==day) return;
+        var hm=/T(\d{2}):(\d{2})/.exec(s); if(!hm) return;
+        var h=(+hm[1])+(+hm[2])/60;
+        /* the same windows careShiftOf() uses: AM 06:00-14:00, PM 14:00-06:00 */
+        blocks['k'+cl+'|'+((h>=6&&h<14)?'am':'pm')]=true;
+      });
+      days[day]={status:'ready', blocks:blocks, error:null};
+    }, function(e){
+      days[day]={status:'error', blocks:{}, error:(e&&e.message)||String(e)};
+    }).then(function(){
+      delete inflight[day];
+      try{ if(state.view==='carenotes') render(); }catch(x){}
+    });
+  }
+
+  /* The day arrows re-render this view, so paging back a week would otherwise fire a
+     request for every date passed through. Same one-timer debounce as CNSUM.soon(). */
+  function soon(day){
+    if(!day || days[day] || inflight[day]) return;
+    soonDay=day;
+    if(soonT) clearTimeout(soonT);
+    soonT=setTimeout(function(){ soonT=null; if(soonDay===state.cnDay) load(soonDay); }, 400);
+  }
+  function status(day){ var d=days[day]; return d?d.status:(inflight[day]?'loading':'idle'); }
+  /* true / false / null — see the header. null is "do not assert anything". */
+  function had(day, clientId, shift){
+    var d=days[day];
+    if(!d || d.status!=='ready') return null;
+    return !!d.blocks[clientId+'|'+shift];
+  }
+  function retry(day){ if(inflight[day]) return; delete days[day]; load(day); render(); }
+  function info(day){ var d=days[day]; return d?{status:d.status, blocks:Object.keys(d.blocks).length, error:d.error}:{status:'idle'}; }
+  return {load:load, soon:soon, status:status, had:had, retry:retry, info:info};
+})();
 function careShiftSummaryHtml(list,clientId,shift,byNote){
-  if(!list.length) return `<div class="cd-nonote">No care note recorded for this window.</div>`;
+  if(!list.length){
+    /* THREE answers, not one. Claude: null must never render as "no shift" — see CNSHIFT. */
+    const sched=CNSHIFT.had(state.cnDay, clientId, shift);
+    if(sched===true) return `<div class="cd-nonote gap">${ic('alerts',12)} <span>No care notes recorded for this shift.</span></div>`;
+    if(sched===false) return `<div class="cd-nonote">No shift coverage for this window.</div>`;
+    const st=CNSHIFT.status(state.cnDay);
+    return `<div class="cd-nonote">No care note recorded for this window.` +
+      (st==='error' ? ` <span class="cd-nonote-q">(could not check the schedule)</span>` : ` <span class="cd-nonote-q">(checking the schedule…)</span>`) +
+      `</div>`;
+  }
   const sum=CNSUM.forBlock(state.cnDay,clientId,shift);
   /* Only show the summary when it describes EXACTLY the notes this browser is
      holding. The function reads care_notes live; state.careNotes is boot-time
@@ -20694,6 +20799,7 @@ function viewCareNotes(){
      Deferred, because the day arrows re-render this view: paging back a week
      would otherwise start a model call for every date passed through. */
   CNSUM.soon(dateStr);
+  CNSHIFT.soon(dateStr);
   /* The keyword screen's rows, and ONLY those, are what the function is asked about --
      they are the floor it must still answer for. What it reasons out on its own comes
      back in the same response and is merged below. */

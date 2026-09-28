@@ -2030,6 +2030,41 @@ message correctly falls through to `(no text)`.
 
 ---
 
+## 2026-09-28 (last) — an empty Care Notes cell now says which kind of empty
+
+Mitch: *"No care note recorded"* was being said both when nobody was booked and when a
+caregiver worked and wrote nothing. Only the second is a failure.
+
+**Measured first, over 2026-09-23..27:** 156 visits, 115 assigned and not cancelled, and
+**17 of 114 client × day × shift blocks had a shift and no note — 15%.** So the signal is
+real and it was buried.
+
+- New `CNSHIFT` module: **one AxisCare request per date** (29–35 visits, ~30KB),
+  module-level, never in `state`. Nothing already in the browser could answer this —
+  `care_notes` structurally cannot, because a noteless visit is never stored.
+- `had()` is a **tri-state**: `true` → amber *"No care notes recorded for this shift"*,
+  `false` → *"No shift coverage for this window"*, `null` → the old neutral
+  wording with *checking* / *could not check*. **A null never renders as a negative.**
+- Cancelled, unassigned and wrong-day visits do not count as a shift anyone owed a note
+  for. Day and AM/PM come off the timestamp **string**, not `new Date()`.
+- 400ms debounce, as `CNSUM.soon()`, so paging the day arrows fires one request.
+
+**31 checks:** the three cell states, the tri-state itself, every exclusion, the AM/PM
+boundaries at 05:59/06:00/13:59/14:00, a 404 treated as an empty day rather than a
+failure, a real 500 leaving `had()` at `null` and the cell refusing to claim no
+coverage, and a loaded day not refetching.
+
+### Still open, and it is the bigger half
+
+`careDayClients()` builds rows from notes, so **a client with a shift and zero notes has
+no row at all.** Of the 17 gaps, **9 are reachable as an empty cell and 8 are invisible** —
+Avis Lowe on three of five dates, plus Margrith Hawkins, Patricia McGrath, Calvin George
+Miller Jr and Nancy Newton. Closing it means building rows from *visits* rather than
+notes, which changes what the board is and touches the counts, the concerns pass and the
+issues pass. Not started — it is a decision, not a tidy-up.
+
+---
+
 ## Still open
 
 - Attendance, punctuality and the "Not tracked" caregiver metrics — all
