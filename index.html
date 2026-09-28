@@ -7626,7 +7626,7 @@ function renderStaffForm(sq){
 function viewStaffClient(){
   if(!state.staffQuery) state.staffQuery=defaultStaffQuery();
   const sq=state.staffQuery;
-  const head=`<div class="lock-head"><div class="lk-main"><div class="lk-eyebrow">Build a staffing plan</div><div class="lk-client">${sq.clientName||'New client'}</div><div class="lk-meta">${sq.city||'City not set'} \u00b7 ${sq.days.join(', ')||'no days'} \u00b7 ${fmtHr(sq.start)}\u2013${fmtHr(sq.end)}</div></div></div>`;
+  const head=`<div class="lock-head"><div class="lk-main"><div class="lk-eyebrow">Backup Caregivers</div><div class="lk-client">${sq.clientName||'New client'}</div><div class="lk-meta">${sq.city||'City not set'} \u00b7 ${sq.days.join(', ')||'no days'} \u00b7 ${fmtHr(sq.start)}\u2013${fmtHr(sq.end)}</div></div></div>`;
   const {full, partial, reqDays}=staffSearch(sq);
   let results;
   if(!sq.days.length){ results=`<div class="q-empty">Select the days this client needs care to see matching caregivers.</div>`; }
