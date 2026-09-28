@@ -932,11 +932,56 @@ request. `GET …?action=status` reports the model in force.
 
 ---
 
+## An empty cell says WHICH kind of empty — `CNSHIFT`
+
+*"No care note recorded for this window"* was said for two completely different things:
+nobody was booked, and somebody worked a shift and wrote nothing. Only the second is a
+documentation failure, and it was invisible among the first. Mitch asked for them split
+on 2026-09-28. **Measured over 2026-09-23..27: 17 of 114 client × day × shift blocks had an
+assigned visit and no note** — 15%.
+
+**Nothing in the browser could answer it, and `care_notes` structurally cannot:**
+`carenotes-sync` never stores a visit with no note (*"Visits with no note are never
+stored"*), which is the ambiguity itself. `state.shifts` is future and unassigned only.
+`CGVISITS` is per caregiver, `CLVISITS` per client, and `COVHIST` keeps its visits
+keyed by **caregiver** with the client id thrown away. So `CNSHIFT` fetches: **one
+AxisCare request per date** (measured 29–35 visits, ~30KB), module-level, never in `state`.
+
+### `had()` returns a TRI-STATE, and that is the whole safety of it
+
+| | means |
+|---|---|
+| `true` | a shift was scheduled → **"No care notes recorded for this shift"**, amber |
+| `false` | none was → **"No shift coverage for this window"** |
+| `null` | not loaded yet, or the fetch failed → the old neutral wording, plus *checking* or *could not check* |
+
+**Claude: a `null` must never render as "no shift coverage".** Same rule as
+`AVAIL.dayAvail()` returning a state rather than a boolean, and `loadingState()` vs
+`emptyState()` — a failed lookup that reads as a confident negative is the exact failure
+this screen keeps re-learning.
+
+**Three things deliberately do NOT count as a shift somebody owed a note for:** a
+`removed` visit (cancelled), an **unassigned** one (nobody to write it), and one whose
+wall-clock day is not the date on screen. The day and the AM/PM bucket are read **off the
+timestamp string**, never through `new Date()` — AxisCare stamps its own offset.
+
+`CNSHIFT.soon()` carries the same 400ms debounce as `CNSUM.soon()`, because the day
+arrows re-render the view and paging back a week would otherwise fire a request per date.
+
+> **KNOWN, and the bigger half of the problem.** `careDayClients()` builds its rows from
+> `state.careNotes`, so **a client with a shift and no notes at all has no row** and this
+> fix cannot reach them. Measured over the same five dates: of the 17 gaps, **9 show as an
+> empty cell and 8 are invisible** — Avis Lowe on three of the five dates, plus Margrith
+> Hawkins, Patricia McGrath, Calvin George Miller Jr and Nancy Newton. Closing it means
+> rows built from *visits* rather than notes, which changes what the board is.
+
+---
+
 ## Clients Needing Attention — `carealerts-summary`
 
 The same page's other AI section. The **browser** decides which clients are
 flagged and why, with its own keyword categoriser (`categorizeNote()` over
-`CARE_CATEGORIES`, 16 entries — 14 carry keywords and can be emitted; `documentation` and `missing` are raised by length/placeholder rules instead and are filtered out of this panel by `careConcernsForDay()`, never reaching the function). **They do NOT feed the Care Note Issues panel** — that is `careDocIssuesForDay()`, which reads no category at all; the two go to `buildCareAlerts()`, which Ask Devi's router builders read. (`alertBucket()` looks like it routes them somewhere and is **dead code** — defined once, called nowhere.) — that part is free and needs no function. The
+`CARE_CATEGORIES`, 16 entries — 14 carry keywords and can be emitted; `documentation` and `missing` are raised by length/placeholder rules instead and are filtered out of this panel by `careConcernsForDay()`, never reaching the function). **They do NOT feed the Care Note Issues panel** — that is `careDocIssuesForDay()`, which reads no category at all; the two go to `buildCareAlerts()`, which Ask Devi's router builders read. (`alertBucket()` was dead code here and was **deleted on 2026-09-28**.) — that part is free and needs no function. The
 function is told *which* note and *which* category, reads that note itself with
 the service key, and returns **What happened** (1–3 bullets) and **Scheduler
 action** (1–2), saved per note × category in `public.care_alert_summaries`.
@@ -1011,6 +1056,28 @@ where he threatens to shoot the caregiver:
 **Claude: if a critical row ever reads "Could not analyse this note automatically", suspect
 the omitted-id path before the prompt.** It fails silently, at HTTP 200, on exactly the notes
 that matter most.
+
+#### ...but suspect an EMPTY ASK first, and check the table before the model
+
+Reported 2026-09-28: the message appeared intermittently on reload while the rows were
+**already saved** — 19 keyword rows in `care_alert_summaries`, nothing regenerating.
+
+`wanted` is built from `state.careNotes`, which `hydrate()` fills inside a `Promise.all`
+that `viewCareNotes()` paints well before. Reloading *while on this page*, `soon()`’s 400ms
+timer therefore fired with an **empty unit list**. The function answers that correctly — it
+reads `care_notes` itself, so triage still runs — but it builds its reply only from the
+units it was **sent** (`savedByIds(units.map(...))`, then `for (const u of units)`), so no
+keyword row came back. `days[day]` cached that, and `load()` returns early when
+`days[day]` exists — so it was never asked again all session.
+
+**The fix is one line:** `if (!careNotesLoaded()) return;` at the top of `CALERT.load()`.
+`careNotesLoaded()` moved to **file scope** so CNSUM and CALERT share one definition rather
+than drifting. `soon()` asks again on the next render, so nothing else is needed — and
+**do not "fix" it by retrying from a render**, which this page forbids.
+
+> The empty ask is still made once the boot has finished. That is deliberate and a test
+> pins it: a quiet date with no keyword hits still needs the triage pass, and reinstating
+> an early return there is the gate that was removed on 2026-09-25.
 
 #### A triage alert must be findable by ID, or "Full alert" opens BLANK
 
@@ -2953,16 +3020,41 @@ status code alone no longer identifies who answered.
 list to the top — the one thing a master/detail must not do — and the summary landing
 a second later did it again.
 
-**The thread IS chat bubbles — reversed on purpose.** The old app avoided them and
-the first version here followed it; **Mitch asked for "messenger vibes" having seen
-both**, so this is a decision rather than drift. Do not quietly revert it on the
-grounds that the old app did it differently — that question was already asked and
-answered. Caregiver left, desk right, attribution *under* the bubble,
-`white-space:pre-wrap` to keep the line breaks people typed. **An undelivered text
-gets a red bubble and "Not delivered"** — one live thread shows the same message sent
-twice, both undelivered, before a third got through, which the sender had no way of
-knowing. **The RAIL stays a flat list**; bubbles are for reading one conversation, not
-scanning fifty.
+**The thread is a LINEAR TRANSCRIPT — time, bold name, the words.** It was left/right
+chat bubbles from 2026-09-11 to 2026-09-28, and **both shapes were Mitch's call**: she
+asked for "messenger vibes" having seen a flat run, then asked for the flat run back
+having seen bubbles live on the board. **Claude: this note replaces the old one — do not
+restore bubbles citing "that question was already asked and answered."** It was asked
+twice and the later answer is this one.
+
+```
+10:38 PM  Angel: Hi Alejandra, I noticed you haven't clocked out. Please let us
+know if you have any issues with the Axiscare app. Thank you!
+10:39 PM  Alejandra: Sorry forgot too ok do so
+```
+
+**The NAME now carries who-said-what, which is why it is bold.** Under bubbles the SIDE
+carried it and the name underneath was only a check; linear, the name is the only signal.
+Both names are **first name only** — the caregiver's from `cgName`, the desk's from
+`staffName()`, which the rail shares. A mock-up showing a full surname is not what this
+renders.
+
+**Every message is flattened to ONE paragraph** by `cmFlat()` — whitespace runs
+collapse to a single space. The desk’s outbound templates carry blank lines between the
+greeting, the offer and the sign-off, and rendering those verbatim made one message eight
+rows tall and broke the time column (Carlo, 2026-09-28). **`white-space:pre-wrap` was
+therefore removed from `.cm-tx`** — it is the right call for a bubble, which is a shape
+around one message, and the wrong one for a row in a column of rows. `overflow-wrap:anywhere`
+stays and still stops a pasted URL blowing out the pane.
+
+**"Not delivered" MUST survive** — with the red bubble gone it is the only failure mark
+left, and one live thread shows the same message sent twice, both undelivered, before a
+third got through, which the sender had no way of knowing. **The RAIL stays a flat list**,
+as it always was.
+
+> The `.cm-msg` 80%/560px cap went with the bubbles. It existed to stop a *bubble*
+> running to ~760px on the 1440px dialog; a transcript line is meant to run the pane and
+> the reading measure is held by the dialog width.
 
 `cmSel` is module-level and keyed by caregiver, **not** in `state`: it is one
 person's cursor inside one open dialog.

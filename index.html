@@ -2637,37 +2637,41 @@ body.ai-white .view{flex:1 1 auto;min-height:0;display:flex;flex-direction:colum
 .cm-threadwrap{margin-top:16px}
 .cm-dlabel{font-size:10.5px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;
   color:var(--ink-faint);margin-bottom:9px}
-/* CHAT BUBBLES, left for the caregiver and right for the desk.
-   The old Scheduling app deliberately avoided these and so did the first
-   version here — a flat run with a left accent. Mitch asked for "messenger
-   vibes" on 2026-09-11 having seen both, so this is a decision, not drift:
-   a thread reads as a conversation, and who-said-what is carried by the side
-   it sits on rather than by a name you have to read.
+/* A LINEAR TRANSCRIPT: time, name, words — one line per message, wrapping.
 
-   The RAIL is still a flat list. Bubbles are for reading one conversation,
-   not for scanning fifty. */
-.cm-thread{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:13px}
-/* 80% of the pane, capped at a comfortable reading measure. At the 875px
-   dialog this was written for, 80% won and a bubble was 377px; NOW, at the
-   1440px dialog (2026-09-28), the 560 cap is what's actually doing the work
-   — 80% of a ~950px detail pane would be ~760px, and at the 1340px size that
-   was briefly tried earlier, an uncapped bubble ran to ~700px and the eye
-   lost the start of the next line. Leave this cap in place; it is exactly
-   what keeps the wider dialog from reintroducing that problem. */
-.cm-msg{display:flex;flex-direction:column;max-width:min(80%, 560px);min-width:0}
-.cm-msg.cm-in{align-self:flex-start;align-items:flex-start}
-.cm-msg.cm-out{align-self:flex-end;align-items:flex-end}
-/* pre-wrap keeps the line breaks people actually typed — a shift offer laid
-   out over three lines is unreadable reflowed into one paragraph. */
-.cm-bub{padding:9px 13px;border-radius:15px;font-size:13.5px;line-height:1.55;
-  color:var(--ink);overflow-wrap:anywhere;white-space:pre-wrap}
-.cm-in .cm-bub{background:var(--line-soft);border:1px solid var(--line);
-  border-bottom-left-radius:5px}
-.cm-out .cm-bub{background:#E4EEF9;border:1px solid #CFE0F2;
-  border-bottom-right-radius:5px}
-.cm-bub-fail{background:#FBEFEF;border-color:#EFD5D5}
-.cm-cap{font-size:11px;color:var(--ink-faint);margin-top:4px;padding:0 5px;
-  font-variant-numeric:tabular-nums}
+   This was left/right CHAT BUBBLES until 2026-09-28. Mitch asked for bubbles on
+   2026-09-11 having seen both shapes, and asked for this having then seen bubbles
+   live on the board. BOTH were decisions; this one is the later. Claude: do not
+   restore bubbles on the strength of the older note — CLAUDE.md carries the same
+   correction.
+
+   WHAT THE INVERSION COSTS, and why the name is bold. Under bubbles the SIDE
+   carried who-said-what and the name underneath was only the check. Linear, the
+   name is the ONLY signal, so it has to be what the eye lands on.
+
+   The RAIL is still a flat list, as it always was. */
+.cm-thread{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:5px}
+/* No 80%/560px cap any more. That existed to stop a BUBBLE running to ~760px on the
+   1440px dialog; a transcript line is meant to run the pane, and the reading measure
+   is held by the dialog width rather than by each row. */
+.cm-line{font-size:13.5px;line-height:1.55;color:var(--ink);min-width:0}
+/* tabular-nums lines the times into a left column, which is most of what makes a
+   transcript scannable. It was on .cm-cap for the same reason. */
+.cm-ts{color:var(--ink-faint);font-variant-numeric:tabular-nums;margin-right:7px}
+.cm-from{font-weight:800;color:var(--ink)}
+/* overflow-wrap stops a pasted URL blowing out the pane.
+
+   white-space:pre-wrap USED to be here too, to keep the line breaks people typed. It was
+   removed on 2026-09-28 because in a TRANSCRIPT it is actively wrong: the desk’s outbound
+   templates put blank lines between the greeting, the offer and the sign-off, so ONE
+   message ran to eight lines and the time column the transcript is read by stopped lining
+   up. cmFlat() now collapses the whitespace at the source, so putting pre-wrap back here
+   would change nothing until that is reverted too.
+
+   This is the opposite call from the BUBBLE era, and deliberately: a bubble is a shape
+   around one message, so internal line breaks cost nothing. A transcript row is one line
+   in a column of lines. */
+.cm-tx{overflow-wrap:anywhere}
 .cm-undel{font-weight:700;color:var(--crit-tx)}
 
 /* Narrow: stack the panes and cap the rail, as the old app did. */
@@ -2883,6 +2887,11 @@ html.pg-held .pingate{display:none!important}
 .cd-byone+.cd-byone{margin-left:10px}
 .cd-notetx{font-size:13px;color:var(--ink);line-height:1.5;white-space:pre-wrap}
 .cd-nonote{font-size:12.5px;color:var(--ink-faint);font-style:italic}
+/* A shift WAS scheduled and nobody wrote it up — the real documentation gap, and the
+   whole reason the two empties were split. Amber and upright, so it does not read as the
+   same quiet grey italic as "no shift coverage". */
+.cd-nonote.gap{display:flex;align-items:center;gap:5px;color:var(--soon-tx);font-style:normal;font-weight:700}
+.cd-nonote-q{font-style:italic;color:var(--ink-faint);font-weight:400}
 .cd-sumtx{font-size:13px;color:var(--ink);line-height:1.5}
 .cd-sumbar{display:flex;align-items:center;gap:8px;padding:8px 16px;font-size:12.5px;font-weight:600;border-bottom:1px solid var(--line)}
 .cd-sumbar.work{color:var(--ink-faint);background:var(--panel-head)}
@@ -2890,13 +2899,10 @@ html.pg-held .pingate{display:none!important}
 .cd-sumbar>span{flex:1 1 auto}
 .cd-flagcard{padding:0;overflow:hidden}
 .cd-flagcard.concern{border-top:3px solid var(--crit-solid)}
-.cd-flagcard.doc{border-top:3px solid var(--soon-solid)}
 .cd-fhead{display:flex;align-items:center;gap:8px;padding:13px 15px;border-bottom:1px solid var(--line)}
 .cd-flagcard.concern .cd-fhead{background:var(--crit-bg)}
-.cd-flagcard.doc .cd-fhead{background:var(--soon-bg)}
 .cd-ftitle{display:flex;align-items:center;gap:7px;font-size:13.5px;font-weight:800;color:var(--ink)}
 .cd-flagcard.concern .cd-ftitle{color:var(--crit-tx)}
-.cd-flagcard.doc .cd-ftitle{color:var(--soon-tx)}
 .cd-fcount{margin-left:auto;font-size:12.5px;font-weight:800;color:inherit}
 .cd-flist{display:flex;flex-direction:column}
 /* Clients Needing Attention — the FULL explanation inline, compact rows,
@@ -2923,14 +2929,22 @@ html.pg-held .pingate{display:none!important}
 .cd-attn-wait{font-size:12.5px;color:var(--ink-faint);font-style:italic;margin-bottom:8px}
 .cd-attn-open{font-family:inherit;font-size:12px;font-weight:700;color:var(--brand);background:none;border:none;padding:0;cursor:pointer;display:flex;align-items:center;gap:4px}
 .cd-attn-open:hover{text-decoration:underline}
-.cd-issue{padding:12px 15px;border-bottom:1px solid var(--line-soft)}
-.cd-issue:last-child{border-bottom:none}
-.cd-itop{display:flex;align-items:center;gap:7px;margin-bottom:4px}
-.cd-iwarn{color:var(--soon-solid);display:flex;flex:0 0 auto}
-.cd-itop b{font-size:13px;color:var(--ink)}
-.cd-ilabel{margin-left:auto;font-size:11px;font-weight:700;color:var(--ink-faint)}
-.cd-ihead{font-size:13px;font-weight:700;color:var(--soon-tx);margin-bottom:3px}
-.cd-idetail{font-size:12.5px;color:var(--ink-soft);line-height:1.5;margin-bottom:8px}
+/* The amber documentation warning beside the eye (cdNoteWarn). It replaced the whole
+   Care Note Issues card on 2026-09-28 - same information, one fewer card. --soon-solid
+   is the same amber that card used for the same glyph; --soon-bg/-tx/-solid are the
+   palette's amber family and are widely used elsewhere, so none of them died with it. */
+.cd-warn{display:inline-flex;align-items:center;justify-content:center;vertical-align:-2px;margin-left:3px;padding:2px;border:0;background:none;color:var(--soon-solid);cursor:pointer;border-radius:4px;line-height:0}
+.cd-warn:hover{background:var(--soon-bg)}
+/* The issue itself, INSIDE the note modal. It was a title= tooltip until 2026-09-28;
+   headline plus detail runs to ~250 characters and a native tooltip cannot show that
+   readably. It is a direct child of .mb and sits at the TOP of the modal body, above the
+   note rows rather than inside one - moved there on 2026-09-28 so it reads as a banner
+   for the modal instead of a box wedged between a caregiver's name and their words.
+   .mb scrolls (max-height:62vh), so it scrolls with the content rather than pinning. */
+.cn-nissue{margin:0 0 9px;padding:9px 11px;border-radius:7px;background:var(--soon-bg);border:1px solid var(--soon-solid)}
+.cn-nissue-one+.cn-nissue-one{margin-top:8px;padding-top:8px;border-top:1px solid var(--soon-solid)}
+.cn-nissue-h{display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:800;color:var(--soon-tx);margin-bottom:3px}
+.cn-nissue-d{font-size:12.5px;color:var(--soon-tx);line-height:1.5}
 .cd-empty{padding:16px}
 </style>
 </head>
@@ -3734,24 +3748,6 @@ function derivePrefSched(c){
   return t;
 }
 const DAY_ORDER=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-function dayWindow(d){
-  if(!d) return null;
-  const t=d.type;
-  if(['Off','Unavailable','Vacation','Sick','Other Agency','Devoted Shift','none'].includes(t)) return null;
-  if(t==='Anytime') return [0,24];
-  if(t==='Morning') return [6,12];
-  if(t==='Afternoon') return [12,17];
-  if(t==='Evening') return [17,22];
-  if(t==='Overnight') return [22,30];
-  const win=d.win;
-  if(win==='Anytime') return [0,24];
-  if(win==='Morning') return [6,12];
-  if(win==='Afternoon') return [12,17];
-  if(win==='Evening') return [17,22];
-  if(win==='Overnight') return [22,30];
-  if(d.start!=null && d.end!=null) return [d.start, d.end];
-  return [0,24];
-}
 function classifyWin(a,b){ if(b-a>=20) return {type:'Anytime'}; if(a>=20) return {type:'Overnight'}; if(b<=12) return {type:'Morning'}; if(a>=16) return {type:'Evening'}; if(a>=11&&b<=18) return {type:'Afternoon'}; return {type:'Custom',start:a,end:b}; }
 /* Decimal hours -> "8a", "2:30p". Minutes matter now: demo shifts were
    always on the hour, real AxisCare visits are not. Whole hours render
@@ -14428,6 +14424,13 @@ function cmDevi(e, cgId){
   return '<div class="cm-devi">'+h+body+'</div>';
 }
 
+/* One message, one paragraph. The desk’s outbound templates are written with blank lines
+   between a greeting, the offer and a sign-off; rendered verbatim in a transcript that made
+   a single message eight rows tall and broke the alignment every other row has (Carlo,
+   2026-09-28: "can we trim the next line characters... I just want the messages to be
+   consistent"). Collapsing every whitespace run to one space is what makes the rows the
+   same shape. The caregiver’s own words are unchanged — only the spacing between them. */
+function cmFlat(s){ return String(s==null?'':s).replace(/\s+/g,' ').trim(); }
 function cmDetail(e, cgName, cgId){
   const isCall=e.kind==='call';
   const who=(String(cgName||'').trim().split(/\s+/)[0])||'Caregiver';
@@ -14467,13 +14470,20 @@ function cmDetail(e, cgName, cgId){
   const msgs=(e.msgs||[]).map(function(m){
     const t=CGCOMMS.stamp(m.at,true).split(' · ').pop();
     const from=(m.dir==='in') ? who : (m.staff||'Office');
-    /* The caption sits UNDER the bubble, the way a messenger app does it —
-       the bubble is what you read, the attribution is what you check. */
-    const cap=escText(from)+' · '+escText(t)+
-      (m.failed?' · <span class="cm-undel">Not delivered</span>':'');
-    return '<li class="cm-msg '+(m.dir==='in'?'cm-in':'cm-out')+'">'+
-      '<div class="cm-bub'+(m.failed?' cm-bub-fail':'')+'">'+escText(m.text||'(no text)')+'</div>'+
-      '<div class="cm-cap">'+cap+'</div></li>';
+    /* LINEAR, not bubbles (Mitch, 2026-09-28): the time, then the name in bold,
+       then the words. The NAME now carries who-said-what — under bubbles the side
+       carried it and the name was only the check — which is why it is bold and
+       why it comes before the text rather than under it.
+
+       "Not delivered" MUST stay. With the red bubble gone it is the only mark
+       left, and it matters: one live thread has the same message sent twice, both
+       undelivered, before a third got through — which the sender could not see. */
+    return '<li class="cm-line">'+
+      '<span class="cm-ts">'+escText(t)+'</span>'+
+      '<b class="cm-from">'+escText(from)+':</b> '+
+      '<span class="cm-tx">'+escText(cmFlat(m.text)||'(no text)')+'</span>'+
+      (m.failed?' <span class="cm-undel">· Not delivered</span>':'')+
+      '</li>';
   }).join('');
 
   return devi+head+'<div class="cm-threadwrap"><ul class="cm-thread">'+msgs+'</ul></div>';
@@ -19772,7 +19782,6 @@ function tierPill(t){ return `<span class="cn-tier ${t}">${t==='urgent'?'Urgent'
 const CN_TIER_RANK={urgent:0,followup:1,resolved:2};
 function cnRefreshDetail(){ if(state.cnDetailId && mbg.classList.contains('show')) renderAlertDetail(); }
 
-function alertBucket(a){ if(a.catKey==='documentation'||a.catKey==='missing') return 'documentation'; if(a.priority==='critical'||a.priority==='high') return 'critical'; return 'review'; }
 function actionRow(a){ const t=alertTier(a); return `<button class="ia-row" onclick="openAlertDetail('${a.id}')"><span class="ia-dot ${t}"></span><span class="ia-text">${esc(actionPhrase(a))}</span><span class="ia-tag">${esc(CARE_CAT_BY_KEY[a.catKey].label)}</span><span class="ia-go">Review \u203a</span></button>`; }
 function cnToggleGroup(k){ if(!state.cnOpenGroups) state.cnOpenGroups={}; state.cnOpenGroups[k]=!state.cnOpenGroups[k]; render(); }
 
@@ -19984,6 +19993,15 @@ function careDocIssuesForDay(dateStr){
    and every 20-second poll, and the render is what asks — so a failure
    that retried itself would send one request per render for as long as
    the page stayed open. Retry is a button. */
+/* Have the care notes been fetched at all yet? A boot still in flight is not evidence
+   that a date is empty. Any note at all having arrived is enough -- the fetch assigns
+   state.careNotes in one go.
+
+   FILE SCOPE, not inside CNSUM, since 2026-09-28: CALERT needs the identical test and a
+   second copy would be one more place to drift. */
+function careNotesLoaded() {
+  try { return (state.careNotes || []).length > 0 || !rosterLoading(); } catch (e) { return true; }
+}
 var CNSUM = (function () {
   var days = {};        /* day -> {status, units:{key:summary}, model, generated, reused, error} */
   var inflight = {};
@@ -19994,12 +20012,6 @@ var CNSUM = (function () {
   }
   var DEPLOY = 'npx supabase functions deploy carenotes-summary --project-ref gdzgoyawavffjdjpjbfz --no-verify-jwt';
 
-  /* Have the care notes been fetched at all yet? A boot still in flight is not
-     evidence that a date is empty. Any note at all having arrived is enough --
-     the fetch assigns state.careNotes in one go. */
-  function careNotesLoaded() {
-    try { return (state.careNotes || []).length > 0 || !rosterLoading(); } catch (e) { return true; }
-  }
   function get(day) { return days[day] || null; }
   function status(day) { var d = days[day]; return d ? d.status : 'idle'; }
 
@@ -20155,6 +20167,22 @@ var CALERT = (function () {
 
   function load(day, wanted) {
     if (!day || inflight[day] || days[day]) return;
+    /* THE NOTES MUST HAVE LANDED BEFORE WE ASK, and this one bug is why.
+
+       `wanted` is built from state.careNotes, which hydrate() fills inside a Promise.all
+       that viewCareNotes() paints well before. Reloading while sitting on this page, the
+       400ms soon() timer therefore fired with an EMPTY unit list. The function answers
+       that quite correctly -- it reads care_notes itself, so the triage pass still runs --
+       but it builds its reply only from the units it was SENT, so no keyword row came
+       back. days[day] then cached that, and load() starts by returning when days[day]
+       exists, so it was never asked again: every keyword row read "Could not analyse this
+       note automatically" for the rest of the session, while its row sat in
+       care_alert_summaries already generated and paid for.
+
+       CNSUM has carried the same guard since 2026-09-24. Claude: do not remove it, and do
+       not "fix" this instead by retrying from a render -- an error is never retried by a
+       render on this page, and it does not need to be: soon() asks again on the next one. */
+    if (!careNotesLoaded()) return;
     /* NO EARLY RETURN ON AN EMPTY LIST since 2026-09-25. This used to answer "ready, no
        units" without calling the function at all, which together with the same guard in
        the handler was the whole gate: a date the keyword screen flagged nothing on never
@@ -20520,8 +20548,133 @@ function cdNoteEye(clientId,noteId,who){
   const lbl=esc('Original note by '+who);
   return `<button class="cd-eye" title="${lbl}" aria-label="${lbl}" onclick="openClientNotesModal('${clientId}','${state.cnDay}','${noteId}')">${ic('eye',12)}</button>`;
 }
-function careShiftSummaryHtml(list,clientId,shift){
-  if(!list.length) return `<div class="cd-nonote">No care note recorded for this window.</div>`;
+/* The amber warning beside that eye: this note has a documentation issue. It replaced the
+   Care Note Issues card (Mitch, 2026-09-28) - the card's information, without a third card.
+
+   careDocIssuesForDay() already stamps every issue with the noteId it belongs to, so the
+   warning lands on the right eye with no guessing. A note can carry MORE THAN ONE issue -
+   rules 1 and 2 return early, but the repeat rule does not and 'shorter than usual' runs
+   after it - so the tooltip JOINS them. Measured over the 400 notes the board holds: 47
+   notes warn (11.8%), 3 of those carry two issues, none carry three.
+
+   KNOWN: the window-length rules attach to list[0] but measure the WHOLE window, so in a
+   two-caregiver window the warning sits on the first eye only. The detail text names every
+   caregiver in the window and says "this window", so it does not read as blaming one
+   person. 3 of 788 blocks have two caregivers, so it is rare as well as mitigated.
+
+   esc(), not escText(): this is an attribute. */
+function cdNoteWarn(clientId,noteId,issues){
+  if(!issues||!issues.length) return '';
+  /* The tooltip is a HINT, not the content. It used to carry headline + detail, which ran
+     to ~250 characters and was unreadable in a native title box (Carlo, 2026-09-28). The
+     text now lives in the modal, and this button opens the SAME modal the eye opens, so
+     both routes land on the note and its issue together. */
+  const lbl=esc(issues.length===1?'Documentation issue'
+    :issues.length+' documentation issues');
+  return `<button class="cd-warn" title="${lbl}" aria-label="${lbl}" onclick="openClientNotesModal('${clientId}','${state.cnDay}','${noteId}')">${ic('alerts',12)}</button>`;
+}
+/* CNSHIFT — was a shift SCHEDULED in this client’s AM/PM window on this date?
+
+   "No care note recorded for this window" was said for two completely different things:
+   nobody was booked (nothing to report) and somebody worked and wrote nothing (a real
+   documentation failure). Measured over 2026-09-23..27: 17 of 114 client x day x shift
+   blocks had an assigned visit and no note. Mitch asked for the two to read differently.
+
+   NOTHING IN THE BROWSER COULD ANSWER THIS. care_notes cannot — carenotes-sync never
+   stores a visit with no note, which is the ambiguity itself. state.shifts is future and
+   unassigned only. CGVISITS is per caregiver, CLVISITS per client, COVHIST keeps its
+   visits keyed by CAREGIVER and throws the client id away. So this fetches: ONE AxisCare
+   request per date (measured 29-35 visits, ~30KB).
+
+   Claude: module-level, NEVER in state — a few hundred visits in a tracked CLOUD slice is
+   the 323KB bug through a new door, exactly as CGVISITS documents.
+
+   had() RETURNS A TRI-STATE, and that is the whole safety of this. true = a shift was
+   scheduled, false = none was, null = we do not know yet or the fetch failed. A null must
+   never be rendered as "no shift coverage" — same rule as AVAIL.dayAvail() returning a
+   state rather than a boolean, and loadingState() vs emptyState(). */
+const CNSHIFT=(function(){
+  var days={}, inflight={}, soonT=null, soonDay=null;
+
+  function load(day){
+    if(!day || days[day] || inflight[day]) return;
+    inflight[day]=true;
+    var out=[], pages=0;
+    function page(token){
+      var q={startDate:day, endDate:day};
+      if(token) q.nextPageToken=token;
+      return AxisCare.get('/api/visits', q).then(function(res){
+        var r=(res && res.data && res.data.results) || {};
+        (r.visits||[]).forEach(function(v){ out.push(v); });
+        var next=r.nextPage;
+        /* nextPage is a FULL URL, never a bare id — take the token out of it. */
+        if(next && ++pages<10){
+          var m=/[?&]nextPageToken=([^&]+)/.exec(String(next));
+          if(m) return page(decodeURIComponent(m[1]));
+        }
+        return out;
+      });
+    }
+    page(null).catch(function(e){
+      /* AxisCare answers an empty window with 404. That is an empty day, not a failure. */
+      var msg=(e&&e.message)||String(e);
+      if(/\b404\b|No visits found/i.test(msg)) return [];
+      throw e;
+    }).then(function(visits){
+      var blocks={};
+      visits.forEach(function(v){
+        /* A cancelled visit and an unassigned one both mean nobody owed a note. */
+        if(v.removed) return;
+        if(!v.caregiver || v.caregiver.id==null) return;
+        var cl=v.client && v.client.id; if(cl==null) return;
+        /* Wall clock off the STRING. AxisCare stamps its own offset, so reading this
+           through new Date() and the viewer’s clock files a visit on the wrong day. */
+        var s=String(v.scheduledStartDate||v.startDate||'');
+        if(s.slice(0,10)!==day) return;
+        var hm=/T(\d{2}):(\d{2})/.exec(s); if(!hm) return;
+        var h=(+hm[1])+(+hm[2])/60;
+        /* the same windows careShiftOf() uses: AM 06:00-14:00, PM 14:00-06:00 */
+        blocks['k'+cl+'|'+((h>=6&&h<14)?'am':'pm')]=true;
+      });
+      days[day]={status:'ready', blocks:blocks, error:null};
+    }, function(e){
+      days[day]={status:'error', blocks:{}, error:(e&&e.message)||String(e)};
+    }).then(function(){
+      delete inflight[day];
+      try{ if(state.view==='carenotes') render(); }catch(x){}
+    });
+  }
+
+  /* The day arrows re-render this view, so paging back a week would otherwise fire a
+     request for every date passed through. Same one-timer debounce as CNSUM.soon(). */
+  function soon(day){
+    if(!day || days[day] || inflight[day]) return;
+    soonDay=day;
+    if(soonT) clearTimeout(soonT);
+    soonT=setTimeout(function(){ soonT=null; if(soonDay===state.cnDay) load(soonDay); }, 400);
+  }
+  function status(day){ var d=days[day]; return d?d.status:(inflight[day]?'loading':'idle'); }
+  /* true / false / null — see the header. null is "do not assert anything". */
+  function had(day, clientId, shift){
+    var d=days[day];
+    if(!d || d.status!=='ready') return null;
+    return !!d.blocks[clientId+'|'+shift];
+  }
+  function retry(day){ if(inflight[day]) return; delete days[day]; load(day); render(); }
+  function info(day){ var d=days[day]; return d?{status:d.status, blocks:Object.keys(d.blocks).length, error:d.error}:{status:'idle'}; }
+  return {load:load, soon:soon, status:status, had:had, retry:retry, info:info};
+})();
+function careShiftSummaryHtml(list,clientId,shift,byNote){
+  if(!list.length){
+    /* THREE answers, not one. Claude: null must never render as "no shift" — see CNSHIFT. */
+    const sched=CNSHIFT.had(state.cnDay, clientId, shift);
+    if(sched===true) return `<div class="cd-nonote gap">${ic('alerts',12)} <span>No care notes recorded for this shift.</span></div>`;
+    if(sched===false) return `<div class="cd-nonote">No shift coverage for this window.</div>`;
+    const st=CNSHIFT.status(state.cnDay);
+    return `<div class="cd-nonote">No care note recorded for this window.` +
+      (st==='error' ? ` <span class="cd-nonote-q">(could not check the schedule)</span>` : ` <span class="cd-nonote-q">(checking the schedule…)</span>`) +
+      `</div>`;
+  }
   const sum=CNSUM.forBlock(state.cnDay,clientId,shift);
   /* Only show the summary when it describes EXACTLY the notes this browser is
      holding. The function reads care_notes live; state.careNotes is boot-time
@@ -20531,7 +20684,7 @@ function careShiftSummaryHtml(list,clientId,shift){
     /* One name AND ONE EYE PER NOTE, not a deduped name list: each eye opens its own
        note, so two notes by the same caregiver correctly get two eyes. */
     const by=list.map(n=>{ const c=cgById(n.cgId), who=c?c.name:'Caregiver';
-      return `<span class="cd-byone">${escText(who)}${cdNoteEye(clientId,n.id,who)}</span>`; }).join('');
+      return `<span class="cd-byone">${escText(who)}${cdNoteEye(clientId,n.id,who)}${cdNoteWarn(clientId,n.id,(byNote||{})[n.id])}</span>`; }).join('');
     return `<div class="cd-sum"><div class="cd-noteby">Caregiver: ${by}</div><div class="cd-sumtx">${escText(sum.summary)}</div></div>`;
   }
   /* EVERY note is drawn now, each truncated and each with its own eye. This used to
@@ -20541,7 +20694,7 @@ function careShiftSummaryHtml(list,clientId,shift){
      here without adding a way back to the notes it hides. */
   const blocks=list.map(n=>{
     const cg=cgById(n.cgId), who=cg?cg.name:'Caregiver', tx=cleanNoteText(n.text);
-    return `<div class="cd-noteblock"><div class="cd-noteby">Caregiver: ${escText(who)}${cdNoteEye(clientId,n.id,who)}</div><div class="cd-notetx">${escText(tx.length>CD_TRUNC_CHARS?cdTrunc(tx):tx)}</div></div>`;
+    return `<div class="cd-noteblock"><div class="cd-noteby">Caregiver: ${escText(who)}${cdNoteEye(clientId,n.id,who)}${cdNoteWarn(clientId,n.id,(byNote||{})[n.id])}</div><div class="cd-notetx">${escText(tx.length>CD_TRUNC_CHARS?cdTrunc(tx):tx)}</div></div>`;
   }).join('');
   return blocks;
 }
@@ -20564,12 +20717,12 @@ function calertStrip(dateStr){
     return `<div class="cd-sumbar bad">${ic('alerts',13)} <span>Could not analyse these notes automatically. ${escText(d.error||'')}</span><button class="btn sm" onclick="calertRetry('${dateStr}')">Retry</button></div>`; }
   return '';
 }
-function careClientRowHtml(r){
+function careClientRowHtml(r,byNote){
   const cl=clById(r.clientId), name=cl?cl.name:'Unknown client';
   return `<div class="cd-crow">
     <div class="cd-ccell cd-col-name"><div class="cd-cname"><b>${escText(name)}</b></div><span class="cd-ccount">${r.notes.length} note${r.notes.length===1?'':'s'}</span></div>
-    <div class="cd-ccell cd-col-shift">${careShiftSummaryHtml(r.am,r.clientId,'am')}</div>
-    <div class="cd-ccell cd-col-shift">${careShiftSummaryHtml(r.pm,r.clientId,'pm')}</div>
+    <div class="cd-ccell cd-col-shift">${careShiftSummaryHtml(r.am,r.clientId,'am',byNote)}</div>
+    <div class="cd-ccell cd-col-shift">${careShiftSummaryHtml(r.pm,r.clientId,'pm',byNote)}</div>
   </div>`;
 }
 /* Full detail inline \u2014 a scheduler must understand what happened without
@@ -20624,28 +20777,34 @@ function careConcernRowHtml(row){
     <button class="cd-attn-open" onclick="openAlertDetail('${row.noteId}__${row.catKey}')">${ic('eye',12)} Full alert \u203a</button>
   </div>`;
 }
-function careIssueRowHtml(issue){
-  const cl=clById(issue.clientId);
-  return `<div class="cd-issue">
-    <div class="cd-itop"><span class="cd-iwarn">${ic('alerts',13)}</span><b>${escText(cl?cl.name:'Client')}</b><span class="cd-ilabel">${escText(issue.label)}</span></div>
-    <div class="cd-ihead">${escText(issue.headline)}</div>
-    <div class="cd-idetail">${escText(issue.detail)}</div>
-    <button class="btn sm" onclick="openClientNotesModal('${issue.clientId}','${state.cnDay}')">${ic('eye',13)} View Original Notes \u203a</button>
-  </div>`;
-}
 /* Read-only \u2014 the original AxisCare text, unedited, always reachable
    from either flagged section as well as the summary row. */
-/* noteId is OPTIONAL and scopes the modal to ONE note - what the per-caregiver eye
-   sends. Called with two arguments it still shows the whole client-day, which is
-   what the Care Note Issues card relies on. Keep that default. */
+/* noteId scopes the modal to ONE note - what the per-caregiver eye sends, and since
+   the Care Note Issues card was removed on 2026-09-28 EVERY caller passes it. The
+   whole-client-day fallback below therefore has no caller today; it is kept because
+   it costs nothing and a future caller may want it. Do not read its presence as
+   evidence that something still relies on it. */
 function openClientNotesModal(clientId,dateStr,noteId){
   const cl=clById(clientId);
   const notes=careNotesForDay(dateStr).filter(n=>n.clientId===clientId&&(!noteId||n.id===noteId)).sort((a,b)=>new Date(a.at)-new Date(b.at));
+  /* Recomputed here rather than threaded through the onclick string. Measured at ~32ms
+     for one date over the 400 notes the browser holds - imperceptible on a click, and
+     the same pass already runs once per render of the Care Notes view. */
+  const dayIssues=careDocIssuesForDay(dateStr);
+  /* ONE block for the whole modal, a direct child of .mb rather than nested inside each
+     .ad-rel (Carlo, 2026-09-28). Every caller passes a noteId, so in practice this is the
+     one note's issues sitting at the top of the body. The whole-client-day fallback would
+     pool them, which stays legible because each detail names its caregiver. */
+  const shown={}; notes.forEach(n=>{ shown[n.id]=true; });
+  const mine=dayIssues.filter(i=>shown[i.noteId]);
+  const warn=mine.length?`<div class="cn-nissue">`+mine.map(i=>
+    `<div class="cn-nissue-one"><div class="cn-nissue-h">${ic('alerts',13)} ${escText(i.headline)}</div>`+
+    `<div class="cn-nissue-d">${escText(i.detail)}</div></div>`).join('')+`</div>`:'';
   const rows=notes.length?notes.map(n=>{ const cg=cgById(n.cgId);
     return `<div class="ad-rel"><div class="ad-rel-meta">${escText(cg?cg.name:'Caregiver')} \u00b7 ${cnWhen(n.at)}</div><div class="ad-rel-tx">\u201c${escText(n.text)}\u201d</div></div>`;
   }).join(''):`<div class="ad-empty">No original notes found for this date.</div>`;
   mEl.classList.add('mwide');
-  mEl.innerHTML=`<div class="mh"><span class="mt">Original Care Note${noteId?'':'s'} \u2014 ${escText(cl?cl.name:'Client')}</span><button class="mc" onclick="closeModal()">\u00d7</button></div><div class="mb">${rows}</div>`;
+  mEl.innerHTML=`<div class="mh"><span class="mt">Original Care Note${noteId?'':'s'} \u2014 ${escText(cl?cl.name:'Client')}</span><button class="mc" onclick="closeModal()">\u00d7</button></div><div class="mb">${warn}${rows}</div>`;
   mbg.classList.add('show');
 }
 
@@ -20658,6 +20817,7 @@ function viewCareNotes(){
      Deferred, because the day arrows re-render this view: paging back a week
      would otherwise start a model call for every date passed through. */
   CNSUM.soon(dateStr);
+  CNSHIFT.soon(dateStr);
   /* The keyword screen's rows, and ONLY those, are what the function is asked about --
      they are the floor it must still answer for. What it reasons out on its own comes
      back in the same response and is merged below. */
@@ -20677,12 +20837,15 @@ function viewCareNotes(){
   });
   concerns.sort((a,b)=>CARE_PRIO_RANK[a.prio]-CARE_PRIO_RANK[b.prio]||new Date(b.at)-new Date(a.at));
 
-  const summaryRows=rows.length?rows.map(careClientRowHtml).join(''):
+  /* Issues indexed by the note they belong to, built ONCE per render.
+     careDocIssuesForDay() scans state.careNotes for near-duplicates, so calling it per
+     cell would be O(cells x notes) on every poll. */
+  const issuesByNote={};
+  issues.forEach(i=>{ (issuesByNote[i.noteId]=issuesByNote[i.noteId]||[]).push(i); });
+  const summaryRows=rows.length?rows.map(r=>careClientRowHtml(r,issuesByNote)).join(''):
     `<div class="cd-empty"><div class="cn-clear sm">${ic('check',14)} No AxisCare care notes synced for this date.</div></div>`;
   const concernRows=concerns.length?concerns.map(careConcernRowHtml).join(''):
     `<div class="cd-empty"><div class="cn-clear sm">${ic('check',14)} No client concerns flagged for this date.</div></div>`;
-  const issueRows=issues.length?issues.map(careIssueRowHtml).join(''):
-    `<div class="cd-empty"><div class="cn-clear sm">${ic('check',14)} No documentation issues flagged for this date.</div></div>`;
 
   /* Clients Needing Attention leads the page — the scheduler should
      understand who needs a look and why before anything else renders.
@@ -20702,10 +20865,6 @@ function viewCareNotes(){
      <div class="cd-fhead"><span class="cd-ftitle">${ic('alerts',15)} Clients Needing Attention</span><span class="cd-fcount">${concerns.length}</span></div>
      ${calertStrip(dateStr)}
      <div class="cd-flist">${concernRows}</div>
-   </div>
-   <div class="ws-card cd-flagcard doc">
-     <div class="cd-fhead"><span class="cd-ftitle">${ic('forms',15)} Care Note Issues</span><span class="cd-fcount">${issues.length}</span></div>
-     <div class="cd-flist">${issueRows}</div>
    </div>
    <div class="ws-card cd-summary">
      <div class="cd-shead"><span class="cd-stitle">${ic('forms',16)} Care Notes Summary</span><span class="cd-ssub">Summarised by Devi from the caregivers’ AxisCare notes — AM and PM for every client with a note this day. Click the eye beside a caregiver\u2019s name for what they actually wrote.</span></div>

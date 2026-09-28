@@ -1902,6 +1902,212 @@ eyes, which is correct: one per note is the whole point.
 
 ---
 
+## 2026-09-28 (later still) — the Care Note Issues card becomes a warning beside the eye
+
+Mitch: drop the third card; when a note has a documentation issue, show an **amber warning
+beside its eye icon**. Same signal, one fewer card.
+
+**The detail lives in the MODAL, not a tooltip.** It went into a `title=` attribute first;
+Carlo, the same day: *"it is hard to read in the tooltip."* He was right — headline plus
+detail runs to ~250 characters and a native tooltip cannot show that readably. The warning
+is now a **button that opens the same modal the eye opens**, with the issue rendered in
+amber at the TOP of the modal body — a direct child of `.mb`, not nested inside a note
+row — so it reads as a banner for the modal and the complaint and the evidence are in one
+view. The tooltip is a one-line hint — *"Documentation issue"*.
+
+The Care Notes page is now **two cards**: Clients Needing Attention, then Care Notes
+Summary. (Which retires the reorder from earlier the same day — there is no third card
+left to order.)
+
+### Why it mapped cleanly
+
+`careDocIssuesForDay()` already stamps every issue with the `noteId` it belongs to, so the
+warning lands on the right eye with no guessing and no new matching logic. The function
+itself is unchanged and is now its only reader.
+
+**Measured over the 400 notes the board holds, 21 dates:**
+
+- **47 notes (11.8%) carry a warning** — uncommon enough to mean something
+- **3 of those carry TWO issues**, none carry three, so the modal renders a list rather
+  than assuming one (and the hint reads *"2 documentation issues"*). Rules 1 and 2 return early, but the repeat rule does not and
+  *Shorter than usual* runs after it — that is how a note gets two.
+- rules firing: *Shorter than usual* 16, *Very little documentation* 12, repeats 20,
+  *N-word note* 2
+
+### Cleanup
+
+**Deleted:** `careIssueRowHtml()`, the `issueRows` const, the card markup, and eight CSS
+rules (`.cd-issue`, `.cd-issue:last-child`, `.cd-itop`, `.cd-itop b`, `.cd-iwarn`,
+`.cd-ilabel`, `.cd-ihead`, `.cd-idetail`) plus the three `.cd-flagcard.doc` compounds.
+
+**Deliberately kept, because Clients Needing Attention renders them too:** the
+`.cd-flagcard` base rule, all three `.concern` compounds, `.cd-fhead`, `.cd-ftitle`,
+`.cd-fcount` and `.cd-flist`. Deleting the base rule would take that card's border,
+header background and title colour with it. The amber tokens `--soon-bg/-tx/-solid` stay —
+they have 44/32/28 other uses.
+
+**One comment had to be rewritten rather than left.** The card was the last caller of
+`openClientNotesModal()` with **two** arguments; every caller now passes a `noteId`. The
+comment claiming that default was load-bearing is gone, replaced by one saying plainly that
+the whole-client-day fallback has no caller today and is kept only because it costs nothing.
+
+> **KNOWN, accepted.** The window-length rules attach to `list[0]` but measure the WHOLE
+> window, so in a two-caregiver window the warning sits on the first eye alone. The detail
+> text names every caregiver in the window and says *"this window"*, so it does not read as
+> blaming one person — and only **3 of 788 blocks** have two caregivers.
+
+**82 checks pass** across four harnesses, including: the warning renders in *both* the
+summary and raw branches, sits after the eye, stays one icon when a note has two issues,
+lands on the correct note of two, opens the **same** note the eye does, and draws nothing
+at all for a clean note. On the modal side: the full detail is present, it is a direct child of `.mb` and sits above the
+note rows rather than inside one, a clean note gets no issue block, two issues render as two separated blocks,
+and `<script>` in the issue text comes out escaped.
+
+> The modal recomputes its own issues rather than threading them through the `onclick`
+> string. Measured at **~32ms for one date** over the 400 notes the browser holds —
+> imperceptible on a click, and the same pass already runs once per render of the view.
+
+---
+
+## 2026-09-28 (last) — the text thread becomes a linear transcript
+
+Mitch, with a before/after screenshot: the Communication Logs modal should read as a
+transcript, not a chat app.
+
+```
+10:38 PM  Angel: Hi Alejandra, I noticed you haven't clocked out. Please let us
+know if you have any issues with the Axiscare app. Thank you!
+10:39 PM  Alejandra: Sorry forgot too ok do so
+```
+
+**This reverses a decision Mitch herself made on 2026-09-11** ("messenger vibes", having
+seen a flat run first). She has now seen bubbles live and asked for the flat run back.
+Both were her call; CLAUDE.md and the CSS comment both said *do not revert this*, so both
+were rewritten rather than left to send the next session the wrong way.
+
+- `.cm-msg` / `.cm-bub` / `.cm-cap` / `.cm-in` / `.cm-out` are gone; `.cm-line`,
+  `.cm-ts`, `.cm-from` and `.cm-tx` replace them. Every one of those classes was used
+  only by this thread — the rail and the card share the `.cm-` prefix but none of these.
+- **The name is bold because the inversion demands it.** Under bubbles the SIDE carried
+  who-said-what; linear, the name is the only signal.
+- **Two declarations were re-homed, not deleted:** `white-space:pre-wrap` and
+  `overflow-wrap:anywhere` moved from `.cm-bub` to `.cm-tx`. Losing the first would
+  reflow a three-line shift offer into one paragraph.
+- **"Not delivered" survives.** With no red bubble it is the only failure mark left, and
+  it is load-bearing: one live thread has the same message sent twice, both undelivered.
+- The `.cm-msg` 80%/560px cap went with the bubbles — it existed to stop a *bubble*
+  running to ~760px on the wide dialog.
+
+### One message, one paragraph
+
+The first cut kept `white-space:pre-wrap` from the bubble era. Carlo, seeing it live:
+*"can we trim the next line characters... I just want the messages to be consistent."*
+
+He was right, and the reason is structural. The desk’s outbound templates carry blank lines
+between the greeting, the offer and the sign-off. In a **bubble** that costs nothing — the
+bubble is a shape drawn around one message. In a **transcript** it made one message eight
+rows tall, so the time column the whole layout is read by stopped lining up.
+
+`cmFlat()` collapses every whitespace run to a single space, and `white-space:pre-wrap` came
+off `.cm-tx`. Only the spacing changes — a test asserts **not one word is lost**.
+
+> The same declaration is still right, and untouched, on `.dpn-tx` (day-panel notes),
+> `.upd-text` (operations updates) and `.cd-notetx` (care notes). Those are blocks of
+> someone’s writing, not rows in a column. Do not "harmonise" them.
+
+**KNOWN:** the mock-up shows *"Angel Lano"*; this renders *"Angel"*. `staffName()` is
+first-name-only by design and the **rail shares it**, so widening it here would change the
+rail too. Left as is — say if the full name is wanted.
+
+**30 checks pass:** three lines for three messages, no bubble classes left, time before
+name before words, bold name with a colon, staff and caregiver first names with their
+Office/Caregiver fallbacks, *Not delivered* present when failed and absent when not,
+`(no text)` for an empty body, an empty thread drawing no line, markup in both the
+message and the caregiver name escaped, and calls still rendering their summary untouched. On the
+flattening: no newline or double space survives into the markup, the greeting and sign-off
+end up on one run, every word of the real template is still present, and a whitespace-only
+message correctly falls through to `(no text)`.
+
+---
+
+## 2026-09-28 (last) — an empty Care Notes cell now says which kind of empty
+
+Mitch: *"No care note recorded"* was being said both when nobody was booked and when a
+caregiver worked and wrote nothing. Only the second is a failure.
+
+**Measured first, over 2026-09-23..27:** 156 visits, 115 assigned and not cancelled, and
+**17 of 114 client × day × shift blocks had a shift and no note — 15%.** So the signal is
+real and it was buried.
+
+- New `CNSHIFT` module: **one AxisCare request per date** (29–35 visits, ~30KB),
+  module-level, never in `state`. Nothing already in the browser could answer this —
+  `care_notes` structurally cannot, because a noteless visit is never stored.
+- `had()` is a **tri-state**: `true` → amber *"No care notes recorded for this shift"*,
+  `false` → *"No shift coverage for this window"*, `null` → the old neutral
+  wording with *checking* / *could not check*. **A null never renders as a negative.**
+- Cancelled, unassigned and wrong-day visits do not count as a shift anyone owed a note
+  for. Day and AM/PM come off the timestamp **string**, not `new Date()`.
+- 400ms debounce, as `CNSUM.soon()`, so paging the day arrows fires one request.
+
+**31 checks:** the three cell states, the tri-state itself, every exclusion, the AM/PM
+boundaries at 05:59/06:00/13:59/14:00, a 404 treated as an empty day rather than a
+failure, a real 500 leaving `had()` at `null` and the cell refusing to claim no
+coverage, and a loaded day not refetching.
+
+### Still open, and it is the bigger half
+
+`careDayClients()` builds rows from notes, so **a client with a shift and zero notes has
+no row at all.** Of the 17 gaps, **9 are reachable as an empty cell and 8 are invisible** —
+Avis Lowe on three of five dates, plus Margrith Hawkins, Patricia McGrath, Calvin George
+Miller Jr and Nancy Newton. Closing it means building rows from *visits* rather than
+notes, which changes what the board is and touches the counts, the concerns pass and the
+issues pass. Not started — it is a decision, not a tidy-up.
+
+---
+
+## 2026-09-28 (last) — "Could not analyse this note automatically" was an empty ask
+
+Carlo: the message appeared on reload, intermittently, and he asked the right question —
+*"I thought we save it in supabase and then fetch it from there."*
+
+**The rows were saved.** 19 keyword rows and 12 triage rows in `care_alert_summaries`, all
+at prompt_version 2, plus 10 dates marked in `care_alert_triage`. No Claude call and no
+AxisCare call was being repeated. **The browser simply never asked for them.**
+
+`CALERT.soon()` fires 400ms after the first paint, but `state.careNotes` is filled inside
+`hydrate()`’s `Promise.all` seconds later. Reloading *while sitting on Care Notes*, the
+ask therefore went out with an **empty unit list**. The function builds its reply only from
+the units it is sent — `savedByIds(units.map(...))`, then `for (const u of units)` — so no
+keyword row came back; `days[day]` cached that, and `load()` returns early when the day
+is already held, so it was never asked again. Hence "sometimes": deterministic on reload,
+fine when navigating to the page after boot.
+
+**One line fixes it** — `if (!careNotesLoaded()) return;` in `CALERT.load()`. CNSUM has
+carried that guard since 2026-09-24 for the same reason; it moved to file scope so the two
+modules share one definition. An earlier draft also re-asked when the wanted set grew —
+dropped as over-engineering, because with the guard the bad cache cannot form.
+
+**11 checks:** nothing sent and nothing cached mid-boot; the real ask goes out once the
+notes land and the row resolves; the empty ask IS still made on a genuinely quiet date once
+boot has finished (reinstating an early return there is the gate removed on 2026-09-25);
+and a day already held is not re-asked.
+
+### Cleanup
+
+Removed `alertBucket()` (1 line, CLAUDE.md already called it dead) and `dayWindow()` (18
+lines, a leftover of the removed weekly-rule availability editor). Both verified as
+appearing **exactly once** in the file immediately before deletion — the only check that
+means anything here, because this app wires handlers as strings inside HTML and call syntax
+proves nothing.
+
+> **Measured, not done:** 106 of the 1,191 top-level functions are referenced nowhere at
+> all — 692 lines, 2.6% of the file. Mostly demo-era leftovers (`buildPriorityBoard` 45
+> lines, `renderAI` 33, `todayAttendanceCard` 28, `generateReport` 22). There is no
+> dynamic dispatch anywhere — `window[`, `eval` and `new Function` are all zero — so
+> the count is trustworthy. Left alone deliberately: that is a sweep of its own, not a
+> tidy-up attached to a bug fix.
+
+---
 ## Still open
 
 - Attendance, punctuality and the "Not tracked" caregiver metrics — all
