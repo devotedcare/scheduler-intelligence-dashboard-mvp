@@ -1844,6 +1844,64 @@ before the day's full account.
 
 ---
 
+## 2026-09-28 (last) — the Action column goes, an eye per caregiver replaces it
+
+Mitch: drop the Action column on Care Notes Summary; to read the originals the scheduler
+clicks an **eye beside the caregiver's name**, and gets **that caregiver's note** rather
+than both notes for the client-day.
+
+- The table is three columns now (Client / AM Shift / PM Shift). `.cd-thead` and
+  `.cd-crow` both drop the 148px track; `.cd-col-action` is gone.
+- `cdNoteEye(clientId,noteId,who)` draws the eye. `openClientNotesModal()` gained an
+  **optional third argument**: called with a note id it shows that note alone and titles
+  itself *Original Care Note*; called with two arguments it behaves exactly as before.
+  **That default is load-bearing** — the Care Note Issues card is its other caller and
+  must keep opening the whole client-day.
+
+**The licence rule is why this needed care.** CLAUDE.md: *"View Original Notes being
+reachable is the entire licence for the summary replacing the note rather than sitting
+above it."* Removing that button removed the only route to the raw text, so the eye has to
+cover **every** branch that draws a note — the summary, the raw fallback, and the
+`sourceCount` mismatch. A test asserts exactly that: for 1, 2 and 3 notes, in both
+branches, the number of eyes equals the number of notes and every note id is reachable.
+The comment above `careShiftSummaryHtml()` now says so.
+
+### View more/less is gone entirely, and the row sizes itself
+
+- **The raw branch now draws EVERY note.** It used to render only the first and hide the
+  rest behind *View more (N more notes)*. That button went with the Action column, and it
+  can go **because** each note now carries its own eye. Do not reintroduce
+  `list.slice(0,1)` without restoring a way back to the notes it hides.
+- **The summary branch lost it too.** It was kept for one revision, on the reasoning that
+  the eye opens the original *note* and so does not replace an expander for a long
+  *summary*. Carlo asked whether the row could simply grow instead. **Measured over the
+  live table, he was right:** summaries run to **594 characters (median 289)**, and the
+  220-char clamp fired on **79% of them to hide a median of 90 characters** — four cells
+  in five grew a button to conceal about one sentence. Untruncated, the worst summary is
+  roughly fifteen lines, and it is bounded because `carenotes-summary` budgets ~40 words
+  per client-day. So the summary renders in full and the row sizes itself.
+- **Raw notes still clamp, and that asymmetry is deliberate.** Same measurement: raw notes
+  reach **6,130 characters (median 568)** — a 150-line cell. They keep `cdTrunc` and the
+  eye is the route to the full text.
+- **Dead code went with the button:** `cdMoreBtn`, `cdToggleShift`, `cdBlockKey`,
+  `state.cdExpanded` and the `.cd-more` CSS. `cdTrunc` and `CD_TRUNC_CHARS` stay —
+  the raw branch still needs them.
+
+**Claude: if summaries ever grow, lower `DAY_BUDGET_WORDS` or clamp them — do not bring
+back a toggle that hides a single sentence.** The reasoning and both measurements are in
+the comment above `CD_TRUNC_CHARS`.
+
+**The byline is now one name+eye per NOTE, not a deduped name list.** Two notes by the
+same caregiver correctly get two eyes, because each opens a different note.
+
+**Measured, because "at most 2 eyes per row" was the stated expectation:** across all 795
+live care notes bucketed by Pacific day and the real AM/PM windows, **785 of 788 blocks
+(99.6%) have exactly one caregiver**. Three have two — Duane & Lynne Georgeson 2026-09-23
+AM, Ziad Niazi 2026-09-02 AM, Calvin George Miller Jr 2026-08-21 PM. Those rows show three
+eyes, which is correct: one per note is the whole point.
+
+---
+
 ## Still open
 
 - Attendance, punctuality and the "Not tracked" caregiver metrics — all

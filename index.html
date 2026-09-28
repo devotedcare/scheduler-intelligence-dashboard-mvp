@@ -2842,25 +2842,30 @@ html.pg-held .pingate{display:none!important}
 .cd-slist{display:flex;flex-direction:column}
 /* A FLAT TABLE, not cards: one thin divider between client rows, no box
    anywhere inside a row. `.cd-thead`/`.cd-crow` share one grid template so
-   the four columns (Client / AM Shift / PM Shift / Action) line up; each
+   the three columns (Client / AM Shift / PM Shift) line up; each
    `.cd-crow` is its own grid container, so a short AM note beside a long PM
    one costs only alignment whitespace within that row, never a drawn box. */
-.cd-thead{display:grid;grid-template-columns:170px 1fr 1fr 148px;gap:18px;padding:9px 16px;border-bottom:1px solid var(--line)}
+.cd-thead{display:grid;grid-template-columns:170px 1fr 1fr;gap:18px;padding:9px 16px;border-bottom:1px solid var(--line)}
 .cd-thead span{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--ink-faint)}
-.cd-crow{display:grid;grid-template-columns:170px 1fr 1fr 148px;gap:18px;align-items:start;padding:13px 16px;border-bottom:1px solid var(--line-soft)}
+.cd-crow{display:grid;grid-template-columns:170px 1fr 1fr;gap:18px;align-items:start;padding:13px 16px;border-bottom:1px solid var(--line-soft)}
 .cd-crow:last-child{border-bottom:none}
 @media(max-width:820px){
   .cd-thead{display:none}
   .cd-crow{display:flex;flex-direction:column;gap:9px;padding:14px 16px}
 }
 .cd-ccell{min-width:0}
-.cd-ccell.cd-col-action{display:flex;justify-content:flex-end}
-@media(max-width:820px){.cd-ccell.cd-col-action{justify-content:flex-start}}
 .cd-cname{display:block}
 .cd-cname b{font-size:14px;color:var(--ink)}
 .cd-ccount{display:block;font-size:11px;font-weight:700;color:var(--ink-faint);margin-top:1px}
 .cd-noteblock+.cd-noteblock{margin-top:9px;padding-top:9px;border-top:1px solid var(--line-soft)}
 .cd-noteby{font-size:11.5px;font-weight:700;color:var(--ink-soft);margin-bottom:2px}
+/* The eye that opens ONE caregiver's original note, beside their name. It replaced
+   the Action column's "View Original Notes" button on 2026-09-28, so it is now the
+   ONLY route to the raw text - see the licence note in careShiftSummaryHtml(). */
+.cd-eye{display:inline-flex;align-items:center;justify-content:center;vertical-align:-2px;margin-left:5px;padding:2px;border:0;background:none;color:var(--ink-faint);cursor:pointer;border-radius:4px;line-height:0}
+.cd-eye:hover{color:var(--ink);background:var(--panel-head)}
+.cd-byone{display:inline-flex;align-items:center}
+.cd-byone+.cd-byone{margin-left:10px}
 .cd-notetx{font-size:13px;color:var(--ink);line-height:1.5;white-space:pre-wrap}
 .cd-nonote{font-size:12.5px;color:var(--ink-faint);font-style:italic}
 .cd-sumtx{font-size:13px;color:var(--ink);line-height:1.5}
@@ -2868,8 +2873,6 @@ html.pg-held .pingate{display:none!important}
 .cd-sumbar.work{color:var(--ink-faint);background:var(--panel-head)}
 .cd-sumbar.bad{color:var(--crit-tx);background:var(--crit-bg)}
 .cd-sumbar>span{flex:1 1 auto}
-.cd-more{display:block;margin-top:7px;font-family:inherit;font-size:12px;font-weight:700;color:var(--brand);background:none;border:none;padding:0;cursor:pointer;text-align:left}
-.cd-more:hover{text-decoration:underline}
 .cd-flagcard{padding:0;overflow:hidden}
 .cd-flagcard.concern{border-top:3px solid var(--crit-solid)}
 .cd-flagcard.doc{border-top:3px solid var(--soon-solid)}
@@ -19540,7 +19543,6 @@ if(!state.cnFilter) state.cnFilter={cat:'all',status:'all',prio:'all',q:''};
 if(state.cnDetailId===undefined) state.cnDetailId=null;
 if(state.cnShowAll===undefined) state.cnShowAll=false;
 if(state.cnOpenGroups===undefined) state.cnOpenGroups={critical:true,review:false,documentation:false};
-if(!state.cdExpanded) state.cdExpanded={};
 
 /* ── WHICH CLIENTS ARE FLAGGED ──────────────────────────────────────────────
    This decides the whole Clients Needing Attention board, for free, in the
@@ -20398,48 +20400,67 @@ function careDayNav(dateStr){
 function setCnDay(d){ state.cnDay=d; render(); }
 
 /* The SUMMARY is what this section is for; the caregiver's own words are
-   one click away under "View Original Notes". Two deliberate fallbacks:
+   one click away behind the EYE beside their name (cdNoteEye). Two deliberate
+     fallbacks:
 
    - while the summary is still coming the RAW NOTE stays on screen rather
      than a spinner. The first open of a date takes ~30s and an empty card
      for half a minute is worse than the text we already have.
    - a FAILED summary falls back to the same raw note, so this section is
      never less useful than it was before summaries existed. */
-/* A client with several notes, or a long fallback note, used to run the
-   shift box as long as the content \u2014 fine for one note, unreadable for a
-   busy client. Truncated in JS (never a CSS clamp), because the toggle has
-   to reveal the REAL rest of the text, not just uncap a box. `state.cdExpanded`
-   is UI state only, per-block, never in SLICES \u2014 same pattern as
-   `state.cnOpenGroups` beside it. */
+/* TWO DIFFERENT RULES, and the difference is measured, not taste.
+
+   A long RAW note would run the shift box as long as the content - fine for one
+   note, unreadable for a busy client. Raw notes are therefore truncated in JS
+   (never a CSS clamp) and the EYE beside the caregiver name opens the full text.
+   Measured over the live table on 2026-09-28: raw notes reach 6,130 characters,
+   median 568. Untruncated that is a 150-line cell, so they still clamp.
+
+   SUMMARIES ARE NOT TRUNCATED. carenotes-summary budgets them at ~40 words per
+   client-day, and over the same live table the longest is 594 characters, median
+   289 - about fifteen lines at desktop width. The old 220-char clamp fired on
+   79% of them to hide a median of 90 characters, so four cells in five grew a
+   "View more/less" button that concealed roughly one sentence. Mitch had it
+   removed (2026-09-28) and the row left to size itself; cdMoreBtn,
+   cdToggleShift, cdBlockKey and state.cdExpanded went with it.
+
+   Claude: if summaries ever grow, lower DAY_BUDGET_WORDS in carenotes-summary or
+   clamp them - do not bring back a toggle that hides a single sentence. */
 const CD_TRUNC_CHARS=220;
-function cdBlockKey(clientId,shift){ return clientId+'|'+shift; }
-function cdToggleShift(key){ if(!state.cdExpanded) state.cdExpanded={}; state.cdExpanded[key]=!state.cdExpanded[key]; render(); }
 function cdTrunc(t){ return t.length<=CD_TRUNC_CHARS ? t : t.slice(0,CD_TRUNC_CHARS).replace(/\s+\S*$/,'').trim()+'\u2026'; }
-function cdMoreBtn(key,expanded,label){ return `<button class="cd-more" onclick="cdToggleShift('${key}')">${escText(expanded?'View less':(label||'View more'))}</button>`; }
+/* The eye beside a caregiver's name: opens THAT caregiver's original note, not the
+   whole client-day. Mitch, 2026-09-28. CLAUDE.md: being able to reach the original
+   is the entire licence for a summary replacing it, so EVERY rendered note must
+   carry one - if you add a branch to careShiftSummaryHtml() that draws a note, draw
+   an eye with it. esc() not escText(): the name goes into attributes here. */
+function cdNoteEye(clientId,noteId,who){
+  const lbl=esc('Original note by '+who);
+  return `<button class="cd-eye" title="${lbl}" aria-label="${lbl}" onclick="openClientNotesModal('${clientId}','${state.cnDay}','${noteId}')">${ic('eye',12)}</button>`;
+}
 function careShiftSummaryHtml(list,clientId,shift){
   if(!list.length) return `<div class="cd-nonote">No care note recorded for this window.</div>`;
-  const key=cdBlockKey(clientId,shift), expanded=!!(state.cdExpanded&&state.cdExpanded[key]);
   const sum=CNSUM.forBlock(state.cnDay,clientId,shift);
   /* Only show the summary when it describes EXACTLY the notes this browser is
      holding. The function reads care_notes live; state.careNotes is boot-time
      and capped at 400 rows, so the two can differ \u2014 and a summary mentioning a
-     fall whose note "View Original Notes" cannot show is worse than the note. */
+     fall whose note the eye icon cannot show is worse than the note. */
   if(sum && sum.summary && sum.sourceCount===list.length){
-    const by=[...new Set(list.map(n=>{ const c=cgById(n.cgId); return c?c.name:'Caregiver'; }))].join(', ');
-    const long=sum.summary.length>CD_TRUNC_CHARS;
-    const shown=(long&&!expanded)?cdTrunc(sum.summary):sum.summary;
-    return `<div class="cd-sum"><div class="cd-noteby">Caregiver: ${escText(by)}</div><div class="cd-sumtx">${escText(shown)}</div>${long?cdMoreBtn(key,expanded):''}</div>`;
+    /* One name AND ONE EYE PER NOTE, not a deduped name list: each eye opens its own
+       note, so two notes by the same caregiver correctly get two eyes. */
+    const by=list.map(n=>{ const c=cgById(n.cgId), who=c?c.name:'Caregiver';
+      return `<span class="cd-byone">${escText(who)}${cdNoteEye(clientId,n.id,who)}</span>`; }).join('');
+    return `<div class="cd-sum"><div class="cd-noteby">Caregiver: ${by}</div><div class="cd-sumtx">${escText(sum.summary)}</div></div>`;
   }
-  const totalLen=list.reduce((s,n)=>s+cleanNoteText(n.text).length,0);
-  const many=list.length>1||totalLen>CD_TRUNC_CHARS;
-  const shownList=(many&&!expanded)?list.slice(0,1):list;
-  const blocks=shownList.map(n=>{
-    const cg=cgById(n.cgId), tx=cleanNoteText(n.text);
-    return `<div class="cd-noteblock"><div class="cd-noteby">Caregiver: ${escText(cg?cg.name:'Caregiver')}</div><div class="cd-notetx">${escText((many&&!expanded)?cdTrunc(tx):tx)}</div></div>`;
+  /* EVERY note is drawn now, each truncated and each with its own eye. This used to
+     render only the FIRST note and hide the rest behind "View more (N more notes)";
+     that button went with the Action column, and it can go safely BECAUSE every note
+     now carries an eye to its full text. Claude: do not reintroduce list.slice(0,1)
+     here without adding a way back to the notes it hides. */
+  const blocks=list.map(n=>{
+    const cg=cgById(n.cgId), who=cg?cg.name:'Caregiver', tx=cleanNoteText(n.text);
+    return `<div class="cd-noteblock"><div class="cd-noteby">Caregiver: ${escText(who)}${cdNoteEye(clientId,n.id,who)}</div><div class="cd-notetx">${escText(tx.length>CD_TRUNC_CHARS?cdTrunc(tx):tx)}</div></div>`;
   }).join('');
-  const hidden=(many&&!expanded)?list.length-1:0;
-  const label=hidden?('View more ('+hidden+' more note'+(hidden===1?'':'s')+')'):undefined;
-  return blocks+(many?cdMoreBtn(key,expanded,label):'');
+  return blocks;
 }
 /* Said once, at the top of the card, rather than on all ~26 blocks. An
    error is NOT retried by the render that shows it — see CNSUM. */
@@ -20466,7 +20487,6 @@ function careClientRowHtml(r){
     <div class="cd-ccell cd-col-name"><div class="cd-cname"><b>${escText(name)}</b></div><span class="cd-ccount">${r.notes.length} note${r.notes.length===1?'':'s'}</span></div>
     <div class="cd-ccell cd-col-shift">${careShiftSummaryHtml(r.am,r.clientId,'am')}</div>
     <div class="cd-ccell cd-col-shift">${careShiftSummaryHtml(r.pm,r.clientId,'pm')}</div>
-    <div class="cd-ccell cd-col-action"><button class="btn sm" onclick="openClientNotesModal('${r.clientId}','${state.cnDay}')">${ic('eye',13)} View Original Notes \u203a</button></div>
   </div>`;
 }
 /* Full detail inline \u2014 a scheduler must understand what happened without
@@ -20532,14 +20552,17 @@ function careIssueRowHtml(issue){
 }
 /* Read-only \u2014 the original AxisCare text, unedited, always reachable
    from either flagged section as well as the summary row. */
-function openClientNotesModal(clientId,dateStr){
+/* noteId is OPTIONAL and scopes the modal to ONE note - what the per-caregiver eye
+   sends. Called with two arguments it still shows the whole client-day, which is
+   what the Care Note Issues card relies on. Keep that default. */
+function openClientNotesModal(clientId,dateStr,noteId){
   const cl=clById(clientId);
-  const notes=careNotesForDay(dateStr).filter(n=>n.clientId===clientId).sort((a,b)=>new Date(a.at)-new Date(b.at));
+  const notes=careNotesForDay(dateStr).filter(n=>n.clientId===clientId&&(!noteId||n.id===noteId)).sort((a,b)=>new Date(a.at)-new Date(b.at));
   const rows=notes.length?notes.map(n=>{ const cg=cgById(n.cgId);
     return `<div class="ad-rel"><div class="ad-rel-meta">${escText(cg?cg.name:'Caregiver')} \u00b7 ${cnWhen(n.at)}</div><div class="ad-rel-tx">\u201c${escText(n.text)}\u201d</div></div>`;
   }).join(''):`<div class="ad-empty">No original notes found for this date.</div>`;
   mEl.classList.add('mwide');
-  mEl.innerHTML=`<div class="mh"><span class="mt">Original Care Notes \u2014 ${escText(cl?cl.name:'Client')}</span><button class="mc" onclick="closeModal()">\u00d7</button></div><div class="mb">${rows}</div>`;
+  mEl.innerHTML=`<div class="mh"><span class="mt">Original Care Note${noteId?'':'s'} \u2014 ${escText(cl?cl.name:'Client')}</span><button class="mc" onclick="closeModal()">\u00d7</button></div><div class="mb">${rows}</div>`;
   mbg.classList.add('show');
 }
 
@@ -20602,9 +20625,9 @@ function viewCareNotes(){
      <div class="cd-flist">${issueRows}</div>
    </div>
    <div class="ws-card cd-summary">
-     <div class="cd-shead"><span class="cd-stitle">${ic('forms',16)} Care Notes Summary</span><span class="cd-ssub">Summarised by Devi from the caregivers’ AxisCare notes — AM and PM for every client with a note this day. Click "View Original Notes" for what they actually wrote.</span></div>
+     <div class="cd-shead"><span class="cd-stitle">${ic('forms',16)} Care Notes Summary</span><span class="cd-ssub">Summarised by Devi from the caregivers’ AxisCare notes — AM and PM for every client with a note this day. Click the eye beside a caregiver\u2019s name for what they actually wrote.</span></div>
      ${cnSumStrip(dateStr)}
-     ${rows.length?'<div class="cd-thead"><span>Client</span><span>AM Shift</span><span>PM Shift</span><span>Action</span></div>':''}
+     ${rows.length?'<div class="cd-thead"><span>Client</span><span>AM Shift</span><span>PM Shift</span></div>':''}
      <div class="cd-slist">${summaryRows}</div>
    </div>`;
 }
