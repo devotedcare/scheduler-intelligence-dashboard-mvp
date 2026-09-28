@@ -2463,15 +2463,13 @@ body.ai-white .view{flex:1 1 auto;min-height:0;display:flex;flex-direction:colum
 .cgh-abouth{font-size:14px;font-weight:800;color:var(--ink);margin-bottom:8px;display:flex;align-items:center;gap:8px}
 .cgh-aboutx{font-size:13.5px;line-height:1.55;color:var(--ink)}
 @media(max-width:900px){.cgh-about{border-left:none;padding-left:0;border-top:1px solid var(--line);padding-top:14px}}
-/* The AI "About" summary — a short overall paragraph, then compact
-   labelled bullet sections. No cards, no boxes: same discipline as
-   Clients Needing Attention (.cd-attn-*) — thin structure, no clutter. */
+/* The AI "About" summary — one short paragraph, then a short flag list
+   only when there is something to flag. No cards, no boxes, no labelled
+   sections: same discipline as Clients Needing Attention (.cd-attn-*) —
+   thin structure, no clutter. */
 .cgh-ai-badge{font-size:9.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;color:var(--brand);background:var(--panel-head);border:1px solid var(--line);border-radius:20px;padding:2px 8px}
 .cgh-ai-body .cd-sumbar{margin:0 0 10px;padding:7px 10px;border-radius:var(--r)}
 .cgh-ai-overall{font-size:13.5px;line-height:1.55;color:var(--ink);margin-bottom:10px}
-.cgh-ai-sec{margin-bottom:9px}
-.cgh-ai-sec:last-child{margin-bottom:0}
-.cgh-ai-lbl{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--ink-faint);margin-bottom:3px}
 .cgh-ai-bl{margin:0;padding-left:17px;list-style:disc}
 .cgh-ai-bl li{font-size:13px;color:var(--ink);line-height:1.45}
 .cgh-ai-bl li+li{margin-top:2px}
@@ -13015,6 +13013,27 @@ function cgAiDigestText(c){
     if(declines.length) L.push('  Decline reasons given: '+declines.map(l=>'"'+l.reason+'"').join(', '));
   }
 
+  /* Counts only, never message content — Communication Logs already reads
+     the actual text live from Quo on this same profile, so repeating it here
+     would be the exact "data dump instead of a judgement" complaint this
+     rewrite exists to fix. This is "when relevant" data: whether they answer
+     calls, not what was said. */
+  L.push('');
+  L.push('COMMUNICATION HISTORY — calls/texts on file via Quo (counts only):');
+  const commsSt=(typeof CGCOMMS!=='undefined')?CGCOMMS.status(c.id):'idle';
+  if(commsSt==='nophone') L.push('  No phone number on file to look this up by.');
+  else if(commsSt!=='ready') L.push('  Not loaded this session — not included in this pass.');
+  else {
+    const centries=(typeof CGCOMMS!=='undefined')?CGCOMMS.entries(c.id):[];
+    if(!centries.length) L.push('  none on file');
+    else {
+      const calls=centries.filter(e=>e.kind==='call'), texts=centries.filter(e=>e.kind==='text');
+      const unanswered=calls.filter(e=>!e.answered).length;
+      L.push('  '+calls.length+' call(s)'+(unanswered?' ('+unanswered+' unanswered)':'')+
+        ', '+texts.length+' day(s) of texting on file · most recent contact: '+dvWhen(centries[0].at));
+    }
+  }
+
   L.push('');
   const fb=(typeof cgConcernsFor==='function')?cgConcernsFor(c.id):[];
   const feedback=fb.filter(f=>fbKind(f)==='feedback'), complaints=fb.filter(f=>fbKind(f)==='complaint');
@@ -13059,17 +13078,27 @@ function tenureShort(d){
   if(y>=1) return y+' year'+(y===1?'':'s')+' with';
   return (m||1)+' month'+(m===1?'':'s')+' with';
 }
-/* One labelled bullet section of the AI summary, or '' when the model gave
-   nothing for it — "only show what the data actually supports" means an
-   empty section is omitted outright, never printed with a placeholder. */
-function cgAboutSecHtml(label,items){
-  if(!items||!items.length) return '';
-  return `<div class="cgh-ai-sec"><div class="cgh-ai-lbl">${escText(label)}</div><ul class="cgh-ai-bl">${items.map(b=>`<li>${escText(b)}</li>`).join('')}</ul></div>`;
+/* The short flag list — concerns/verify-before-assigning items only, never
+   a restatement of the paragraph. '' when there is nothing worth flagging,
+   which is the common case and is not an error state. No section label:
+   a single small line is not the "Strongest Experience / Best Fit / ..."
+   framework this rewrite (2026-09-28) removed, and doesn't need one. */
+function cgAboutFlagsHtml(flags){
+  if(!flags||!flags.length) return '';
+  return `<ul class="cgh-ai-bl">${flags.map(b=>`<li>${escText(b)}</li>`).join('')}</ul>`;
 }
-/* Ready -> the AI's structured judgement. Otherwise -> the old computed
-   sentence (cgAbout(), never invented, never worse than before this
-   existed) plus a status strip saying why the AI version is not showing
-   yet. Never a blank box while the model call is in flight. */
+/* Ready -> the Caregiver Insights Agent's short paragraph (+ flags, only
+   when there are any). Otherwise -> the old computed sentence (cgAbout(),
+   never invented, never worse than before this existed) plus a status
+   strip saying why the AI version is not showing yet. Never a blank box
+   while the model call is in flight.
+
+   REWRITTEN 2026-09-28 (Mitch): the six-section render ("this is not a
+   summary, it is simply displaying too much caregiver data in sections and
+   bullet points") is gone along with the six-section prompt in
+   caregiver-about-summary. One short paragraph, read in about 10-15
+   seconds, plus a short flag list only when something needs the
+   scheduler's attention — see PROMPT_VERSION 2 in that function. */
 function cgAboutHtml(c){
   const first=escText((c.name||'').split(' ')[0]);
   const st=CGABOUT.status(c.id), sec=CGABOUT.sections(c.id);
@@ -13079,12 +13108,7 @@ function cgAboutHtml(c){
     bar=`<div class="cd-sumbar bad">${ic('alerts',13)} <span>Could not generate the AI summary. ${escText(d.error||'')}</span><button class="btn sm" onclick="cgAboutRetry('${c.id}')">Retry</button></div>`;
   }
   if(sec){
-    const body=(sec.overall?`<div class="cgh-ai-overall">${escText(sec.overall)}</div>`:'')
-      +cgAboutSecHtml('Strongest Experience',sec.strongestExperience)
-      +cgAboutSecHtml('Best Fit',sec.bestFit)
-      +cgAboutSecHtml('Scheduling Considerations',sec.schedulingConsiderations)
-      +cgAboutSecHtml('Reliability',sec.reliability)
-      +cgAboutSecHtml('Important History',sec.importantHistory);
+    const body=(sec.summary?`<div class="cgh-ai-overall">${escText(sec.summary)}</div>`:'')+cgAboutFlagsHtml(sec.flags);
     return `<div class="cgh-abouth">About ${first} <span class="cgh-ai-badge">AI Summary</span></div>${bar}<div class="cgh-ai-body">${body}</div>`;
   }
   const fallback=cgAbout(c);
@@ -20160,10 +20184,22 @@ function calertRetry(day) { CALERT.retry(day, careConcernsForDay(day).map(functi
    profile, skills, assignment history, care notes, feedback, complaints,
    incidents, attendance, declines, availability, work preferences,
    languages, driving, distance limits, dementia/hospice/transfer/
-   behavioral/overnight experience, how long they stayed on past cases,
-   recurring patterns — and turn it into a structured judgement a
-   scheduler can act on: Overall / Strongest Experience / Best Fit /
-   Scheduling Considerations / Reliability / Important History.
+   behavioral/overnight experience, communication history, how long they
+   stayed on past cases, recurring patterns.
+
+   REWRITTEN 2026-09-28 (Mitch): the first version turned that into six
+   labelled sections (Overall / Strongest Experience / Best Fit /
+   Scheduling Considerations / Reliability / Important History) and was
+   reported back as "not a summary — simply displaying too much caregiver
+   data in sections and bullet points." This is a CAREGIVER INSIGHTS AGENT
+   now, not a report: one short paragraph (about 3-5 sentences, a 10-15
+   second read) synthesising what kind of caregiver this is, what care
+   they have ACTUAL experience with, what assignments the evidence
+   supports and any scheduling information that matters — plus a short
+   flag list, only when something genuinely needs the scheduler's
+   attention. See PROMPT_VERSION 2 and the EVIDENCE RULE in
+   caregiver-about-summary for the reported-vs-actual-vs-observed
+   distinction the prompt enforces. `sections` below is `{summary, flags}`.
 
    supabase/functions/caregiver-about-summary writes it, reading the
    dossier this browser assembles (cgAiDigestText(), above) and saved in
