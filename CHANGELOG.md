@@ -2199,6 +2199,50 @@ out in 3 chunks, and a day AxisCare answers empty prunes nothing.
 > on the desk until it is pushed.
 
 ---
+## 2026-09-28 (last) — the documentation warning stops being a button
+
+Carlo: *"can we also do the same like in Concierge. It is weird to have 2 icon buttons that
+essentially opens the same modal."* He was right, and literally so — `cdNoteWarn()`’s
+`onclick` was byte-identical in target and arguments to `cdNoteEye()`’s.
+
+- `cdNoteWarn()` returns a `<span class="cd-warn" role="img">` with its tooltip and no
+  handler. It takes **one** argument now; `clientId` and `noteId` existed only to build
+  the click, and both call sites lost them.
+- The CSS dropped the button costume — `border`, `background`, `padding`,
+  `border-radius` and the hover fill.
+- **The eye is untouched** and remains the only way in.
+
+**Grounded in Concierge, which made the same change the same day.** Its `cn5NoteWarn()` is a
+`<span role="img">` with no cursor, no hover and no handler, commented *"DISPLAY ONLY — the
+eye is the one way into the modal"*. Checked rather than assumed: the pattern is in that
+repo’s **working tree**, not in `origin/main`, so looking only at the pushed file would
+have reported it absent.
+
+Three points where this app was measured rather than copied:
+
+- **No `cursor` at all.** `cursor:help` went in first and came back out. Scheduling *does*
+  use it for title-bearing indicators (`.syncpill.s-error`, `.cv-fact`, `.cal-clash`),
+  so the first comment claiming it appears nowhere was simply wrong. The reason that holds is
+  the **neighbour**: a 12px mark at `cursor:help` beside a 12px button at `cursor:pointer`
+  is the very ambiguity being removed.
+- **The tooltip is kept**, unlike Concierge’s, because ours carries a count (*"2 documentation
+  issues"*). A `title` with no cursor is Concierge’s own indicator shape regardless.
+- **The glyph stays a thin outline.** Concierge swapped to a filled triangle because its
+  `--warning` is ~2:1 on white; `--soon-solid` is `#BD8312`, **3.27:1**, which clears
+  the 3:1 floor for a graphical object. Nothing to fix, so nothing was changed.
+
+Safe to make inert only because it never stands alone: both call sites draw it immediately
+after `cdNoteEye()`. The gap cell’s own amber icon is a different thing and was not touched.
+
+**44 checks** in that suite: the warning is a `<span>` not a `<button>`, carries no
+`onclick`, announces itself `role="img"`, takes one argument, the eye still targets the
+right note, there is **exactly one** `<button>` in the byline — and, new, the CSS sets no
+cursor, has no `:hover` and no button costume, while `.cd-eye` keeps both.
+
+> Also corrected a **stale CLAUDE.md section**: *Care Note Issues* still opened with *"The
+> third section of the Care Notes page"*, describing a card removed earlier the same day.
+
+---
 ## Still open
 
 - Attendance, punctuality and the "Not tracked" caregiver metrics — all

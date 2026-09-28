@@ -1393,7 +1393,40 @@ today and are deliberate future-proofing. Twelve keywords in total.
 
 ### Care Note Issues — documentation quality, and NOT an AI panel
 
-The third section of the Care Notes page. `careDocIssuesForDay()` is the whole of it:
+**There is no Care Note Issues CARD any more** (Mitch, 2026-09-28). The page is two cards —
+Clients Needing Attention, then Care Notes Summary. What this produced now shows as an amber
+warning beside the caregiver’s name in the shift cell, and the issue text leads the note
+modal (`.cn-nissue`). The arithmetic below is unchanged; only where it surfaces moved.
+
+#### The warning is a MARK, not a control
+
+It was a `<button>` for a few hours, opening the **same modal on the same note id** as the
+eye beside it. Carlo: *"It is weird to have 2 icon buttons that essentially opens the same
+modal."* It is a `<span role="img">` now, and `cdNoteWarn()` takes **one** argument —
+the ids existed only to build the click.
+
+**No `cursor` is set on it, and that is deliberate rather than an omission.** This file does
+use `cursor:help` for title-bearing indicators — `.syncpill.s-error`, `.cv-fact`,
+`.cal-clash` — so it was defensible here and was briefly in. What rules it out is the
+**neighbour**: the mark sits immediately beside `.cd-eye`, a 12px icon of near-identical
+weight that *is* a button at `cursor:pointer`. Two adjacent same-sized icons distinguished
+only by which cursor appears over them is exactly the ambiguity the change removed.
+
+**It is safe for it to be inert only because it never stands alone:** both call sites draw it
+immediately after `cdNoteEye()`. **Claude: if you ever draw this warning where there is no
+eye beside it, it needs its own way through.** The gap cell’s own amber icon — the *"No care
+notes recorded for this shift"* line — is a different thing and has no eye by design.
+
+> **Concierge did the same thing on the same day**, and its `cn5NoteWarn()` is worth reading
+> before changing this: a `<span role="img">` with an `aria-label`, no cursor, no hover,
+> and the follow-up text moved to the top of the modal the eye opens. Two ways this app
+> deliberately differs: the tooltip is **kept**, because ours carries a count Concierge has no
+> equivalent for (a `title` with no cursor is Concierge’s own indicator shape all the same
+> — `.cx-ic`, `.scal-age`, `.cpx-pill`); and the glyph stays the **thin outline**,
+> because Concierge only needed a filled triangle where its `--warning` is ~2:1 on white,
+> while `--soon-solid` (`#BD8312`) is **3.27:1** and clears the 3:1 graphical-object floor.
+
+`careDocIssuesForDay()` is the whole of the measurement:
 browser-side arithmetic over the notes already in `state.careNotes`, no model call, no
 Edge Function, no table, and **no `CARE_CATEGORIES`**. Per client × shift, four checks —
 the first two `return`, so they suppress the rest for that window:

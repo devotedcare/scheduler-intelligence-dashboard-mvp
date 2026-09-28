@@ -2931,8 +2931,25 @@ html.pg-held .pingate{display:none!important}
    Care Note Issues card on 2026-09-28 - same information, one fewer card. --soon-solid
    is the same amber that card used for the same glyph; --soon-bg/-tx/-solid are the
    palette's amber family and are widely used elsewhere, so none of them died with it. */
-.cd-warn{display:inline-flex;align-items:center;justify-content:center;vertical-align:-2px;margin-left:3px;padding:2px;border:0;background:none;color:var(--soon-solid);cursor:pointer;border-radius:4px;line-height:0}
-.cd-warn:hover{background:var(--soon-bg)}
+/* A MARK, not a control — see cdNoteWarn(). The button reset (border, background, padding,
+   border-radius) and the hover fill went with the <button>, and NO cursor is set at all.
+
+   That last part is a real decision, not a tidy-up. This file does use cursor:help for
+   title-bearing indicators — .syncpill.s-error, .cv-fact, .cal-clash — so it was defensible
+   here. What rules it out is the NEIGHBOUR: this mark sits immediately beside .cd-eye, a
+   12px icon of near-identical weight that IS a button at cursor:pointer. Two adjacent
+   same-sized icons whose only difference is which cursor appears over them is precisely the
+   ambiguity Carlo asked to remove, so the mark takes the plain default cursor and the arrow
+   itself says "not this one". Concierge's .cn5-warn — the same icon, same complaint, same
+   day — sets no cursor either. Claude: do not re-add cursor:help.
+
+   It keeps its title. A title with no cursor is Concierge's own indicator shape (.cx-ic,
+   .scal-age, .cpx-pill), and unlike Concierge's this tooltip carries a COUNT.
+
+   The glyph stays the thin ic('alerts') outline. Concierge had to swap to a filled triangle
+   because its --warning is only ~2:1 on white; --soon-solid (#BD8312) is 3.27:1, which clears
+   the 3:1 floor for a graphical object, so there is nothing to fix here. */
+.cd-warn{display:inline-flex;align-items:center;justify-content:center;vertical-align:-2px;margin-left:4px;color:var(--soon-solid);line-height:0}
 /* The issue itself, INSIDE the note modal. It was a title= tooltip until 2026-09-28;
    headline plus detail runs to ~250 characters and a native tooltip cannot show that
    readably. It is a direct child of .mb and sits at the TOP of the modal body, above the
@@ -20545,15 +20562,23 @@ function cdNoteEye(clientId,noteId,who){
    person. 3 of 788 blocks have two caregivers, so it is rare as well as mitigated.
 
    esc(), not escText(): this is an attribute. */
-function cdNoteWarn(clientId,noteId,issues){
+function cdNoteWarn(issues){
   if(!issues||!issues.length) return '';
-  /* The tooltip is a HINT, not the content. It used to carry headline + detail, which ran
-     to ~250 characters and was unreadable in a native title box (Carlo, 2026-09-28). The
-     text now lives in the modal, and this button opens the SAME modal the eye opens, so
-     both routes land on the note and its issue together. */
+  /* A MARK, NOT A CONTROL. It was a <button> for a few hours and opened the same modal the
+     eye beside it already opens — two buttons, one destination, which just makes the reader
+     wonder what the difference is (Carlo, 2026-09-28). The eye is the way in; this says
+     only that there is something to find.
+
+     It is SAFE for it to be inert because it never stands alone: both call sites render it
+     immediately after cdNoteEye(), and the issue text is in that modal. Claude: if you ever
+     draw this warning somewhere with no eye beside it, it needs its own way through.
+
+     The tooltip is a hint, not the content — headline plus detail ran to ~250 characters
+     and a native title box cannot show that readably, which is why the text lives in the
+     modal. esc(), not escText(): this is an attribute. */
   const lbl=esc(issues.length===1?'Documentation issue'
     :issues.length+' documentation issues');
-  return `<button class="cd-warn" title="${lbl}" aria-label="${lbl}" onclick="openClientNotesModal('${clientId}','${state.cnDay}','${noteId}')">${ic('alerts',12)}</button>`;
+  return `<span class="cd-warn" role="img" title="${lbl}" aria-label="${lbl}">${ic('alerts',12)}</span>`;
 }
 /* CNSHIFT — was a shift SCHEDULED in this client’s AM/PM window on this date?
 
@@ -20693,7 +20718,7 @@ function careShiftSummaryHtml(list,clientId,shift,byNote){
     /* One name AND ONE EYE PER NOTE, not a deduped name list: each eye opens its own
        note, so two notes by the same caregiver correctly get two eyes. */
     const by=list.map(n=>{ const c=cgById(n.cgId), who=c?c.name:'Caregiver';
-      return `<span class="cd-byone">${escText(who)}${cdNoteEye(clientId,n.id,who)}${cdNoteWarn(clientId,n.id,(byNote||{})[n.id])}</span>`; }).join('');
+      return `<span class="cd-byone">${escText(who)}${cdNoteEye(clientId,n.id,who)}${cdNoteWarn((byNote||{})[n.id])}</span>`; }).join('');
     return `<div class="cd-sum"><div class="cd-noteby">Caregiver: ${by}</div><div class="cd-sumtx">${escText(sum.summary)}</div></div>`;
   }
   /* EVERY note is drawn now, each truncated and each with its own eye. This used to
@@ -20703,7 +20728,7 @@ function careShiftSummaryHtml(list,clientId,shift,byNote){
      here without adding a way back to the notes it hides. */
   const blocks=list.map(n=>{
     const cg=cgById(n.cgId), who=cg?cg.name:'Caregiver', tx=cleanNoteText(n.text);
-    return `<div class="cd-noteblock"><div class="cd-noteby">Caregiver: ${escText(who)}${cdNoteEye(clientId,n.id,who)}${cdNoteWarn(clientId,n.id,(byNote||{})[n.id])}</div><div class="cd-notetx">${escText(tx.length>CD_TRUNC_CHARS?cdTrunc(tx):tx)}</div></div>`;
+    return `<div class="cd-noteblock"><div class="cd-noteby">Caregiver: ${escText(who)}${cdNoteEye(clientId,n.id,who)}${cdNoteWarn((byNote||{})[n.id])}</div><div class="cd-notetx">${escText(tx.length>CD_TRUNC_CHARS?cdTrunc(tx):tx)}</div></div>`;
   }).join('');
   return blocks;
 }
