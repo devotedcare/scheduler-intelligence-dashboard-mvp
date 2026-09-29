@@ -118,8 +118,20 @@ async function visitsForDay(day) {
     const next = res.nextPage;
     path = next ? next.replace(/^https?:\/\/[^/]+/, '') : null;
   }
-  /* only visits somebody actually worked can carry a note */
-  return out.filter(v => !v.removed && v.caregiver && v.caregiver.id != null);
+  /* EVERY visit comes back now, not just the workable ones.
+
+     This used to end `.filter(v => !v.removed && v.caregiver ...)`, which threw away the
+     one fact the sweep needs to clean up after itself: that a visit it ALREADY wrote a
+     note for has since been cancelled. AxisCare instantiates a scheduled slot under a new
+     id -- "s=<scheduleId>:d=<date>" becomes "v=<visitId>:s=0:d=<date>" -- and marks the old
+     one removed with its caregiver stripped. Filtering here meant the sweep could never
+     see the old row again, so its note stayed for ever beside the new one and the board
+     drew the same caregiver twice.
+
+     The caller splits them: workable ones get read and written as before, removed ones are
+     pruned. Claude: do not restore the filter -- move the test to the caller if the shape
+     ever needs changing. */
+  return out;
 }
 
 /* ---------- Supabase (service role: bypasses RLS) ---------- */
@@ -182,6 +194,39 @@ async function upsertNotes(rows) {
   await sb('/care_notes', { method: 'POST', body: JSON.stringify(rows) });
 }
 
+/* Drop the notes of visits AxisCare now reports REMOVED.
+
+   ON EVIDENCE, NEVER ON ABSENCE -- the same rule openshifts-sync is built on. We delete
+   only ids AxisCare positively returned as removed in THIS sweep. A visit merely missing
+   from a response proves nothing: the page cap, a 429 or a truncated read all look
+   identical to "cancelled", and deleting on that would quietly empty the board.
+
+   Deleting is right rather than merely tidy: a removed visit did not happen, so a care
+   note filed against it describes nothing. In the case that prompted this the same note
+   also exists under the instantiated id, so nothing is lost at all.
+
+   Chunked because PostgREST takes the id list in the URL and these ids are ~24 chars.
+
+   The headers are sbHeaders() SPREAD, not replaced: sb() does
+   Object.assign({headers: sbHeaders()}, opts), so passing a bare `headers` would drop the
+   service key with it and every delete would 401. Only Prefer is overridden, to get the
+   deleted rows back and report a real count instead of an assumed one. */
+async function pruneRemoved(ids) {
+  if (!ids.length) return 0;
+  let gone = 0;
+  for (let i = 0; i < ids.length; i += 50) {
+    const chunk = ids.slice(i, i + 50);
+    const list = chunk.map(id => '"' + String(id).replace(/"/g, '') + '"').join(',');
+    const r = await sb('/care_notes?visit_id=in.(' + encodeURIComponent(list) + ')', {
+      method: 'DELETE',
+      headers: Object.assign({}, sbHeaders(), { Prefer: 'return=representation' })
+    });
+    const rows = await r.json().catch(() => []);
+    gone += Array.isArray(rows) ? rows.length : 0;
+  }
+  return gone;
+}
+
 /* ---------- the sweep ---------- */
 exports.handler = async function (event) {
   const started = Date.now();
@@ -220,7 +265,7 @@ exports.handler = async function (event) {
   let within = cursor.cursor_date ? (cursor.cursor_index || 0) : 0;
 
   const force = q.force === '1' || q.force === 'true';
-  let written = 0, scanned = 0, requests = 0, skipped = 0, complete = false;
+  let written = 0, scanned = 0, requests = 0, skipped = 0, complete = false, pruned = 0;
   let reqCount = 0, reqTotalMs = 0;   // to predict whether one more will fit
 
   /* what we already hold, so runs cover new ground instead of re-reading */
@@ -234,8 +279,30 @@ exports.handler = async function (event) {
   try {
     for (; dayIdx < dayList.length; dayIdx++) {
       const day = dayList[dayIdx];
-      const visits = await visitsForDay(day);
+      const all = await visitsForDay(day);
       requests++;
+
+      /* Only a visit somebody actually worked can carry a note. The REST are not junk to
+         be dropped, they are the evidence that lets this sweep clean up after itself: a
+         note we wrote earlier whose visit has since been cancelled, or re-issued under a
+         new id once AxisCare instantiated it. Prune those, and only those.
+
+         Pruning runs BEFORE the deadline check below, so a run that stops early has still
+         done it. It costs one request per day at most and never grows with the backlog. */
+      const visits = all.filter(v => !v.removed && v.caregiver && v.caregiver.id != null);
+
+      /* Only when the day is entered fresh, not on a mid-day resume: it was already pruned
+         when the run that started this day entered it, and repeating costs a request for
+         nothing. No membership test against `have` — deleting an id we never stored is a
+         harmless no-op, and testing would make ?force=1 (which empties `have`) silently
+         skip the prune. */
+      if (within === 0) {
+        const stale = all.filter(v => v.removed).map(v => v.id);
+        if (stale.length) {
+          try { pruned += await pruneRemoved(stale); }
+          catch (e) { /* a failed prune must never cost the run its real work */ }
+        }
+      }
 
       /* dayIdx IS the age in days — dayList is built newest-first — so
          no date arithmetic is needed to decide what counts as fresh. */
@@ -257,7 +324,7 @@ exports.handler = async function (event) {
           });
           return json(200, {
             ok: true, done: false, resumedFrom: cursor.cursor_date, pausedAt: { day, index: i },
-            written, scanned, skipped, requests, ms: Date.now() - started,
+            written, scanned, skipped, pruned, requests, ms: Date.now() - started,
             avgRequestMs: Math.round(avg),
             note: 'Stopped before the platform timeout. The next run continues from here.'
           });
@@ -305,7 +372,7 @@ exports.handler = async function (event) {
     }).catch(() => {});
     return json(e.status === 429 ? 429 : 502, {
       ok: false, error: e.message, axisBody: e.body,
-      written, scanned, requests, ms: Date.now() - started,
+      written, scanned, pruned, requests, ms: Date.now() - started,
       hint: e.status === 429 ? 'AxisCare rate-limited the sweep. It will resume on the next run.' : undefined
     });
   }
@@ -318,7 +385,7 @@ exports.handler = async function (event) {
   });
 
   return json(200, {
-    ok: true, done: complete, days, budgetMs: budget, written, scanned, skipped, requests,
+    ok: true, done: complete, days, budgetMs: budget, written, scanned, skipped, pruned, requests,
     ms: Date.now() - started,
     avgRequestMs: reqCount ? Math.round(reqTotalMs / reqCount) : null
   });

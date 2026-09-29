@@ -2092,6 +2092,24 @@ notes land and the row resolves; the empty ask IS still made on a genuinely quie
 boot has finished (reinstating an early return there is the gate removed on 2026-09-25);
 and a day already held is not re-asked.
 
+### The gap cell names who owed the note
+
+Carlo: *"so that it is easy for us to know who to contact."* `CNSHIFT` now keeps the
+caregivers per block rather than a boolean, and the cell renders `Caregiver: <name>` above
+the message, in the same order every other cell in that column uses.
+
+- The roster name wins; the name off the **visit** is the fallback, because the roster
+  holds only ACTIVE caregivers and somebody since terminated would otherwise show as a gap
+  with nobody attached.
+- Two caregivers in one window are comma-joined; the same caregiver twice is named once.
+- **No eye, no second warning icon** — as asked. The message already carries one, and
+  there is no note for an eye to open.
+
+**10 more checks**, taking this suite to 43: the name is present and sits above the
+message, the no-shift cell has no name line, exactly one alert glyph and no eye, two
+caregivers joined, an off-roster caregiver falling back to the visit name, a duplicate
+named once, and `who()` returning `[]` both for an empty window and for a day not loaded.
+
 ### Cleanup
 
 Removed `alertBucket()` (1 line, CLAUDE.md already called it dead) and `dayWindow()` (18
@@ -2106,6 +2124,123 @@ proves nothing.
 > dynamic dispatch anywhere — `window[`, `eval` and `new Function` are all zero — so
 > the count is trustworthy. Left alone deliberately: that is a sweep of its own, not a
 > tidy-up attached to a bug fix.
+
+---
+## 2026-09-28 (last) — a doubled caregiver name was one visit stored under two ids
+
+Carlo, from the board: *"why is there a double name here. Is this a bug?"* — Calvin George
+Miller Jr, 2026-09-24, showing **Caregiver: Leonardo Mission Jr.** twice and **2 notes**.
+
+**It was real data, not a rendering quirk.** `care_notes` held the same visit twice:
+
+| id | removed | caregiver | verified |
+|---|---|---|---|
+| `s=1682:d=2026-09-24` | **true** | none | false |
+| `v=57655:s=0:d=2026-09-24` | false | 448 | **true** |
+
+AxisCare instantiates a scheduled slot under a new id and marks the old one removed;
+`carenotes-sync` upserts on `visit_id` and never prunes, so both rows persist.
+
+**Measured before fixing: 1 of 796 rows.** Both id forms are normal — 610 `s=` against 186
+`v=` — so this collapses a genuinely rare case rather than papering over a common one.
+
+`fetchCareNotes()` now collapses on **client + instant + text**, with the instantiated
+`v=` id winning. **16 checks:** the real pair collapses either way round and keeps the `v=`
+id, the text and caregiver survive, a lone stale row is still shown under its own id, and
+nothing is collapsed when the text, the instant or the client differs.
+
+> **The root fix is not this.** The stale row is still in `care_notes`. Pruning a note
+> whose visit AxisCare now reports `removed:true` belongs in `carenotes-sync`, which
+> is a Netlify function — **a commit deploys it**, so it is Carlo’s call. The browser guard
+> means the desk is not looking at a doubled name while that is decided.
+
+---
+## 2026-09-28 (last) — the duplicate note is fixed at the source, not hidden
+
+Carlo, on the browser-side collapse shipped an hour earlier: *"can you do a fix and not a
+guard. This could happen again in the future."* Right on both counts.
+
+**The root cause was one line.** `visitsForDay()` in `carenotes-sync` ended:
+
+```js
+return out.filter(v => !v.removed && v.caregiver && v.caregiver.id != null);
+```
+
+so the sweep discarded removed visits *before it could notice* that a note it had already
+written now belonged to a cancelled one. It could never clean up after itself.
+
+- `visitsForDay()` returns **every** visit; the caller splits them.
+- `pruneRemoved()` deletes the notes of visits AxisCare reports `removed`, chunked 50
+  ids at a time, and reports a real count in the response (`pruned`).
+- **On evidence, never on absence** — the `openshifts-sync` rule. A visit missing from a
+  response is not evidence of anything; the page cap, a 429 and a truncated read all look
+  the same as "cancelled".
+- The prune runs once per day entered, not on a mid-day resume, and a failure in it never
+  costs the run its real work.
+
+**The browser collapse was removed.** With the source fixed it is unnecessary, and worse
+than unnecessary: a silent deduper in the read path would hide the next data problem
+rather than surface it. `fetchCareNotes()` is the plain mapper again, with a comment
+saying why not to re-add one.
+
+**The one historical row was deleted by hand** — `s=1682:d=2026-09-24`, which AxisCare
+reports `removed:true` with no caregiver. 797 → 796 rows; Calvin’s real visit
+(`v=57655:s=0`) and his separate overnight one both survive. It sat outside the 3-day
+sweep window, so the fix would never have reached it.
+
+**16 checks:** every visit comes back including the removed one, the caller can still pick
+out the workable ones, an unassigned-but-live visit is **not** pruned, the DELETE targets
+`care_notes` by `visit_id`, the **service key survives the Prefer override** (
+`sb()` does `Object.assign({headers: sbHeaders()}, opts)`, so a bare `headers` would
+have dropped it and every delete would 401), an empty list issues no request, 120 ids go
+out in 3 chunks, and a day AxisCare answers empty prunes nothing.
+
+> `carenotes-sync.js` is a **Netlify** function — a commit deploys it. Nothing changes
+> on the desk until it is pushed.
+
+---
+## 2026-09-28 (last) — the documentation warning stops being a button
+
+Carlo: *"can we also do the same like in Concierge. It is weird to have 2 icon buttons that
+essentially opens the same modal."* He was right, and literally so — `cdNoteWarn()`’s
+`onclick` was byte-identical in target and arguments to `cdNoteEye()`’s.
+
+- `cdNoteWarn()` returns a `<span class="cd-warn" role="img">` with its tooltip and no
+  handler. It takes **one** argument now; `clientId` and `noteId` existed only to build
+  the click, and both call sites lost them.
+- The CSS dropped the button costume — `border`, `background`, `padding`,
+  `border-radius` and the hover fill.
+- **The eye is untouched** and remains the only way in.
+
+**Grounded in Concierge, which made the same change the same day.** Its `cn5NoteWarn()` is a
+`<span role="img">` with no cursor, no hover and no handler, commented *"DISPLAY ONLY — the
+eye is the one way into the modal"*. Checked rather than assumed: the pattern is in that
+repo’s **working tree**, not in `origin/main`, so looking only at the pushed file would
+have reported it absent.
+
+Three points where this app was measured rather than copied:
+
+- **No `cursor` at all.** `cursor:help` went in first and came back out. Scheduling *does*
+  use it for title-bearing indicators (`.syncpill.s-error`, `.cv-fact`, `.cal-clash`),
+  so the first comment claiming it appears nowhere was simply wrong. The reason that holds is
+  the **neighbour**: a 12px mark at `cursor:help` beside a 12px button at `cursor:pointer`
+  is the very ambiguity being removed.
+- **The tooltip is kept**, unlike Concierge’s, because ours carries a count (*"2 documentation
+  issues"*). A `title` with no cursor is Concierge’s own indicator shape regardless.
+- **The glyph stays a thin outline.** Concierge swapped to a filled triangle because its
+  `--warning` is ~2:1 on white; `--soon-solid` is `#BD8312`, **3.27:1**, which clears
+  the 3:1 floor for a graphical object. Nothing to fix, so nothing was changed.
+
+Safe to make inert only because it never stands alone: both call sites draw it immediately
+after `cdNoteEye()`. The gap cell’s own amber icon is a different thing and was not touched.
+
+**44 checks** in that suite: the warning is a `<span>` not a `<button>`, carries no
+`onclick`, announces itself `role="img"`, takes one argument, the eye still targets the
+right note, there is **exactly one** `<button>` in the byline — and, new, the CSS sets no
+cursor, has no `:hover` and no button costume, while `.cd-eye` keeps both.
+
+> Also corrected a **stale CLAUDE.md section**: *Care Note Issues* still opened with *"The
+> third section of the Care Notes page"*, describing a card removed earlier the same day.
 
 ---
 ## Still open

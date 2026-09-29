@@ -951,7 +951,7 @@ AxisCare request per date** (measured 29–35 visits, ~30KB), module-level, neve
 
 | | means |
 |---|---|
-| `true` | a shift was scheduled → **"No care notes recorded for this shift"**, amber |
+| `true` | a shift was scheduled → **"No care notes recorded for this shift"**, amber, with **`Caregiver: <name>` above it** |
 | `false` | none was → **"No shift coverage for this window"** |
 | `null` | not loaded yet, or the fetch failed → the old neutral wording, plus *checking* or *could not check* |
 
@@ -959,6 +959,15 @@ AxisCare request per date** (measured 29–35 visits, ~30KB), module-level, neve
 `AVAIL.dayAvail()` returning a state rather than a boolean, and `loadingState()` vs
 `emptyState()` — a failed lookup that reads as a confident negative is the exact failure
 this screen keeps re-learning.
+
+**The gap cell NAMES who owed the note** (Carlo, 2026-09-28) — the point of the row is
+knowing who to ring. `CNSHIFT` therefore keeps the caregivers per block, not just a
+boolean, and `who()` resolves each through `cgById()` first, falling back to the name
+on the **visit**: the roster holds only ACTIVE caregivers, so somebody since terminated
+would otherwise appear as a gap with nobody attached to it. Two caregivers in one window
+are comma-joined; the same caregiver twice is named once. **No eye and no second warning
+icon** beside the name — the message below already carries one, and there is no note for an
+eye to open.
 
 **Three things deliberately do NOT count as a shift somebody owed a note for:** a
 `removed` visit (cancelled), an **unassigned** one (nobody to write it), and one whose
@@ -1199,6 +1208,51 @@ though they are his baseline, and one *"reported readings to the family"* bullet
 the event rule. Roughly 3 of 16. Both would need the client's recent notes as context,
 which is a bigger change — see *Still open*.
 
+### ONE VISIT CAN BE IN `care_notes` TWICE — two AxisCare id forms
+
+A scheduled slot is `s=<scheduleId>:d=<date>`. Once AxisCare instantiates it the visit
+becomes `v=<visitId>:s=0:d=<date>`, and the old row is marked `removed:true` with its
+caregiver stripped. `carenotes-sync` upserts on `visit_id` and **never prunes**, so a
+note swept under the old id stays for ever beside the new one.
+
+Confirmed live on **Calvin George Miller Jr, 2026-09-24**:
+
+| id | removed | caregiver | verified |
+|---|---|---|---|
+| `s=1682:d=2026-09-24` | **true** | none | false |
+| `v=57655:s=0:d=2026-09-24` | false | 448 Leonardo Mission Jr. | **true** |
+
+Same client, same instant, byte-identical note. The board drew *"Caregiver: Leonardo
+Mission Jr."* twice and counted **2 notes** for one visit.
+
+**Rare, and measured: 1 of 796 rows.** Both id forms coexist normally — 610 `s=` against
+186 `v=` — so the form alone proves nothing; only a second row for the *same* visit does.
+
+**Fixed at the source, 2026-09-28.** `visitsForDay()` in `carenotes-sync` used to end
+
+```js
+return out.filter(v => !v.removed && v.caregiver && v.caregiver.id != null);
+```
+
+which threw away the one fact the sweep needs to clean up after itself. It returns every
+visit now; the caller writes notes for the workable ones and `pruneRemoved()` deletes the
+notes of the removed ones.
+
+**ON EVIDENCE, NEVER ON ABSENCE** — the rule `openshifts-sync` is built on. Only ids
+AxisCare positively returned as `removed` in that sweep are deleted. A visit merely
+*missing* from a response proves nothing: the page cap, a 429 and a truncated read all look
+identical to "cancelled", and deleting on that would quietly empty the board.
+
+> The prune reaches only dates inside the sweep window (`DEFAULT_DAYS` 3, `FRESH_DAYS` 2).
+> Instantiation happens at or near the visit date, so that covers it in practice; the one
+> historical row, on 2026-09-24, was already outside the window and was deleted by hand.
+
+**There is deliberately NO deduper in the browser.** One existed for a day and was removed:
+a silent collapse in the read path hides the next data problem instead of showing it, and
+this board is meant to be honest about what the table holds. **Claude: do not re-add one.**
+
+---
+
 ### The note id the browser sends is MUNGED — match it, never expect `visit_id`
 
 **Claude: `fetchCareNotes()` is the only builder of `state.careNotes`, and it
@@ -1339,7 +1393,40 @@ today and are deliberate future-proofing. Twelve keywords in total.
 
 ### Care Note Issues — documentation quality, and NOT an AI panel
 
-The third section of the Care Notes page. `careDocIssuesForDay()` is the whole of it:
+**There is no Care Note Issues CARD any more** (Mitch, 2026-09-28). The page is two cards —
+Clients Needing Attention, then Care Notes Summary. What this produced now shows as an amber
+warning beside the caregiver’s name in the shift cell, and the issue text leads the note
+modal (`.cn-nissue`). The arithmetic below is unchanged; only where it surfaces moved.
+
+#### The warning is a MARK, not a control
+
+It was a `<button>` for a few hours, opening the **same modal on the same note id** as the
+eye beside it. Carlo: *"It is weird to have 2 icon buttons that essentially opens the same
+modal."* It is a `<span role="img">` now, and `cdNoteWarn()` takes **one** argument —
+the ids existed only to build the click.
+
+**No `cursor` is set on it, and that is deliberate rather than an omission.** This file does
+use `cursor:help` for title-bearing indicators — `.syncpill.s-error`, `.cv-fact`,
+`.cal-clash` — so it was defensible here and was briefly in. What rules it out is the
+**neighbour**: the mark sits immediately beside `.cd-eye`, a 12px icon of near-identical
+weight that *is* a button at `cursor:pointer`. Two adjacent same-sized icons distinguished
+only by which cursor appears over them is exactly the ambiguity the change removed.
+
+**It is safe for it to be inert only because it never stands alone:** both call sites draw it
+immediately after `cdNoteEye()`. **Claude: if you ever draw this warning where there is no
+eye beside it, it needs its own way through.** The gap cell’s own amber icon — the *"No care
+notes recorded for this shift"* line — is a different thing and has no eye by design.
+
+> **Concierge did the same thing on the same day**, and its `cn5NoteWarn()` is worth reading
+> before changing this: a `<span role="img">` with an `aria-label`, no cursor, no hover,
+> and the follow-up text moved to the top of the modal the eye opens. Two ways this app
+> deliberately differs: the tooltip is **kept**, because ours carries a count Concierge has no
+> equivalent for (a `title` with no cursor is Concierge’s own indicator shape all the same
+> — `.cx-ic`, `.scal-age`, `.cpx-pill`); and the glyph stays the **thin outline**,
+> because Concierge only needed a filled triangle where its `--warning` is ~2:1 on white,
+> while `--soon-solid` (`#BD8312`) is **3.27:1** and clears the 3:1 graphical-object floor.
+
+`careDocIssuesForDay()` is the whole of the measurement:
 browser-side arithmetic over the notes already in `state.careNotes`, no model call, no
 Edge Function, no table, and **no `CARE_CATEGORIES`**. Per client × shift, four checks —
 the first two `return`, so they suppress the rest for that window:

@@ -2944,8 +2944,25 @@ html.pg-held .pingate{display:none!important}
    Care Note Issues card on 2026-09-28 - same information, one fewer card. --soon-solid
    is the same amber that card used for the same glyph; --soon-bg/-tx/-solid are the
    palette's amber family and are widely used elsewhere, so none of them died with it. */
-.cd-warn{display:inline-flex;align-items:center;justify-content:center;vertical-align:-2px;margin-left:3px;padding:2px;border:0;background:none;color:var(--soon-solid);cursor:pointer;border-radius:4px;line-height:0}
-.cd-warn:hover{background:var(--soon-bg)}
+/* A MARK, not a control — see cdNoteWarn(). The button reset (border, background, padding,
+   border-radius) and the hover fill went with the <button>, and NO cursor is set at all.
+
+   That last part is a real decision, not a tidy-up. This file does use cursor:help for
+   title-bearing indicators — .syncpill.s-error, .cv-fact, .cal-clash — so it was defensible
+   here. What rules it out is the NEIGHBOUR: this mark sits immediately beside .cd-eye, a
+   12px icon of near-identical weight that IS a button at cursor:pointer. Two adjacent
+   same-sized icons whose only difference is which cursor appears over them is precisely the
+   ambiguity Carlo asked to remove, so the mark takes the plain default cursor and the arrow
+   itself says "not this one". Concierge's .cn5-warn — the same icon, same complaint, same
+   day — sets no cursor either. Claude: do not re-add cursor:help.
+
+   It keeps its title. A title with no cursor is Concierge's own indicator shape (.cx-ic,
+   .scal-age, .cpx-pill), and unlike Concierge's this tooltip carries a COUNT.
+
+   The glyph stays the thin ic('alerts') outline. Concierge had to swap to a filled triangle
+   because its --warning is only ~2:1 on white; --soon-solid (#BD8312) is 3.27:1, which clears
+   the 3:1 floor for a graphical object, so there is nothing to fix here. */
+.cd-warn{display:inline-flex;align-items:center;justify-content:center;vertical-align:-2px;margin-left:4px;color:var(--soon-solid);line-height:0}
 /* The issue itself, INSIDE the note modal. It was a title= tooltip until 2026-09-28;
    headline plus detail runs to ~250 characters and a native tooltip cannot show that
    readably. It is a direct child of .mb and sits at the TOP of the modal body, above the
@@ -3953,32 +3970,130 @@ function noticeLevel(shiftStart, at){
   const h=(new Date(shiftStart).getTime()-new Date(at).getTime())/3600000;
   return h<2?'critical':(h<12?'late':'normal');
 }
+/* ATTENDANCE READS THE ATTENDANCE PAGE'S LOG — state.attendance — and nothing else.
+
+   It used to read c.ops.attendance.events, written only by recordAttendance(). That
+   store is EMPTY on the live roster — 0 events across 191 caregivers — because all four
+   of recordAttendance()'s call sites sit behind UI nothing can reach: the Call-Offs page
+   is in VIEWS but has no nav entry and no go('calloff'), and the two Today-board paths
+   need s.evv, which neither mapOpenShift() nor mirrorRowToShift() ever sets. So every
+   surface downstream of this function silently read zero — eleven of them, including
+   the 'Attendance concern' badge, the persona sentence and five Ask Devi builders.
+
+   Two rules here are judgement, not arithmetic:
+
+   - REQUEST OFF IS NEVER COUNTED. It is approved leave — 75 of the 130 logged rows —
+     and ATT_TONE already calls it 'ok'. Counting it would turn asking for time off
+     properly into a reliability problem, which is the opposite of what it is.
+   - READ THE TYPE THROUGH attType(), never off the record. One live row is still typed
+     'Late Call-Off', the pre-rename name, and ATT_LEGACY maps it forward.
+
+   The join is by DISPLAY NAME because state.attendance stores a name and not an id —
+   the only caregiver-scoped slice in the app that does. A caregiver renamed in AxisCare
+   loses their history here silently; that is the standing cost of the shape, not a bug
+   introduced when this was repointed.
+
+   Dates are bare YYYY-MM-DD, so windows are compared as STRINGS against Pacific day
+   boundaries. Differencing them against a local clock is the trap this file keeps
+   re-learning (the care-notes sync, the caregiver calendar, the open-shift mirror).
+
+   THE THRESHOLDS ARE MEASURED, NOT PICKED. Over 2026-07-01..09-28: 79 caregivers
+   worked 2,663 shifts and 21 carried any countable event — a 1.6% base rate. Firing on
+   ≥1 last-minute call-off (the rule this replaced) would flag 16 of 79, a fifth of the
+   roster. '3+ countable' and '2+ last-minute' each flag 4, and they catch different
+   people — volume versus short notice — so the rule is the OR of both, which flags 6.
+   Re-measure before changing either number; the old app never did, and its 85% / 5-shift
+   / 12-hour / 15-minute constants were all guesses, one of them sourced from a CSS
+   colour ternary. */
+const ATT_WINDOW_DAYS = 90;
+const ATT_MIN_EVENTS = 3;      /* countable events in the window */
+const ATT_MIN_LASTMIN = 2;     /* last-minute call-offs in the window */
+const ATT_MIN_SHIFTS = 5;      /* shifts before 'clean' may be claimed — see st.state */
+const ATT_COUNTABLE = {'Absence':1, 'Last-Minute Call-Off':1, 'Late':1, 'No Show':1};
+const attPacificDay = ms => new Date(ms).toLocaleDateString('en-CA',{timeZone:'America/Los_Angeles'});
 function attendanceStats(c){
-  const ev=(c.ops&&c.ops.attendance&&c.ops.attendance.events)||[];
-  const now=NOW.getTime(), wk=7*864e5, mo=30*864e5, twoWk=14*864e5;
-  const within=(e,span)=>(now-new Date(e.date).getTime())<=span && (now-new Date(e.date).getTime())>=-864e5;
-  const co=ev.filter(e=>e.type==='calloff'), late=ev.filter(e=>e.type==='late'), ns=ev.filter(e=>e.type==='noshow');
-  const newest=arr=>arr.length?arr.map(e=>new Date(e.date)).sort((a,b)=>b-a)[0]:null;
-  const callOffsWeek=co.filter(e=>within(e,wk)).length;
-  const lateMonth=late.filter(e=>within(e,mo)).length;
-  const noShowMonth=ns.filter(e=>within(e,mo)).length;
-  const criticalNotice=co.filter(e=>e.notice==='critical').length;
-  const lastMinute=co.filter(e=>e.notice==='critical'||e.notice==='late').length;
-  const withNotice=co.length-lastMinute;
-  const lastMinuteMonth=co.filter(e=>(e.notice==='critical'||e.notice==='late')&&within(e,mo)).length;
+  const rows = c ? (state.attendance||[]).filter(a=>a.cg===c.name) : [];
+  const from = d => attPacificDay(NOW.getTime()-d*864e5);
+  const ahead = attPacificDay(NOW.getTime()+864e5);   /* one day ahead, as before */
+  const inWin = (a,d) => { const x=a.date||''; return x>=from(d) && x<=ahead; };
+  const T = a => attType(a);
+  const co   = rows.filter(a=>T(a)==='Absence'||T(a)==='Last-Minute Call-Off');
+  const lm   = rows.filter(a=>T(a)==='Last-Minute Call-Off');
+  const late = rows.filter(a=>T(a)==='Late');
+  const ns   = rows.filter(a=>T(a)==='No Show');
+  const countable = rows.filter(a=>ATT_COUNTABLE[T(a)]);
+  /* midday, so a bare date cannot slide a day under any viewer's clock */
+  const newest = arr => arr.length ? arr.map(a=>new Date(a.date+'T12:00:00')).sort((x,y)=>y-x)[0] : null;
+  const win = countable.filter(a=>inWin(a,ATT_WINDOW_DAYS)).length;
+  const winLM = lm.filter(a=>inWin(a,ATT_WINDOW_DAYS)).length;
   const st={
-    callOffs:co.length, callOffsWeek,
-    lateNotice:co.filter(e=>e.notice==='late').length,
-    criticalNotice, lastMinute, withNotice, lastMinuteMonth,
-    lateArrivals:late.length, lateMonth,
-    noShows:ns.length, noShowMonth,
+    callOffs:co.length, callOffsWeek:co.filter(a=>inWin(a,7)).length,
+    /* the log records no NOTICE level, so these cannot be derived. 'Last-Minute
+       Call-Off' is a type here, not a computed hours-of-warning figure. */
+    lateNotice:0, criticalNotice:0,
+    lastMinute:lm.length, withNotice:co.length-lm.length,
+    lastMinuteMonth:lm.filter(a=>inWin(a,30)).length,
+    lateArrivals:late.length, lateMonth:late.filter(a=>inWin(a,30)).length,
+    noShows:ns.length, noShowMonth:ns.filter(a=>inWin(a,30)).length,
     lastCallOff:newest(co), lastLate:newest(late), lastNoShow:newest(ns),
-    total:ev.length
+    total:countable.length,          /* countable only — what a concern can rest on */
+    logged:rows.length,              /* every row, Request Off included */
+    windowEvents:win, windowLastMinute:winLM
   };
-  st.concern = callOffsWeek>=2 || lastMinuteMonth>=1 || noShowMonth>=1 || lateMonth>=3;
-  st.recentCallOff = ev.some(e=>(e.type==='calloff'||e.type==='noshow') && within(e,twoWk));
-  st.recentLate = late.some(e=>within(e,twoWk));
+  st.concern = win>=ATT_MIN_EVENTS || winLM>=ATT_MIN_LASTMIN;
+  /* The evidence travels with the verdict. The previous desk rejected opaque scores on
+     sight, and its thresholds drifted to four different cut-points across six screens
+     because each surface re-declared its own. */
+  st.why=[];
+  if(win>=ATT_MIN_EVENTS) st.why.push(win+' attendance events in '+ATT_WINDOW_DAYS+' days');
+  if(winLM>=ATT_MIN_LASTMIN) st.why.push(winLM+' last-minute call-offs in '+ATT_WINDOW_DAYS+' days');
+  /* THREE states, and the middle one is the whole point of the denominator.
+
+     'clean' may only be said when we know they actually WORKED — otherwise a caregiver
+     nobody has logged anything about is indistinguishable from one with a spotless
+     record, which is the `null < 85` trap wearing a different hat. The shift count comes
+     from CGWORK, which the profile has already fetched, so this costs NO new request.
+
+     Claude: read CGWORK.info() ONLY — never call CGWORK.load() from here. attendanceStats
+     runs in roster-wide loops (aiCallOffRank, aiNoShows, aiReliability), and a load() per
+     caregiver is ~180 concurrent AxisCare pulls. COVHIST earned an account-wide 429 doing
+     exactly that with ten. Where CGWORK has not loaded, shifts is null and the verdict
+     falls back to 'none' — unknown, never 'clean'.
+
+     ATT_MIN_SHIFTS is 5, and the measurement is why: over 2026-07-01..09-28 Cindy
+     Pimentel shows 4 events in 7 shifts (57%) and Alrenz Ellivera 1 in 2 (50%). Without
+     a floor those two top any rate-ordered list on almost no evidence. The previous app
+     used 5 as well, though it never published a reason. */
+  const _w = (typeof CGWORK!=='undefined' && c) ? CGWORK.info(c.id) : null;
+  st.shifts = (_w && _w.status==='ready' && _w.visits)
+    ? _w.visits.filter(v=>{ const d=(v&&v.day)||''; return d>=from(ATT_WINDOW_DAYS) && d<=ahead; }).length
+    : null;
+  st.state = st.concern ? 'concern'
+           : (st.shifts!=null && st.shifts>=ATT_MIN_SHIFTS && win===0) ? 'clean'
+           : 'none';
+  st.verdict = st.state==='concern' ? st.why.join(' · ')
+             : st.state==='clean'   ? ('no attendance issues in '+st.shifts+' shifts')
+             : (st.shifts!=null && st.shifts<ATT_MIN_SHIFTS)
+                 ? ('not enough shifts to judge — '+st.shifts+' in '+ATT_WINDOW_DAYS+' days')
+                 : 'nothing logged — not the same as a clean record';
+  st.recentCallOff = co.concat(ns).some(a=>inWin(a,14));
+  st.recentLate = late.some(a=>inWin(a,14));
   return st;
+}
+/* THE SINGLE READER for anything that wants call-off ROWS rather than the summary.
+   buildSystemTasks(), both coverage reports and aiCallOffs() each used to reach into
+   c.ops.attendance.events themselves, so repointing attendanceStats() alone would have
+   left four surfaces reading an empty store while the badge worked. They share this
+   now, for the reason the previous app's six surfaces did not: it drifted to four
+   different cut-points for the same judgement within a month.
+   Shaped like the old event records — type/date/reason/client — so the call sites read
+   unchanged. `reason` is the scheduler's own note, which is what they typed as one. */
+function attCallOffRows(c){
+  return (state.attendance||[])
+    .filter(a=>(!c || a.cg===c.name))
+    .filter(a=>{ const t=attType(a); return t==='Absence'||t==='Last-Minute Call-Off'; })
+    .map(a=>({type:'calloff', date:a.date, reason:a.note||'', client:a.client||'',
+              cg:a.cg, lastMinute:attType(a)==='Last-Minute Call-Off'}));
 }
 const clById = id => state.clients.find(c=>c.id===id);
 const dayKey = d => ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()];
@@ -4842,7 +4957,7 @@ function buildSystemTasks(){
   const mk=(key,title,o)=>({id:'sys_'+key, source:'system', createdBy:'System', title, relType:o.relType||'general', relId:o.relId||null, priority:o.priority||'medium', due:o.due||_dDue(2), assignedTo:o.assignedTo||deskCg, status:'Open', completedBy:null, completedAt:null, notes:'', reason:o.reason||'', createdAt:_hAgo(o.age||18)});
   // ---- 1. Caregiver follow-ups ----
   state.caregivers.filter(c=>c.active!==false).forEach(c=>{
-    const evs=(c.ops.attendance&&c.ops.attendance.events)||[];
+    const evs=attCallOffRows(c);
     const recentCO=evs.find(e=>e.type==='calloff' && (now-new Date(e.date).getTime())/864e5 <= 4);
     if(recentCO){
       if(/emergency/i.test(recentCO.reason||''))
@@ -5116,11 +5231,11 @@ function coverageReportBody(){
   // call-off reasons (shifts + caregiver attendance)
   const reasons={};
   state.shifts.forEach(s=>{ if(s.callOff && s.callOffReason) reasons[s.callOffReason]=(reasons[s.callOffReason]||0)+1; });
-  state.caregivers.forEach(c=>{ (c.ops&&c.ops.attendance&&c.ops.attendance.events||[]).forEach(e=>{ if(e.type==='calloff'){ const r=e.reason||'Not given'; reasons[r]=(reasons[r]||0)+1; } }); });
+  attCallOffRows(null).forEach(e=>{ const r=e.reason||'Not given'; reasons[r]=(reasons[r]||0)+1; });
   // clients requiring frequent coverage (call-offs by client)
   const coverByClient={};
   state.shifts.forEach(s=>{ if(s.callOff){ const cl=clById(s.clientId); if(cl) coverByClient[cl.name]=(coverByClient[cl.name]||0)+1; } });
-  state.caregivers.forEach(c=>{ (c.ops&&c.ops.attendance&&c.ops.attendance.events||[]).forEach(e=>{ if(e.type==='calloff'&&e.client) coverByClient[e.client]=(coverByClient[e.client]||0)+1; }); });
+  attCallOffRows(null).forEach(e=>{ if(e.client) coverByClient[e.client]=(coverByClient[e.client]||0)+1; });
   const cityData=tallyTop(byCity,8).map(([k,v])=>({label:k,value:v,color:RPT_COL.brand}));
   const clientData=tallyTop(byClient,8).map(([k,v])=>({label:k,value:v,color:RPT_COL.amber}));
   const reasonData=tallyTop(reasons,8).map(([k,v])=>({label:k,value:v,color:RPT_COL.amber}));
@@ -5859,9 +5974,9 @@ function coverageReportDoc(){
   const over24=open.filter(s=>s.openedAt&&(NOW-new Date(s.openedAt))/3600000>24).map(s=>{ const cl=clById(s.clientId); return {name:cl?cl.name:'Client', city:cl?cl.city:'', hrs:Math.round((NOW-new Date(s.openedAt))/3600000)}; }).sort((a,b)=>b.hrs-a.hrs);
   const reasons={};
   state.shifts.forEach(s=>{ if(s.callOff&&s.callOffReason) reasons[s.callOffReason]=(reasons[s.callOffReason]||0)+1; });
-  state.caregivers.forEach(c=>{ (c.ops&&c.ops.attendance&&c.ops.attendance.events||[]).forEach(e=>{ if(e.type==='calloff'){ const r=e.reason||'Not given'; reasons[r]=(reasons[r]||0)+1; } }); });
+  attCallOffRows(null).forEach(e=>{ const r=e.reason||'Not given'; reasons[r]=(reasons[r]||0)+1; });
   const coverByClient={};
-  state.caregivers.forEach(c=>{ (c.ops&&c.ops.attendance&&c.ops.attendance.events||[]).forEach(e=>{ if(e.type==='calloff'&&e.client) coverByClient[e.client]=(coverByClient[e.client]||0)+1; }); });
+  attCallOffRows(null).forEach(e=>{ if(e.client) coverByClient[e.client]=(coverByClient[e.client]||0)+1; });
   const topReason=tallyTop(reasons,1)[0];
   const exec=`There ${open.length===1?'is':'are'} currently <b>${open.length} open shift${open.length===1?'':'s'}</b> awaiting coverage, of which <b>${over24.length}</b> ${over24.length===1?'has':'have'} been open longer than 24 hours. The most common call-off reason is <b>${topReason?topReason[0]:'\u2014'}</b>${topReason?` (${topReason[1]} occurrence${topReason[1]===1?'':'s'})`:''}. ${Object.keys(byCity).length?`Coverage pressure is concentrated in ${tallyTop(byCity,1)[0][0]}.`:''} These patterns indicate where recruiting and backup-caregiver depth should be prioritized.`;
   const reasonChart=`<div class="rpt-chartblock wide"><div class="rpt-cb-title">Call-Off Reasons</div>${Object.keys(reasons).length?svgBars(tallyTop(reasons,8).map(([k,v])=>({label:k,value:v,color:RPT_COL.amber})),{labelW:150}):'<div class="rpt-empty">No call-offs recorded in this period.</div>'}</div>`;
@@ -13204,28 +13319,28 @@ function cgAiDigestText(c){
   }
   L.push('  Note: AxisCare records only that a visit happened, never why an assignment ended or changed. Do not state a reason for an assignment ending unless a scheduler note below says so explicitly.');
 
-  /* TWO SEPARATE, GENUINELY DIFFERENT sources feed "attendance" in this
-     app — one auto-logged as a side effect of marking a call-off/no-show/
-     late while managing a shift (c.ops.attendance.events, read through
-     attendanceStats()), the other a scheduler's own standalone Attendance
-     page entry (state.attendance, keyed by caregiver NAME). They are not
-     guaranteed to agree. Both are given, separately labelled, rather than
-     merged into one silently-chosen number. */
+  /* ONE SOURCE. This used to print two, labelled "source 1, auto-logged from shift
+     actions" (c.ops.attendance.events via attendanceStats()) and "source 2, the
+     Attendance page's own log" (state.attendance), warning they might disagree.
+     Source 1 was empty on every caregiver and attendanceStats() now reads source 2,
+     so the two headings would print the same rows twice under two false provenance
+     claims. Claude: do not re-split these unless something genuinely starts writing
+     c.ops.attendance.events again. */
   L.push('');
-  L.push('ATTENDANCE — source 1, auto-logged from shift actions (call-offs / no-shows / late arrivals marked while managing a shift):');
-  const ast=(typeof attendanceStats==='function')?attendanceStats(c):{total:0};
-  if(!ast.total) L.push('  none on file');
+  L.push('ATTENDANCE — the Attendance page’s log, entered by schedulers (Request Off is approved leave and is NOT counted as a concern):');
+  const ast=(typeof attendanceStats==='function')?attendanceStats(c):{total:0,logged:0};
+  if(!ast.logged) L.push('  none on file');
   else {
-    L.push('  '+ast.callOffs+' call-off(s) total ('+ast.callOffsWeek+' this week, '+ast.lastMinute+' with under 12 hours notice) · '+
+    L.push('  '+ast.callOffs+' call-off(s) total ('+ast.callOffsWeek+' this week, '+ast.lastMinute+' logged as last-minute) · '+
       ast.lateArrivals+' late arrival(s) ('+ast.lateMonth+' this month) · '+ast.noShows+' no-show(s) ('+ast.noShowMonth+' this month)');
+    if(ast.concern) L.push('  Attendance concern: '+ast.why.join(' · '));
+    else L.push('  No attendance concern raised. NOTE: nothing logged is not the same as a clean record — this app cannot yet tell them apart.');
     if(ast.lastCallOff) L.push('  Most recent call-off: '+dvWhen(ast.lastCallOff));
     if(ast.lastNoShow) L.push('  Most recent no-show: '+dvWhen(ast.lastNoShow));
     if(ast.lastLate) L.push('  Most recent late arrival: '+dvWhen(ast.lastLate));
   }
-  L.push('ATTENDANCE — source 2, the Attendance page’s own log (a scheduler’s separate manual entries; may not fully overlap with source 1):');
   const attRows=(state.attendance||[]).filter(a=>a.cg===c.name);
-  if(!attRows.length) L.push('  none on file');
-  else {
+  if(attRows.length){
     attRows.slice(0,20).forEach(a=>{
       L.push('  - '+a.date+' '+attType(a)+(a.client?' · '+a.client:'')+(a.note?' · "'+a.note+'"':'')+
         ' · coverage '+(!a.coverNeeded?'not needed':a.coverStatus));
@@ -17135,7 +17250,7 @@ function aiAvailable(day, win, city){
   if(AVAIL.indexStatus()!=='ready')
     return {title:`Available ${dayLbl}, ${winLbl}`, html:aiEmpty('Availability has not loaded yet, so I cannot answer this.')};
   if(!cover.length) return {title:`Available ${dayLbl}, ${winLbl}${city?' in '+city:''}`, html:aiEmpty('Nobody has availability entered for '+dayLbl+' at that time'+(city?' in '+city:'')+'. A caregiver appears here once an <b>Open</b> block is logged on their calendar.')};
-  const rows=cover.map(({c})=>aiRow(aiCgLink(c), `${c.prefCities.slice(0,2).join(', ')} \u00b7 ${c.weekHrs}h booked \u00b7 ${c.reliability}% reliable${c.skills.length?' \u00b7 '+c.skills.slice(0,3).join(', '):''}`));
+  const rows=cover.map(({c})=>aiRow(aiCgLink(c), `${c.prefCities.slice(0,2).join(', ')}${c.skills.length?' \u00b7 '+c.skills.slice(0,3).join(', '):''}`));
   return {title:`${cover.length} available ${dayLbl}, ${winLbl}${city?' in '+city:''}`, html:aiRows(rows)};
 }
 /* An overnight block is stored on its start date running past 24, so it is
@@ -17153,7 +17268,7 @@ function aiOvernight(){
 }
 function aiCallOffs(q){
   const m=q.match(/(\d{1,3})\s*day/); const days=m?parseInt(m[1]):90, cutoff=NOW.getTime()-days*864e5;
-  const list=aiActive().map(c=>{ const ev=((c.ops.attendance&&c.ops.attendance.events)||[]).filter(e=>e.type==='calloff'&&new Date(e.date).getTime()>=cutoff); return {c,n:ev.length,last:ev.length?ev.map(e=>new Date(e.date)).sort((a,b)=>b-a)[0]:null}; }).filter(x=>x.n>0).sort((a,b)=>b.n-a.n);
+  const list=aiActive().map(c=>{ const ev=attCallOffRows(c).filter(e=>new Date(e.date+'T12:00:00').getTime()>=cutoff); return {c,n:ev.length,last:ev.length?ev.map(e=>new Date(e.date)).sort((a,b)=>b-a)[0]:null}; }).filter(x=>x.n>0).sort((a,b)=>b.n-a.n);
   if(!list.length) return {title:`Call-offs in the last ${days} days`, html:aiEmpty('No call-offs recorded in that window.')};
   const rows=list.map(({c,n,last})=>aiRow(aiCgLink(c)+` <span class="ai-tag ${n>=2?'crit':'soon'}">${n} call-off${n>1?'s':''}</span>`, 'Last: '+fmtDate(last)));
   return {title:`${list.length} caregiver${list.length>1?'s':''} called off in the last ${days} days`, html:aiRows(rows)};
@@ -17170,10 +17285,28 @@ function aiNoShows(){
   const rows=list.map(({c,s})=>aiRow(aiCgLink(c)+` <span class="ai-tag crit">${s.noShows} no-show${s.noShows>1?'s':''}</span>`, s.lastNoShow?'Last '+fmtDate(s.lastNoShow):''));
   return {title:`${list.length} caregiver${list.length>1?'s':''} with no-shows`, html:aiRows(rows)};
 }
+/* This answered from c.reliability and c.weekHrs, both of which are hard null on
+   every live caregiver (axisOps sets them so). It therefore sorted on null-null === 0,
+   an arbitrary order, and printed "null%" and "nullh/wk" on all eight rows, every one
+   tagged red because null>=95 and null>=85 are both false. The documented `null + '%'`
+   trap, live in the one Devi answer a scheduler would ask about reliability.
+
+   It answers from the attendance log now. There is deliberately NO "highest" list: a
+   caregiver with nothing logged is not the most reliable, they are the least observed,
+   and ranking them top would be the same lie pointing the other way. Both call sites
+   get the watch list; `top` is kept only so neither has to change. */
 function aiReliability(top){
-  const list=[...aiActive()].sort((a,b)=> top? b.reliability-a.reliability : a.reliability-b.reliability).slice(0,8);
-  const rows=list.map(c=>{ const s=attendanceStats(c); return aiRow(aiCgLink(c)+` <span class="ai-tag ${c.reliability>=95?'good':c.reliability>=85?'soon':'crit'}">${c.reliability}%</span>`, `${c.weekHrs}h/wk \u00b7 ${s.callOffs} call-off${s.callOffs!==1?'s':''} on record`); });
-  return {title: top?'Highest reliability':'Lowest reliability \u2014 watch list', html:aiRows(rows)};
+  const list=aiActive().map(c=>({c, s:attendanceStats(c)}))
+    .filter(x=>x.s.concern)
+    .sort((a,b)=> (b.s.windowEvents-a.s.windowEvents) || (b.s.windowLastMinute-a.s.windowLastMinute))
+    .slice(0,8);
+  if(!list.length) return {title:'Attendance watch list',
+    html:aiEmpty('No caregiver currently meets the attendance concern threshold ('+
+      ATT_MIN_EVENTS+'+ events or '+ATT_MIN_LASTMIN+'+ last-minute call-offs in '+ATT_WINDOW_DAYS+' days).')};
+  const rows=list.map(({c,s})=>aiRow(
+    aiCgLink(c)+' <span class="ai-tag crit">'+s.windowEvents+' in '+ATT_WINDOW_DAYS+'d</span>',
+    escText(s.verdict)+(s.shifts!=null?' \u00b7 '+s.shifts+' shifts worked':'')));
+  return {title:'Attendance watch list \u2014 '+list.length+' caregiver'+(list.length>1?'s':''), html:aiRows(rows)};
 }
 function aiNoSchedule(){
   const list=state.caregivers.filter(c=>c.active===false || !hasOpenSchedule(c));
@@ -17188,24 +17321,24 @@ function aiNotRecent(){
   return {title:`${list.length} caregiver${list.length>1?'s':''} with little or no recent work`, html:aiRows(rows)};
 }
 function aiBySkill(skill){
-  const list=aiActive().filter(c=>c.skills.includes(skill)).sort((a,b)=>b.reliability-a.reliability);
+  const list=aiActive().filter(c=>c.skills.includes(skill)).sort((a,b)=>String(a.name||'').localeCompare(String(b.name||'')));
   if(!list.length) return {title:`${skill} experience`, html:aiEmpty(`No active caregivers list ${skill}.`)};
-  const rows=list.map(c=>aiRow(aiCgLink(c), `${c.skills.join(', ')} \u00b7 ${c.reliability}% reliable \u00b7 ${c.prefCities.slice(0,2).join(', ')}`));
+  const rows=list.map(c=>aiRow(aiCgLink(c), `${c.skills.join(', ')} \u00b7 ${c.prefCities.slice(0,2).join(', ')}`));
   return {title:`${list.length} caregiver${list.length>1?'s':''} with ${skill} experience`, html:aiRows(rows)};
 }
 function aiLanguage(q){
   const lang=/spanish/.test(q)?'Spanish':/tagalog/.test(q)?'Tagalog':null;
   const list=aiActive().filter(c=>(c.languages||[]).some(l=> lang? l===lang : l!=='English'));
   if(!list.length) return {title:'Bilingual caregivers', html:aiEmpty('No matching caregivers.')};
-  const rows=list.map(c=>aiRow(aiCgLink(c), (c.languages||[]).join(', ')+` \u00b7 ${c.reliability}% reliable`));
+  const rows=list.map(c=>aiRow(aiCgLink(c), (c.languages||[]).join(', ')));
   return {title: lang?`${lang}-speaking caregivers`:'Bilingual caregivers', html:aiRows(rows)};
 }
 function aiSitter(){
-  const cgs=aiActive().filter(c=>c.ops.emergency&&c.ops.emergency.sitter).sort((a,b)=>b.reliability-a.reliability);
+  const cgs=aiActive().filter(c=>c.ops.emergency&&c.ops.emergency.sitter).sort((a,b)=>String(a.name||'').localeCompare(String(b.name||'')));
   const clients=state.clients.filter(cl=>cl.careType&&/sitter|hospital/i.test(cl.careType));
   let html='';
   if(clients.length) html+=`<div class="ai-sub">Clients on sitter cases</div>`+aiRows(clients.map(cl=>aiRow(cl.name, `${cl.city} \u00b7 ${cl.risk} risk${cl.hasBackup?'':' \u00b7 no backup'}`)));
-  html+=`<div class="ai-sub">Caregivers available for sitter coverage</div>`+(cgs.length?aiRows(cgs.map(c=>aiRow(aiCgLink(c), `${c.reliability}% reliable \u00b7 ${c.prefCities.slice(0,2).join(', ')}`))):aiEmpty('None flagged for sitter coverage.'));
+  html+=`<div class="ai-sub">Caregivers available for sitter coverage</div>`+(cgs.length?aiRows(cgs.map(c=>aiRow(aiCgLink(c), `${c.prefCities.slice(0,2).join(', ')}`))):aiEmpty('None flagged for sitter coverage.'));
   return {title:'Hospital sitter coverage', html};
 }
 function aiClientConcerns(){
@@ -20739,15 +20872,23 @@ function cdNoteEye(clientId,noteId,who){
    person. 3 of 788 blocks have two caregivers, so it is rare as well as mitigated.
 
    esc(), not escText(): this is an attribute. */
-function cdNoteWarn(clientId,noteId,issues){
+function cdNoteWarn(issues){
   if(!issues||!issues.length) return '';
-  /* The tooltip is a HINT, not the content. It used to carry headline + detail, which ran
-     to ~250 characters and was unreadable in a native title box (Carlo, 2026-09-28). The
-     text now lives in the modal, and this button opens the SAME modal the eye opens, so
-     both routes land on the note and its issue together. */
+  /* A MARK, NOT A CONTROL. It was a <button> for a few hours and opened the same modal the
+     eye beside it already opens — two buttons, one destination, which just makes the reader
+     wonder what the difference is (Carlo, 2026-09-28). The eye is the way in; this says
+     only that there is something to find.
+
+     It is SAFE for it to be inert because it never stands alone: both call sites render it
+     immediately after cdNoteEye(), and the issue text is in that modal. Claude: if you ever
+     draw this warning somewhere with no eye beside it, it needs its own way through.
+
+     The tooltip is a hint, not the content — headline plus detail ran to ~250 characters
+     and a native title box cannot show that readably, which is why the text lives in the
+     modal. esc(), not escText(): this is an attribute. */
   const lbl=esc(issues.length===1?'Documentation issue'
     :issues.length+' documentation issues');
-  return `<button class="cd-warn" title="${lbl}" aria-label="${lbl}" onclick="openClientNotesModal('${clientId}','${state.cnDay}','${noteId}')">${ic('alerts',12)}</button>`;
+  return `<span class="cd-warn" role="img" title="${lbl}" aria-label="${lbl}">${ic('alerts',12)}</span>`;
 }
 /* CNSHIFT — was a shift SCHEDULED in this client’s AM/PM window on this date?
 
@@ -20810,7 +20951,14 @@ const CNSHIFT=(function(){
         var hm=/T(\d{2}):(\d{2})/.exec(s); if(!hm) return;
         var h=(+hm[1])+(+hm[2])/60;
         /* the same windows careShiftOf() uses: AM 06:00-14:00, PM 14:00-06:00 */
-        blocks['k'+cl+'|'+((h>=6&&h<14)?'am':'pm')]=true;
+        /* WHO worked it, not just that somebody did - the gap cell names them so the
+           desk knows who to ring. The visit's own name is stored as the fallback: the
+           roster only holds ACTIVE caregivers, so somebody since terminated would
+           otherwise show up as a gap with nobody attached to it. */
+        var k='k'+cl+'|'+((h>=6&&h<14)?'am':'pm');
+        var cgn=((v.caregiver.firstName||'')+' '+(v.caregiver.lastName||'')).trim();
+        var arr=blocks[k]||(blocks[k]=[]);
+        if(!arr.some(function(x){ return x.id===v.caregiver.id; })) arr.push({id:v.caregiver.id, name:cgn});
       });
       days[day]={status:'ready', blocks:blocks, error:null};
     }, function(e){
@@ -20834,17 +20982,37 @@ const CNSHIFT=(function(){
   function had(day, clientId, shift){
     var d=days[day];
     if(!d || d.status!=='ready') return null;
-    return !!d.blocks[clientId+'|'+shift];
+    var a=d.blocks[clientId+'|'+shift];
+    return !!(a && a.length);
+  }
+  /* The caregivers scheduled in that window, [] when none or not loaded. The roster name
+     wins when we have one — it is what the rest of the board shows — and the name off the
+     visit is the fallback for anyone no longer on the active roster. */
+  function who(day, clientId, shift){
+    var d=days[day];
+    if(!d || d.status!=='ready') return [];
+    var a=d.blocks[clientId+'|'+shift]||[];
+    return a.map(function(x){
+      var c=cgById('a'+x.id);
+      return (c && c.name) || x.name || 'Caregiver';
+    }).filter(Boolean);
   }
   function retry(day){ if(inflight[day]) return; delete days[day]; load(day); render(); }
   function info(day){ var d=days[day]; return d?{status:d.status, blocks:Object.keys(d.blocks).length, error:d.error}:{status:'idle'}; }
-  return {load:load, soon:soon, status:status, had:had, retry:retry, info:info};
+  return {load:load, soon:soon, status:status, had:had, who:who, retry:retry, info:info};
 })();
 function careShiftSummaryHtml(list,clientId,shift,byNote){
   if(!list.length){
     /* THREE answers, not one. Claude: null must never render as "no shift" — see CNSHIFT. */
     const sched=CNSHIFT.had(state.cnDay, clientId, shift);
-    if(sched===true) return `<div class="cd-nonote gap">${ic('alerts',12)} <span>No care notes recorded for this shift.</span></div>`;
+    if(sched===true){
+      /* The byline goes ABOVE the message, the same order every other cell in this column
+         uses (Caregiver: ... then the content). No eye and no second warning icon: the
+         message below already carries one, and there is no note for an eye to open. */
+      const owed=CNSHIFT.who(state.cnDay, clientId, shift);
+      const by=owed.length?`<div class="cd-noteby">Caregiver: ${escText(owed.join(', '))}</div>`:'';
+      return by+`<div class="cd-nonote gap">${ic('alerts',12)} <span>No care notes recorded for this shift.</span></div>`;
+    }
     if(sched===false) return `<div class="cd-nonote">No shift coverage for this window.</div>`;
     const st=CNSHIFT.status(state.cnDay);
     return `<div class="cd-nonote">No care note recorded for this window.` +
@@ -20860,7 +21028,7 @@ function careShiftSummaryHtml(list,clientId,shift,byNote){
     /* One name AND ONE EYE PER NOTE, not a deduped name list: each eye opens its own
        note, so two notes by the same caregiver correctly get two eyes. */
     const by=list.map(n=>{ const c=cgById(n.cgId), who=c?c.name:'Caregiver';
-      return `<span class="cd-byone">${escText(who)}${cdNoteEye(clientId,n.id,who)}${cdNoteWarn(clientId,n.id,(byNote||{})[n.id])}</span>`; }).join('');
+      return `<span class="cd-byone">${escText(who)}${cdNoteEye(clientId,n.id,who)}${cdNoteWarn((byNote||{})[n.id])}</span>`; }).join('');
     return `<div class="cd-sum"><div class="cd-noteby">Caregiver: ${by}</div><div class="cd-sumtx">${escText(sum.summary)}</div></div>`;
   }
   /* EVERY note is drawn now, each truncated and each with its own eye. This used to
@@ -20870,7 +21038,7 @@ function careShiftSummaryHtml(list,clientId,shift,byNote){
      here without adding a way back to the notes it hides. */
   const blocks=list.map(n=>{
     const cg=cgById(n.cgId), who=cg?cg.name:'Caregiver', tx=cleanNoteText(n.text);
-    return `<div class="cd-noteblock"><div class="cd-noteby">Caregiver: ${escText(who)}${cdNoteEye(clientId,n.id,who)}${cdNoteWarn(clientId,n.id,(byNote||{})[n.id])}</div><div class="cd-notetx">${escText(tx.length>CD_TRUNC_CHARS?cdTrunc(tx):tx)}</div></div>`;
+    return `<div class="cd-noteblock"><div class="cd-noteby">Caregiver: ${escText(who)}${cdNoteEye(clientId,n.id,who)}${cdNoteWarn((byNote||{})[n.id])}</div><div class="cd-notetx">${escText(tx.length>CD_TRUNC_CHARS?cdTrunc(tx):tx)}</div></div>`;
   }).join('');
   return blocks;
 }
@@ -22339,6 +22507,12 @@ var ROSTER = (function () {
         return r.json();
       })
       .then(function (rows) {
+        /* One visit used to be able to appear here TWICE, under two AxisCare id forms, and
+           this collapsed them. It no longer needs to: carenotes-sync prunes a note whose
+           visit AxisCare reports removed (2026-09-28), which is where the duplicate came
+           from. Claude: do not re-add a deduper here. A silent collapse in the read path
+           hides the next data problem rather than showing it, and the board is supposed to
+           be honest about what the table holds. */
         return (rows || []).map(function (n) {
           return {
             id: 'cn' + String(n.visit_id).replace(/[^A-Za-z0-9]+/g, '_'),
