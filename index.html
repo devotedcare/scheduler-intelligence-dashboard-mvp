@@ -2310,6 +2310,17 @@ body.ai-white .view{flex:1 1 auto;min-height:0;display:flex;flex-direction:colum
   .pie-pct{color:var(--ink-soft);font-variant-numeric:tabular-nums;min-width:34px;text-align:right}
   .pie-foot{font-size:11.5px;color:var(--ink-soft);margin-top:9px}
   .pie-empty{font-size:12px;color:var(--ink-soft);padding:8px 0 4px}
+  /* Capacity-by-segment rows (availReportBody's capRowsHtml). One row per
+     segment: label, a proportion bar (light fill = real spare time of any
+     size, solid green = enough for a whole new case), then the count. */
+  .cap-rows{display:flex;flex-direction:column;gap:6px;margin-bottom:14px}
+  .cap-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .cap-rlabel{flex:0 0 150px;font-size:12.5px;font-weight:700;color:var(--ink)}
+  .cap-rbar{flex:1 1 120px;min-width:80px;position:relative;height:8px;border-radius:5px;background:var(--panel-head);border:1px solid var(--line);overflow:hidden}
+  .cap-rbar-add,.cap-rbar-new{position:absolute;left:0;top:0;bottom:0;border-radius:5px}
+  .cap-rbar-add{background:var(--line-strong)}
+  .cap-rbar-new{background:var(--good-solid)}
+  .cap-rnum{flex:0 0 auto;font-size:11.5px;color:var(--ink-soft);font-variant-numeric:tabular-nums;white-space:nowrap}
   /* Two equal halves below the pies; they stack on a narrow window rather
      than squeezing eight bars into 200px. */
   .halfrow{display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:12px;align-items:start}
@@ -5145,6 +5156,161 @@ function availRefresh(force){
 }
 function availRefreshNow(){ availRefresh(true); render(); }
 
+/* ===== Caregiver Capacity — real staffing capacity, not a headcount =====
+   Added 2026-09-29: "we have 100 active caregivers, but how many can
+   actually take another case?" Active status alone cannot answer that, so
+   this reads each caregiver's REAL, CARVED availability — AVAIL.openDays()
+   — over a fixed near-term window. Open blocks are cut against live
+   AxisCare visits at save time and re-carved hourly ("AxisCare visits
+   carve, at save time"), so what survives an Open block already reflects
+   ACTUAL CURRENT ASSIGNMENTS, not a stated preference. Never c.weekHrs
+   (always null on a real caregiver — "Hours worked is no longer one of
+   them... the weekHrs field is still null"), never c.ops.devoted or
+   hasActiveClient (both are dead seed-data fields per cgSchedule's own
+   header comment).
+
+   CAP_WINDOW_DAYS is deliberately short and near-term — the same rule
+   "How availability works" states for the whole app: a date nobody has
+   confirmed is not capacity, however much is recorded a month out. 14 days
+   gives two occurrences of every weekday, so the day-of-week and time-of-
+   day breakdowns below are a real read rather than one noisy day.
+
+   Four buckets, in order of how much room a caregiver has:
+     none       no Open block anywhere in the window — same rule Find
+                Coverage uses: nothing recorded means not available
+     full       Open blocks exist but add up to under CAP_MIN_HOURS_ANY —
+                real, but not enough to call spare capacity
+     additional real, meaningful open time, short of a new case
+     newcase    enough open time, spread across enough distinct days, to
+                plausibly anchor a new client's recurring schedule
+
+   These thresholds are a judgement call, not a measurement — named
+   constants, and stated in the report's own caption rather than buried, so
+   the desk can see exactly how "available for a new case" was decided. */
+const CAP_WINDOW_DAYS=14, CAP_MIN_HOURS_ANY=12, CAP_NEWCASE_MIN_HOURS=24, CAP_NEWCASE_MIN_DAYS=3;
+function capWindowDates(){ const t=toDateInput(NOW), out=[]; for(let i=0;i<CAP_WINDOW_DAYS;i++) out.push(addDaysStr(t,i)); return out; }
+/* One pass per caregiver: their carved Open blocks inside the window, the
+   bucket they fall in, which weekdays they are open on, and which
+   WK_BUCKETS bands they cover IN FULL on at least one date in the window —
+   the exact all-or-nothing rule coverageDetail() already uses for real
+   shift matching (wkAvailableCaregivers uses the same call), reused rather
+   than re-invented, so "Morning" means the same thing here as it does on
+   Find Coverage's Who Is Available screen. coverageDetail() reads only the
+   already-loaded AVAIL index, so this triggers no AxisCare calls. */
+function capForCaregiver(c, winDates, winSet){
+  const od=AVAIL.openDays(c.id).filter(o=>winSet.has(o.day));
+  let hours=0; od.forEach(o=>o.wins.forEach(w=>{ hours+=(w[1]-w[0]); }));
+  const days=od.length;
+  let bucket;
+  if(days===0) bucket='none';
+  else if(hours<CAP_MIN_HOURS_ANY) bucket='full';
+  else if(hours>=CAP_NEWCASE_MIN_HOURS && days>=CAP_NEWCASE_MIN_DAYS) bucket='newcase';
+  else bucket='additional';
+  const wkDays=new Set(od.map(o=>dayKeyFromDate(o.day)));
+  const bands={};
+  WK_BUCKETS.forEach(b=>{ bands[b[0]]=winDates.some(ds=>coverageDetail(c,ds,b[1],b[2]).cov==='full'); });
+  return {bucket, hours, days, wkDays, bands};
+}
+function capBuildIndex(act){
+  const winDates=capWindowDates(), winSet=new Set(winDates), out=new Map();
+  act.forEach(c=>out.set(c.id, capForCaregiver(c, winDates, winSet)));
+  return out;
+}
+function capBucketCounts(idx){
+  const n={newcase:0, additional:0, full:0, none:0};
+  idx.forEach(v=>{ n[v.bucket]++; });
+  return n;
+}
+function capSummaryHtml(idx, act){
+  const n=capBucketCounts(idx);
+  const tile=(l,v,tone)=>`<div class="pf-tile"><div class="pf-v ${tone||''}">${v}</div><div class="pf-l">${esc(l)}</div></div>`;
+  return `<div class="rep-sub">Caregiver Capacity</div>
+    <div class="pf-grid pf-grid-3">
+      ${tile('Total Active Caregivers', act.length)}
+      ${tile('Available to Take a New Case', n.newcase, 'good')}
+      ${tile('Available for Additional Hours Only', n.additional)}
+      ${tile('Fully Assigned / No Capacity', n.full)}
+      ${tile('Not Currently Available', n.none, n.none?'crit':'')}
+    </div>
+    <div class="pie-foot">Read from ${esc(fmtDate(NOW))} through the next ${CAP_WINDOW_DAYS} days of recorded availability, carved against real AxisCare visits — not from active status alone. "Available to take a new case" means at least ${CAP_NEWCASE_MIN_HOURS}h of open time across ${CAP_NEWCASE_MIN_DAYS}+ different days in that window.</div>`;
+}
+/* Every segment row is {label, active, newcase, additional} — active
+   caregivers in that segment, and how many of them clear each of the top
+   two buckets. The bar shows both: the full-width fill is newcase+
+   additional (anyone with real spare room), the solid green portion is
+   newcase alone (who could take a whole new case). */
+function capRowsHtml(rows){
+  const use=rows.filter(r=>r.active>0);
+  if(!use.length) return `<div class="rep-empty">Nothing recorded yet.</div>`;
+  const max=Math.max(1,...use.map(r=>r.active));
+  return `<div class="cap-rows">`+use.map(r=>{
+    const wAdd=Math.round((r.newcase+r.additional)/max*100), wNew=Math.round(r.newcase/max*100);
+    return `<div class="cap-row">
+      <div class="cap-rlabel">${esc(r.label)}</div>
+      <div class="cap-rbar" title="${r.newcase} of ${r.active} can take a new case${r.additional?', +'+r.additional+' more for additional hours only':''}"><span class="cap-rbar-add" style="width:${wAdd}%"></span><span class="cap-rbar-new" style="width:${wNew}%"></span></div>
+      <div class="cap-rnum"><b>${r.newcase}</b> of ${r.active}${r.additional?` · +${r.additional} hours only`:''}</div>
+    </div>`;
+  }).join('')+`</div>`;
+}
+function capRowInit(label){ return {label, active:0, newcase:0, additional:0}; }
+function capTally(row, c, idx){ row.active++; const v=idx.get(c.id); if(v.bucket==='newcase') row.newcase++; else if(v.bucket==='additional') row.additional++; }
+function capByLocation(act, idx){
+  const by={};
+  act.forEach(c=>{ const k=cityKeyOf(c.base); const row=by[k]||(by[k]=capRowInit(k)); capTally(row, c, idx); });
+  return Object.values(by).sort((a,b)=>b.active-a.active || a.label.localeCompare(b.label));
+}
+function capByWeekday(act, idx){
+  const order=[['Mon','Monday'],['Tue','Tuesday'],['Wed','Wednesday'],['Thu','Thursday'],['Fri','Friday'],['Sat','Saturday'],['Sun','Sunday']];
+  return order.map(([k,label])=>{
+    const row=capRowInit(label);
+    act.forEach(c=>{ if(idx.get(c.id).wkDays.has(k)) capTally(row, c, idx); });
+    return row;
+  });
+}
+function capByBand(act, idx){
+  return WK_BUCKETS.map(b=>{
+    const row=capRowInit(b[0]);
+    act.forEach(c=>{ if(idx.get(c.id).bands[b[0]]) capTally(row, c, idx); });
+    return row;
+  });
+}
+function capByWeekdayWeekend(act, idx){
+  const WD=['Mon','Tue','Wed','Thu','Fri'], WE=['Sat','Sun'];
+  const mk=(label,keys)=>{ const row=capRowInit(label);
+    act.forEach(c=>{ if(keys.some(k=>idx.get(c.id).wkDays.has(k))) capTally(row, c, idx); });
+    return row; };
+  return [mk('Weekday (Mon–Fri)',WD), mk('Weekend (Sat–Sun)',WE)];
+}
+function capByGender(act, idx){
+  const mk=(label,test)=>{ const row=capRowInit(label);
+    act.forEach(c=>{ if(test(c)) capTally(row, c, idx); });
+    return row; };
+  return [mk('Female',c=>c.gender==='F'), mk('Male',c=>c.gender==='M')];
+}
+/* CNA reads prefVal(c,'cna') — a typed answer first, the AxisCare CNA tag
+   otherwise — never a bare tag check, and never reads a missing tag as a
+   confirmed No ("silence is silence" — the same rule prefVal() itself
+   documents). Driver reads c.driver directly, exactly as the caregiver
+   profile's own Driving row does. */
+function capByCertDriving(act, idx){
+  const mk=(label,test)=>{ const row=capRowInit(label);
+    act.forEach(c=>{ if(test(c)) capTally(row, c, idx); });
+    return row; };
+  return [
+    mk('CNA-certified', c=>prefVal(c,'cna')===true),
+    mk('Not CNA-certified / not recorded', c=>prefVal(c,'cna')!==true),
+    mk('Drivers', c=>c.driver===true),
+    mk('Non-drivers', c=>c.driver!==true),
+  ];
+}
+function capSegmentHtml(act, idx){
+  return `<div class="rep-sub">Capacity by Location</div>${capRowsHtml(capByLocation(act,idx))}`
+    + `<div class="rep-sub">Capacity by Day of the Week</div>${capRowsHtml(capByWeekday(act,idx))}`
+    + `<div class="rep-sub">Capacity by Time of Day</div>${capRowsHtml(capByBand(act,idx))}`
+    + `<div class="rep-sub">Capacity — Weekday vs Weekend</div>${capRowsHtml(capByWeekdayWeekend(act,idx))}`
+    + `<div class="rep-sub">Capacity by Gender</div>${capRowsHtml(capByGender(act,idx))}`
+    + `<div class="rep-sub">Certifications &amp; Driving</div>${capRowsHtml(capByCertDriving(act,idx))}`;
+}
 function availReportBody(){
   /* Opening the report reads the database; the Refresh button reads it
      again. A report figure gets quoted, so it must not be a boot-time
@@ -5200,6 +5366,16 @@ function availReportBody(){
   const noneN=act.filter(c=>!odays(c).length).length;
   const _asOf = _rep.at ? new Date(_rep.at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}) : '';
   const _bar = `<div class="rep-gen">Availability read from the database${_asOf?' at '+_asOf:''} <button class="btn sm" onclick="availRefreshNow()">Refresh</button></div>`;
+  /* Real staffing capacity, not a headcount — see the header comment above
+     capForCaregiver(). This needs AVAIL's index itself to be ready, which
+     is a stricter check than _rep.status: availRefresh() marks the report
+     "ready" even when AVAIL.primeIndex() failed underneath it, so a
+     confident wrong answer here would be the exact failure this codebase
+     keeps re-learning not to make. */
+  const _capOk = (typeof AVAIL!=='undefined' && AVAIL.indexStatus && AVAIL.indexStatus()==='ready');
+  const capacityHtml = _capOk
+    ? (function(){ const idx=capBuildIndex(act); return capSummaryHtml(idx, act) + capSegmentHtml(act, idx); })()
+    : `<div class="rep-sub">Caregiver Capacity</div><div class="q-empty">Availability could not be read from the database, so real capacity cannot be shown right now. Try Refresh above.</div>`;
   /* Weekday/weekend and daytime/nighttime OVERLAP - a caregiver open all
      week counts in both - so drawing them as two slices of a pie would
      double-count and the percentages would not mean anything. Split them
@@ -5218,7 +5394,7 @@ function availReportBody(){
   const noGender=act.length-femaleN-maleN;
   const noneFoot=noneN?noneN+' caregiver'+(noneN===1?'':'s')+' with no availability recorded':'';
 
-  const summary=_bar+`<div class="pier">
+  const summary=_bar+capacityHtml+`<div class="rep-sub" style="margin-top:16px">Availability Overview</div><div class="pier">
     ${pieCard('Weekday vs Weekend',[
       {label:'Weekdays only',n:wkOnly},{label:'Both',n:bothWk},{label:'Weekends only',n:weOnly}],noneFoot)}
     ${pieCard('Female vs Male',[
