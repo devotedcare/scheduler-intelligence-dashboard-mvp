@@ -2310,17 +2310,30 @@ body.ai-white .view{flex:1 1 auto;min-height:0;display:flex;flex-direction:colum
   .pie-pct{color:var(--ink-soft);font-variant-numeric:tabular-nums;min-width:34px;text-align:right}
   .pie-foot{font-size:11.5px;color:var(--ink-soft);margin-top:9px}
   .pie-empty{font-size:12px;color:var(--ink-soft);padding:8px 0 4px}
-  /* Capacity-by-segment rows (availReportBody's capRowsHtml). One row per
-     segment: label, a proportion bar (light fill = real spare time of any
-     size, solid green = enough for a whole new case), then the count. */
-  .cap-rows{display:flex;flex-direction:column;gap:6px;margin-bottom:14px}
-  .cap-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-  .cap-rlabel{flex:0 0 150px;font-size:12.5px;font-weight:700;color:var(--ink)}
-  .cap-rbar{flex:1 1 120px;min-width:80px;position:relative;height:8px;border-radius:5px;background:var(--panel-head);border:1px solid var(--line);overflow:hidden}
-  .cap-rbar-add,.cap-rbar-new{position:absolute;left:0;top:0;bottom:0;border-radius:5px}
-  .cap-rbar-add{background:var(--line-strong)}
-  .cap-rbar-new{background:var(--good-solid)}
-  .cap-rnum{flex:0 0 auto;font-size:11.5px;color:var(--ink-soft);font-variant-numeric:tabular-nums;white-space:nowrap}
+  /* Caregiver Capacity (availReportBody). A hero number for "Can take a
+     new case" — the one figure that answers "can we accept another
+     client" — then four smaller counts, then plain number tiles for
+     shift/day, then a real table for location. No bars anywhere: measured
+     against this exact page and rejected as "difficult to compare and
+     unnecessarily long." Every number is a button (capOpenList()). */
+  .cap-hero{display:flex;flex-direction:column;align-items:flex-start;gap:2px;background:var(--good-bg);border:1px solid #BBD9C7;border-radius:var(--r);padding:16px 20px;cursor:pointer;margin-bottom:10px}
+  .cap-hero:hover{border-color:var(--good-solid)}
+  .cap-hero-n{font-size:38px;font-weight:800;color:var(--good-solid);line-height:1;font-variant-numeric:tabular-nums}
+  .cap-hero-l{font-size:13px;font-weight:800;color:var(--ink);text-transform:uppercase;letter-spacing:.4px;margin-top:5px}
+  .cap-hero-sub{font-size:12px;color:var(--ink-soft)}
+  .cap-mini-row{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+  @media(max-width:680px){.cap-mini-row{grid-template-columns:repeat(2,1fr)}}
+  .cap-mini{background:var(--panel-head);border:1px solid var(--line);border-radius:var(--r);padding:11px 13px;text-align:center;cursor:pointer}
+  .cap-mini:hover{border-color:var(--brand)}
+  .cap-mini-n{font-size:21px;font-weight:800;color:var(--ink);font-variant-numeric:tabular-nums}
+  .cap-mini-l{font-size:10.5px;color:var(--ink-soft);margin-top:3px;font-weight:600;line-height:1.25}
+  .pf-grid-7{display:grid;grid-template-columns:repeat(7,1fr);gap:8px}
+  @media(max-width:680px){.pf-grid-7{grid-template-columns:repeat(4,1fr)}}
+  .cap-tiles .pf-tile{cursor:pointer}
+  .cap-tiles .pf-tile:hover{border-color:var(--brand)}
+  .cap-numlink{color:var(--brand);font-weight:700;cursor:pointer;text-decoration:underline}
+  .cap-numlink:hover{color:var(--brand-deep)}
+  .cap-numzero{color:var(--ink-faint)}
   /* Two equal halves below the pies; they stack on a narrow window rather
      than squeezing eight bars into 200px. */
   .halfrow{display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:12px;align-items:start}
@@ -5336,95 +5349,82 @@ function capBucketCounts(idx){
   idx.forEach(v=>{ n[v.bucket]++; });
   return n;
 }
+/* Simplified 2026-09-29 at Mitch's request: the six-section bar-row
+   breakdown below (Location/Day/Band/Weekday-Weekend/Gender/CNA-Driving)
+   read as "too difficult to read quickly." Replaced with exactly the
+   shape asked for — a hero number, four small counts, two compact number
+   rows (shift, day) and one real table (location) — and nothing here
+   draws a bar. Every number is a button: capOpenList() rebuilds the same
+   capForCaregiver() read, filtered to the segment clicked, and opens the
+   caregiver list in the ordinary modal (the same td-list/td-row shape
+   used elsewhere in this file). */
+const CAP_BUCKET_LABEL={newcase:'Can take a new case', additional:'Additional hours only', full:'Fully assigned', none:'Not currently available'};
 function capSummaryHtml(idx, act){
   const n=capBucketCounts(idx);
-  const tile=(l,v,tone)=>`<div class="pf-tile"><div class="pf-v ${tone||''}">${v}</div><div class="pf-l">${esc(l)}</div></div>`;
   return `<div class="rep-sub">Caregiver Capacity</div>
-    <div class="pf-grid pf-grid-3">
-      ${tile('Total Active Caregivers', act.length)}
-      ${tile('Available to Take a New Case', n.newcase, 'good')}
-      ${tile('Available for Additional Hours Only', n.additional)}
-      ${tile('Fully Assigned / No Capacity', n.full)}
-      ${tile('Not Currently Available', n.none, n.none?'crit':'')}
+    <div class="cap-hero" onclick="capOpenList('bucket','newcase')" role="button" tabindex="0" title="Click to see who">
+      <div class="cap-hero-n">${n.newcase}</div>
+      <div class="cap-hero-l">Can Take a New Case</div>
+      <div class="cap-hero-sub">of ${act.length} active caregivers</div>
     </div>
-    <div class="pie-foot">Read from ${esc(fmtDate(NOW))} through the next ${CAP_WINDOW_DAYS} days of recorded availability, carved against real AxisCare visits — not from active status alone. "Available to take a new case" means at least ${CAP_NEWCASE_MIN_HOURS}h of open time across ${CAP_NEWCASE_MIN_DAYS}+ different days in that window.</div>`;
+    <div class="cap-mini-row">
+      <div class="cap-mini" onclick="capOpenList('all')" role="button" tabindex="0"><div class="cap-mini-n">${act.length}</div><div class="cap-mini-l">Active Caregivers</div></div>
+      <div class="cap-mini" onclick="capOpenList('bucket','additional')" role="button" tabindex="0"><div class="cap-mini-n">${n.additional}</div><div class="cap-mini-l">Additional Hours Only</div></div>
+      <div class="cap-mini" onclick="capOpenList('bucket','full')" role="button" tabindex="0"><div class="cap-mini-n">${n.full}</div><div class="cap-mini-l">Fully Assigned</div></div>
+      <div class="cap-mini" onclick="capOpenList('bucket','none')" role="button" tabindex="0"><div class="cap-mini-n">${n.none}</div><div class="cap-mini-l">Not Available</div></div>
+    </div>
+    <div class="pie-foot">Read from ${esc(fmtDate(NOW))} through the next ${CAP_WINDOW_DAYS} days of recorded availability, carved against real AxisCare visits — never from active status alone. "Can Take a New Case" means at least ${CAP_NEWCASE_MIN_HOURS}h of open time across ${CAP_NEWCASE_MIN_DAYS}+ different days in that window. Click any number to see who.</div>`;
 }
-/* Every segment row is {label, active, newcase, additional} — active
-   caregivers in that segment, and how many of them clear each of the top
-   two buckets. The bar shows both: the full-width fill is newcase+
-   additional (anyone with real spare room), the solid green portion is
-   newcase alone (who could take a whole new case). */
-function capRowsHtml(rows){
-  const use=rows.filter(r=>r.active>0);
-  if(!use.length) return `<div class="rep-empty">Nothing recorded yet.</div>`;
-  const max=Math.max(1,...use.map(r=>r.active));
-  return `<div class="cap-rows">`+use.map(r=>{
-    const wAdd=Math.round((r.newcase+r.additional)/max*100), wNew=Math.round(r.newcase/max*100);
-    return `<div class="cap-row">
-      <div class="cap-rlabel">${esc(r.label)}</div>
-      <div class="cap-rbar" title="${r.newcase} of ${r.active} can take a new case${r.additional?', +'+r.additional+' more for additional hours only':''}"><span class="cap-rbar-add" style="width:${wAdd}%"></span><span class="cap-rbar-new" style="width:${wNew}%"></span></div>
-      <div class="cap-rnum"><b>${r.newcase}</b> of ${r.active}${r.additional?` · +${r.additional} hours only`:''}</div>
-    </div>`;
-  }).join('')+`</div>`;
+function capShiftHtml(act, idx){
+  const rows=WK_BUCKETS.map(b=>{ let n=0; act.forEach(c=>{ if(idx.get(c.id).bands[b[0]]) n++; }); return {label:b[0], n}; });
+  return `<div class="rep-sub" style="margin-top:16px">Capacity by Shift</div>
+    <div class="pf-grid cap-tiles">${rows.map(r=>`<div class="pf-tile" onclick="capOpenList('band','${r.label}')" role="button" tabindex="0"><div class="pf-v">${r.n}</div><div class="pf-l">${esc(r.label)}</div></div>`).join('')}</div>`;
 }
-function capRowInit(label){ return {label, active:0, newcase:0, additional:0}; }
-function capTally(row, c, idx){ row.active++; const v=idx.get(c.id); if(v.bucket==='newcase') row.newcase++; else if(v.bucket==='additional') row.additional++; }
-function capByLocation(act, idx){
+function capDayHtml(act, idx){
+  const order=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  const rows=order.map(k=>{ let n=0; act.forEach(c=>{ if(idx.get(c.id).wkDays.has(k)) n++; }); return {k, n}; });
+  return `<div class="rep-sub" style="margin-top:16px">Capacity by Day</div>
+    <div class="pf-grid-7 cap-tiles">${rows.map(r=>`<div class="pf-tile" onclick="capOpenList('weekday','${r.k}')" role="button" tabindex="0"><div class="pf-v">${r.n}</div><div class="pf-l">${r.k}</div></div>`).join('')}</div>`;
+}
+/* A plain table, deliberately — not bars. A bar per city was measured
+   against this exact request and rejected: "difficult to compare and
+   make the page unnecessarily long." Capped and sorted by New Case Ready
+   first, so the locations that matter most for "can we accept another
+   client" sort to the top; a footer names how many more exist rather
+   than hiding them silently. */
+const CAP_LOCATION_ROWS=10;
+function capLocationHtml(act, idx){
   const by={};
-  act.forEach(c=>{ const k=cityKeyOf(c.base); const row=by[k]||(by[k]=capRowInit(k)); capTally(row, c, idx); });
-  return Object.values(by).sort((a,b)=>b.active-a.active || a.label.localeCompare(b.label));
+  act.forEach(c=>{ const k=cityKeyOf(c.base); const row=by[k]||(by[k]={label:k, newcase:0, additional:0, active:0}); row.active++;
+    const bk=idx.get(c.id).bucket; if(bk==='newcase') row.newcase++; else if(bk==='additional') row.additional++; });
+  const all=Object.values(by).sort((a,b)=>b.newcase-a.newcase || b.active-a.active || a.label.localeCompare(b.label));
+  const rows=all.slice(0,CAP_LOCATION_ROWS);
+  const jsSafe=s=>esc(s).replace(/'/g,"\\'");
+  const num=(v,kind,loc)=> v>0 ? `<span class="cap-numlink" onclick="capOpenList('location','${jsSafe(loc)}','${kind}')" role="button" tabindex="0">${v}</span>` : '<span class="cap-numzero">0</span>';
+  const body=rows.length ? rvTbl(['Location','New Case Ready','Additional Hours'],
+    rows.map(r=>[`<b>${escText(r.label)}</b>`, num(r.newcase,'newcase',r.label), num(r.additional,'additional',r.label)]))
+    : `<div class="rep-empty">No location data recorded.</div>`;
+  const more=all.length>rows.length ? `<div class="pie-foot">+ ${all.length-rows.length} more location${all.length-rows.length===1?'':'s'} with active caregivers, not shown.</div>` : '';
+  return `<div class="rep-sub" style="margin-top:16px">Location Capacity</div>${body}${more}`;
 }
-function capByWeekday(act, idx){
-  const order=[['Mon','Monday'],['Tue','Tuesday'],['Wed','Wednesday'],['Thu','Thursday'],['Fri','Friday'],['Sat','Saturday'],['Sun','Sunday']];
-  return order.map(([k,label])=>{
-    const row=capRowInit(label);
-    act.forEach(c=>{ if(idx.get(c.id).wkDays.has(k)) capTally(row, c, idx); });
-    return row;
-  });
-}
-function capByBand(act, idx){
-  return WK_BUCKETS.map(b=>{
-    const row=capRowInit(b[0]);
-    act.forEach(c=>{ if(idx.get(c.id).bands[b[0]]) capTally(row, c, idx); });
-    return row;
-  });
-}
-function capByWeekdayWeekend(act, idx){
-  const WD=['Mon','Tue','Wed','Thu','Fri'], WE=['Sat','Sun'];
-  const mk=(label,keys)=>{ const row=capRowInit(label);
-    act.forEach(c=>{ if(keys.some(k=>idx.get(c.id).wkDays.has(k))) capTally(row, c, idx); });
-    return row; };
-  return [mk('Weekday (Mon–Fri)',WD), mk('Weekend (Sat–Sun)',WE)];
-}
-function capByGender(act, idx){
-  const mk=(label,test)=>{ const row=capRowInit(label);
-    act.forEach(c=>{ if(test(c)) capTally(row, c, idx); });
-    return row; };
-  return [mk('Female',c=>c.gender==='F'), mk('Male',c=>c.gender==='M')];
-}
-/* CNA reads prefVal(c,'cna') — a typed answer first, the AxisCare CNA tag
-   otherwise — never a bare tag check, and never reads a missing tag as a
-   confirmed No ("silence is silence" — the same rule prefVal() itself
-   documents). Driver reads c.driver directly, exactly as the caregiver
-   profile's own Driving row does. */
-function capByCertDriving(act, idx){
-  const mk=(label,test)=>{ const row=capRowInit(label);
-    act.forEach(c=>{ if(test(c)) capTally(row, c, idx); });
-    return row; };
-  return [
-    mk('CNA-certified', c=>prefVal(c,'cna')===true),
-    mk('Not CNA-certified / not recorded', c=>prefVal(c,'cna')!==true),
-    mk('Drivers', c=>c.driver===true),
-    mk('Non-drivers', c=>c.driver!==true),
-  ];
-}
-function capSegmentHtml(act, idx){
-  return `<div class="rep-sub">Capacity by Location</div>${capRowsHtml(capByLocation(act,idx))}`
-    + `<div class="rep-sub">Capacity by Day of the Week</div>${capRowsHtml(capByWeekday(act,idx))}`
-    + `<div class="rep-sub">Capacity by Time of Day</div>${capRowsHtml(capByBand(act,idx))}`
-    + `<div class="rep-sub">Capacity — Weekday vs Weekend</div>${capRowsHtml(capByWeekdayWeekend(act,idx))}`
-    + `<div class="rep-sub">Capacity by Gender</div>${capRowsHtml(capByGender(act,idx))}`
-    + `<div class="rep-sub">Certifications &amp; Driving</div>${capRowsHtml(capByCertDriving(act,idx))}`;
+/* The one modal every capacity number opens. Recomputes capForCaregiver()
+   fresh rather than reusing a stashed index, so a click always describes
+   whatever AVAIL currently holds — cheap and pure, no network call. */
+function capOpenList(kind, a, b){
+  if(!(typeof AVAIL!=='undefined' && AVAIL.indexStatus && AVAIL.indexStatus()==='ready')){ toast('Availability not loaded yet'); return; }
+  const act=state.caregivers.filter(c=>c.active!==false);
+  const winDates=capWindowDates(), winSet=new Set(winDates);
+  const withCap=act.map(c=>({c, cap:capForCaregiver(c, winDates, winSet)}));
+  let title='Active caregivers', list=withCap;
+  if(kind==='bucket'){ title=CAP_BUCKET_LABEL[a]; list=withCap.filter(x=>x.cap.bucket===a); }
+  else if(kind==='band'){ title=a+' — available'; list=withCap.filter(x=>x.cap.bands[a]); }
+  else if(kind==='weekday'){ const names={Mon:'Monday',Tue:'Tuesday',Wed:'Wednesday',Thu:'Thursday',Fri:'Friday',Sat:'Saturday',Sun:'Sunday'}; title=(names[a]||a)+' — available'; list=withCap.filter(x=>x.cap.wkDays.has(a)); }
+  else if(kind==='location'){ title=a+' — '+(CAP_BUCKET_LABEL[b]||''); list=withCap.filter(x=>cityKeyOf(x.c.base)===a && x.cap.bucket===b); }
+  list=list.slice().sort((x,y)=>x.c.name.localeCompare(y.c.name));
+  const rows=list.length ? list.map(x=>`<div class="td-row"><div class="td-name">${escText(x.c.name)}</div><div class="td-sub">${escText(cityKeyOf(x.c.base))} · ${CAP_BUCKET_LABEL[x.cap.bucket]} · ${x.cap.hours}h over ${x.cap.days} day${x.cap.days===1?'':'s'}</div></div>`).join('')
+    : `<div class="cn-clear">${ic('check',16)} No caregivers match.</div>`;
+  mEl.innerHTML=`<div class="mh"><span class="mt">${escText(title)} (${list.length})</span><button class="mc" onclick="closeModal()">×</button></div><div class="mb"><div class="td-list">${rows}</div></div>`;
+  mbg.classList.add('show');
 }
 function availReportBody(){
   /* Opening the report reads the database; the Refresh button reads it
@@ -5489,7 +5489,7 @@ function availReportBody(){
      keeps re-learning not to make. */
   const _capOk = (typeof AVAIL!=='undefined' && AVAIL.indexStatus && AVAIL.indexStatus()==='ready');
   const capacityHtml = _capOk
-    ? (function(){ const idx=capBuildIndex(act); return capSummaryHtml(idx, act) + capSegmentHtml(act, idx); })()
+    ? (function(){ const idx=capBuildIndex(act); return capSummaryHtml(idx, act) + capShiftHtml(act, idx) + capDayHtml(act, idx) + capLocationHtml(act, idx); })()
     : `<div class="rep-sub">Caregiver Capacity</div><div class="q-empty">Availability could not be read from the database, so real capacity cannot be shown right now. Try Refresh above.</div>`;
   /* Weekday/weekend and daytime/nighttime OVERLAP - a caregiver open all
      week counts in both - so drawing them as two slices of a pie would
