@@ -2783,6 +2783,10 @@ body.ai-white .view{flex:1 1 auto;min-height:0;display:flex;flex-direction:colum
    natural length and the card decides what shows. */
 .pfx-body .cgp-list{max-height:none;overflow:visible}
 .pfx-more{flex:0 0 auto;margin-top:8px;padding-top:8px;border-top:1px solid var(--line);text-align:right}
+/* View Details as a plain text link (Communication Logs, Notes) — no box,
+   no fill, no border. cgPanelShell()'s plainViewDetails flag. */
+.pfx-link{background:none;border:none;padding:0;margin:0;font-family:inherit;font-size:12.5px;font-weight:650;color:var(--brand);cursor:pointer;display:inline-flex;align-items:center;gap:3px}
+.pfx-link:hover{color:var(--brand-deep);text-decoration:underline}
 /* In the popup the same body runs to whatever length it needs. */
 .pfx-full .str-tags{margin-bottom:2px}
 
@@ -14305,9 +14309,16 @@ function cgPanelShell(all, o){
      a per-panel cap said "(6)" on one card and nothing on its neighbour
      purely because their caps differed. */
   const n=o.total?' ('+o.total+')':'';
+  /* Communication Logs and Notes asked for View Details as a plain text
+     link — no box, no fill, no border — while Client Feedback and Client
+     Complaint keep the button. Opt-in per caller so this one shared shell
+     does not silently restyle all four Overview cards at once. */
+  const viewBtn = o.plainViewDetails
+    ? `<button class="pfx-link" onclick="${o.onAll}">View Details${n} &gt;</button>`
+    : `<button class="btn xs" onclick="${o.onAll}">View Details${n}</button>`;
   return `<div class="ws-card cgp pfx">${head}
     <div class="pfx-body">${o.body}</div>
-    <div class="pfx-more" hidden><button class="btn xs" onclick="${o.onAll}">View Details${n}</button></div>
+    <div class="pfx-more" hidden>${viewBtn}</div>
   </div>`;
 }
 
@@ -14343,7 +14354,7 @@ function cgNotesPanel(c, all){
     : `<div class="ws-none">No notes yet.</div>`;
   return cgPanelShell(all, {title:'Notes', icon:'forms', tint:'h-prefs', body:body,
     btn:`<button class="btn xs" onclick="openCgNoteAdd('${c.id}')">+ Add Note</button>`,
-    onAll:"openCgAll('"+c.id+"','notes')", total:list.length});
+    onAll:"openCgAll('"+c.id+"','notes')", total:list.length, plainViewDetails:true});
 }
 function openCgNoteAdd(id){
   const c=cgById(id); if(!c) return;
@@ -14794,7 +14805,7 @@ function cmPick(cgId, key){
 function cgCommsPanel(c, all){
   const SHELL=function(body,total){
     return cgPanelShell(all, {title:'Communication Logs', icon:'chat', tint:'h-emp',
-      body:body, onAll:"openCgAll('"+c.id+"','comms')", total:total||0});
+      body:body, onAll:"openCgAll('"+c.id+"','comms')", total:total||0, plainViewDetails:true});
   };
   if(typeof CGCOMMS==='undefined' || typeof Quo==='undefined')
     return SHELL('<div class="ws-none">The Quo connection is not available in this build.</div>',0);
