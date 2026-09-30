@@ -2787,6 +2787,16 @@ body.ai-white .view{flex:1 1 auto;min-height:0;display:flex;flex-direction:colum
    no fill, no border. cgPanelShell()'s plainViewDetails flag. */
 .pfx-link{background:none;border:none;padding:0;margin:0;font-family:inherit;font-size:12.5px;font-weight:650;color:var(--brand);cursor:pointer;display:inline-flex;align-items:center;gap:3px}
 .pfx-link:hover{color:var(--brand-deep);text-decoration:underline}
+/* Communication Logs and Notes only (cgPanelShell's scrollBody flag): the
+   card height stays the fixed 260px, but .pfx-body scrolls instead of
+   clipping. .pfx-body and .pfx-more are siblings, so the header above and
+   "View Details" below never move. Same slim scrollbar recipe as
+   .ai-thread, scaled down for a card this small. */
+.ws-card.pfx.pfx-scroll .pfx-body{overflow-y:auto;overscroll-behavior:contain}
+.ws-card.pfx.pfx-scroll .pfx-body{scrollbar-width:thin;scrollbar-color:#DDE4EB transparent}
+.ws-card.pfx.pfx-scroll .pfx-body::-webkit-scrollbar{width:6px}
+.ws-card.pfx.pfx-scroll .pfx-body::-webkit-scrollbar-track{background:transparent}
+.ws-card.pfx.pfx-scroll .pfx-body::-webkit-scrollbar-thumb{background:#DDE4EB;border-radius:6px}
 /* In the popup the same body runs to whatever length it needs. */
 .pfx-full .str-tags{margin-bottom:2px}
 
@@ -13897,9 +13907,16 @@ function pfxFit(){
    Rows are uniform height by construction — the gist is clamped to one line
    in the card for exactly this reason — so a single measurement answers for
    all of them. Anything unexpected (no rows, zero height, a browser that
-   reports nothing) simply leaves the card clipping as it did before. */
+   reports nothing) simply leaves the card clipping as it did before.
+
+   :not(.pfx-scroll) — the card now scrolls instead of clipping (Mitch,
+   2026-09-30), so there is no partial row to hide any more: scrolling one
+   row further shows the rest of it. Capping the list to a whole number of
+   rows in THAT mode would hard-limit .cm-list to exactly the card's
+   visible height with nothing left to scroll to, defeating the scrollbar
+   this was built to avoid needing. */
 function cmFit(){
-  const lists=document.querySelectorAll('.ws-card.pfx .cm-list');
+  const lists=document.querySelectorAll('.ws-card.pfx:not(.pfx-scroll) .cm-list');
   if(!lists.length) return;
   lists.forEach(function(list){
     list.style.maxHeight='';
@@ -14316,7 +14333,14 @@ function cgPanelShell(all, o){
   const viewBtn = o.plainViewDetails
     ? `<button class="pfx-link" onclick="${o.onAll}">View Details${n} &gt;</button>`
     : `<button class="btn xs" onclick="${o.onAll}">View Details${n}</button>`;
-  return `<div class="ws-card cgp pfx">${head}
+  /* Communication Logs and Notes asked for the CONTENT to scroll inside a
+     still-fixed-height card, header and "View Details" both staying put.
+     scrollBody just flips .pfx-body from clip (overflow:hidden) to scroll
+     (overflow-y:auto) — the header and .pfx-more are siblings of .pfx-body,
+     not inside it, so they were already structurally pinned outside the
+     clipped area and need no change themselves. Opt-in, same reason as
+     plainViewDetails: Client Feedback and Client Complaint keep clipping. */
+  return `<div class="ws-card cgp pfx${o.scrollBody?' pfx-scroll':''}">${head}
     <div class="pfx-body">${o.body}</div>
     <div class="pfx-more" hidden>${viewBtn}</div>
   </div>`;
@@ -14354,7 +14378,7 @@ function cgNotesPanel(c, all){
     : `<div class="ws-none">No notes yet.</div>`;
   return cgPanelShell(all, {title:'Notes', icon:'forms', tint:'h-prefs', body:body,
     btn:`<button class="btn xs" onclick="openCgNoteAdd('${c.id}')">+ Add Note</button>`,
-    onAll:"openCgAll('"+c.id+"','notes')", total:list.length, plainViewDetails:true});
+    onAll:"openCgAll('"+c.id+"','notes')", total:list.length, plainViewDetails:true, scrollBody:true});
 }
 function openCgNoteAdd(id){
   const c=cgById(id); if(!c) return;
@@ -14805,7 +14829,7 @@ function cmPick(cgId, key){
 function cgCommsPanel(c, all){
   const SHELL=function(body,total){
     return cgPanelShell(all, {title:'Communication Logs', icon:'chat', tint:'h-emp',
-      body:body, onAll:"openCgAll('"+c.id+"','comms')", total:total||0, plainViewDetails:true});
+      body:body, onAll:"openCgAll('"+c.id+"','comms')", total:total||0, plainViewDetails:true, scrollBody:true});
   };
   if(typeof CGCOMMS==='undefined' || typeof Quo==='undefined')
     return SHELL('<div class="ws-none">The Quo connection is not available in this build.</div>',0);
