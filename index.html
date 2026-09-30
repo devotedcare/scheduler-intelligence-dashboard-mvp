@@ -14340,9 +14340,15 @@ function cgPanelShell(all, o){
      not inside it, so they were already structurally pinned outside the
      clipped area and need no change themselves. Opt-in, same reason as
      plainViewDetails: Client Feedback and Client Complaint keep clipping. */
+  /* Notes went further still: the card already scrolls, so a separate
+     View Details link to see the same list a second way was redundant —
+     noViewDetails drops the footer row entirely for that one card.
+     pfxFit() tolerates its absence (it only measures a card that has
+     both a .pfx-body and a .pfx-more). */
+  const more = o.noViewDetails ? '' : `<div class="pfx-more" hidden>${viewBtn}</div>`;
   return `<div class="ws-card cgp pfx${o.scrollBody?' pfx-scroll':''}">${head}
     <div class="pfx-body">${o.body}</div>
-    <div class="pfx-more" hidden>${viewBtn}</div>
+    ${more}
   </div>`;
 }
 
@@ -14378,7 +14384,7 @@ function cgNotesPanel(c, all){
     : `<div class="ws-none">No notes yet.</div>`;
   return cgPanelShell(all, {title:'Notes', icon:'forms', tint:'h-prefs', body:body,
     btn:`<button class="btn xs" onclick="openCgNoteAdd('${c.id}')">+ Add Note</button>`,
-    onAll:"openCgAll('"+c.id+"','notes')", total:list.length, plainViewDetails:true, scrollBody:true});
+    onAll:"openCgAll('"+c.id+"','notes')", total:list.length, plainViewDetails:true, scrollBody:true, noViewDetails:true});
 }
 function openCgNoteAdd(id){
   const c=cgById(id); if(!c) return;
