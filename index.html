@@ -3714,6 +3714,11 @@ const state = {
   handoff:{opener:[], closer:[]},
   updates:[],
   cgConcerns:[], cgNotes:[], cgRatings:[], cgProfiles:[], schedChanges:[], cgChanges:[],
+  /* One row per CLIENT, keyed by their id: {id, cgIds:[...], at, by}. Same
+     reasoning as cgRatings/cgProfiles — clients is patchOnly and rebuilt from
+     AxisCare on every load, so a backup list can never live on the client
+     record itself or it would vanish the way a rating once did. */
+  clBackups:[],
   aiSugOpen:false,   /* Ask Devi: suggested questions start collapsed */
   updEdit:null,          /* id being edited, or 'new' while composing */
   view:'avail',
@@ -3740,7 +3745,6 @@ const state = {
   searchQuery:null,
   showLater:false,
   staffQuery:null,
-  staffPlan:{candidates:[], primary:null, backup:null},
 };
 
 // Derive structured availability windows (24h), gender, and client blocks
@@ -7839,29 +7843,104 @@ function renderLockedHeader(q){
     </div>
   </div>`;
 }
-/* ===================== STAFF NEW CLIENT — build a staffing plan ===================== */
-function defaultStaffQuery(){ return {clientName:'', city:'', days:['Mon','Tue','Wed','Thu','Fri'], start:8, end:14, skills:[], filters:[]}; }
-function setStaff(field,val){ const sq=state.staffQuery; if(field==='start'||field==='end') sq[field]=decFromTime(val); else sq[field]=val; render(); }
-function toggleStaffDay(d){ const sq=state.staffQuery; const i=sq.days.indexOf(d); if(i>=0)sq.days.splice(i,1); else sq.days.push(d); render(); }
+/* ===================== BACKUP CAREGIVERS — per client =====================
+   Rebuilt 2026-10-01: this used to be a "build a staffing plan for a new
+   client" form — a typed client name, a typed city, a single global
+   staffPlan{primary,backup} with no clientId on it at all, so two different
+   clients could never have different backups and nothing survived a reload.
+
+   Now: pick an EXISTING client, and everything else is pulled from the real
+   record instead of typed by hand —
+     name / location          -> cl.name / cl.city
+     current schedule         -> clRegularSchedule(), from the client's own
+                                  AxisCare visits (CLVISITS), the same source
+                                  the client-schedule calendar reads
+     care needs                -> CARE, the one-line Concierge care-needs read
+     caregiver requirements    -> clMatchCard(), the same Caregiver Matching
+       / preferences              card Find Coverage already shows, read-only
+   Primary caregiver(s) is a FACT, derived from who is actually covering the
+   visits — never something a scheduler sets by hand here, so it can never
+   drift from what AxisCare says is really happening.
+   Current backup caregiver(s) is the one thing this page actually records:
+   state.clBackups, one row per client (id === the client's id), shared and
+   persisted like every other scheduler-authored record in this app. */
+function defaultStaffQuery(){ return {clientId:null, city:'', days:[], start:8, end:14, skills:[], filters:[], customized:false}; }
+function setStaff(field,val){ const sq=state.staffQuery; sq.customized=true; if(field==='start'||field==='end') sq[field]=decFromTime(val); else sq[field]=val; render(); }
+function toggleStaffDay(d){ const sq=state.staffQuery; sq.customized=true; const i=sq.days.indexOf(d); if(i>=0)sq.days.splice(i,1); else sq.days.push(d); render(); }
 function toggleStaffSkill(sk){ const sq=state.staffQuery; const i=sq.skills.indexOf(sk); if(i>=0)sq.skills.splice(i,1); else sq.skills.push(sk); render(); }
 function toggleStaffFilter(f){ const sq=state.staffQuery; if(!sq.filters)sq.filters=[]; const i=sq.filters.indexOf(f); if(i>=0)sq.filters.splice(i,1); else sq.filters.push(f); render(); }
-function staffSave(cgId){ const p=state.staffPlan; if(!p.candidates.includes(cgId)){ p.candidates.push(cgId); toast(cgById(cgId).name+' saved to shortlist'); } render(); }
-function staffUnsave(cgId){ const p=state.staffPlan; p.candidates=p.candidates.filter(x=>x!==cgId); if(p.primary===cgId)p.primary=null; if(p.backup===cgId)p.backup=null; render(); }
-function staffSetPrimary(cgId){ const p=state.staffPlan; p.primary=cgId; if(!p.candidates.includes(cgId))p.candidates.push(cgId); if(p.backup===cgId)p.backup=null; toast(cgById(cgId).name+' set as primary caregiver'); render(); }
-function staffSetBackup(cgId){ const p=state.staffPlan; p.backup=cgId; if(!p.candidates.includes(cgId))p.candidates.push(cgId); if(p.primary===cgId)p.primary=null; toast(cgById(cgId).name+' set as backup caregiver'); render(); }
-function staffContact(cgId){ const cg=cgById(cgId); toast('Calling '+cg.name+' \u00b7 '+cg.phone+' \u2014 confirm interest & availability'); }
+/* Selecting a client is the one click that kicks off the real-data reads —
+   the matching-table REST read (CLMATCH) and the client's own AxisCare
+   visits (CLVISITS) cost nothing and are safe to call every render, but
+   CARE.load() asks the care-brief function, which is a real (if cheap,
+   cached-per-session) Claude call, so it is fired from here — the click
+   that chose this client — rather than from inside the render path. */
+function setStaffClient(clientId){
+  const sq=state.staffQuery || (state.staffQuery=defaultStaffQuery());
+  sq.clientId=clientId||null;
+  sq.customized=false;
+  sq.skills=[]; sq.filters=[];
+  const cl=sq.clientId?clById(sq.clientId):null;
+  /* Always reset days/start/end here, even for a client AxisCare has no
+     link for — otherwise a client with no visits to derive a schedule from
+     silently kept whichever schedule the PREVIOUS client's selection had
+     left behind, since neither branch below would ever touch it again. */
+  sq.city = cl ? (cl.city||'') : '';
+  sq.days=[]; sq.start=8; sq.end=14;
+  if(cl && cl.axisId!=null){
+    if(typeof CLVISITS!=='undefined') CLVISITS.load(cl);
+    if(typeof CARE!=='undefined') CARE.load(cl.axisId);
+  }
+  if(cl && typeof CLMATCH!=='undefined') CLMATCH.load();
+  render();
+}
+function staffContact(cgId){ const cg=cgById(cgId); toast('Calling '+cg.name+' · '+cg.phone+' — confirm interest & availability'); }
 function staffConflicts(cg, sq){
   const out=[];
   state.shifts.forEach(s=>{ if(s.assigned!==cg.id||s.status!=='filled') return;
     const wd=REC_DAYS[(s.start.getDay()+6)%7];
     if(!sq.days.includes(wd)) return;
     const ss=decHr(s.start), se=decHr(s.end);
-    if(ss<sq.end && se>sq.start) out.push(`${wd} ${fmtTime(s.start)}\u2013${fmtTime(s.end)} (${clById(s.clientId).name})`);
+    if(ss<sq.end && se>sq.start) out.push(`${wd} ${fmtTime(s.start)}–${fmtTime(s.end)} (${clById(s.clientId).name})`);
   });
   return out;
 }
+/* The client's CURRENT schedule, from their actual AxisCare visits — never
+   typed in. A client can run more than one distinct day/time block (e.g.
+   weekday mornings on one pattern, a different weekend block on another);
+   every block is kept, sorted by how many visits use it, so the busiest one
+   can seed the match search while the full picture still shows on screen. */
+function clRegularSchedule(cl){
+  const empty={status:'nolink', patterns:[], cgTally:[], visitCount:0, days:[], start:8, end:14};
+  if(!cl || cl.axisId==null) return empty;
+  if(typeof CLVISITS==='undefined') return Object.assign({}, empty, {status:'error'});
+  const rec=CLVISITS.get(cl.id);
+  if(!rec || rec.status!=='ready') return Object.assign({}, empty, {status: rec?rec.status:'idle'});
+  const byKey={}, cgTally={};
+  Object.keys(rec.days||{}).forEach(ds=>{
+    const dow=REC_DAYS[(new Date(ds+'T12:00:00').getDay()+6)%7];
+    (rec.days[ds]||[]).forEach(v=>{
+      const k=v.start+'|'+(v.end==null?'':v.end);
+      if(!byKey[k]) byKey[k]={start:v.start, end:v.end, days:[], count:0};
+      if(byKey[k].days.indexOf(dow)<0) byKey[k].days.push(dow);
+      byKey[k].count++;
+      if(v.caregiverId){
+        const t=cgTally[v.caregiverId]||(cgTally[v.caregiverId]={id:v.caregiverId, name:v.caregiverName, count:0, days:[]});
+        t.count++;
+        if(t.days.indexOf(dow)<0) t.days.push(dow);
+      }
+    });
+  });
+  const patterns=Object.keys(byKey).map(k=>byKey[k]).sort((a,b)=>b.count-a.count);
+  const cgTallyList=Object.keys(cgTally).map(id=>cgTally[id]).sort((a,b)=>b.count-a.count);
+  const dom=patterns[0];
+  return {status:'ready', patterns:patterns, cgTally:cgTallyList, visitCount:rec.count,
+    days: dom ? REC_DAYS.filter(d=>dom.days.indexOf(d)>=0) : [],
+    start: dom ? dom.start : 8,
+    end: dom ? (dom.end!=null ? dom.end : dom.start+6) : 14};
+}
 function staffSearch(sq){
-  const rq={clientId:null, city:sq.city, days:sq.days, start:sq.start, end:sq.end, skills:sq.skills, filters:sq.filters};
+  const rq={clientId:sq.clientId||null, city:sq.city, days:sq.days, start:sq.start, end:sq.end, skills:sq.skills, filters:sq.filters};
   const {full, partial, reqDays}=recurringSearch(rq);
   const enrich=e=>Object.assign({}, e, {
     matchPct: reqDays.length?Math.round(e.coverDays.length/reqDays.length*100):0,
@@ -7871,20 +7950,47 @@ function staffSearch(sq){
   });
   return {full:full.map(enrich), partial:partial.map(enrich), reqDays};
 }
-function staffCard(e, sq){
-  const cg=e.cg, p=state.staffPlan;
-  const role = p.primary===cg.id?'primary':p.backup===cg.id?'backup':null;
+/* state.clBackups: one row per CLIENT (id === the client's own id, since
+   there is only ever one row per client). Same update pattern cgRatings and
+   cgProfiles use — filter the old row out, push a fresh whole replacement —
+   because clients is patchOnly and a field written onto the client record
+   itself would vanish the next time the roster rebuilds from AxisCare. */
+function clBackupRow(cl){ return (state.clBackups||[]).find(x=>x.id===cl.id); }
+function clBackupIds(cl){ const r=clBackupRow(cl); return r?r.cgIds.slice():[]; }
+function setClBackupIds(cl, ids){
+  state.clBackups=(state.clBackups||[]).filter(x=>x.id!==cl.id).concat([{id:cl.id, cgIds:ids, at:new Date().toISOString(), by:state.onShift}]);
+}
+function staffAddBackup(cgId){
+  const sq=state.staffQuery; const cl=sq&&sq.clientId?clById(sq.clientId):null; if(!cl) return;
+  const cg=cgById(cgId); if(!cg) return;
+  const ids=clBackupIds(cl); if(ids.indexOf(cgId)>=0) return;
+  ids.push(cgId); setClBackupIds(cl, ids);
+  toast(cg.name+' added as a backup caregiver for '+cl.name);
+  render(); try{ CLOUD.save(); }catch(e){}
+}
+function staffRemoveBackup(cgId){
+  const sq=state.staffQuery; const cl=sq&&sq.clientId?clById(sq.clientId):null; if(!cl) return;
+  const cg=cgById(cgId);
+  setClBackupIds(cl, clBackupIds(cl).filter(x=>x!==cgId));
+  toast((cg?cg.name:'Caregiver')+' removed as a backup caregiver');
+  render(); try{ CLOUD.save(); }catch(e){}
+}
+function staffCard(e, sq, primaryIds, backupIds){
+  const cg=e.cg;
+  const role = primaryIds.includes(cg.id) ? 'primary' : backupIds.includes(cg.id) ? 'backup' : null;
   const facts=[
-    cg.base + (sq.city?` \u00b7 ${e.dist}mi (${e.drive}min)`:''),
+    cg.base + (sq.city?` · ${e.dist}mi (${e.drive}min)`:''),
     `${cg.reliability}% reliable`,
     `Driver ${cg.driver?'Yes':'No'}`,
-    (hasVal(cg.weekHrs) ? `${cg.weekHrs}h/wk \u00b7 ~${e.capacity}h open${cg.weekHrs>=38?' \u00b7 OT risk':''}` : 'Hours worked not tracked')
-  ].join(' \u00b7 ');
+    (hasVal(cg.weekHrs) ? `${cg.weekHrs}h/wk · ~${e.capacity}h open${cg.weekHrs>=38?' · OT risk':''}` : 'Hours worked not tracked')
+  ].join(' · ');
   const exp = e.experience.length?`<div class="sc-exp">Worked similar cases: ${e.experience.join(', ')}</div>`:'';
   const conf = e.conflicts.length
-    ? `<div class="sc-conf">${ic('alerts',11)} Schedule conflict: ${e.conflicts.join(' \u00b7 ')}</div>`
+    ? `<div class="sc-conf">${ic('alerts',11)} Schedule conflict: ${e.conflicts.join(' · ')}</div>`
     : `<div class="sc-noconf">${ic('check',11)} No schedule conflicts</div>`;
-  const saved=p.candidates.includes(cg.id);
+  const action = role==='primary' ? ''
+    : role==='backup' ? `<button class="q-b" onclick="staffRemoveBackup('${cg.id}')">Remove backup</button>`
+    : `<button class="q-b" onclick="staffAddBackup('${cg.id}')">Add as backup</button>`;
   return `<div class="scard ${role?'role-'+role:''}">
     <div class="sc-top">
       <div class="sc-id"><span class="sc-name">${cg.name}</span>${role?`<span class="sc-role ${role}">${role==='primary'?'Primary':'Backup'}</span>`:''}</div>
@@ -7895,53 +8001,114 @@ function staffCard(e, sq){
     ${conf}
     <div class="sc-acts">
       <button class="btn pri sm" onclick="staffContact('${cg.id}')">${ic('phone',12)} Call</button>
-      <button class="q-b" onclick="staffSave('${cg.id}')">${saved?'Saved \u2713':'Save'}</button>
-      <button class="q-b" onclick="staffSetPrimary('${cg.id}')">Set primary</button>
-      <button class="q-b" onclick="staffSetBackup('${cg.id}')">Set backup</button>
+      ${action}
     </div>
   </div>`;
 }
-function renderStaffPlan(){
-  const p=state.staffPlan;
-  if(!p.primary && !p.backup && !p.candidates.length) return '';
-  const slot=(label,cgId)=>`<div class="sp-slot"><div class="sp-l">${label}</div>${cgId?`<div class="sp-cg">${cgById(cgId).name}</div>`:'<div class="sp-empty">Not set</div>'}</div>`;
-  const cands=p.candidates.filter(id=>id!==p.primary&&id!==p.backup);
-  const candList=cands.length?`<div class="sp-cands"><div class="sp-cl">Shortlist</div>${cands.map(id=>`<span class="sp-chip">${cgById(id).name}<button onclick="staffUnsave('${id}')">\u00d7</button></span>`).join('')}</div>`:'';
-  return `<div class="sp-panel">
-    <div class="sp-h">${ic('shield',14)} Staffing plan</div>
-    <div class="sp-slots">${slot('Primary caregiver',p.primary)}${slot('Backup caregiver',p.backup)}</div>
-    ${candList}
-    ${p.primary?`<div class="sp-ready">${ic('check',13)} Primary assigned \u2014 build the recurring schedule in AxisCare and notify the family.</div>`:'<div class="sp-note">Assign a primary caregiver to complete the plan.</div>'}
-  </div>`;
+function renderStaffClientPicker(sq){
+  const list=state.clients.slice().sort((a,b)=>String(a.name).localeCompare(String(b.name)));
+  const opts=`<option value="">Select a client…</option>`+
+    list.map(c=>`<option value="${c.id}" ${sq.clientId===c.id?'selected':''}>${c.name} — ${c.city||'no city on file'}</option>`).join('');
+  return `<div class="cov-form"><div class="cov-field"><label>Client</label><select onchange="setStaffClient(this.value)">${opts}</select></div></div>`;
+}
+function renderCareNeedsCard(cl){
+  if(typeof CARE==='undefined') return '';
+  const head='<div class="ws-h">Care Needs</div>';
+  const wrap=inner=>`<div class="ws-card pfx cp-card">${head}<div class="clm-body cp-body"><div class="clm-note">${inner}</div></div></div>`;
+  if(cl.axisId==null) return wrap('This client isn’t linked to AxisCare, so care needs can’t be read from Client Concierge.');
+  const st=CARE.status(cl.axisId), e=CARE.get(cl.axisId);
+  if(st==='idle'||st==='loading') return wrap('<span class="cs-spin"></span> Reading care needs from Client Concierge…');
+  /* CARE.line is Claude-written prose, not a stored field — escText(),
+     never esc(), the same rule every AI-authored line in this app follows. */
+  if(st==='ready' && e.line) return wrap(escText(e.line));
+  return wrap(escText(e.note||'No care needs are recorded for this client.'));
+}
+function renderPrimaryCaregivers(cl, sched){
+  const head='<div class="ws-h">Primary Caregiver'+(sched.cgTally.length>1?'s':'')+'</div>';
+  const wrap=inner=>`<div class="ws-card pfx cp-card">${head}<div class="clm-body cp-body">${inner}</div></div>`;
+  if(sched.status==='nolink') return wrap('<div class="clm-note">This client isn’t linked to AxisCare, so there are no visits to show.</div>');
+  if(sched.status==='loading'||sched.status==='idle') return wrap('<div class="clm-note"><span class="cs-spin"></span> Reading the current schedule from AxisCare…</div>');
+  if(sched.status==='error') return wrap('<div class="clm-note">AxisCare didn’t answer, so the current schedule can’t be shown right now.</div>');
+  if(!sched.cgTally.length) return wrap('<div class="clm-note">No caregiver is currently assigned to this client’s visits in AxisCare.</div>');
+  const top=sched.cgTally[0].count;
+  const rows=sched.cgTally.map(t=>{
+    const cg=cgById(t.id);
+    const label = t.count===top ? 'Primary' : 'Also covers';
+    return `<div class="emp-row"><span class="emp-l">${label}</span><span class="emp-v">${esc(cg?cg.name:(t.name||'Unknown caregiver'))} — ${esc(daySpanLabel(t.days))} (${t.count} visit${t.count===1?'':'s'})</span></div>`;
+  }).join('');
+  return wrap(rows);
+}
+function renderCurrentBackups(cl){
+  const head='<div class="ws-h">Current Backup Caregivers</div>';
+  const wrap=inner=>`<div class="ws-card pfx cp-card">${head}<div class="clm-body cp-body">${inner}</div></div>`;
+  const ids=clBackupIds(cl);
+  if(!ids.length) return wrap(`<div class="clm-note">No backup caregivers assigned yet for ${esc(cl.name)}. Add one from the recommended matches below.</div>`);
+  const chips=ids.map(id=>{ const cg=cgById(id); return cg?`<span class="sp-chip">${esc(cg.name)}<button onclick="staffRemoveBackup('${cg.id}')">×</button></span>`:''; }).join('');
+  return wrap(`<div class="sp-cands"><div class="sp-cl">${ids.length} assigned</div>${chips}</div>`);
 }
 function renderStaffForm(sq){
-  const cityOpts=`<option value="">Select city</option>`+Object.keys(CITY).map(c=>`<option value="${c}" ${sq.city===c?'selected':''}>${c}</option>`).join('');
   const dayChips=REC_DAYS.map(d=>`<span class="sk ${sq.days.includes(d)?'on':''}" onclick="toggleStaffDay('${d}')">${d}</span>`).join('');
   return `<div class="cov-form">
     <div class="cov-row">
-      <div class="cov-field"><label>New client name</label><input value="${sq.clientName||''}" oninput="state.staffQuery.clientName=this.value" placeholder="e.g. New referral"></div>
-      <div class="cov-field"><label>City / location</label><select onchange="setStaff('city',this.value)">${cityOpts}</select></div>
       <div class="cov-field"><label>Start time</label><input type="time" value="${toTimeInput(sq.start)}" onchange="setStaff('start',this.value)"></div>
       <div class="cov-field"><label>End time</label><input type="time" value="${toTimeInput(sq.end)}" onchange="setStaff('end',this.value)"></div>
     </div>
-    <div class="cov-days"><span class="cov-lbl">Schedule needed</span>${dayChips}</div>
+    <div class="cov-days"><span class="cov-lbl">Days needing backup coverage</span>${dayChips}</div>
     ${renderFilterGroups(sq.skills, sq.filters||[], 'toggleStaffSkill', 'toggleStaffFilter')}
   </div>`;
 }
 function viewStaffClient(){
   if(!state.staffQuery) state.staffQuery=defaultStaffQuery();
   const sq=state.staffQuery;
-  const head=`<div class="lock-head"><div class="lk-main"><div class="lk-eyebrow">Backup Caregivers</div><div class="lk-client">${sq.clientName||'New client'}</div><div class="lk-meta">${sq.city||'City not set'} \u00b7 ${sq.days.join(', ')||'no days'} \u00b7 ${fmtHr(sq.start)}\u2013${fmtHr(sq.end)}</div></div></div>`;
-  const {full, partial, reqDays}=staffSearch(sq);
-  let results;
-  if(!sq.days.length){ results=`<div class="q-empty">Select the days this client needs care to see matching caregivers.</div>`; }
-  else if(!full.length && !partial.length){ results=`<div class="q-empty">No caregivers match this schedule and these requirements yet. Widen the criteria or check availability.</div>`; }
-  else {
-    const fullSec=full.length?`<div class="q-sec"><div class="q-sec-h">Best matches \u2014 full schedule<span class="q-sec-n">${full.length} can cover all ${reqDays.length} day${reqDays.length>1?'s':''}</span></div>${full.map(e=>staffCard(e,sq)).join('')}</div>`:'';
-    const partSec=partial.length?`<div class="q-sec"><div class="q-sec-h">Partial schedule<span class="q-sec-n">${partial.length} can cover some days</span></div>${partial.map(e=>staffCard(e,sq)).join('')}</div>`:'';
-    results=fullSec+partSec;
+  const cl=sq.clientId?clById(sq.clientId):null;
+  const picker=renderStaffClientPicker(sq);
+
+  if(!cl){
+    const head=`<div class="lock-head"><div class="lk-main"><div class="lk-eyebrow">Backup Caregivers</div><div class="lk-client">Select a client</div><div class="lk-meta">Choose an existing client to see their primary caregiver, current backups, and recommended matches.</div></div></div>`;
+    return head + picker + `<div class="q-empty">Select a client above to get started.</div>`;
   }
-  return head + renderStaffForm(sq) + renderStaffPlan() + results;
+
+  const sched=clRegularSchedule(cl);
+  /* Auto-filled from the real schedule until the scheduler touches a day or
+     time control themselves — after that their own edit wins, and stays
+     won even as CLVISITS finishes loading behind it. */
+  if(!sq.customized && sched.status==='ready'){
+    sq.days=sched.days.slice(); sq.start=sched.start; sq.end=sched.end;
+  }
+
+  const scheduleText = sched.patterns.length
+    ? sched.patterns.map(p=>daySpanLabel(p.days)+' '+fmtHr(p.start)+(p.end!=null?'–'+fmtHr(p.end):' onward')).join(' · ')
+    : (sched.status==='loading'||sched.status==='idle') ? 'Reading current schedule from AxisCare…'
+      : sched.status==='nolink' ? 'Not linked to AxisCare'
+      : 'No current schedule on file';
+
+  const head=`<div class="lock-head"><div class="lk-main"><div class="lk-eyebrow">Backup Caregivers</div><div class="lk-client">${esc(cl.name)}</div><div class="lk-meta">${esc(cl.city||'City not set')} · ${scheduleText}</div></div></div>`;
+
+  const careCard=renderCareNeedsCard(cl);
+  const matchCard=(typeof clMatchCard==='function') ? clMatchCard(cl) : '';
+  const primaryCard=renderPrimaryCaregivers(cl, sched);
+  const backupCard=renderCurrentBackups(cl);
+
+  const primaryIds=sched.cgTally.map(t=>t.id);
+  const backupIds=clBackupIds(cl);
+
+  let results;
+  if(!sq.days.length){
+    results=`<div class="q-empty">Select the days you need backup coverage for to see matching caregivers.</div>`;
+  } else {
+    const {full, partial, reqDays}=staffSearch(sq);
+    if(!full.length && !partial.length){
+      results=`<div class="q-empty">No caregivers match this schedule and these requirements yet. Widen the criteria or check availability.</div>`;
+    } else {
+      const fullSec=full.length?`<div class="q-sec"><div class="q-sec-h">Best matches — full schedule<span class="q-sec-n">${full.length} can cover all ${reqDays.length} day${reqDays.length>1?'s':''}</span></div>${full.map(e=>staffCard(e,sq,primaryIds,backupIds)).join('')}</div>`:'';
+      const partSec=partial.length?`<div class="q-sec"><div class="q-sec-h">Partial schedule<span class="q-sec-n">${partial.length} can cover some days</span></div>${partial.map(e=>staffCard(e,sq,primaryIds,backupIds)).join('')}</div>`:'';
+      results=fullSec+partSec;
+    }
+  }
+
+  return head + picker + careCard + matchCard + primaryCard + backupCard +
+    `<div class="sp-h">${ic('shield',14)} Recommended backup caregiver matches</div>` +
+    renderStaffForm(sq) + results;
 }
 /* ===================== MULTI-DAY AVAILABILITY SEARCH + SCORING ===================== */
 const DAY_PRESETS=[['Mon\u2013Fri',['Mon','Tue','Wed','Thu','Fri']],['Weekends',['Sat','Sun']],['Tue/Thu',['Tue','Thu']],['Mon/Wed/Fri',['Mon','Wed','Fri']],['Every day',['Mon','Tue','Wed','Thu','Fri','Sat','Sun']]];
@@ -22928,6 +23095,13 @@ const CLOUD = (function(){
     { path:'cgProfiles',        key:'id' },
     { path:'schedChanges',      key:'id' },
     { path:'cgChanges',         key:'id' },
+    /* The Backup Caregivers page's own assignment, one row per CLIENT
+       (id === the client's own id, not a separate generated id — there is
+       only ever one row per client, so its cgIds array is replaced whole on
+       every add/remove, the same update-in-place-by-filter-then-push pattern
+       cgRatings/cgProfiles use). Shared across all three schedulers like
+       everything else here. */
+    { path:'clBackups',         key:'id' },
     { path:'taskArchive',       key:'id' },
     /* patchOnly for the same reason as shifts: care notes are swept into
        public.care_notes by carenotes-sync and read from there. Nothing in
