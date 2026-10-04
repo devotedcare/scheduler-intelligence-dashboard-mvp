@@ -4083,8 +4083,8 @@ function attendanceStats(c){
   const newest = arr => arr.length ? arr.map(a=>new Date(a.date+'T12:00:00')).sort((x,y)=>y-x)[0] : null;
   const win = countable.filter(a=>inWin(a,ATT_WINDOW_DAYS)).length;
   const winLM = lm.filter(a=>inWin(a,ATT_WINDOW_DAYS)).length;
-  /* Per-type, same window — what the Attendance Concern card's summary
-     lines are built from (attendanceConcernLines()). win/winLM already
+  /* Per-type, same window — what the Attendance Concern card's grouped
+     counts are built from (attendanceConcernGroups()). win/winLM already
      existed for the concern THRESHOLD; these are the same window broken
      out by type, for the card's own real-data breakdown rather than one
      fuzzy "attendance events" total. */
@@ -4147,23 +4147,37 @@ function attendanceStats(c){
   st.recentLate = late.some(a=>inWin(a,14));
   return st;
 }
-/* THE ATTENDANCE CONCERN CARD'S OWN DETAIL — Mitch, 2026-10-04. A plain
-   "Attendance concern" badge forced a scheduler to go dig through the AI
-   Summary to find out why, and that digging is exactly what put attendance
-   language into the AI Summary in the first place (see cgAbout() and
-   caregiver-about-summary's prompt, both fixed the same day). This card is
-   the one place that story now lives: real counts and real dates, built
-   straight from attendanceStats(), never written by hand and never by
-   Claude — so it can never drift from what the Attendance page holds, and
-   it can never say something the AI Summary also says. */
-function attendanceConcernLines(ast){
-  const L=[], d=ATT_WINDOW_DAYS;
-  const plural=(n,w)=>n+' '+w+(n===1?'':'s');
-  if(ast.windowLastMinute>0) L.push(plural(ast.windowLastMinute,'last-minute call-off')+' in the past '+d+' days');
-  if(ast.windowCallOffsWithNotice>0) L.push(plural(ast.windowCallOffsWithNotice,'call-off')+' with notice in the past '+d+' days');
-  if(ast.windowLate>0) L.push(plural(ast.windowLate,'late arrival')+' in the past '+d+' days');
-  if(ast.windowNoShow>0) L.push(plural(ast.windowNoShow,'no-show')+' in the past '+d+' days');
-  return L;
+/* THE ATTENDANCE CONCERN CARD'S OWN DETAIL — Mitch, 2026-10-04, RESTRUCTURED
+   2026-10-05. A plain "Attendance concern" badge forced a scheduler to go
+   dig through the AI Summary to find out why, and that digging is exactly
+   what put attendance language into the AI Summary in the first place
+   (see cgAbout() and caregiver-about-summary's prompt, both fixed the same
+   day). This card is the one place that story now lives — but it is a
+   FACTUAL RECORD, not a write-up. The 2026-10-04 version grouped the counts
+   into one prose sentence and closed with a fixed "Pattern" line
+   recommending caution before assigning the caregiver — not AI-written
+   (it was a hardcoded string, never a model call), but Mitch's objection
+   stands regardless of who wrote it: a scheduling RECOMMENDATION does not
+   belong inside a profile section whose only job is to report what
+   happened. It is gone, not replaced, not reworded. If a "warn the
+   scheduler before assigning" feature is ever built, it belongs in the
+   scheduling workflow (e.g. Find Coverage), reading this same data — never
+   as a sentence written back into the caregiver's own record.
+
+   The structure below (Past N Days / Call-Offs / Late Arrivals / No-Shows
+   / Most Recent) is plain counts and dates, grouped — never a sentence,
+   so there is no prose for anyone, AI included, to editorialize in. Every
+   number is a straight read of attendanceStats(); nothing here is
+   generated, paraphrased, or estimated. */
+function attendanceConcernGroups(ast){
+  const G=[];
+  const callOffs=[];
+  if(ast.windowLastMinute>0) callOffs.push(ast.windowLastMinute+' last-minute');
+  if(ast.windowCallOffsWithNotice>0) callOffs.push(ast.windowCallOffsWithNotice+' with advance notice');
+  if(callOffs.length) G.push({label:'Call-Offs', items:callOffs});
+  if(ast.windowLate>0) G.push({label:'Late Arrivals', items:[String(ast.windowLate)]});
+  if(ast.windowNoShow>0) G.push({label:'No-Shows', items:[String(ast.windowNoShow)]});
+  return G;
 }
 /* Up to three most recent dated events, across all types, newest first —
    not windowed, because "most recent" is a different question from "how
@@ -4177,23 +4191,21 @@ function attendanceConcernRecent(ast){
   return items.slice(0,3);
 }
 function attendanceConcernHtml(ast){
-  const lines=attendanceConcernLines(ast);
+  const groups=attendanceConcernGroups(ast);
   const recent=attendanceConcernRecent(ast);
   const fmt=d=>d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
-  /* lines can only be empty if ast.concern fired on evidence this function
-     was never told about — should not happen, since every path to
-     ast.concern=true adds to one of these four counts, but why[] (already
-     computed by attendanceStats) is the honest fallback rather than an
-     empty card. */
-  const summaryHtml = `<div class="upd-text">${esc((lines.length?lines:ast.why).join('\n'))}</div>`;
-  const recentHtml = recent.length
-    ? `<div class="att-conc-sub">Most recent</div><ul class="cgh-ai-bl">${recent.map(r=>`<li>${esc(r.label)} — ${fmt(r.date)}</li>`).join('')}</ul>`
-    : '';
+  const grp=(label,items)=>`<div class="att-conc-sub">${esc(label)}</div><ul class="cgh-ai-bl">${items.map(i=>`<li>${esc(i)}</li>`).join('')}</ul>`;
+  /* groups can only be empty if ast.concern fired on evidence none of
+     windowLastMinute/windowCallOffsWithNotice/windowLate/windowNoShow was
+     told about — should not happen (every path to ast.concern=true adds
+     to one of them), but why[] (already computed by attendanceStats) is
+     the honest fallback over an empty card. */
+  const groupsHtml = groups.length ? groups.map(g=>grp(g.label,g.items)).join('') : `<div class="upd-text">${esc(ast.why.join(' · '))}</div>`;
+  const recentHtml = recent.length ? grp('Most Recent', recent.map(r=>esc(r.label)+' — '+fmt(r.date))) : '';
   return `<div class="ws-card span2">
     <div class="ws-h h-tint h-crit"><span class="ws-h-ic">${ic('alerts',13)}<span>Attendance Concern</span></span></div>
-    ${summaryHtml}${recentHtml}
-    <div class="att-conc-sub">Pattern</div>
-    <div class="upd-text">Recent attendance issues should be monitored before assigning critical or difficult-to-cover shifts.</div>
+    <div class="att-conc-sub">Past ${ATT_WINDOW_DAYS} Days</div>
+    ${groupsHtml}${recentHtml}
   </div>`;
 }
 /* THE SINGLE READER for anything that wants call-off ROWS rather than the summary.
