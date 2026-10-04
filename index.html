@@ -13991,56 +13991,77 @@ function chipSave(){
    dedicated edit modal that writes both in one Save, because the shared
    chip-picker modal (renderChipModal/chipSave) only ever edits one field
    at a time. */
+/* Personality is free text only (removed 2026-10-04, Mitch's request): a
+   fixed list like "Patient / Reliable / Positive" cannot capture who
+   someone actually is, so schedulers describe it in their own words
+   instead of ticking from a menu. p.personalityText is the one field a
+   save now writes. Until it has been saved once this reads the OLD tag
+   list + "Other" note that chipSave()/piSave() used to write, so nothing
+   already recorded is lost — the same read-until-first-save pattern
+   CG_CHIP_FIELDS.experience uses for ITS predecessor field. Once
+   personalityText exists (even saved blank) it is authoritative and the
+   old tags are frozen, never read again here — CG_CHIP_FIELDS.personality,
+   CG_PERS_OPTS and cgChips(c,'personality') stay only so legacy data keeps
+   reading in cgAbout()'s persona sentence; nothing new writes through
+   them. */
+function personalityTextOf(c){
+  const p=cgProf(c);
+  if(typeof p.personalityText==='string') return p.personalityText;
+  const parts=cgChips(c,'personality').slice();
+  const note=(p.personalityNote||'').trim();
+  if(note) parts.push(note);
+  return parts.join(', ');
+}
 function personalityInterestsBody(c){
   const grp=(label,body)=>`<div class="str-grp"><div class="str-grp-h">${label}</div>${body}</div>`;
-  return grp('Personality Traits', chipBody(c,'personality'))
+  const txt=personalityTextOf(c);
+  const persBody=txt ? `<div class="upd-text">${esc(txt)}</div>`
+    : `<div class="ws-none">No personality description recorded yet.</div>`;
+  return grp('Personality', persBody)
        + grp('Hobbies &amp; Interests', chipBody(c,'hobbies'));
 }
 function openPersInterestsEdit(id){
   cgSnapStart(id);
   const c=cgById(id); if(!c) return;
   state.piEdit={id:id,
-    pers:cgChips(c,'personality').slice(), persNote:cgChipNote(c,'personality'),
-    hob:cgChips(c,'hobbies').slice(),       hobNote:cgChipNote(c,'hobbies')};
+    persText:personalityTextOf(c),
+    hob:cgChips(c,'hobbies').slice(), hobNote:cgChipNote(c,'hobbies')};
   renderPersInterestsModal(); mbg.classList.add('show');
 }
+function piText(v){ const p=state.piEdit; if(p) p.persText=v; }
 /* By index, same reason chipToggle() is: several options carry an
    apostrophe that would end the string inside the inline handler. */
-function piToggle(which,i,on,el){
+function piToggle(i,on,el){
   const p=state.piEdit; if(!p) return;
-  const opts=(which==='pers'?CG_CHIP_FIELDS.personality:CG_CHIP_FIELDS.hobbies).opts;
-  const t=opts[i]; if(t===undefined) return;
-  const arr=which==='pers'?p.pers:p.hob;
-  const at=arr.indexOf(t);
-  if(on && at<0) arr.push(t); else if(!on && at>=0) arr.splice(at,1);
+  const t=CG_CHIP_FIELDS.hobbies.opts[i]; if(t===undefined) return;
+  const at=p.hob.indexOf(t);
+  if(on && at<0) p.hob.push(t); else if(!on && at>=0) p.hob.splice(at,1);
   /* Same reason as chipToggle(): touch only the row that was clicked, so a
      long list does not throw the modal back to the top on every tick. */
   const lab=(el && el.closest) ? el.closest('.tp-opt') : null;
   if(lab){ lab.classList.toggle('on', !!on); return; }
   renderPersInterestsModal(true);
 }
-function piNote(which,v){ const p=state.piEdit; if(!p) return; if(which==='pers') p.persNote=v; else p.hobNote=v; }
+function piNote(v){ const p=state.piEdit; if(p) p.hobNote=v; }
 function piCancel(){ state.piEdit=null; closeModal(); }
 function renderPersInterestsModal(keepScroll){
   const p=state.piEdit; if(!p) return;
   const c=cgById(p.id);
   const prevBody=keepScroll?mEl.querySelector('.mb'):null;
   const sc=prevBody?prevBody.scrollTop:0;
-  const list=(which,opts,sel)=>`<div class="tp-list">${opts.map(function(t,i){
+  const list=(opts,sel)=>`<div class="tp-list">${opts.map(function(t,i){
       const on=sel.indexOf(t)>=0;
-      return `<label class="tp-opt${on?' on':''}"><input type="checkbox" ${on?'checked':''} onchange="piToggle('${which}',${i},this.checked,this)"><span>${t}</span></label>`;
+      return `<label class="tp-opt${on?' on':''}"><input type="checkbox" ${on?'checked':''} onchange="piToggle(${i},this.checked,this)"><span>${t}</span></label>`;
     }).join('')}</div>`;
   mEl.innerHTML=`<div class="mh"><span class="mt">Personality &amp; Interests — ${esc(c?c.name:'')}</span>
       <button class="mc" onclick="piCancel()">×</button></div>
     <div class="mb">
-      <div class="tp-grp-h">Personality Traits</div>
-      ${list('pers',CG_CHIP_FIELDS.personality.opts,p.pers)}
-      <div class="pf-f" style="margin-top:12px"><label class="el">Other</label>
-        <input class="ein" maxlength="120" placeholder="${esc(CG_CHIP_FIELDS.personality.notePh||'')}" value="${esc(p.persNote||'')}" oninput="piNote('pers',this.value)"></div>
+      <div class="field"><label>Personality</label>
+        <textarea class="ein acr-ta" rows="3" maxlength="600" placeholder="Describe this caregiver in your own words — e.g. Warm and patient, stays calm under pressure, great with families." oninput="piText(this.value)">${esc(p.persText||'')}</textarea></div>
       <div class="tp-grp-h" style="margin-top:18px">Hobbies &amp; Interests</div>
-      ${list('hob',CG_CHIP_FIELDS.hobbies.opts,p.hob)}
+      ${list(CG_CHIP_FIELDS.hobbies.opts,p.hob)}
       <div class="pf-f" style="margin-top:12px"><label class="el">Other</label>
-        <input class="ein" maxlength="120" placeholder="${esc(CG_CHIP_FIELDS.hobbies.notePh||'')}" value="${esc(p.hobNote||'')}" oninput="piNote('hob',this.value)"></div>
+        <input class="ein" maxlength="120" placeholder="${esc(CG_CHIP_FIELDS.hobbies.notePh||'')}" value="${esc(p.hobNote||'')}" oninput="piNote(this.value)"></div>
       <div class="upd-acts"><button class="btn" onclick="piCancel()">Cancel</button>
         <button class="btn pri" onclick="piSave()">${ic('check',13)} Save</button></div>
     </div>`;
@@ -14049,10 +14070,9 @@ function renderPersInterestsModal(keepScroll){
 function piSave(){
   const p=state.piEdit; if(!p) return;
   const c=cgById(p.id); if(!c) return piCancel();
-  const persOpts=CG_CHIP_FIELDS.personality.opts, hobOpts=CG_CHIP_FIELDS.hobbies.opts;
+  const hobOpts=CG_CHIP_FIELDS.hobbies.opts;
   const patch={
-    personality: persOpts.filter(t=>p.pers.indexOf(t)>=0),
-    personalityNote: String(p.persNote||'').trim(),
+    personalityText: String(p.persText||'').trim(),
     hobbies: hobOpts.filter(t=>p.hob.indexOf(t)>=0),
     hobbiesNote: String(p.hobNote||'').trim()
   };
@@ -18613,7 +18633,10 @@ const CG_WATCH={
   'Caregiving experience':   c=>String(c.ops.experience||''),
   'Languages':               c=>(c.languages||[]).join(','),
   'English proficiency':     c=>String(c.englishProficiency||''),
-  'Personality':             c=>cgChips(c,'personality').join(','),
+  /* Free text now (see personalityTextOf) — watch the text itself, not the
+     retired tag list, or this would stop logging the moment the old chips
+     froze and nobody saved through them again. */
+  'Personality':             c=>personalityTextOf(c),
   /* The "Anything else" line is watched on these two: it answers Needs
      Update, so a note that clears that row must leave a Recent Update saying
      who cleared it. Only the label is ever logged, never the text. */
