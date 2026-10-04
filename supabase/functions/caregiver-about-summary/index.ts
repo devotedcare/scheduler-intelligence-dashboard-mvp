@@ -128,8 +128,19 @@ const SEND_EFFORT = !!EFFORT && !/haiku/i.test(MODEL);
    caregiver AND actual experience AND assignment fit AND scheduling info
    in one dense multi-clause block, which was "still too dense... takes too
    long to understand" even at 3-5 sentences. Every v2 row is stale under
-   this version and regenerates once, same mechanism. */
-const PROMPT_VERSION = 3;
+   this version and regenerates once, same mechanism. 4 -> ATTENDANCE/
+   RELIABILITY-FROM-ATTENDANCE REMOVED (2026-10-04, Mitch): the profile page
+   now has its own Attendance Concern card (attendanceConcernHtml() in
+   index.html) built straight from the same attendance log this prompt
+   reads, with real counts and dates — and this summary was independently
+   allowed to say "attendance flagged for review" / discuss call-offs,
+   late arrivals and no-shows from the EVIDENCE RULE's reliability
+   category, so the same fact showed up twice, once as a vague phrase and
+   once with no detail in either place. v4 forbids attendance/call-off/
+   late-arrival/no-show/reliability-from-attendance content outright; see
+   ATTENDANCE OWNERSHIP below. Every v3 row is stale under this version and
+   regenerates once, same mechanism. */
+const PROMPT_VERSION = 4;
 
 const API = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION = "2023-06-01";
@@ -147,6 +158,17 @@ const MAX_DIGEST_CHARS = 24000;
 const MAX_SUMMARY_CHARS = 380;
 const MAX_BULLET_CHARS = 160;
 const MAX_BULLETS = 6;
+
+/* A BACKSTOP for ATTENDANCE OWNERSHIP (the prompt rule above), not the
+   primary mechanism -- the prompt is. Bullets are discrete, so dropping
+   one that leaks attendance/reliability-from-attendance content costs
+   nothing else; the summary is 2-3 fused sentences, where stripping one
+   clause risks leaving broken grammar, so it is not filtered here and
+   relies on the prompt rule holding. Matches on purpose: a bullet does
+   not need the word "attendance" to leak -- "two late arrivals this
+   month" or "flagged for review" leaks just as much. */
+const ATTENDANCE_LEAK_RE =
+  /\b(attendance|call-?off(?:s|ed)?|no[- ]?show(?:s)?|late arrival(?:s)?|arrived late|tardi(?:ness|ly)?|flagged for review)\b/i;
 
 const RATE_MAX = 300;
 const RATE_TOTAL = 1500;
@@ -282,12 +304,13 @@ async function dbPut(row: Record<string, unknown>): Promise<boolean> {
 
 const PROMPT = [
   "You are the CAREGIVER INSIGHTS AGENT for a home-care scheduling desk. A scheduler should be able",
-  "to look at your output for 5-10 seconds and know: what is this caregiver experienced with, how",
-  "reliable have they been, and is there anything to check before assigning them? You are given a",
-  "DOSSIER: everything on file about this caregiver -- profile, skills, assignment history, care",
-  "notes, feedback, complaints, incidents, attendance (two separate sources -- see below), shift-",
-  "offer history, availability, work preferences, languages, driving, travel limits, communication",
-  "history and ratings.",
+  "to look at your output for 5-10 seconds and know: what is this caregiver experienced with, what",
+  "kind of cases and clients they fit well, and is there anything to check before assigning them? You",
+  "are given a DOSSIER: everything on file about this caregiver -- profile, skills, assignment",
+  "history, care notes, feedback, complaints, incidents, attendance, shift-offer history,",
+  "availability, work preferences, languages, driving, travel limits, communication history and",
+  "ratings. ATTENDANCE OWNERSHIP below explains why the attendance part of the dossier is off-limits",
+  "to you.",
   "",
   "OUTPUT TWO THINGS:",
   "",
@@ -303,9 +326,10 @@ const PROMPT = [
   "     - current or previous assignment experience",
   "     - strengths actually demonstrated by real work -- not claimed skills",
   "     - availability or scheduling considerations worth knowing before assigning them",
-  "     - reliability, ONLY if there is enough real evidence to say something -- otherwise leave it",
-  "       out rather than guessing",
-  "     - concerns, or anything worth verifying before assigning them",
+  "     - fit or reliability concerns from a RATING or CLIENT FEEDBACK/COMPLAINT only -- never from",
+  "       attendance (see ATTENDANCE OWNERSHIP below). Only with enough real evidence to say",
+  "       something; otherwise leave it out rather than guessing",
+  "     - concerns, or anything worth verifying before assigning them (other than attendance)",
   "   Most caregivers need somewhere between two and six bullets. Never pad the list to look",
   "   complete, and never write a bullet that just restates the summary.",
   "",
@@ -328,6 +352,23 @@ const PROMPT = [
   "or note on file confirms it yet.\" Do not upgrade a reported skill into demonstrated experience just",
   "because it appears somewhere.",
   "",
+  "ATTENDANCE OWNERSHIP -- added 2026-10-04 after attendance language showed up in this summary AND in",
+  "a dedicated Attendance Concern card on the same profile page, the same fact stated twice, once",
+  "vaguely and once with no detail in either place. The dossier's ATTENDANCE section is there so you",
+  "are not blind to it, never so you can report on it:",
+  "  - NEVER mention attendance, a call-off, a late arrival, a no-show, or an attendance trend, in",
+  "    your summary or in any bullet -- not even softened into a phrase like \"attendance flagged for",
+  "    review\" or \"has had some reliability concerns.\" That exact wording is what this rule exists to",
+  "    stop.",
+  "  - NEVER base a reliability or fit judgement on the ATTENDANCE section, even when it shows a real,",
+  "    well-evidenced concern. The scheduler already sees that exact data, with dates, in the",
+  "    Attendance Concern card -- repeating it here, in any words, is the duplication this rule exists",
+  "    to stop.",
+  "  - A rating or a documented client complaint is a DIFFERENT kind of fact (RATINGS / CLIENT",
+  "    FEEDBACK/COMPLAINTS sections of the dossier, never ATTENDANCE) and may still support a fit or",
+  "    reliability bullet when there is real evidence for it -- but never word it as an attendance",
+  "    judgement, and never reach into ATTENDANCE to support it.",
+  "",
   "OUTPUT: a single JSON object and nothing else. No markdown, no code fence, no preamble:",
   '{"summary":"...","bullets":["..."]}',
   "",
@@ -347,11 +388,10 @@ const PROMPT = [
   "- NEVER invent information. Every fact must trace to something the dossier actually says. A thin",
   "  dossier gets a short, honest result -- never a padded one.",
   "- NEVER call the caregiver \"good\", \"bad\", \"reliable\" or \"unreliable\" (or any close synonym)",
-  "  without the specific fact, in the same bullet or sentence, that supports it.",
-  "- If there is not enough history to judge experience, fit, or reliability, say that plainly and",
-  "  briefly. Do not guess to fill space.",
-  "- The dossier may hand you TWO separately-labelled attendance sources that do not fully overlap.",
-  "  If they tell a different story, say they disagree rather than silently picking one to believe.",
+  "  without the specific fact, in the same bullet or sentence, that supports it -- and never from",
+  "  attendance (see ATTENDANCE OWNERSHIP above).",
+  "- If there is not enough history to judge experience or fit, say that plainly and briefly. Do not",
+  "  guess to fill space.",
   "- If any other part of the dossier conflicts with another part, say plainly that the records",
   "  conflict rather than choosing one silently.",
   "- The dossier explicitly does not know WHY an assignment ended unless a scheduler note says so.",
@@ -412,6 +452,7 @@ async function askClaude(digest: string): Promise<Sections> {
       if (typeof item !== "string") continue;
       const s = cleanBullet(item);
       if (!s || s.length > MAX_BULLET_CHARS) continue;
+      if (ATTENDANCE_LEAK_RE.test(s)) { console.warn("[caregiver-about-summary] dropped attendance-leak bullet: " + s); continue; }
       out.push(s);
       if (out.length >= MAX_BULLETS) break;
     }
