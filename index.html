@@ -10680,7 +10680,8 @@ function dateSearch(sq){
      on nothing, as before. */
   const cl=sq.clientId?clById(sq.clientId):null;
   const cp=covClientPrefs(cl);
-  const rg=cp.genderHard?cp.genderPref:null, rows=[];
+  const rg=cp.genderHard?cp.genderPref:null, rows=[], verifyOverdue=[];
+  const includeUnverified=(sq.filters||[]).includes('Include Unverified Caregivers');
   state.caregivers.forEach(cg=>{
     if(cg.active===false) return;
     if(!caregiverPassesFilters(cg, sq.filters, {clientId:sq.clientId})) return;
@@ -10690,8 +10691,6 @@ function dateSearch(sq){
        with a reason; offering the caregiver costs a call that ends in no. */
     if(sq.clientId && cgBlockedFrom(cg, sq.clientId)) return;
     if(rg && cg.gender!==rg) return;                    /* unrecorded gender is not a match */
-    /* never-confirmed is not a reason to hide somebody; lapsed is */
-    if(!(sq.filters||[]).includes('Include Unverified Caregivers') && availVerifyStatus(cg).key==='overdue') return;
     /* covClash, NOT assignedOnDate. assignedOnDate only ever knew about
        shifts assigned inside this dashboard; covClash asks AxisCare through
        COVHIST first and falls back to the same in-app check, so it is a
@@ -10709,9 +10708,29 @@ function dateSearch(sq){
        two dates out of three cannot take the third, and listing them
        invites a call that ends in no. */
     if(covered!==dates.length) return;
+    /* never-confirmed is not a reason to hide somebody; lapsed is. MOVED
+       to AFTER the coverage check (it used to run first, as an early
+       return): this is the one gate here that can exclude a caregiver
+       whose RECORDED AVAILABILITY GENUINELY COVERS THE REQUEST — every
+       other filter above rules somebody out on a fact about the shift or
+       the caregiver, not on "the desk hasn't re-asked them lately". An
+       early return made that exclusion indistinguishable from "not
+       available": the caregiver's Open block could be exactly right and
+       they would still just not be on the list, with nothing on screen to
+       say why — reported 2026-10-04 (a caregiver correctly shown Open on
+       her own calendar never appeared in Find Coverage). Caught here, the
+       caregiver is reported in verifyOverdue instead of vanishing, so the
+       screen can say what happened instead of staying silent. The rule
+       itself is unchanged — a lapsed caregiver still never lands in
+       `rows` on its own. */
+    if(!includeUnverified && availVerifyStatus(cg).key==='overdue'){
+      verifyOverdue.push({cg, covered, total:dates.length, perDate});
+      return;
+    }
     rows.push({cg, covered, total:dates.length, perDate});
   });
   rows.sort((a,b)=> b.covered-a.covered || availVerifyStatus(a.cg).rank-availVerifyStatus(b.cg).rank || b.cg.reliability-a.cg.reliability || dsDriveKey(a.cg,sq.city)-dsDriveKey(b.cg,sq.city));
+  verifyOverdue.sort((a,b)=> availDaysSince(b.cg)-availDaysSince(a.cg));
   /* WHICH DATES THE AXISCARE DOUBLE-CHECK ACTUALLY RAN ON. Same shape, and
      the same reason, as covMatchNote()'s genderKnown: "checked and clear"
      and "could not check" are different answers, and quietly showing the
@@ -10728,9 +10747,118 @@ function dateSearch(sq){
   const beyond    = dates.slice(COV_CLASH_MAX_DATES);
   const pending   = checkable.filter(ds => COVHIST.get(ds).state === 'loading');
   const failed    = checkable.filter(ds => ['ready','loading'].indexOf(COVHIST.get(ds).state) < 0);
-  return {dates, exact:rows, pending, failed, beyond,
+  return {dates, exact:rows, verifyOverdue, pending, failed, beyond,
           clashChecked: !pending.length && !failed.length && !beyond.length};
 }
+
+/* ---------------------------------------------------------------
+   DEBUG / TRACE — "why isn't this caregiver on Find Coverage?"
+
+   Added 2026-10-04, after a caregiver (Tarcia) whose calendar correctly
+   showed her Open from 7am–2pm on a Sunday never appeared when the desk
+   searched for coverage in that window. The underlying cause (dateSearch's
+   availVerifyStatus() === 'overdue' gate dropping her SILENTLY, even
+   though her recorded availability genuinely covered the request — see
+   the comment on `verifyOverdue` above) is now surfaced on screen. This
+   is the general-purpose version of the same question: run from the
+   console (or wire into any future "why" button) for ANY caregiver,
+   date and window, without needing to reproduce the bug by hand first.
+
+   Read-only — it never writes anything. It calls the EXACT SAME
+   primitives coverageMatches() and dateSearch() use (coverageDetail,
+   covClash, covClientPrefs, caregiverPassesFilters, cgBlockedFrom,
+   availVerifyStatus), in the same order each of them applies them, so
+   the trace cannot drift from what those two functions actually do.
+
+   The two screens are reported SEPARATELY on purpose: coverageMatches()
+   (the shift command centre, opened from one Open Shift) and dateSearch()
+   (the Coverage Planner's date/time search) do not apply the same rules
+   — confirmed 2026-10-04, coverageMatches() has no verification-cadence
+   gate at all — so a caregiver can legitimately sit on one list and not
+   the other, and the trace should say so rather than picking one answer.
+
+   Usage:
+     covWhyExcluded('Tarcia', {dateStr:'2026-10-11', start:7, end:14, clientId:'c1'})
+     covWhyExcluded('a90123', {dateStr:'2026-10-11', start:7, end:14})
+*/
+function covResolveCg(ref){
+  if(ref && typeof ref==='object') return ref;
+  if(!ref) return null;
+  var byId=state.caregivers.find(function(c){ return c.id===ref; });
+  if(byId) return byId;
+  var low=String(ref).toLowerCase();
+  var hits=state.caregivers.filter(function(c){ return c.name && c.name.toLowerCase().indexOf(low)>=0; });
+  if(hits.length===1) return hits[0];
+  if(hits.length>1) return {ambiguous:hits.map(function(c){ return c.name+' ('+c.id+')'; })};
+  return null;
+}
+function covWhyExcluded(cgRef, ctx){
+  ctx=ctx||{};
+  var cg=covResolveCg(cgRef);
+  if(!cg) return {error:'No caregiver matches "'+cgRef+'"'};
+  if(cg.ambiguous) return {error:'More than one caregiver matches "'+cgRef+'"', candidates:cg.ambiguous};
+  var ds=ctx.dateStr, start=ctx.start, end=ctx.end;
+  if(ds==null || start==null || end==null)
+    return {error:'Pass {dateStr, start, end} — e.g. {dateStr:"2026-10-11", start:7, end:14}'};
+  var cl=ctx.clientId?clById(ctx.clientId):null;
+  var filters=ctx.filters||[];
+  var out={caregiver:cg.name, id:cg.id, date:ds, window:fmtHr(start)+'–'+fmtHr(end)};
+
+  /* The raw availability data itself, independent of every rule below —
+     this is what a scheduler sees on the caregiver's own calendar, and
+     it is the thing both screens are SUPPOSED to agree is correct. */
+  var da=AVAIL.dayAvail(cg.id, ds);
+  out.rawAvailability={state:da.state, wins:da.wins, label:da.label};
+  var cd=coverageDetail(cg, ds, start, end);
+  out.coverageDetail=cd;
+
+  /* ---- the shift command centre: coverageMatches()'s own gate order ---- */
+  var sh={result:'eligible'};
+  if(cg.active===false) sh={result:'excluded', rule:'inactive', label:'Inactive'};
+  if(sh.result==='eligible' && ctx.shiftId){
+    var s=state.shifts.find(function(x){ return x.id===ctx.shiftId; });
+    if(s && s.callOff && s.prevCaregiver===cg.id) sh={result:'excluded', rule:'called-off', label:'Called off this shift'};
+  }
+  if(sh.result==='eligible'){
+    var prefsC=covClientPrefs(cl);
+    if(prefsC.doNotSend.indexOf(cg.id)>=0) sh={result:'excluded', rule:'do-not-send', label:'Do not send — flagged for this client'};
+    else if(prefsC.genderHard && cg.gender!==prefsC.genderPref)
+      sh={result:'excluded', rule:'gender', label:(cg.gender?'Client asks for a ':'Gender not recorded · client asks for a ')+(prefsC.genderPref==='F'?'female':'male')+' caregiver'};
+    else{
+      var clashS=covClash(cg, ds, start, end);
+      if(clashS) sh={result:'excluded', rule:'clash', label:clashS};
+      else if(cd.cov!=='full') sh={result:'excluded', rule:'availability', label:cd.label};
+    }
+  }
+  out.shiftCommandCentre=sh;
+
+  /* ---- the Coverage Planner: dateSearch()'s own gate order ---- */
+  var pl={result:'eligible'};
+  if(cg.active===false) pl={result:'excluded', rule:'inactive', label:'Inactive'};
+  else if(!caregiverPassesFilters(cg, filters, {clientId:ctx.clientId}))
+    pl={result:'excluded', rule:'filters', label:'Does not match the ticked Caregiver Requirements / Advanced filters'};
+  else if((ctx.skills||[]).some(function(sk){ return !cg.skills.includes(sk); }))
+    pl={result:'excluded', rule:'skills', label:'Missing a required care need'};
+  else if(ctx.clientId && cgBlockedFrom(cg, ctx.clientId))
+    pl={result:'excluded', rule:'blocked', label:'Blocked from this client'};
+  else{
+    var cpP=covClientPrefs(cl), rgP=cpP.genderHard?cpP.genderPref:null;
+    if(rgP && cg.gender!==rgP) pl={result:'excluded', rule:'gender', label:'Client asks for a '+(rgP==='F'?'female':'male')+' caregiver'};
+    else{
+      var clashP=covClash(cg, ds, start, end);
+      var covP=clashP?'conflict':cd.cov;
+      if(covP!=='full') pl={result:'excluded', rule:clashP?'clash':'availability', label:clashP||cd.label};
+      else if(!filters.includes('Include Unverified Caregivers') && availVerifyStatus(cg).key==='overdue')
+        pl={result:'excluded', rule:'verify-overdue',
+            label:'Availability is correct but has not been re-confirmed recently ('+(availDaysSince(cg)||0)+'d since — tick Include Unverified Caregivers to show)'};
+    }
+  }
+  out.coveragePlanner=pl;
+
+  console.info('[covWhyExcluded]', out);
+  return out;
+}
+
 function setSearchType(t){ const sq=state.searchQuery; sq.searchType=t; if(t==='single' && !(sq.dates&&sq.dates.length)) sq.dates=[toDateInput(NOW)]; render(); }
 function setSingleDate(v){ if(!v)return; state.searchQuery.dates=[v]; render(); }
 function addSearchDate(){ const el=document.getElementById('dsAddDate'); const v=el&&el.value; if(!v) return; const sq=state.searchQuery; if(!sq.dates) sq.dates=[]; if(sq.dates.indexOf(v)<0){ sq.dates.push(v); sq.dates.sort(); } render(); }
@@ -10871,9 +10999,23 @@ function renderDateSearchResults(sq){
     if(r.pending.length) bits.push(`still checking ${_n(r.pending)}`);
     note = `<div class="ds-note warn">The already-booked check is incomplete: ${bits.join('; ')}. Somebody already on a visit could still be listed. Their recorded availability is correct either way.</div>`;
   }
-  const head=`<div class="ds-resulthead"><b>${dates.length}</b> date${dates.length===1?'':'s'} \u00b7 ${fmtClock(rq.specStart)}\u2013${fmtClock(rq.specEnd)}${rq.city?' \u00b7 '+escText(rq.city):''}</div>${note}`;
+  /* Named here, and distinct from `note` above: that one is about the
+     AxisCare double-booking check. This is about availVerifyStatus()'s
+     separate "overdue" gate (dateSearch, above) \u2014 the one filter in that
+     function that can hide a caregiver whose recorded Open block genuinely
+     covers the request. Left silent, that reads exactly like "nobody has
+     entered availability", which is a different and false statement. Named
+     caregivers, not just a count, because "somebody matches" with no name
+     is not actionable \u2014 and the fix is one click (tick the filter) rather
+     than a reload or a data correction. */
+  const vo=r.verifyOverdue;
+  const voNote = vo.length ? `<div class="ds-note warn">${vo.length} caregiver${vo.length===1?'':'s'} match${vo.length===1?'es':''} this shift but ` +
+    `${vo.length===1?'has':'have'} not had availability re-confirmed recently, so they\u2019re hidden by default: ` +
+    vo.map(x=>escText(x.cg.name)+' ('+(availDaysSince(x.cg)==null?'never confirmed':availDaysSince(x.cg)+'d since confirmed')+')').join(', ') +
+    `. <button class="btn sm" onclick="toggleSearchFilter('Include Unverified Caregivers');runCoverageSearch()">Include them</button></div>` : '';
+  const head=`<div class="ds-resulthead"><b>${dates.length}</b> date${dates.length===1?'':'s'} \u00b7 ${fmtClock(rq.specStart)}\u2013${fmtClock(rq.specEnd)}${rq.city?' \u00b7 '+escText(rq.city):''}</div>${note}${voNote}`;
   if(!r.exact.length)
-    return head+`<div class="q-empty">Nobody has availability entered for this date and time. A caregiver only appears here once someone logs an <b>Open</b> block on their calendar.</div>`;
+    return head+`<div class="q-empty">Nobody has availability entered for this date and time${vo.length?' \u2014 other than the caregiver'+(vo.length===1?'':'s')+' named above':''}. A caregiver only appears here once someone logs an <b>Open</b> block on their calendar.</div>`;
   const grp=(label,desc,arr)=>{ if(!arr.length) return ''; const open=state.showMore&&state.showMore[label]; const shown=open?arr:arr.slice(0,8); const more=arr.length>8?`<button class="show-more" onclick="toggleShowMore('${label}')">${open?'Show fewer':'Show '+(arr.length-8)+' more'}</button>`:''; return `<div class="cc-tier"><div class="cc-list-h">${label} <span class="cc-list-n">${arr.length} \u00b7 ${desc}</span></div>${shown.map(x=>dsRow(x,rq)).join('')}${more}</div>`; };
   return head + grp('Available','free for the whole shift on every date selected',r.exact);
 }
