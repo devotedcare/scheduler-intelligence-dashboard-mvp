@@ -2243,6 +2243,34 @@ cursor, has no `:hover` and no button costume, while `.cd-eye` keeps both.
 > third section of the Care Notes page"*, describing a card removed earlier the same day.
 
 ---
+## 2026-10-04 — the shift-offer care-needs line names responsibilities, not the record
+
+`care-brief` writes the one *Care needs:* line in the Weekend availability text. Asked
+for "the actual tasks" and forbidden from using category words, it produced on a real
+client *"Walker indoors, occasional wheelchair, standby assist for car and chair
+transfers, help with toileting, showering, dressing, pull-ups and daily foot care, fall
+risk, no hovering."* — the client's assessment run together into a sentence, including
+staff shorthand a caregiver was never meant to read. Mitch reversed the rule.
+
+- **The prompt now asks for 2 to 5 short caregiver-responsibility categories** — the
+  shape is *"Mobility and transfer assistance, personal care assistance, toileting, and
+  fall-safety supervision."* — each at most once, only where the record confirms the
+  need, nothing inferred. Two-person or Hoyer transfers are still named, because they
+  change who can take the shift. Equipment, assist levels, products and body parts,
+  frequencies, assessment labels, caregiver instructions and shorthand like "no hovering"
+  are translated into the responsibility they create and otherwise dropped.
+- **Code checks the shape too.** `rawRecordWording()` in `vet()` rejects a line carrying
+  the old wording (equipment words, assist jargon, pull-ups / briefs / foot care, `every
+  N`, `fall risk`, `no <verb>ing`), more than five items, or a category over six words.
+  The handler retries once with a rewrite nudge; a second hit discards the line and the
+  response says why. `TARGET_LINE` 170 → 110, `MAX_LINE` 200 → 160.
+- **The "no umbrella terms" rule is retired**, in the prompt and in CLAUDE.md. The three
+  medication layers are untouched, and the function still reads only its narrow field set.
+- **Not deployed by this commit.** `npx supabase functions deploy care-brief --project-ref
+  gdzgoyawavffjdjpjbfz --no-verify-jwt` puts it live; until then the old line is what
+  schedulers see.
+
+---
 ## Still open
 
 - Attendance, punctuality and the "Not tracked" caregiver metrics — all

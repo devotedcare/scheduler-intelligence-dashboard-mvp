@@ -6,11 +6,24 @@
 // accepting BEFORE they say yes. This turns a client's recorded care needs
 // into ONE SHORT LINE for the text message — nothing else.
 //
-//     "Wheelchair, hands-on transfers, 2-person assist, toileting and
-//      bathing/dressing help, repositioning every 2 hours, high fall risk."
+//     "Mobility and transfer assistance, personal care assistance,
+//      toileting, and fall-safety supervision."
 //
 // Mitch asked for it on 2026-09-14 and set the rules; they are reproduced in
 // PROMPT below, verbatim where it matters.
+//
+// ── THE LINE IS CAREGIVER RESPONSIBILITIES, NOT THE RECORD (Mitch, 2026-10-04) ──
+//
+// The first version asked for the actual tasks and forbade category words, and
+// the result read as the assessment pasted into a text: "Walker indoors,
+// occasional wheelchair, standby assist for car and chair transfers, help
+// with toileting, showering, dressing, pull-ups and daily foot care, fall
+// risk, no hovering." That is profile data run together, with staff shorthand
+// ("no hovering") a caregiver was never meant to read. The line now names the
+// RESPONSIBILITIES the shift carries, as short plain categories, only those
+// the record confirms. Equipment, assist levels, products, body parts and
+// assessment labels stay out; the medication rule below is unchanged.
+// rawRecordWording() is the code-side check for the old shape.
 //
 // ── WHY THE FUNCTION FETCHES THE DATA ITSELF ────────────────────────────────
 //
@@ -89,8 +102,8 @@ const TIMEOUT_MS = 30000;
    will enforce leaves no room to finish a sentence, and the first live run
    produced a line ending "...stay in" — cut off mid-clause at 188 characters
    against a 200 cap. Aim short, accept a little over. */
-const TARGET_LINE = 170;
-const MAX_LINE = 200;                     // characters; ~1 extra SMS segment
+const TARGET_LINE = 110;                  // 2-5 responsibility categories (2026-10-04)
+const MAX_LINE = 160;                     // characters; still inside one extra SMS segment
 const RATE_MAX = 120;
 const RATE_TOTAL = 600;
 const RATE_WINDOW_MS = 60 * 60 * 1000;
@@ -312,36 +325,48 @@ function gatherFacts(d: Record<string, unknown>) {
    in index.html; this fills exactly one slot in it. */
 const PROMPT = [
   "You write ONE line of care needs for a text message sent to a home-care caregiver",
-  "who is being offered a shift. The caregiver must understand what they are accepting",
-  "before they say yes.",
+  "who is being offered a shift. Its only purpose is to let the caregiver decide whether",
+  "they are comfortable accepting the shift. It describes the CAREGIVER'S RESPONSIBILITIES",
+  "during the shift. It is not the client's assessment, profile or care plan.",
   "",
-  "OUTPUT: a single line of about " + TARGET_LINE + " characters and never more than " + MAX_LINE + ",",
-  "plain sentence case,",
-  "comma-separated phrases, ending with a full stop. No bullet points, no headings,",
-  "no preamble, no explanation, no quotation marks. Output the line and nothing else.",
+  "OUTPUT: a single line of 2 to 5 short responsibility categories, comma-separated, with",
+  "\"and\" before the last one, sentence case, ending with a full stop. About " + TARGET_LINE,
+  "characters, never more than " + MAX_LINE + ". No bullet points, no headings, no preamble,",
+  "no explanation, no quotation marks. Output the line and nothing else.",
   "",
-  "INCLUDE, in this order of priority, only what the supplied facts actually state:",
-  "  1. mobility and transfer level (wheelchair, hoyer, hands-on, standby)",
-  "  2. two-person assist, if the facts say so",
-  "  3. toileting, continence and personal care (bathing, dressing)",
-  "  4. repositioning or turning schedules",
-  "  5. dementia or behaviour concerns that affect how the caregiver works",
-  "  6. hospice or end-of-life care",
-  "  7. fall risk and other safety precautions",
+  "  Example of the shape:",
+  "  Mobility and transfer assistance, personal care assistance, toileting, and fall-safety supervision.",
+  "",
+  "WRITE IN THESE CATEGORIES, in this order of priority, each at most once, and only",
+  "when the supplied facts actually state the need:",
+  "  1. Mobility and transfer assistance - say \"two-person transfer assistance\" or",
+  "     \"Hoyer lift transfers\" instead when the facts state that, because it changes",
+  "     who can take the shift; otherwise just the category",
+  "  2. Personal care assistance (bathing, dressing, grooming)",
+  "  3. Toileting assistance, or incontinence care when the facts state incontinence",
+  "  4. Repositioning",
+  "  5. Memory-care supervision (confusion, dementia, wandering) or behaviour support",
+  "  6. Hospice or end-of-life comfort care",
+  "  7. Fall-safety supervision",
   "",
   "RULES:",
-  "- Use ONLY the facts supplied below. Do not infer, assume, generalise or add anything.",
+  "- Use ONLY the facts supplied below. Never infer, assume or add a responsibility.",
   "- NEVER mention any medication, drug name, dose or medication task. Not once, in any form.",
-  "- Do not include diagnoses, surgeries, medical history or clinical detail unless it",
-  "  directly changes what the caregiver must physically do or watch for.",
+  "- NEVER copy the record. The facts are assessment notes written for staff; translate",
+  "  each into the responsibility it creates, and drop the detail. Do not write equipment",
+  "  (walker, cane, wheelchair as a thing), assist levels (standby, hands-on, minimal,",
+  "  maximum), products or body parts (pull-ups, briefs, foot care), frequencies or",
+  "  schedules, assessment labels (fall risk, high risk, a diagnosis), caregiver",
+  "  instructions or preferences, or staff shorthand such as \"no hovering\".",
+  "  \"Walker indoors, standby assist for transfers\" is \"Mobility and transfer assistance\";",
+  "  \"help with toileting, showering, dressing, pull-ups\" is \"personal care assistance,",
+  "  toileting\"; \"fall risk\" is \"fall-safety supervision\".",
+  "- Do not include diagnoses, surgeries, medical history or clinical detail.",
   "- Do not name the client or any person.",
-  "- NAME THE ACTUAL TASKS. Write \"toileting, bathing and dressing\", never an umbrella",
-  "  term like \"personal care\", \"ADLs\", \"full care\" or \"assistance as needed\".",
-  "  A caregiver cannot decide whether they can take a shift from a category name;",
-  "  they can decide from the tasks. This is the whole purpose of the line.",
+  "- Several details that create the same responsibility become ONE category. Never run",
+  "  details together with commas inside a category.",
   "- Omit anything the facts do not state. A shorter line is correct; an invented one is not.",
   "- Finish the sentence. A complete short line beats a longer one that runs out mid-clause.",
-  "- If there is more than will fit, keep the highest-priority items and drop the rest.",
   "- Write plain ASCII only: no en dashes, em dashes, curly quotes or ellipses.",
   "- If the facts contain nothing a caregiver needs in order to decide, output exactly: NONE",
 ].join("\n");
@@ -490,7 +515,36 @@ function vet(line: string): { ok: boolean; line: string; why?: string } {
   if (s.length > MAX_LINE) {
     return { ok: false, line: "", why: "The line came back at " + s.length + " characters; the limit is " + MAX_LINE + "." };
   }
+  const raw = rawRecordWording(s);
+  if (raw) {
+    return { ok: false, line: "", why: "The line read as record detail rather than caregiver responsibilities (" + raw + ")." };
+  }
   return { ok: true, line: s };
+}
+
+/* THE OLD SHAPE, detected in code. The prompt asks for responsibility
+   categories; this is what catches the model pasting the record anyway.
+   Closed sets only - equipment words, assist-level jargon, products and body
+   parts, frequencies, assessment labels, and the "no <verb>ing" staff
+   shorthand ("no hovering"). "wheelchair" and "hands-on" are deliberately NOT
+   here: "Hoyer lift transfers" and "two-person transfer assistance" are
+   responsibilities that change who can take a shift, and a transfer line may
+   legitimately carry them. A hit is retried once with a nudge (see the
+   handler); a second hit discards the line, and the reason says why. */
+const RAW_RE = /\bhover|\bstand-?by\b|\b(min|max|mod|minimal|maximum|moderate|partial|total) assist|\bpull-?ups?\b|\bbriefs?\b|\bdepends?\b|\bfoot care\b|\bnail care\b|\bskin care\b|\bwalker\b|\brollator\b|\bcane\b|\bgait belt\b|\bindoors?\b|\boutdoors?\b|\boccasional(ly)?\b|\bfall risk\b|\bhigh risk\b|\bevery \d|\b\d+\s?x\b|\bx\s?\d\b|\bdaily\b|\bno [a-z]+ing\b/i;
+function rawRecordWording(line: string): string {
+  const m = RAW_RE.exec(line);
+  if (m) return '"' + m[0] + '"';
+  /* A category never holds its own comma-list; three or more items in a
+     single "category" is the record run together. */
+  const items = line.replace(/\.$/, "").split(/,\s*/).map((x) => x.replace(/^and\s+/i, "").trim()).filter(Boolean);
+  if (items.length > 5) return items.length + " items";
+  /* A two-item line has no comma ("X and Y."), and a category may itself carry
+     an "and" ("Mobility and transfer assistance"), so the length check looks at
+     the pieces between "and"s, not the comma items. */
+  const pieces = items.flatMap((x) => x.split(/\s+and\s+/i));
+  if (pieces.some((x) => x.trim().split(/\s+/).length > 6)) return "a category longer than six words";
+  return "";
 }
 
 Deno.serve(async (req) => {
@@ -552,16 +606,24 @@ Deno.serve(async (req) => {
   }
 
   let v = vet(raw);
-  /* ONE retry, and only for length. Throwing away an otherwise good summary
-     because it ran 28 characters long wastes the call and leaves the
-     scheduler with nothing; asking again for a shorter one costs a second.
-     A medication hit is NOT retried — that line is discarded, full stop. */
-  if (!v.ok && /characters; the limit is/.test(v.why || "")) {
+  /* ONE retry, and only for length or for the old record-pasted shape.
+     Throwing away an otherwise good summary because it ran 28 characters long
+     wastes the call and leaves the scheduler with nothing; asking again costs
+     a second. A medication hit is NOT retried — that line is discarded, full
+     stop. */
+  const tooLong = !v.ok && /characters; the limit is/.test(v.why || "");
+  const tooRaw = !v.ok && /record detail/.test(v.why || "");
+  if (tooLong || tooRaw) {
     try {
-      const shorter = await summarise(facts,
-        "Your previous answer was too long. Give the same line again in under " + TARGET_LINE +
-        " characters, keeping only the highest-priority items.");
-      const v2 = vet(shorter);
+      const again = await summarise(facts, tooLong
+        ? "Your previous answer was too long. Give the same line again in under " + TARGET_LINE +
+          " characters, keeping only the highest-priority categories."
+        : "Your previous answer copied record detail (" + (v.why || "").replace(/^.*\(|\)\.?$/g, "") +
+          "). Rewrite it as 2 to 5 plain responsibility categories only - for example " +
+          "\"Mobility and transfer assistance, personal care assistance, toileting, and fall-safety " +
+          "supervision.\" - with no equipment, assist levels, products, frequencies, assessment " +
+          "labels or staff shorthand.");
+      const v2 = vet(again);
       if (v2.ok) v = v2;
     } catch { /* keep the original verdict */ }
   }
