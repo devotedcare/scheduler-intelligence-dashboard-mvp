@@ -3500,12 +3500,37 @@ Hi Maria, are you available for weekend coverage with Brenda?
 
 Saturday, 8:00 AM-8:00 PM - Camarillo
 
-Care needs: Wheelchair dependent, hands-on for all transfers, help with
-toileting, bathing and dressing, reposition every 2 hours, high fall risk.
+Care needs: Mobility and transfer assistance, personal care assistance,
+toileting, and fall-safety supervision.
 
 Please reply YES if you're available and comfortable with these care needs.
 Thank you.
 ```
+
+**THE LINE IS CAREGIVER RESPONSIBILITIES, NOT THE RECORD (Mitch, 2026-10-04).** The
+first version asked the model to name the actual tasks and forbade category words,
+and on a real client it produced *"Walker indoors, occasional wheelchair, standby
+assist for car and chair transfers, help with toileting, showering, dressing,
+pull-ups and daily foot care, fall risk, no hovering."* — the assessment pasted into
+a text, with staff shorthand a caregiver was never meant to read. The owner reversed
+the rule: the line is **2 to 5 short responsibility categories** — Mobility and
+transfer assistance (two-person / Hoyer named only when the record states it, because
+that changes who can take the shift) · Personal care assistance · Toileting assistance
+or incontinence care · Repositioning · Memory-care supervision or behaviour support ·
+Hospice or end-of-life comfort care · Fall-safety supervision — each at most once,
+only when the record confirms the need, nothing inferred. **Never in the line:**
+equipment as a thing (walker, cane), assist levels (standby, min / max), products or
+body parts (pull-ups, briefs, foot care), frequencies, assessment labels (fall risk, a
+diagnosis), caregiver instructions or preferences, staff shorthand ("no hovering"), or
+several details run together inside one category. The earlier *"no umbrella terms"*
+rule and its test are retired; do not bring them back. Code enforces the shape too:
+`rawRecordWording()` in `vet()` rejects the old wording (`RAW_RE`: equipment, assist
+jargon, products, frequencies, labels, `no <verb>ing`; more than five items; a category
+over six words), the handler retries ONCE with a rewrite nudge, and a second hit
+discards the line with the reason in `reason`. `TARGET_LINE` is now 110 and `MAX_LINE`
+160. The medication layers below are untouched. **A commit does not deploy this** —
+`npx supabase functions deploy care-brief --project-ref gdzgoyawavffjdjpjbfz
+--no-verify-jwt`.
 
 **Claude: do not go looking for care needs in AxisCare.** There are none — see *What
 AxisCare does NOT have*. Client Concierge holds it, in
@@ -3561,13 +3586,11 @@ orthotic — so the prompt lists explicit negatives; and the **same sentence** g
 three times and NO twice, which is worse than either answer because nobody can
 reproduce it.
 
-Two prompt rules that are not style: **`max_tokens` is 4096** (at 1024, **4 of 18
-clients returned empty and 3 more were cut off mid-sentence** — thinking again); and
-**no umbrella terms**, because asked for a shorter line the model wrote *"full
-personal care at bedside"* instead of naming toileting and bathing, and a caregiver
-cannot decide whether they can take a shift from a category name. `personal care`,
-`ADLs`, `full care` and `assistance as needed` are forbidden and a test asserts none
-appear. `TARGET_LINE` (170) and `MAX_LINE` (200) are deliberately different: asking
+One prompt rule that is not style: **`max_tokens` is 4096** (at 1024, **4 of 18
+clients returned empty and 3 more were cut off mid-sentence** — thinking again).
+~~No umbrella terms~~ — that rule (forbidding `personal care`, `ADLs`, `full care`)
+was reversed by the owner on 2026-10-04; see *THE LINE IS CAREGIVER RESPONSIBILITIES*
+above. `TARGET_LINE` (110) and `MAX_LINE` (160) are deliberately different: asking
 for the number you will enforce leaves no room to finish a sentence.
 
 **Send is disabled until the line has generated.** Sending a weekend offer with the
