@@ -1040,6 +1040,13 @@
   .cvr-hrs{font-size:12.5px;font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums}
   .cvr-short{font-size:12.5px;color:var(--soon-tx);font-weight:650}
   .cvr-where{font-size:12.5px;color:var(--ink-soft)}
+  /* Match score, reasons and the three groups on the shift calling list. */
+  .cvm-grp{display:flex;align-items:center;gap:8px;font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;padding:7px 14px;border-bottom:1px solid var(--line-soft);background:var(--panel-head);color:var(--ink-soft)}
+  .cvm-grp.g0{color:var(--brand)}
+  .cvm-pct{margin-left:10px;font-size:11.5px;font-weight:800;padding:2px 8px;border-radius:999px;border:1px solid var(--line);color:var(--ink-soft);background:var(--surface);white-space:nowrap;vertical-align:1px}
+  .cvm-pct.g0{color:#fff;background:var(--brand);border-color:var(--brand)}
+  .cvm-reasons{font-size:12.5px;color:var(--ink);margin-top:2px}
+  .cvm-relnote{font-size:12px;color:var(--ink-faint);padding:8px 14px}
   .cvr-call{margin-left:auto;font-size:12px;font-weight:650;color:var(--brand);text-decoration:none;white-space:nowrap}
   .cvr-call:hover{text-decoration:underline}
   .wk-partsub{font-weight:500;text-transform:none;letter-spacing:0;font-size:12px;color:var(--ink-faint)}
@@ -8915,6 +8922,37 @@ function covClash(cg, ds, start, end){
   var a=assignedOnDate(cg.id, ds, start, end);
   return a ? ('Already assigned · '+a) : null;
 }
+/* CAN THEY GET FROM THEIR OTHER VISIT TO THIS ONE? Reads the same COVHIST
+   busy list covClash() does - no extra AxisCare call. For each visit that day
+   that does not overlap the shift, the gap is compared with the drive between
+   the two clients' cities.
+     block  the gap is shorter than the drive -> they cannot take the shift
+     near   the closest visit that DOES fit, for the schedule-fit score
+   A drive we cannot measure (either city unknown) blocks nobody. Visits on
+   the NEXT date after an overnight shift are not in this list, so that side
+   is not checked - the same limit covClash() documents. */
+function covTravel(cg, cl, ds, start, end){
+  var res={block:null, near:null};
+  if(end<=start) end+=24;
+  var h=COVHIST.get(ds);
+  if(h.state!=='ready') return res;
+  (h.busy[cg.id]||[]).forEach(function(b){
+    var before=b.e<=start, after=b.s>=end;
+    if(!before && !after) return;                      /* an overlap is covClash()'s */
+    var gap=before ? start-b.e : b.s-end;
+    if(gap>3) return;
+    var other=state.clients.filter(function(c){ return c.name===b.client; })[0];
+    var d=(other && other.city && cl && cl.city) ? driveBetween(other.city, cl.city) : null;
+    if(d && !d.same && gap*60<d.min){
+      res.block=before
+        ? 'Can’t arrive in time · with '+b.client+' until '+fmtHr(b.e)+', '+fmtDrive(d.min)+' away'
+        : 'Can’t reach their next visit · '+b.client+' at '+fmtHr(b.s)+', '+fmtDrive(d.min)+' away';
+    } else if(!res.near || gap<res.near.gap){
+      res.near={gap:gap, before:before, client:b.client, at:before?b.e:b.s};
+    }
+  });
+  return res;
+}
 /* Hours already scheduled that week. AxisCare is the real source; weekHrs is
    demo-only and null on a real caregiver, which renders as "Not tracked". */
 function covWeekHours(cg, ds){
@@ -9069,6 +9107,12 @@ function coverageMatches(q){
       dropKind='gender';
     }
     if(!drop) drop=covClash(cg, ds, start, end);
+    /* TRAVEL BETWEEN VISITS (owner's matching spec, 2026-10-06). A caregiver
+       whose other visit that day leaves less time than the drive between the
+       two clients cannot take the shift. Only a drive we can MEASURE blocks:
+       an unknown city is not evidence, so it never excludes anybody. */
+    var trav=drop ? {block:null, near:null} : covTravel(cg, cl, ds, start, end);
+    if(!drop && trav.block){ drop=trav.block; dropKind='travel'; }
     if(drop){ out.push({cg:cg, excluded:drop, dropKind:dropKind}); return; }
 
     /* AVAILABILITY DECIDES WHO IS ON THIS LIST, not merely where they sit
@@ -9130,6 +9174,14 @@ function coverageMatches(q){
        a red chip. */
     var drive = prefs.drivingRequired===true ? covDrives(cg, driveAudit||(driveAudit=covDriveAudit())) : null;
     var driveOk = (drive && drive.ans==='yes') ? true : null;
+    /* DRIVING IS A HARD FILTER NOW (owner's matching spec, 2026-10-06), where
+       it was a red warning. ONLY A RECORDED "NO" EXCLUDES. "Not recorded" and
+       "records disagree" stay on the list with their amber warning: absence
+       must never be read as a no, and cg.driver is still not evidence. */
+    if(drive && drive.ans==='no'){
+      out.push({cg:cg, excluded:'Doesn’t drive clients · client needs a driver', dropKind:'drive'});
+      return;
+    }
 
     /* THE ORDER OF THIS LIST, 2026-09-08. Rewritten with Carlo so that the
        client's wishes decide the top of the list, the caregiver's own
@@ -9279,7 +9331,46 @@ function coverageMatches(q){
        it applies to each. If the desk ever wants the hours back, this is where they
        were, and covWeekHours() still computes them. */
     if(hrs!=null && hrs>=32) score-=(hrs>=40 ? 25 : 8);
-    out.push({cg:cg, score:score, why:why, worked:worked, preferred:preferred, onList:onList, drv:drv,
+
+    /* ---------- THE MATCH SCORE (owner's matching spec, 2026-10-06) ----------
+       This REPLACES `score` above as what orders the list, and it is SHOWN.
+       Both reverse earlier desk decisions (scores hidden 2026-09-21, client
+       terms un-outrankable 2026-09-08) on the owner's explicit say-so.
+
+         client familiarity   30   regular 30 · on the client's list 25 ·
+                                   worked with them before 20 · new 0
+         schedule fit         20   free 20 · another visit within 2 h 12
+         distance             20   the same 0..20 on drive minutes as before
+         reliability          15   NOT SCORED - AxisCare has no such figure and
+                                   nothing derives one yet. Left out of the
+                                   total rather than invented, so the % is of 85.
+         requirements         10   driving (when the client needs it), and the
+                                   caregiver's own typed client preference
+         workload              5   hours already booked that week. NO overtime
+                                   figure anywhere - owner, 2026-10-06.
+
+       "Regular" is 4 or more visits with this client in COVHIST's 30-day
+       window (about weekly). "On the client's list" is Concierge's matched
+       list or AxisCare's preferredCaregiver - the nearest thing either system
+       records to a per-client backup. */
+    var mFam = worked>=4 ? 30 : (onList||preferred) ? 25 : worked ? 20 : 0;
+    var mFit = (trav.near && trav.near.gap<2) ? 12 : 20;
+    var mDist = drv ? Math.max(0, 20-drv.min*0.45) : 0;
+    var mReq = 10;
+    if(drive && drive.ans!=='yes') mReq-=5;
+    if(wants.why.length) mReq-=5;
+    var mLoad = hrs==null ? 3 : hrs>=40 ? 0 : hrs>=32 ? 2 : 5;
+    var match=Math.round((mFam+mFit+mDist+mReq+mLoad)/85*100);
+    var rel = worked>=4 ? 'Regular caregiver · '+worked+' visits in 30 days'
+            : (onList||preferred) ? 'On this client’s caregiver list'+(worked?' · '+worked+' recent visit'+(worked>1?'s':''):'')
+            : worked ? 'Worked with client '+worked+' time'+(worked>1?'s':'')+' in 30 days'
+            : 'New to this client';
+    var reasons=[rel];
+    reasons.push(trav.near && trav.near.gap<2
+      ? 'Other visit '+(trav.near.before?'ends ':'starts ')+fmtHr(trav.near.at)
+      : 'No schedule conflict');
+    if(drive && drive.ans==='yes') reasons.push('Drives clients');
+    out.push({cg:cg, score:score, match:match, reasons:reasons, rel:rel, why:why, worked:worked, preferred:preferred, onList:onList, drv:drv,
               dmin:drv?drv.min:null, hrs:hrs,
               availState:availState, availLabel:availLabel, excluded:null});
   });
@@ -9290,7 +9381,7 @@ function coverageMatches(q){
      that reads "Call in this order". */
   var mo=function(r){ var v=prefs.matchOrder[r.cg.id]; return v==null?9999:v; };
   var eligible=out.filter(function(r){ return !r.excluded; })
-    .sort(function(a,b){ return (b.score-a.score)
+    .sort(function(a,b){ return (b.match-a.match) || (b.score-a.score)
       || ((a.dmin==null?999:a.dmin)-(b.dmin==null?999:b.dmin))
       || (mo(a)-mo(b))
       || a.cg.name.localeCompare(b.cg.name); });
@@ -9301,7 +9392,7 @@ function coverageMatches(q){
      a blank screen has to be able to say whether the desk has asked and
      been told no, has not asked yet, or could not read the answer. */
   var dropped=out.filter(function(r){ return r.excluded; });
-  var tally={total:dropped.length, none:0, blocked:0, hours:0, unknown:0, gender:0, other:0};
+  var tally={total:dropped.length, none:0, blocked:0, hours:0, unknown:0, gender:0, drive:0, travel:0, other:0};
   dropped.forEach(function(r){ tally[r.dropKind||'other']++; });
   return {eligible:eligible, excluded:dropped, tally:tally, prefs:prefs};
 }
@@ -10512,7 +10603,7 @@ function covNearText(n){
 }
 function covNotListedHtml(q, excluded, eligible){
   if(!excluded || !excluded.length) return '';
-  const close=[], booked=[], c={gender:0, blocked:0, none:0, unknown:0, other:0};
+  const close=[], booked=[], c={gender:0, drive:0, blocked:0, none:0, unknown:0, other:0};
   excluded.forEach(function(r){
     const cg=r.cg;
     if(r.dropKind==='hours'){
@@ -10523,6 +10614,8 @@ function covNotListedHtml(q, excluded, eligible){
     else if(r.dropKind==='blocked') c.blocked++;
     else if(r.dropKind==='none') c.none++;
     else if(r.dropKind==='unknown') c.unknown++;
+    else if(r.dropKind==='drive') c.drive++;
+    else if(r.dropKind==='travel') booked.push(r);     /* named, with why: it is a booking problem */
     else if(/^Already (booked|assigned)/.test(String(r.excluded||''))) booked.push(r);
     else c.other++;
   });
@@ -10540,12 +10633,13 @@ function covNotListedHtml(q, excluded, eligible){
   close.forEach(function(x){ x.w=where(x.cg); });
   close.sort((a,b)=>(a.n.short-b.n.short)||(a.w.min-b.w.min)||String(a.cg.name).localeCompare(String(b.cg.name)));
   booked.sort((a,b)=>String(a.cg.name).localeCompare(String(b.cg.name)));
-  const total=close.length+booked.length+c.gender+c.blocked+c.none+c.unknown+c.other;
+  const total=close.length+booked.length+c.gender+c.drive+c.blocked+c.none+c.unknown+c.other;
   if(!total) return '';
   const summary=[];
   if(close.length)  summary.push(close.length+' close');
   if(booked.length) summary.push(booked.length+' already booked');
   if(c.gender)      summary.push(c.gender+' not the gender asked for');
+  if(c.drive)       summary.push(c.drive+' who don’t drive clients');
   if(c.blocked)     summary.push(c.blocked+' marked unavailable');
   if(c.none)        summary.push(c.none+' with nothing entered');
   if(c.unknown)     summary.push(c.unknown+' not loaded');
@@ -10623,8 +10717,19 @@ function renderCoverageCommand(q){
     return {match:note, html:`<div class="cvm-list">${covEmptyReason(q, tally, called.length)}</div>`
       + covNotListedHtml(q, excluded, eligible) + renderAttemptHistory(q, contacted)};
   }
-  const rows=queue.map((r,i)=>covMatchRow(r,q,i+1)).join('');
-  return {match:note, html:`<div class="cvm-list"><div class="cvm-h">Call in this order<span class="cvm-n">${queue.length}</span></div>${covSelBar(queue)}${rows}</div>`
+  /* THREE GROUPS (owner's matching spec, 2026-10-06), cut on the match %.
+     The rank number runs straight through them, so "call in this order" is
+     still one order. A group with nobody in it draws no heading. */
+  const grpOf=m=>m>=70?0:m>=45?1:2, GRP=['Best matches','Good matches','Other available'];
+  let lastG=-1;
+  const rows=queue.map((r,i)=>{
+    const g=grpOf(r.match), n=queue.filter(x=>grpOf(x.match)===g).length;
+    const head=g!==lastG ? `<div class="cvm-grp g${g}">${GRP[g]}<span class="cvm-n">${n}</span></div>` : '';
+    lastG=g;
+    return head+covMatchRow(r,q,i+1);
+  }).join('');
+  const relNote='<div class="cvm-relnote">Match % weighs client familiarity, schedule fit, distance, client requirements and weekly hours. Reliability is not tracked yet, so it is left out rather than guessed.</div>';
+  return {match:note, html:`<div class="cvm-list"><div class="cvm-h">Call in this order<span class="cvm-n">${queue.length}</span></div>${covSelBar(queue)}${rows}${relNote}</div>`
     + covNotListedHtml(q, excluded, eligible) + renderAttemptHistory(q, contacted)};
 }
 /* WHAT THIS CLIENT ASKED FOR, above the list.
@@ -10835,11 +10940,23 @@ function covMatchRow(r,q,rank){
   const seenBefore = r.worked
     ? `<span title="${esc(r.worked+' visit'+(r.worked>1?'s':'')+' with this client in the last 30 days')}">${r.worked} recent visit${r.worked>1?'s':''}</span>`
     : null;
+  /* SINCE 2026-10-06 (owner's matching spec) the row says WHY it is where it
+     is: where they are, the hours they are open, the hours already booked
+     that week (a plain count - no overtime wording, owner's instruction),
+     then the reasons behind the match %. `asked` and `seenBefore` above are
+     folded into the relationship reason, so they are no longer drawn. */
+  const near=covNear(cg, q);
   const facts=[
-    asked,
     `<span title="${esc(driveTip(place, cl&&cl.city, r.drv))}">${place.city ? escText(place.city)+' · ' : ''}${drive}</span>`,
-    seenBefore
+    near ? `<span title="The Open hours saved for them that cover this shift">Open ${escText(wkFmtWin(near.win))}</span>` : null,
+    r.hrs!=null ? `<span title="Hours already scheduled in AxisCare in this shift’s Monday–Sunday week. Scheduled, not clocked.">${r.hrs} h booked that week</span>` : null
   ].filter(Boolean).join(' · ');
+  const grp=r.match>=70?0:r.match>=45?1:2;
+  const reasons=(r.reasons||[]).map(x=>escText(x)).join(' · ');
+  const photo=cgPhotoUrl(cg,64);
+  const av=photo
+    ? `<div class="wk-cgphoto"><img src="${esc(photo)}" alt="" loading="lazy" decoding="async" onerror="cgPhotoFail(this)"></div>`
+    : `<div class="wk-cgphoto noimg">${ic('camera',14)}</div>`;
   /* Warnings only - red first, then amber - and never capped: since the travel-limit
      and weekly-hours chips were removed on 2026-09-25 there are at most two at once
      (driving, client gender), and a reason NOT to call must never be the thing that
@@ -10857,8 +10974,10 @@ function covMatchRow(r,q,rank){
   return `<div class="cvm-row${rank===1?' first':''}${sel?' sel':''}">
     <label class="cvm-cb">${box}</label>
     <div class="cvm-rank">${rank}</div>
+    ${av}
     <div class="cvm-main">
-      <div class="cvm-nm"><button type="button" class="cvm-nmlink" onclick="openCgFromCoverage('${cg.id}')" title="Open ${esc(cg.name)}’s calendar">${cg.name}</button></div>
+      <div class="cvm-nm"><button type="button" class="cvm-nmlink" onclick="openCgFromCoverage('${cg.id}')" title="Open ${esc(cg.name)}’s calendar">${cg.name}</button><span class="cvm-pct g${grp}" title="Match score for this client and this shift">${r.match}% match</span></div>
+      <div class="cvm-reasons">${reasons}</div>
       <div class="cvm-facts">${facts}</div>
       ${why?`<div class="cvm-why">${why}</div>`:''}
     </div>
