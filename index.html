@@ -2358,6 +2358,15 @@ body.ai-white .view{flex:1 1 auto;min-height:0;display:flex;flex-direction:colum
 .su-name:hover{text-decoration:underline}
 .su-when{font-size:12.5px;color:var(--ink-soft);font-variant-numeric:tabular-nums}
 .su-by{font-size:12.5px;color:var(--ink-soft);margin-top:2px}
+/* Availability Cadence page: one row per caregiver with no cadence set. */
+.cad-bar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:0 0 12px;font-size:13px;color:var(--ink-soft)}
+.cad-bar label{display:inline-flex;align-items:center;gap:6px;cursor:pointer;color:var(--ink)}
+.cad-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.cad-row .cad-who{flex:1 1 220px;min-width:0}
+.cad-row .cad-meta{font-size:12.5px;color:var(--ink-soft);margin-top:2px}
+/* .ein is width:100%, which pushed the dropdown onto a row of its own. */
+.cad-row select.ein{flex:0 0 220px;width:220px;max-width:100%}
+.cad-bar select.cad-fsel{width:auto;min-width:150px;padding-top:5px;padding-bottom:5px}
 .su-sub{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--ink-faint);margin:10px 0 5px}
 .su-changes{margin:0;padding-left:17px;display:flex;flex-direction:column;gap:3px}
 .su-changes li{font-size:13.5px;color:var(--ink);line-height:1.45}
@@ -4482,6 +4491,7 @@ const NAVGROUPS=[
   {section:'Caregiver Management'},
   {link:{id:'avail', label:'Caregivers'}},
   {link:{id:'schedupdates', label:'Caregiver Record Status'}},
+  {link:{id:'cadence', label:'Availability Cadence'}},
 
   {section:'Operations'},
   {link:{id:'tasks', label:'Weekly Tasks'}},
@@ -4526,7 +4536,7 @@ function navLink(it, sub){
 /* Every screen the router can reach. Today is deliberately absent - the
    dashboard no longer has that page, and state.view falls back to 'avail'. */
 const VIEWS={open:viewOpen,coverage:viewCoverage,clientcal:viewClientSchedule,updates:viewUpdates,staff:viewStaffClient,calloff:viewCallOff,
-    avail:viewAvail,log:viewLog,handoff:viewHandoff,assistant:viewAssistant,tasks:viewTasks,reports:viewReports,forms:viewForms,meds:viewMeds,guides:viewGuides,infographics:viewInfographics,attendance:viewAttendance,carenotes:viewCareNotes,schedupdates:viewSchedUpdates,kb:viewKB};
+    avail:viewAvail,log:viewLog,handoff:viewHandoff,assistant:viewAssistant,tasks:viewTasks,reports:viewReports,forms:viewForms,meds:viewMeds,guides:viewGuides,infographics:viewInfographics,attendance:viewAttendance,carenotes:viewCareNotes,schedupdates:viewSchedUpdates,cadence:viewCadence,kb:viewKB};
 function renderNav(){
   let html='';
   NAVGROUPS.forEach(g=>{
@@ -20243,6 +20253,93 @@ function applyAttFilter(){
      with nothing saying why. Land on the month the range starts in. */
   if(f.range){ const b=attRangeBounds(f); if(/^\d{4}-\d{2}/.test(b.from||'')) state.attMonth=b.from.slice(0,7); }
   closeModal(); render();
+}
+/* ---- Availability Cadence --------------------------------------------
+   Every active caregiver with NO availability-check cadence, so the desk can
+   set one without opening each profile to find out who is missing it (Peter,
+   2026-10-06). The Cadence tab on the day panel is unchanged and still the
+   place to change one that is already set.
+
+   The row leaves the list the moment a cadence is chosen, because the list is
+   worked out from the record on every render - the same rule Needs Update
+   follows.
+
+   STAMPING IS OPT-IN HERE, unlike applyCadence(). On the day panel, setting a
+   cadence IS the check: the scheduler has just been through that caregiver's
+   availability. Working down a list of forty names is not forty phone calls,
+   and stamping each one "checked today, by me" would be a false record. So
+   the default writes the interval alone; the tick box is for when the
+   scheduler really has just spoken to them. Without a Last Checked date the
+   caregiver reads "Not scheduled" until the first real check - honest, and
+   exactly what reviewState() already says for that case.
+
+   state.cadStamp is deliberately not a SLICES entry: it is one person's
+   choice on one screen, not shared work. */
+function cadMissing(){
+  return state.caregivers.filter(c=>c && c.active!==false && c.ops && !reviewCadence(c))
+    .sort((a,b)=>String(a.name||'').localeCompare(String(b.name||'')));
+}
+function cadSetStamp(on){ state.cadStamp=!!on; render(); }
+/* BRANCH is AxisCare's `region` - the only office grouping AxisCare records
+   (91% of active caregivers have one). There is no separate "branch" field,
+   so this does not invent one; a caregiver with no region is offered as
+   "No branch recorded" rather than being hidden by the filter. City is the
+   same cleaned value the Find Coverage filter uses. Both option lists are
+   built from the caregivers ON THIS LIST, so a choice can never be one that
+   matches nobody. Per browser, like cadStamp - not a SLICES entry. */
+const CAD_NO_BRANCH='—none—';
+function cadFilter(){ return state.cadFilter || (state.cadFilter={branch:'',city:''}); }
+function cadSetFilter(k,v){ cadFilter()[k]=v; render(); }
+function cadBranchOf(c){ return (c.region && String(c.region).trim()) || CAD_NO_BRANCH; }
+function cadCityOf(c){ return wkNormCity(c.base) || ''; }
+function cadSetFromList(id, v){
+  const c=cgById(id);
+  if(!c || !v || CADENCE_MAP[v]==null) return;
+  if(state.cadStamp) applyCadence(c, v);
+  else c.ops.availCheckFreq = v;
+  logCgChange(c.id, ['Availability cadence updated']);
+  render();
+  const nd = nextReview(c);
+  toast(c.name+' — cadence set to '+v+(nd?' · next check '+fmtDate(nd):''));
+}
+function viewCadence(){
+  const head='<div class="upd-head"><span class="upd-h">Availability Cadence</span></div>';
+  if(rosterLoading()) return head + loadingState('Loading caregivers…','The list appears once the roster has loaded.');
+  const all=cadMissing();
+  if(!all.length) return head + emptyState('Every active caregiver has a cadence',
+    'To change one, open the caregiver, click any day on their calendar and choose the Cadence tab.');
+  const f=cadFilter();
+  const uniq=a=>Array.from(new Set(a)).sort((x,y)=>String(x).localeCompare(String(y)));
+  const branches=uniq(all.map(cadBranchOf).filter(b=>b!==CAD_NO_BRANCH));
+  const hasNoBranch=all.some(c=>cadBranchOf(c)===CAD_NO_BRANCH);
+  const cities=uniq(all.map(cadCityOf).filter(Boolean));
+  /* A filter left on a value that no longer has anybody (the last caregiver
+     in that branch was just given a cadence) falls back to All rather than
+     showing an empty list with a count of zero and no explanation. */
+  if(f.branch && f.branch!==CAD_NO_BRANCH && branches.indexOf(f.branch)<0) f.branch='';
+  if(f.branch===CAD_NO_BRANCH && !hasNoBranch) f.branch='';
+  if(f.city && cities.indexOf(f.city)<0) f.city='';
+  const list=all.filter(c=>(!f.branch||cadBranchOf(c)===f.branch) && (!f.city||cadCityOf(c)===f.city));
+  const sel=(key,label,items)=>'<label>'+label+' <select class="ein cad-fsel" aria-label="'+label+'" onchange="cadSetFilter(\''+key+'\',this.value)">'+
+    items.map(o=>'<option value="'+esc(o[0])+'"'+(f[key]===o[0]?' selected':'')+'>'+escText(o[1])+'</option>').join('')+'</select></label>';
+  const branchOpts=[['','All branches']].concat(branches.map(b=>[b,b])).concat(hasNoBranch?[[CAD_NO_BRANCH,'No branch recorded']]:[]);
+  const cityOpts=[['','All cities']].concat(cities.map(c=>[c,c]));
+  const opts='<option value="">Set cadence…</option>'+CADENCE_CHOICES.filter(o=>o[0])
+    .map(o=>'<option value="'+esc(o[0])+'">'+escText(o[1])+'</option>').join('');
+  const filtered=!!(f.branch||f.city);
+  const bar='<div class="cad-bar"><span>'+(filtered?list.length+' of '+all.length:all.length)+' active caregiver'+(all.length===1?'':'s')+' with no cadence set</span>'+
+    sel('branch','Branch',branchOpts)+sel('city','City',cityOpts)+
+    (filtered?'<button type="button" class="dp-link" onclick="state.cadFilter=null;render()">Clear filters</button>':'')+
+    '<label title="Tick only when you have just checked their availability with them. It records today as Last Checked, under your name."><input type="checkbox" '+(state.cadStamp?'checked':'')+
+    ' onchange="cadSetStamp(this.checked)"> Also record today as Last Checked</label></div>';
+  return head + bar + '<div class="su-list">'+list.map(function(c){
+    const last=c.ops.availLastConfirmed ? 'Last checked '+fmtDate(new Date(c.ops.availLastConfirmed)) : 'Never checked';
+    return '<div class="su-card cad-row">'+
+      '<div class="cad-who"><button class="su-name" onclick="openCaregiver(\''+c.id+'\')">'+escText(c.name||'Caregiver')+'</button>'+
+        '<div class="cad-meta">'+escText([c.region, c.base, last].filter(Boolean).join(' · '))+'</div></div>'+
+      '<select class="ein" aria-label="Cadence for '+esc(c.name||'caregiver')+'" onchange="cadSetFromList(\''+c.id+'\',this.value)">'+opts+'</select>'+
+    '</div>';
+  }).join('')+'</div>';
 }
 /* ---- Schedule Updates ------------------------------------------------
    Every recorded schedule change, across every client, newest first. Reads

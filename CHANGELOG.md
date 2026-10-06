@@ -2270,6 +2270,33 @@ staff shorthand a caregiver was never meant to read. Mitch reversed the rule.
   gdzgoyawavffjdjpjbfz --no-verify-jwt` puts it live; until then the old line is what
   schedulers see.
 
+## 2026-10-06 — Availability Cadence: a page listing who has no cadence
+
+Peter, 2026-10-06. The only way to see whether a caregiver had an availability-check
+cadence was to open them, click a day and look at the Cadence tab, so nobody could tell
+who was missing one. A new sidebar page under Caregiver Management, **Availability
+Cadence** (`viewCadence()`), lists every **active** caregiver where `reviewCadence(c)`
+is null, with a dropdown per row. `index.html` only; no table, no Edge Function, no
+`app-gate` change — the cadence is still `ops.availCheckFreq` in the overlay.
+
+- **Setting one from the list does NOT stamp Last Checked, unlike `applyCadence()`.** On
+  the day panel, setting a cadence *is* the check. Working down a list of names is not a
+  phone call each, and stamping every row "checked today, by me" would be a false record.
+  A tick box, *Also record today as Last Checked*, routes through `applyCadence()` for
+  when the scheduler really has just spoken to them. Without a stamp the caregiver reads
+  "Not scheduled" until the first real check, which is what `reviewState()` already says.
+- **"Branch" is AxisCare's `region`.** There is no branch field anywhere; `c.region` is the
+  only office grouping AxisCare records. A caregiver with none is offered as *No branch
+  recorded* rather than hidden. The City filter is `wkNormCity(c.base)`, the same cleaned
+  value Find Coverage filters on. Both option lists are built from the caregivers on the
+  list, and a filter whose last caregiver was just given a cadence falls back to All.
+- `state.cadStamp` and `state.cadFilter` are per browser and are **not** `SLICES` entries.
+- The Cadence tab on the day panel is unchanged. It is easy to misread as a per-day
+  setting because of where it sits; a cadence is one value per caregiver.
+- **Not verified against live data** — tested in a headless browser with made-up
+  caregivers (the test copy cannot reach AxisCare). The real `region` values on this
+  account have not been looked at.
+
 ---
 ## Still open
 
