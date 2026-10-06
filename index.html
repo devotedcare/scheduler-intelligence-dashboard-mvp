@@ -2043,6 +2043,11 @@ body.ai-white .view{flex:1 1 auto;min-height:0;display:flex;flex-direction:colum
   .cal-cell.today{outline:none;border-color:var(--line);box-shadow:none}
   .cal-cell.today .cal-d{display:inline-flex;align-items:center;justify-content:center;flex:none;width:22px;height:22px;padding:0;border-radius:50%;background:#1e40af;color:#fff;line-height:1}
   /* Calendar popup: tick several days on the grid, then hand them to the day panel. */
+  /* Needs Update: a missing field is a link to its editor. */
+  .su-fill{font:inherit;color:var(--brand);background:none;border:none;padding:0;cursor:pointer;text-align:left;text-decoration:underline;text-decoration-color:#B9D0DC;text-underline-offset:2px}
+  .su-fill:hover{text-decoration-color:var(--brand)}
+  .su-actbtn{font:inherit;font-size:inherit;font-weight:inherit;background:none;border:none;padding:0;cursor:pointer}
+  .su-actbtn:hover{text-decoration:underline}
   .cal-multi{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:8px 12px;margin:-2px 0 12px}
   .cal-multi-hint{font-size:12px;color:var(--ink-faint)}
   .cal-multi.on{background:#F2F7FA;border:1px solid #CFE0EA;border-radius:var(--r);padding:8px 12px}
@@ -20946,6 +20951,47 @@ function suNoSchedHTML(ym){
           '<ul class="su-changes"><li>No AxisCare visits in '+mon+'.</li><li>Nothing recorded on the availability calendar in '+mon+'.</li></ul></div></div>';
     }).join('')+'</div>';
 }
+/* WHERE EACH MISSING FIELD IS FILLED IN. Three destinations, and the first
+   two open ON TOP of the list so the scheduler never loses their place -
+   saving re-renders the list underneath and the row clears itself:
+     Skills / Experience        their own tick-list editor
+     the Work Preferences set   the Work Preferences editor
+     anything else              the caregiver's Profile tab, where its card is
+   Keyed by the CG_REQUIRED label. A label not named here falls through to
+   the Profile tab, so a field added to CG_REQUIRED later still goes
+   somewhere sensible rather than doing nothing. */
+var SU_FILL_PROFILE={'Caregiving experience':1, 'Client Blocks — Do Not Assign':1};
+function suFillKind(label){
+  if(label==='Skills') return 'skills';
+  if(label==='Experience') return 'experience';
+  if(SU_FILL_PROFILE[label]) return 'profile';
+  return CG_REQUIRED.some(function(r){ return r.label===label; }) ? 'prefs' : 'profile';
+}
+function suFillTip(label){
+  var k=suFillKind(label);
+  return k==='prefs' ? 'Open Work Preferences to fill this in'
+       : k==='profile' ? 'Open this caregiver’s Profile tab'
+       : 'Open the '+label+' list to fill this in';
+}
+function suFill(id, label){
+  var c=cgById(id); if(!c) return;
+  /* The row passes the field's POSITION in this caregiver's missing list, not
+     its text: one label carries an em dash and others may one day carry an
+     apostrophe, either of which would end the string inside the inline
+     handler (the same reason chipToggle takes an index). '' means the
+     "Action: Complete profile" button - straight to the Profile tab. */
+  if(typeof label==='number'){
+    var miss=CG_REQUIRED.filter(function(r){ try{ return !r.ok(c); }catch(e){ return false; } }).map(function(r){ return r.label; });
+    label=miss[label]||'';
+  }
+  var k=suFillKind(label);
+  if(k==='skills' || k==='experience'){ openChipPick(id, k); return; }
+  if(k==='prefs'){ openWorkPrefsEdit(id); return; }
+  /* openCaregiver()'s own fields, with the tab set BEFORE the one render -
+     calling it and then setCgTab() painted Overview first for nothing. */
+  state.cgReturn=null; state.cgOpen=id; state.cgCalMonth=0; state.cgTab='profile'; state.cbDel=null; state.view='avail';
+  render(); window.scrollTo(0,0);
+}
 function suNeedsHTML(needs){
   if(state.suMonth){ const body=suNoSchedHTML(state.suMonth); if(state.suMonth) return suMonthBar()+body; }
   /* Say when a check could not run. Silently dropping the availability
@@ -20992,8 +21038,17 @@ function suNeedsHTML(needs){
       n.items.map(function(it){
         return '<div class="su-item">'+
           '<div class="su-item-h"><span class="at-p '+(it.tone==='bad'?'bad':'neu')+'">'+esc(it.label||it.head)+'</span>'+
-            (it.action?'<span class="su-act">Action: '+esc(it.action)+'</span>':'')+'</div>'+
-          '<ul class="su-changes">'+it.lines.map(l=>'<li>'+esc(l)+'</li>').join('')+'</ul>'+
+            (it.action ? (it.head==='Missing profile information'
+              ? '<button type="button" class="su-act su-actbtn" onclick="suFill(\''+n.c.id+'\',\'\')">Action: '+esc(it.action)+' ›</button>'
+              : '<span class="su-act">Action: '+esc(it.action)+'</span>') : '')+'</div>'+
+          /* A MISSING PROFILE FIELD IS A LINK TO WHERE IT IS FILLED IN (Peter,
+             2026-10-06). Only the profile item: the availability and cadence
+             items have their own buttons on the card. */
+          '<ul class="su-changes">'+it.lines.map(function(l){
+            return it.head==='Missing profile information'
+              ? '<li><button type="button" class="su-fill" title="'+esc(suFillTip(l))+'" onclick="suFill(\''+n.c.id+'\','+it.lines.indexOf(l)+')">'+escText(l)+'</button></li>'
+              : '<li>'+esc(l)+'</li>';
+          }).join('')+'</ul>'+
         '</div>';
       }).join('')+
     '</div>';
