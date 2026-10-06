@@ -2047,19 +2047,16 @@ body.ai-white .view{flex:1 1 auto;min-height:0;display:flex;flex-direction:colum
   .su-find{display:flex;align-items:center;gap:12px;margin:0 0 12px}
   .su-findin{max-width:340px}
   .su-findn{font-size:12.5px;color:var(--ink-soft)}
-  .su-miss-sum{font-size:12.5px;color:var(--ink-soft);margin:8px 0 6px}
-  .su-miss-sum b{color:var(--ink)}
-  .su-miss{border:1px solid var(--line-soft);border-radius:var(--r);overflow:hidden}
-  .su-missrow{display:flex;align-items:flex-start;gap:12px;padding:8px 10px;border-top:1px solid var(--line-soft)}
-  .su-missrow:first-child{border-top:none}
-  .su-missk{flex:0 0 150px;font-size:12.5px;font-weight:700;color:var(--ink);padding-top:3px;display:flex;align-items:center;gap:6px}
-  .su-missn{font-size:11px;font-weight:800;min-width:18px;height:18px;border-radius:9px;background:var(--soon-bg);color:var(--soon-tx);display:inline-flex;align-items:center;justify-content:center;padding:0 5px}
-  .su-missf{flex:1;min-width:0;display:flex;flex-wrap:wrap;gap:5px}
-  .su-missnone{font-size:12.5px;color:var(--ink-faint);padding-top:3px}
-  .su-pill{font:inherit;font-size:12px;color:var(--ink-soft);background:var(--panel-head);border:1px solid var(--line);border-radius:999px;padding:2px 9px;cursor:pointer;white-space:nowrap}
-  .su-pill:hover{color:var(--brand);border-color:var(--brand);background:#F2F7FA}
+  .su-oneline{display:flex;align-items:center;gap:12px;margin-top:8px}
+  .su-onecount{font-size:13px;color:var(--ink-soft);margin-right:auto}
+  .su-onecount b{color:var(--ink)}
   .su-missgo{flex:0 0 auto;white-space:nowrap}
-  @media (max-width:760px){ .su-missrow{flex-wrap:wrap} .su-missk{flex-basis:100%} }
+  .su-what{margin-top:4px}
+  .su-what>summary{font-size:12.5px;color:var(--ink-faint);cursor:pointer;width:max-content;list-style-position:inside}
+  .su-what>summary:hover{color:var(--brand)}
+  .su-whatrow{display:flex;gap:12px;align-items:baseline;font-size:12.5px;padding:5px 0 0 14px}
+  .su-whatrow .su-fill{flex:0 0 130px;font-weight:650}
+  .su-whattx{color:var(--ink-soft);line-height:1.5}
   .su-fill{font:inherit;color:var(--brand);background:none;border:none;padding:0;cursor:pointer;text-align:left;text-decoration:underline;text-decoration-color:#B9D0DC;text-underline-offset:2px}
   .su-fill:hover{text-decoration-color:var(--brand)}
   .su-actbtn{font:inherit;font-size:inherit;font-weight:inherit;background:none;border:none;padding:0;cursor:pointer}
@@ -21074,33 +21071,41 @@ function suFilterApply(){
   const n=document.getElementById('suFindN');
   if(n) n.textContent=q ? (shown+' of '+cards.length+' shown') : (cards.length+' caregiver'+(cards.length===1?'':'s'));
 }
-/* THE MISSING FIELDS, GROUPED BY WHERE THEY ARE FILLED IN (Peter, 2026-10-06).
-   It was one bullet per field - up to nineteen lines a caregiver - and a new
-   caregiver with nothing recorded is the common case, so a roster of them
-   was a wall. Now one row per editor: its name, how many fields it is
-   missing, the fields as small pills, and one button that opens it. Three or
-   four rows where there were nineteen.
+/* THE MISSING PROFILE FIELDS, IN ONE QUIET LINE (Peter, 2026-10-06).
+   Three shapes in one afternoon, and the lesson is in the order:
+     19 bullets          a wall, on a roster where a blank profile is common
+     pills in 4 rows     fewer lines, MORE to look at - "stressful to the eye"
+     this                a count and ONE button; the detail is there if asked
+   The scheduler's question on this row is "is there work to do, and where do
+   I click" - not "which nineteen things". So the row answers that, and the
+   list sits behind "Show what's missing" as plain text.
 
-   Each pill is still its own link (suFill by INDEX into this caregiver's
-   missing list - see suFill for why not the label), so nothing that worked
-   on the long list stopped working. */
+   ONE BUTTON goes to the first editor that still has something missing -
+   Work Preferences, then Skills, then Experience, then the Profile tab - so
+   clicking it again after each save walks through them in order.
+
+   Which rows are expanded is remembered in SUOPEN, module-level: render()
+   rewrites this view on every save and 20-second poll, and a list that
+   snapped shut under the reader would be worse than no list. Not in state. */
+var SUOPEN={};
+function suWhatToggle(id, el){ if(el && el.open) SUOPEN[id]=1; else delete SUOPEN[id]; }
 function suMissingHtml(c, lines){
   const ORDER=['prefs','skills','experience','profile'];
   const NAME={prefs:'Work Preferences', skills:'Skills', experience:'Experience', profile:'Profile'};
   const groups={};
   lines.forEach(function(l,i){ const k=suFillKind(l); (groups[k]=groups[k]||[]).push({l:l,i:i}); });
-  const total=CG_REQUIRED.length;
-  const head='<div class="su-miss-sum"><b>'+lines.length+'</b> of '+total+' profile fields missing</div>';
-  return head+'<div class="su-miss">'+ORDER.filter(function(k){ return groups[k]; }).map(function(k){
-    const g=groups[k], first=g[0].i;
-    const one=(k==='skills'||k==='experience');
-    return '<div class="su-missrow">'+
-      '<div class="su-missk">'+NAME[k]+(one?'':'<span class="su-missn">'+g.length+'</span>')+'</div>'+
-      '<div class="su-missf">'+(one ? '<span class="su-missnone">Nothing recorded</span>'
-        : g.map(function(x){ return '<button type="button" class="su-pill" title="'+esc(suFillTip(x.l))+'" onclick="suFill(\''+c.id+'\','+x.i+')">'+escText(x.l)+'</button>'; }).join(''))+'</div>'+
-      '<button type="button" class="btn sm su-missgo" onclick="suFill(\''+c.id+'\','+first+')">'+(k==='profile'?'Open profile':'Fill in')+' \u203a</button>'+
-    '</div>';
-  }).join('')+'</div>';
+  const present=ORDER.filter(function(k){ return groups[k]; });
+  const firstIdx=present.length ? groups[present[0]][0].i : 0;
+  const detail=present.map(function(k){
+    const g=groups[k], one=(k==='skills'||k==='experience');
+    return '<div class="su-whatrow"><button type="button" class="su-fill" title="'+esc(suFillTip(g[0].l))+'" onclick="suFill(\''+c.id+'\','+g[0].i+')">'+NAME[k]+'</button>'+
+      '<span class="su-whattx">'+(one ? 'nothing recorded' : escText(g.map(function(x){ return x.l; }).join(', ')))+'</span></div>';
+  }).join('');
+  return '<div class="su-oneline">'+
+      '<span class="su-onecount"><b>'+lines.length+'</b> of '+CG_REQUIRED.length+' profile fields missing</span>'+
+      '<button type="button" class="btn sm su-missgo" onclick="suFill(\''+c.id+'\','+firstIdx+')">Fill in \u203a</button>'+
+    '</div>'+
+    '<details class="su-what"'+(SUOPEN[c.id]?' open':'')+' ontoggle="suWhatToggle(\''+c.id+'\',this)"><summary>Show what\u2019s missing</summary>'+detail+'</details>';
 }
 function suNeedsHTML(needs){
   if(state.suMonth){ const body=suNoSchedHTML(state.suMonth); if(state.suMonth) return suMonthBar()+body; }
@@ -21156,9 +21161,9 @@ function suNeedsHTML(needs){
       n.items.map(function(it){
         return '<div class="su-item">'+
           '<div class="su-item-h"><span class="at-p '+(it.tone==='bad'?'bad':'neu')+'">'+esc(it.label||it.head)+'</span>'+
-            (it.action ? (it.head==='Missing profile information'
-              ? '<button type="button" class="su-act su-actbtn" onclick="suFill(\''+n.c.id+'\',\'\')">Action: '+esc(it.action)+' ›</button>'
-              : '<span class="su-act">Action: '+esc(it.action)+'</span>') : '')+'</div>'+
+            /* The profile item carries its own single "Fill in" button below, so
+               the "Action: Complete profile" label that duplicated it is gone. */
+            ((it.action && it.head!=='Missing profile information') ? '<span class="su-act">Action: '+esc(it.action)+'</span>' : '')+'</div>'+
           /* A MISSING PROFILE FIELD IS A LINK TO WHERE IT IS FILLED IN (Peter,
              2026-10-06). Only the profile item: the availability and cadence
              items have their own buttons on the card. */
