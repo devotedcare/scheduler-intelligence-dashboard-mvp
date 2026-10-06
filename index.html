@@ -1031,6 +1031,16 @@
   .wk-restnames{display:flex;flex-wrap:wrap;gap:4px 14px}
   .wk-restcg{white-space:nowrap}
   .wk-resttime{font-size:12px;color:var(--ink-faint)}
+  /* Shift screen: who is not on the list, and how close they came. */
+  .cvr-rest{margin:10px 0 14px;background:#fff;border:1px solid var(--line);border-radius:var(--r)}
+  .cvr-note{font-size:12.5px;color:var(--ink-soft);margin:8px 0 0}
+  .cvr-rows{display:flex;flex-direction:column;gap:2px}
+  .cvr-row{display:flex;align-items:baseline;gap:6px 14px;flex-wrap:wrap;padding:5px 0;border-bottom:1px solid var(--line-soft)}
+  .cvr-row:last-child{border-bottom:none}
+  .cvr-hrs{font-size:12.5px;font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums}
+  .cvr-short{font-size:12.5px;color:var(--soon-tx);font-weight:650}
+  .cvr-call{margin-left:auto;font-size:12px;font-weight:650;color:var(--brand);text-decoration:none;white-space:nowrap}
+  .cvr-call:hover{text-decoration:underline}
   .wk-partsub{font-weight:500;text-transform:none;letter-spacing:0;font-size:12px;color:var(--ink-faint)}
   .wk-detail{margin-top:14px;padding:0;overflow:hidden}
   .wk-detailhead{display:flex;align-items:center;gap:10px;padding:12px 15px;border-bottom:1px solid var(--line);background:var(--panel-head)}
@@ -10454,6 +10464,91 @@ function renderCovStatusBar(D){
    is, because the next action is completely different each time: chase the
    caregivers nobody has asked, widen the shift, or fix a loading problem.
    Said here, once, and nowhere else. */
+/* WHO IS NOT ON THE LIST, AND HOW CLOSE THEY CAME (Peter, 2026-10-06). The
+   list holds only caregivers whose saved Open hours cover the WHOLE shift in
+   one block, which for a 12-hour overnight is a handful, and nothing said
+   where everybody else went: Brenda Janowski's Fri 8p-8a shift listed 3
+   while the weekly grid beside it showed 13 for "Overnight". The two use
+   different windows (10p-6a against 8p-8a), and nobody could see that.
+
+   NOTHING HERE CHANGES WHO MAY BE OFFERED THE SHIFT. This is a read-out under
+   the list: no checkbox, no Text, no assignment. A shift needs one person for
+   all of it, so partial availability is deliberately not eligibility; what it
+   buys is a scheduler seeing that somebody is an hour short and deciding
+   whether to ask.
+
+   Sorted into reasons, and each caregiver is in exactly ONE:
+     close       open that day, not for the whole shift - named, with their
+                 real hours and what is missing, nearest first
+     booked      already on an AxisCare visit or assigned - named, with when
+     gender      not the gender the client asked for - count only
+     blocked     recorded unavailable - count only
+     none        nothing entered for the date - count only
+     unknown     availability did not load - count only, and never a "no"
+     other       inactive, called off, flagged for this client - count only
+
+   Only 'close' and 'booked' are named: they are the ones a scheduler can act
+   on. The rest would be a wall of names on a roster of 180. */
+function covNear(cg, q){
+  const ds=q.date, s=q.start; let e=q.end; if(e<=s) e+=24;
+  const d=AVAIL.dayAvail(cg.id, ds);
+  if(d.state!=='open' && d.state!=='none') return null;
+  let wins=d.wins.concat(AVAIL.carryWindows(cg.id, ds));
+  if(e>24) wins=wins.concat(AVAIL.nextWindows(cg.id, ds));
+  let best=null, bestLen=0;
+  AVAIL.mergeWins(wins).forEach(function(w){
+    const len=Math.min(w[1],e)-Math.max(w[0],s);
+    if(len>bestLen){ bestLen=len; best=w; }
+  });
+  if(!best) return null;
+  const late=Math.max(0, best[0]-s), early=Math.max(0, e-best[1]);
+  return {win:best, covered:bestLen, late:late, early:early, short:late+early};
+}
+function covNearText(n){
+  const h=x=>{ const r=Math.round(x*10)/10; return r+(r===1?' hour':' hours'); };
+  const bits=[]; if(n.late>0) bits.push('starts '+h(n.late)+' late'); if(n.early>0) bits.push('ends '+h(n.early)+' early');
+  return bits.join(', ');
+}
+function covNotListedHtml(q, excluded, eligible){
+  if(!excluded || !excluded.length) return '';
+  const close=[], booked=[], c={gender:0, blocked:0, none:0, unknown:0, other:0};
+  excluded.forEach(function(r){
+    const cg=r.cg;
+    if(r.dropKind==='hours'){
+      const n=covNear(cg, q);
+      if(n && n.covered>=AV_MIN_MIN/60) close.push({cg:cg, n:n}); else c.none++;   /* open, but for under 3 hours of it: not a near miss */
+    }
+    else if(r.dropKind==='gender') c.gender++;
+    else if(r.dropKind==='blocked') c.blocked++;
+    else if(r.dropKind==='none') c.none++;
+    else if(r.dropKind==='unknown') c.unknown++;
+    else if(/^Already (booked|assigned)/.test(String(r.excluded||''))) booked.push(r);
+    else c.other++;
+  });
+  close.sort((a,b)=>(a.n.short-b.n.short)||String(a.cg.name).localeCompare(String(b.cg.name)));
+  booked.sort((a,b)=>String(a.cg.name).localeCompare(String(b.cg.name)));
+  const total=close.length+booked.length+c.gender+c.blocked+c.none+c.unknown+c.other;
+  if(!total) return '';
+  const summary=[];
+  if(close.length)  summary.push(close.length+' close');
+  if(booked.length) summary.push(booked.length+' already booked');
+  if(c.gender)      summary.push(c.gender+' not the gender asked for');
+  if(c.blocked)     summary.push(c.blocked+' marked unavailable');
+  if(c.none)        summary.push(c.none+' with nothing entered');
+  if(c.unknown)     summary.push(c.unknown+' not loaded');
+  if(c.other)       summary.push(c.other+' inactive, called off or flagged for this client');
+  const tel=cg=>{ const d=String(cg.phone||'').replace(/[^0-9]/g,''); return d.length>=10 ? ' <a class="cvr-call" href="tel:'+d+'">'+ic('phone',11)+' '+escText(cg.phone)+'</a>' : ''; };
+  const closeHtml=close.length ? '<div class="wk-restgrp"><div class="wk-restlab">'+close.length+' close \u2014 open that day, not for the whole shift</div>'+
+    '<div class="cvr-rows">'+close.map(function(x){
+      const w=x.n.win;
+      return '<div class="cvr-row"><button type="button" class="wk-cgname" onclick="openCgFromCoverage(\''+x.cg.id+'\')">'+escText(x.cg.name)+'</button>'+
+        '<span class="cvr-hrs">'+escText(wkFmtWin(w))+'</span><span class="cvr-short">'+escText(covNearText(x.n))+'</span>'+tel(x.cg)+'</div>';
+    }).join('')+'</div></div>' : '';
+  const bookedHtml=booked.length ? '<div class="wk-restgrp"><div class="wk-restlab">'+booked.length+' already booked</div><div class="cvr-rows">'+
+    booked.map(function(r){ return '<div class="cvr-row"><button type="button" class="wk-cgname" onclick="openCgFromCoverage(\''+r.cg.id+'\')">'+escText(r.cg.name)+'</button><span class="cvr-short">'+escText(String(r.excluded).replace(/^Already (booked|assigned)\s*\u00b7?\s*/,''))+'</span></div>'; }).join('')+'</div></div>' : '';
+  const note='<p class="cvr-note">Only caregivers whose saved Open hours cover the whole shift are offered it. These are here so you can see why the list is short \u2014 they are not eligible as things stand.</p>';
+  return '<details class="wk-rest cvr-rest"><summary><b>'+total+'</b> other caregiver'+(total===1?'':'s')+' not listed: '+summary.join(' \u00b7 ')+'</summary>'+note+closeHtml+bookedHtml+'</details>';
+}
 function covEmptyReason(q, tally, calledN){
   const t=tally||{};
   /* NOT AN ANSWER YET. openFindCoverage() pulls the date on the way in, so
@@ -10499,7 +10594,7 @@ function renderCoverageCommand(q){
     /* Nothing to match against once it is covered: no list, no facts. */
     return {match:'', html:`<div class="covered-card">${ic('check',26)}<div><div class="cv-t">Shift covered by ${cgById(s.assigned).name}</div><div class="cv-s">Assigned \u2713 \u00b7 logged in coverage history \u00b7 recorded in AxisCare</div></div></div>` + renderAttemptHistory(q, covPools(q).contacted)};
   }
-  const {eligible, tally}=coverageMatches(q);
+  const {eligible, excluded, tally}=coverageMatches(q);
   /* Straight from the log. covPools() ran an entire second search to reach
      the same list and needed query fields this screen no longer builds. */
   const seen={}; const contacted=[];
@@ -10513,11 +10608,11 @@ function renderCoverageCommand(q){
   const note=covMatchNote(q, queue);
   if(!queue.length){
     return {match:note, html:`<div class="cvm-list">${covEmptyReason(q, tally, called.length)}</div>`
-      + renderAttemptHistory(q, contacted)};
+      + covNotListedHtml(q, excluded, eligible) + renderAttemptHistory(q, contacted)};
   }
   const rows=queue.map((r,i)=>covMatchRow(r,q,i+1)).join('');
   return {match:note, html:`<div class="cvm-list"><div class="cvm-h">Call in this order<span class="cvm-n">${queue.length}</span></div>${covSelBar(queue)}${rows}</div>`
-    + renderAttemptHistory(q, contacted)};
+    + covNotListedHtml(q, excluded, eligible) + renderAttemptHistory(q, contacted)};
 }
 /* WHAT THIS CLIENT ASKED FOR, above the list.
 

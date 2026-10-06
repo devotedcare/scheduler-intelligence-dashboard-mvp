@@ -2412,3 +2412,19 @@ Carried forward, and added since:
   this was drafted and left out, because every added rule measurably cost number
   discipline. It is the strongest candidate for the next change, and it should be
   measured over all six dates before shipping.
+
+## 2026-10-06 — Find Coverage (one shift): who is not listed, and how close they came
+
+The shift screen lists only caregivers whose saved Open hours cover the WHOLE shift in one
+block. For a 12-hour overnight that is a handful, and nothing said where everybody else
+went: one Fri 8p-8a shift listed 3 while the weekly grid showed 13 under "Overnight"
+(10p-6a, a different window).
+
+`covNotListedHtml()` adds one collapsed section under the calling list (and under the empty
+message). Each caregiver sits in exactly one reason. Two are named, because a scheduler can
+act on them: **close** (open that day for 3 hours or more of the shift, with their real
+hours, what is missing, and a call link, nearest first) and **already booked** (with when).
+The rest are counts only: gender, marked unavailable, nothing entered, not loaded, other.
+
+**Who may be offered the shift is unchanged.** The section has no checkbox, no Text and no
+assign control. "Not loaded" is its own count and is never read as a no.
