@@ -2875,6 +2875,25 @@ body.ai-white .view{flex:1 1 auto;min-height:0;display:flex;flex-direction:colum
   background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235B6B7C' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
   background-repeat:no-repeat;background-position:right 11px center;background-size:14px}
 .ct-f select.ein::-ms-expand{display:none}
+.set-wrap{max-width:820px}
+.set-h{font-size:20px;font-weight:800;color:var(--ink);margin:0 0 4px}
+.set-sub{font-size:13px;color:var(--ink-soft);margin:0 0 16px}
+.set-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;margin-bottom:14px}
+.set-ct{font-size:14px;font-weight:800;color:var(--ink)}
+.set-cd{font-size:12.5px;color:var(--ink-soft);margin-top:4px;line-height:1.5}
+.set-lines{margin-top:10px}
+.set-note{font-size:12.5px;color:var(--ink-soft);display:flex;gap:7px;align-items:center;padding:8px 0}
+.set-note.bad{color:var(--crit-tx)}
+.set-line{display:flex;align-items:center;gap:12px;width:100%;text-align:left;font:inherit;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:10px 12px;margin-top:6px;cursor:pointer}
+.set-line:hover{border-color:var(--brand)}
+.set-line.on{border-color:var(--brand);background:#F2F7FA}
+.set-radio{flex:0 0 16px;height:16px;border-radius:50%;border:2px solid var(--line-strong);box-sizing:border-box}
+.set-line.on .set-radio{border-color:var(--brand);background:radial-gradient(circle,var(--brand) 0 45%,transparent 50%)}
+.set-main{flex:1;min-width:0;display:flex;flex-direction:column}
+.set-name{font-size:13.5px;font-weight:700;color:var(--ink)}
+.set-num{font-size:12.5px;color:var(--ink-soft)}
+.set-who{flex:0 1 auto;font-size:12px;color:var(--ink-soft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px}
+.set-flag{flex:0 0 auto;font-size:11px;font-weight:700;color:var(--soon-tx);background:var(--soon-bg);border-radius:999px;padding:2px 8px;white-space:nowrap}
 .ct-lines{font-size:12px;color:var(--ink-soft);display:flex;align-items:center;gap:7px;padding:9px 11px;border:1px solid var(--line);border-radius:var(--r);margin-bottom:16px;background:var(--panel-head)}
 .ct-lines.bad{color:var(--crit-tx);border-color:var(--crit-tx);background:#FEF2F2}
 .ct-asnote{font-size:11.5px;color:var(--ink-faint);margin:-8px 0 14px;line-height:1.5}
@@ -4524,6 +4543,9 @@ const NAVGROUPS=[
 
   {section:'Reporting'},
   {link:{id:'reports', label:'Reports'}},
+
+  {section:'Settings'},
+  {link:{id:'settings', label:'Phone & Text'}},
 ];
 function badgeFor(id){
   if(id==='open') return {n:openShifts().length, cls: startingSoonUncovered().length?'crit':'neut'};
@@ -4554,7 +4576,7 @@ function navLink(it, sub){
 /* Every screen the router can reach. Today is deliberately absent - the
    dashboard no longer has that page, and state.view falls back to 'avail'. */
 const VIEWS={open:viewOpen,coverage:viewCoverage,clientcal:viewClientSchedule,updates:viewUpdates,staff:viewStaffClient,calloff:viewCallOff,
-    avail:viewAvail,log:viewLog,handoff:viewHandoff,assistant:viewAssistant,tasks:viewTasks,reports:viewReports,forms:viewForms,meds:viewMeds,guides:viewGuides,infographics:viewInfographics,attendance:viewAttendance,carenotes:viewCareNotes,schedupdates:viewSchedUpdates,cadence:viewCadence,kb:viewKB};
+    avail:viewAvail,log:viewLog,handoff:viewHandoff,assistant:viewAssistant,tasks:viewTasks,reports:viewReports,settings:viewSettings,forms:viewForms,meds:viewMeds,guides:viewGuides,infographics:viewInfographics,attendance:viewAttendance,carenotes:viewCareNotes,schedupdates:viewSchedUpdates,cadence:viewCadence,kb:viewKB};
 function renderNav(){
   let html='';
   NAVGROUPS.forEach(g=>{
@@ -7142,6 +7164,10 @@ var QUOSEND = (function(){
      whichever line Quo happened to list first. */
   function defaultLine(){
     var l = list();
+    /* The line THIS BROWSER chose under Settings wins, when Quo still lists
+       it. A stored id Quo no longer returns is ignored rather than trusted -
+       sending from a line that has gone is a rejected send. */
+    try{ var pref = (typeof QUOPREF!=='undefined') ? QUOPREF.line() : ''; if(pref && byId(pref)) return pref; }catch(e){}
     for(var i=0;i<l.length;i++) if(/schedul/i.test(l[i].name||'')) return l[i].id;
     return l.length ? l[0].id : '';
   }
@@ -7509,6 +7535,89 @@ function covSendText(){
 /* Quo speaks E.164 everywhere. '+18053127736' on a picker row is a string
    to decode rather than a phone number to recognise, and the desk knows
    these lines by sight as (805) 312-7736. */
+function covOpenOwnSms(){
+  const cgs=textRecips(); if(cgs.length!==1 || !cgs[0].phone) return;
+  const a=document.getElementById('covTextArea');
+  const body=a?a.value:(state.textDraft||'');
+  if(!body.trim()){ toast('The message is empty'); return; }
+  const num=String(cgs[0].phone).replace(/[^0-9+]/g,'');
+  /* ?&body= is the form both iOS and Android accept. */
+  location.href='sms:'+num+'?&body='+encodeURIComponent(body);
+  toast('Opened in your messaging app — press send there');
+}
+/* =========================================================
+   QUOPREF - which number THIS BROWSER texts and calls from
+   ---------------------------------------------------------
+   Settings > Phone & Text (Peter, 2026-10-06). Two facts:
+     mode   'quo'  texts go out through Quo from an agency line (the default)
+            'own'  texts open in this device's own messaging app
+     line   the Quo line id to send from, in 'quo' mode
+
+   PER BROWSER, in localStorage, exactly like state.onShift and for the same
+   reason: it is one person's choice. In SLICES it would be applied to every
+   other desk on their next poll and the whole office would share one number.
+   Every storage access is wrapped - a private window throws on localStorage
+   and that must not take the page down. A value this build does not
+   recognise falls back to the default rather than being trusted.
+
+   WHAT THIS DOES NOT DO, and the page says so: it cannot make Quo place a
+   call. The Quo function forwards GET plus exactly one POST (send a text),
+   so a Call button is a tel: link that this computer's own calling app
+   answers - the Quo desktop app if that is the default, a phone otherwise. */
+var QUOPREF=(function(){
+  var KEY='dcs_quo_pref_v1', mem=null;
+  function read(){
+    if(mem) return mem;
+    var v={mode:'quo', line:''};
+    try{ var j=JSON.parse(localStorage.getItem(KEY)||'null'); if(j && typeof j==='object'){ if(j.mode==='own') v.mode='own'; if(typeof j.line==='string') v.line=j.line; } }catch(e){}
+    return (mem=v);
+  }
+  function write(v){ mem=v; try{ localStorage.setItem(KEY, JSON.stringify(v)); }catch(e){} }
+  return {
+    mode: function(){ return read().mode; },
+    line: function(){ return read().line; },
+    setLine: function(id){ write({mode:'quo', line:String(id||'')}); },
+    setOwn: function(){ write({mode:'own', line:read().line}); }
+  };
+})();
+function setQuoLine(id){ QUOPREF.setLine(id); state.textFrom=null; state.textAs=null; toast('Texts from this computer now go out from that line'); render(); }
+function setQuoOwn(){ QUOPREF.setOwn(); toast('Texts from this computer now open in your own messaging app'); render(); }
+function viewSettings(){
+  const st=QUOSEND.status();
+  if(st==='idle'){ QUOSEND.load().then(function(){ if(state.view==='settings') render(); }); }
+  const own=QUOPREF.mode()==='own';
+  const chosen=own ? '' : (QUOSEND.defaultLine()||'');
+  let linesHtml;
+  if(st==='idle'||st==='loading') linesHtml='<div class="set-note">'+ic('clock',13)+' Reading the agency’s phone lines from Quo…</div>';
+  else if(st==='error') linesHtml='<div class="set-note bad">'+ic('alerts',13)+' '+escText(QUOSEND.error()||'The agency lines could not be read.')+
+    ' You can still choose <b>Use my own number</b> below.</div>';
+  else linesHtml=QUOSEND.list().map(function(l){
+    const on=!own && l.id===chosen, us=(l.users||[]);
+    const mine=!!QUOSEND.meOn(l.id);
+    const names=us.slice(0,4).map(function(u){ return String(u.name||u.email||'').trim().split(' ')[0]; }).filter(Boolean).join(', ')+(us.length>4?' +'+(us.length-4):'');
+    return '<button type="button" class="set-line'+(on?' on':'')+'" onclick="setQuoLine(\''+esc(l.id)+'\')" aria-pressed="'+(on?'true':'false')+'">'+
+      '<span class="set-radio"></span>'+
+      '<span class="set-main"><span class="set-name">'+escText(l.name||'Unnamed line')+'</span><span class="set-num">'+escText(ctPhone(l.number))+'</span></span>'+
+      '<span class="set-who">'+(names?escText(names):'No members listed')+'</span>'+
+      (mine?'':'<span class="set-flag" title="Quo only lets a member of a line send from it. Your texts from this line go out under Quo’s default sender.">'+escText(state.onShift)+' is not on this line</span>')+
+    '</button>';
+  }).join('');
+  return '<div class="set-wrap">'+
+    '<h2 class="set-h">Phone &amp; Text</h2>'+
+    '<p class="set-sub">Choose the number this computer uses when you text or call a caregiver from the dashboard. The choice is saved on this computer only — it does not change anyone else’s.</p>'+
+    '<div class="set-card"><div class="set-ct">Text from an agency line</div>'+
+      '<div class="set-cd">Sent through Quo. The caregiver sees the line’s number, and the conversation is kept in Quo and on their Communication Logs.</div>'+
+      '<div class="set-lines">'+linesHtml+'</div></div>'+
+    '<div class="set-card"><div class="set-ct">Or use my own number</div>'+
+      '<button type="button" class="set-line'+(own?' on':'')+'" onclick="setQuoOwn()" aria-pressed="'+(own?'true':'false')+'">'+
+        '<span class="set-radio"></span><span class="set-main"><span class="set-name">Use my own number</span>'+
+        '<span class="set-num">Opens your phone’s own messaging app with the message filled in</span></span></button>'+
+      '<div class="set-cd">Nothing goes through Quo: you press send on your own phone, the caregiver sees your personal number, and the message is <b>not</b> saved in Quo or shown on Communication Logs. One caregiver at a time.</div></div>'+
+    '<div class="set-card"><div class="set-ct">Calling</div>'+
+      '<div class="set-cd">A <b>Call</b> button hands the number to this computer’s calling app. To call from an agency line, make the <b>Quo app</b> the default app for phone links on this computer and pick the line there; on a mobile phone it dials from the phone itself. '+
+      'The dashboard cannot start a Quo call by itself — its connection to Quo can read calls and send texts, nothing else.</div></div>'+
+  '</div>';
+}
 function ctPhone(e164){
   var d=String(e164||'').replace(/[^0-9]/g,'');
   if(d.length===11 && d[0]==='1') d=d.slice(1);
@@ -7651,9 +7760,19 @@ function renderCoverageTextModal(){
     :(!ctCareReady()?'Reading care needs…'
     :(cgs.length>1?'Send to '+cgs.length:'Send'));
   const canSend=ready && !sending && cgs.some(c=>c.phone) && ctCareReady();
+  /* "USE MY OWN NUMBER" (Settings). Nothing goes through Quo: the draft is
+     handed to this device's own messaging app with an sms: link, and the
+     scheduler presses send there. One person at a time - an sms: link to
+     several numbers is a GROUP thread on most phones, which is exactly what
+     this app refuses to create. The body is read from the box at click time
+     so an edited draft is what travels. */
+  const own=(typeof QUOPREF!=='undefined') && QUOPREF.mode()==='own';
+  const ownOne=cgs.length===1 && cgs[0].phone;
   const foot='<div class="ct-foot">'+
     '<span class="ct-sp"></span>'+
-    '<button class="btn pri" onclick="covSendText()"'+(canSend?'':' disabled')+'>'+ic('send',13)+' '+sendLabel+'</button>'+
+    (own
+      ? '<button class="btn pri" onclick="covOpenOwnSms()"'+((ownOne && ctCareReady())?'':' disabled')+'>'+ic('send',13)+' Open in my phone’s messages</button>'
+      : '<button class="btn pri" onclick="covSendText()"'+(canSend?'':' disabled')+'>'+ic('send',13)+' '+sendLabel+'</button>')+
     '</div>';
 
   mEl.innerHTML='<div class="mh"><span class="mt">'+ctHeadline(cgs)+'</span><button class="mc" onclick="closeModal()">×</button></div>'+
@@ -7661,7 +7780,10 @@ function renderCoverageTextModal(){
     ctRecipList(cgs)+
     '<div class="ct-label">Message type</div>'+
     '<div class="ct-chips">'+chips+'</div>'+
-    ctSendBar()+
+    (own ? '<div class="ct-lines">'+ic('phone',13)+' <span>You chose <b>Use my own number</b> in Settings. This message opens in your own phone’s messaging app and is sent from your number, not an agency line'+
+        (cgs.length>1?'. <b>Own-number texting is one caregiver at a time</b> — remove the others, or switch to an agency line in Settings':'')+
+        '. <a class="ai-cg" onclick="closeModal();go(\'settings\')">Change</a></span></div>'
+      : ctSendBar())+
     '<div class="ct-label">Message</div>'+
     /* The count sits INSIDE the box, bottom-left. Bottom-right is the
        conventional corner and it is taken: the textarea is resize:vertical
