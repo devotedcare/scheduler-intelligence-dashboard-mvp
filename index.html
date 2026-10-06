@@ -1039,6 +1039,7 @@
   .cvr-row:last-child{border-bottom:none}
   .cvr-hrs{font-size:12.5px;font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums}
   .cvr-short{font-size:12.5px;color:var(--soon-tx);font-weight:650}
+  .cvr-where{font-size:12.5px;color:var(--ink-soft)}
   .cvr-call{margin-left:auto;font-size:12px;font-weight:650;color:var(--brand);text-decoration:none;white-space:nowrap}
   .cvr-call:hover{text-decoration:underline}
   .wk-partsub{font-weight:500;text-transform:none;letter-spacing:0;font-size:12px;color:var(--ink-faint)}
@@ -10525,7 +10526,19 @@ function covNotListedHtml(q, excluded, eligible){
     else if(/^Already (booked|assigned)/.test(String(r.excluded||''))) booked.push(r);
     else c.other++;
   });
-  close.sort((a,b)=>(a.n.short-b.n.short)||String(a.cg.name).localeCompare(String(b.cg.name)));
+  /* WHERE THEY ARE, in the same words as the calling list ("Camarillo · ~15
+     mins away"), so a near miss an hour short and ten minutes away reads
+     differently from one an hour short and an hour away. Distance still
+     excludes nobody; here it only breaks a tie between equal shortfalls. */
+  const _cl=q.clientId?clById(q.clientId):null;
+  const where=function(cg){
+    const place=drivePlace(cg), d=(_cl && _cl.city && place.key) ? driveBetween(place.key, _cl.city) : null;
+    const txt=!d ? 'Drive time not known' : d.same ? 'Same city' : fmtDrive(d.min)+' away';
+    return {min:!d ? 9999 : d.same ? 0 : d.min,
+      html:'<span class="cvr-where" title="'+esc(driveTip(place, _cl&&_cl.city, d))+'">'+(place.city?escText(place.city)+' · ':'')+txt+'</span>'};
+  };
+  close.forEach(function(x){ x.w=where(x.cg); });
+  close.sort((a,b)=>(a.n.short-b.n.short)||(a.w.min-b.w.min)||String(a.cg.name).localeCompare(String(b.cg.name)));
   booked.sort((a,b)=>String(a.cg.name).localeCompare(String(b.cg.name)));
   const total=close.length+booked.length+c.gender+c.blocked+c.none+c.unknown+c.other;
   if(!total) return '';
@@ -10542,10 +10555,10 @@ function covNotListedHtml(q, excluded, eligible){
     '<div class="cvr-rows">'+close.map(function(x){
       const w=x.n.win;
       return '<div class="cvr-row"><button type="button" class="wk-cgname" onclick="openCgFromCoverage(\''+x.cg.id+'\')">'+escText(x.cg.name)+'</button>'+
-        '<span class="cvr-hrs">'+escText(wkFmtWin(w))+'</span><span class="cvr-short">'+escText(covNearText(x.n))+'</span>'+tel(x.cg)+'</div>';
+        '<span class="cvr-hrs">'+escText(wkFmtWin(w))+'</span><span class="cvr-short">'+escText(covNearText(x.n))+'</span>'+x.w.html+tel(x.cg)+'</div>';
     }).join('')+'</div></div>' : '';
   const bookedHtml=booked.length ? '<div class="wk-restgrp"><div class="wk-restlab">'+booked.length+' already booked</div><div class="cvr-rows">'+
-    booked.map(function(r){ return '<div class="cvr-row"><button type="button" class="wk-cgname" onclick="openCgFromCoverage(\''+r.cg.id+'\')">'+escText(r.cg.name)+'</button><span class="cvr-short">'+escText(String(r.excluded).replace(/^Already (booked|assigned)\s*\u00b7?\s*/,''))+'</span></div>'; }).join('')+'</div></div>' : '';
+    booked.map(function(r){ return '<div class="cvr-row"><button type="button" class="wk-cgname" onclick="openCgFromCoverage(\''+r.cg.id+'\')">'+escText(r.cg.name)+'</button><span class="cvr-short">'+escText(String(r.excluded).replace(/^Already (booked|assigned)\s*\u00b7?\s*/,''))+'</span>'+where(r.cg).html+'</div>'; }).join('')+'</div></div>' : '';
   const note='<p class="cvr-note">Only caregivers whose saved Open hours cover the whole shift are offered it. These are here so you can see why the list is short \u2014 they are not eligible as things stand.</p>';
   return '<details class="wk-rest cvr-rest"><summary><b>'+total+'</b> other caregiver'+(total===1?'':'s')+' not listed: '+summary.join(' \u00b7 ')+'</summary>'+note+closeHtml+bookedHtml+'</details>';
 }
