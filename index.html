@@ -912,11 +912,14 @@
   .aq-handled{margin-top:16px;font-size:12px;color:var(--good-solid);font-weight:600;display:flex;align-items:center;gap:5px}
 
   /* ===== Staff New Client ===== */
-  .scard{background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;margin-bottom:9px}
-  .scard.role-primary{border-color:var(--good-solid);border-width:1.5px}
-  .scard.role-backup{border-color:var(--brand)}
+  .scard{background:#fff;border:1px solid var(--line);border-left:4px solid var(--line);border-radius:var(--r);padding:14px 16px 12px;margin-bottom:10px}
+  .scard.v-good{border-left-color:var(--good-solid)}
+  .scard.v-warn{border-left-color:var(--soon-solid)}
+  .scard.v-bad{border-left-color:var(--crit-solid)}
+  .scard.role-primary{border-color:var(--good-solid);border-width:1.5px;border-left-width:4px}
+  .scard.role-backup{border-color:var(--brand);border-left-width:4px}
   .sc-top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
-  .sc-id{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+  .sc-id{display:flex;align-items:center;gap:6px 9px;flex-wrap:wrap;min-width:0}
   .sc-name{font-size:15px;font-weight:750;color:var(--ink)}
   .sc-role{font-size:9.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;padding:2px 8px;border-radius:10px;color:#fff}
   .sc-role.primary{background:var(--good-solid)}
@@ -924,18 +927,28 @@
   .sc-match{text-align:right;flex:none}
   .sc-pct{font-size:20px;font-weight:800;color:var(--brand);line-height:1;font-variant-numeric:tabular-nums}
   .sc-pl{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--ink-faint);margin-top:2px}
-  .sc-facts{font-size:12px;color:var(--ink-soft);margin-top:7px;line-height:1.5}
+  .sc-facts{flex-basis:100%;font-size:12px;color:var(--ink-soft);line-height:1.5}
   .sc-exp{font-size:11.5px;color:var(--ink-soft);margin-top:5px}
-  /* History with this client and fit to the client's preferences. */
-  .sc-fit{font-size:12px;margin-top:5px;display:flex;align-items:center;gap:5px;font-weight:600}
-  .sc-fit.good{color:var(--good-solid)}
-  .sc-fit.bad{color:var(--crit-solid)}
-  .sc-fit.warn{color:#9A6212}
-  .sc-fit.muted{color:var(--ink-soft);font-weight:500}
-  .sc-fit[title]{cursor:help}
-  .sc-conf{font-size:11.5px;color:var(--crit-solid);font-weight:650;margin-top:5px;display:flex;align-items:center;gap:5px}
-  .sc-noconf{font-size:11.5px;color:var(--good-solid);margin-top:5px;display:flex;align-items:center;gap:5px}
-  .sc-acts{display:flex;gap:7px;flex-wrap:wrap;margin-top:11px}
+  /* The card body: labelled columns, so history, preferences and experience
+     each have a place instead of stacking as six look-alike lines. */
+  .sc-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px 22px;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
+  .sc-col{min-width:0}
+  .sc-lab{font-size:10px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:var(--ink-faint);margin-bottom:5px}
+  .sc-hist{font-size:13.5px;font-weight:700;color:var(--ink)}
+  .sc-hist.good{color:var(--good-tx)}
+  .sc-hist.warn{color:var(--soon-tx)}
+  .sc-hist.muted{color:var(--ink-soft);font-weight:600}
+  .sc-histsub{font-size:12px;color:var(--ink-soft);margin-top:2px}
+  .sc-chips{display:flex;flex-wrap:wrap;gap:5px}
+  .sc-chip{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:650;line-height:1.3;padding:3px 9px;border-radius:999px;background:var(--watch-bg);color:var(--watch-tx)}
+  .sc-chip.good{background:var(--good-bg);color:var(--good-tx)}
+  .sc-chip.bad{background:var(--crit-bg);color:var(--crit-tx)}
+  .sc-chip.warn{background:var(--soon-bg);color:var(--soon-tx)}
+  .sc-chip[title]{cursor:help}
+  .sc-foot{display:flex;align-items:center;justify-content:space-between;gap:10px 16px;flex-wrap:wrap;margin-top:12px}
+  .sc-conf{font-size:12px;color:var(--crit-solid);font-weight:650;display:flex;align-items:center;gap:5px}
+  .sc-noconf{font-size:12px;color:var(--good-solid);font-weight:600;display:flex;align-items:center;gap:5px}
+  .sc-acts{display:flex;gap:7px;flex-wrap:wrap;margin-left:auto}
   .sp-panel{background:var(--navy-900,#1E2A33);color:#fff;border-radius:var(--r);padding:16px 18px;margin:14px 0}
   .sp-h{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;display:flex;align-items:center;gap:7px;opacity:.85;margin-bottom:12px}
   .sp-slots{display:grid;grid-template-columns:1fr 1fr;gap:11px}
@@ -8224,64 +8237,102 @@ function staffPrefFit(cg, cl){
   }
   return {known:true, items:items, any:!!(p.genderPref || p.drivingRequired===true || p.onList.length || p.preferred.length)};
 }
-function staffMatchFactsHtml(cg, cl){
-  if(!cl) return '';
-  const h=staffHistory(cg, cl), first=escText(String(cl.name||'this client').split(' ')[0]);
-  const line=(tone,inner,tip)=>`<div class="sc-fit ${tone}"${tip?` title="${esc(tip)}"`:''}>${ic(tone==='good'?'check':tone==='muted'?'history':'alerts',11)} <span>${inner}</span></div>`;
-  let hist='';
-  if(h.state==='loading') hist=line('muted','Checking visit history with '+first+'…');
-  else if(h.state==='error') hist=line('warn','Could not check visit history with '+first);
+/* THE CARD, REDESIGNED 2026-10-06 (Peter: "improve the UI"). The first cut
+   stacked six same-weight lines - history, each preference, experience,
+   conflicts - so nothing led and a mismatch read no louder than a match.
+
+   Now the card answers in the order a scheduler asks:
+     1. who, and how much of the schedule they can cover      (header)
+     2. do they know this client                              (WITH THIS CLIENT)
+     3. do they fit what the client asked for                 (CLIENT'S PREFERENCES, chips)
+     4. what experience is on record                          (RECORDED EXPERIENCE, chips)
+     5. anything in the way, and what to do                   (footer: conflicts + buttons)
+   and its LEFT EDGE carries the verdict - red if a preference is not met or
+   there is a schedule conflict, amber if something could not be confirmed,
+   green if they have history with the client and nothing is flagged.
+
+   The parts are returned as DATA (staffFitParts) and drawn here, so the
+   wording, the tri-state rules and the tones live in one place each. */
+function staffFitParts(cg, cl){
+  if(!cl) return null;
+  const h=staffHistory(cg, cl), first=String(cl.name||'this client').split(' ')[0];
+  const dt=ds=>fmtDate(new Date(ds+'T12:00:00'));
+  let hist=null;
+  if(h.state==='loading') hist={tone:'muted', head:'Checking visit history…', sub:''};
+  else if(h.state==='error') hist={tone:'warn', head:'Could not check visit history', sub:''};
   else if(h.state==='ready'){
-    const bits=[], dt=ds=>escText(fmtDate(new Date(ds+'T12:00:00')));
-    if(h.past) bits.push(h.past+' past visit'+(h.past===1?'':'s')+
-      (h.first && h.first!==h.last ? ', '+dt(h.first)+' to '+dt(h.last) : h.last ? ', '+dt(h.last) : ''));
-    if(h.upcoming) bits.push(h.upcoming+' upcoming');
     /* What the older reads have NOT established yet rides on the line, so a
        count is never mistaken for the whole year while part of it is still
        arriving, and "has not worked" is never said over a failed read. */
-    const tail = h.pending ? ' · checking older visits…'
-      : h.failed ? ' · could not check before '+(h.from?dt(h.from):'this window') : '';
-    hist = bits.length ? line('good','Has worked with '+first+': '+bits.join(' · ')+tail)
-      : h.pending ? line('muted','No visits with '+first+' found yet — checking the past year…')
-      : line(h.failed?'warn':'muted','Has not worked with '+first+(h.from?' since '+dt(h.from):'')+(h.failed?' — older history could not be checked':''));
+    const tail = h.pending ? 'Checking older visits…'
+      : h.failed ? 'Could not check before '+(h.from?dt(h.from):'this window') : '';
+    if(h.past || h.upcoming){
+      const head=[h.past ? h.past+' past visit'+(h.past===1?'':'s') : null, h.upcoming ? h.upcoming+' upcoming' : null].filter(Boolean).join(' · ');
+      const span=h.past ? (h.first && h.first!==h.last ? dt(h.first)+' to '+dt(h.last) : 'Last '+dt(h.last)) : '';
+      hist={tone:'good', head:head, sub:[span, tail].filter(Boolean).join(' · ')};
+    } else if(h.pending) hist={tone:'muted', head:'None found yet', sub:'Checking the past year…'};
+    else hist={tone:h.failed?'warn':'muted', head:'Has not worked with '+first,
+               sub:[h.from?'Checked back to '+dt(h.from):'', h.failed?'Older history could not be checked':''].filter(Boolean).join(' · ')};
   }
   const f=staffPrefFit(cg, cl);
-  const pref = !f.known ? line('warn','Client preferences not loaded — not checked')
-    : f.items.length ? f.items.map(i=>line(i.tone, escText(i.text), i.tip)).join('')
-    : f.any ? '' : line('muted','No caregiver preferences recorded for '+first);
-  return hist+pref;
+  const prefs = !f.known ? [{tone:'warn', text:'Preferences not loaded — not checked'}]
+    : f.items.length ? f.items
+    : [{tone:'muted', text:'None recorded for '+first}];
+  return {hist:hist, prefs:prefs};
+}
+function staffChip(i){
+  const icon = i.tone==='good' ? ic('check',10) : (i.tone==='bad'||i.tone==='warn') ? ic('alerts',10) : '';
+  return `<span class="sc-chip ${i.tone}"${i.tip?` title="${esc(i.tip)}"`:''}>${icon}${escText(i.text)}</span>`;
+}
+/* Kept for callers and tests that want the two blocks as plain markup. */
+function staffMatchFactsHtml(cg, cl){
+  const p=staffFitParts(cg, cl); if(!p) return '';
+  const hist=p.hist ? `<div class="sc-col"><div class="sc-lab">With this client</div>
+      <div class="sc-hist ${p.hist.tone}">${escText(p.hist.head)}</div>${p.hist.sub?`<div class="sc-histsub">${escText(p.hist.sub)}</div>`:''}</div>` : '';
+  return hist + `<div class="sc-col"><div class="sc-lab">Client’s preferences</div><div class="sc-chips">${p.prefs.map(staffChip).join('')}</div></div>`;
 }
 function staffCard(e, sq, primaryIds, backupIds){
   const cg=e.cg;
   const role = primaryIds.includes(cg.id) ? 'primary' : backupIds.includes(cg.id) ? 'backup' : null;
+  const cl=sq.clientId?clById(sq.clientId):null;
   const facts=[
     cg.base + (sq.city?` · ${e.dist}mi (${e.drive}min)`:''),
     /* `${null}% reliable` printed "null% reliable" on every live caregiver -
-       reliability is not tracked (CLAUDE.md, "Figures that read Not tracked"). */
+       reliability is not tracked (CLAUDE.md, "Figures that read Not tracked").
+       Untracked figures are left off the card rather than each one saying so. */
     hasVal(cg.reliability) ? `${cg.reliability}% reliable` : null,
     `Driver ${cg.driver?'Yes':'No'}`,
-    (hasVal(cg.weekHrs) ? `${cg.weekHrs}h/wk · ~${e.capacity}h open${cg.weekHrs>=38?' · OT risk':''}` : 'Hours worked not tracked')
+    hasVal(cg.weekHrs) ? `${cg.weekHrs}h/wk · ~${e.capacity}h open${cg.weekHrs>=38?' · OT risk':''}` : null
   ].filter(Boolean).join(' · ');
-  const fit=staffMatchFactsHtml(cg, sq.clientId?clById(sq.clientId):null);
-  const exp = e.experience.length?`<div class="sc-exp">Worked similar cases: ${e.experience.join(', ')}</div>`:'';
+  const parts=staffFitParts(cg, cl);
+  /* "Worked similar cases" claimed a case history this app does not have: the
+     list is the caregiver's AxisCare skill tags, matched to the Care Needs
+     chips when any are picked. It is recorded experience, and says so. */
+  const exp = e.experience.length ? `<div class="sc-col"><div class="sc-lab">Recorded experience</div>
+      <div class="sc-chips">${e.experience.map(x=>staffChip({tone:'muted', text:x})).join('')}</div></div>` : '';
   const conf = e.conflicts.length
-    ? `<div class="sc-conf">${ic('alerts',11)} Schedule conflict: ${e.conflicts.join(' · ')}</div>`
-    : `<div class="sc-noconf">${ic('check',11)} No schedule conflicts</div>`;
+    ? `<div class="sc-conf">${ic('alerts',12)} Schedule conflict: ${escText(e.conflicts.join(' · '))}</div>`
+    : `<div class="sc-noconf">${ic('check',12)} No schedule conflicts</div>`;
   const action = role==='primary' ? ''
     : role==='backup' ? `<button class="q-b" onclick="staffRemoveBackup('${cg.id}')">Remove backup</button>`
     : `<button class="q-b" onclick="staffAddBackup('${cg.id}')">Add as backup</button>`;
-  return `<div class="scard ${role?'role-'+role:''}">
+  const tones=(parts?parts.prefs.map(i=>i.tone).concat(parts.hist?[parts.hist.tone]:[]):[]);
+  const verdict = (e.conflicts.length || tones.indexOf('bad')>=0) ? 'v-bad'
+    : tones.indexOf('warn')>=0 ? 'v-warn'
+    : (parts && parts.hist && parts.hist.tone==='good') ? 'v-good' : '';
+  return `<div class="scard ${verdict} ${role?'role-'+role:''}">
     <div class="sc-top">
-      <div class="sc-id"><span class="sc-name">${cg.name}</span>${role?`<span class="sc-role ${role}">${role==='primary'?'Primary':'Backup'}</span>`:''}</div>
-      <div class="sc-match"><div class="sc-pct">${e.matchPct}%</div><div class="sc-pl">availability</div></div>
+      <div class="sc-id"><span class="sc-name">${escText(cg.name)}</span>${role?`<span class="sc-role ${role}">${role==='primary'?'Primary':'Backup'}</span>`:''}
+        <div class="sc-facts">${escText(facts)}</div></div>
+      <div class="sc-match"><div class="sc-pct">${e.matchPct}%</div><div class="sc-pl">of the schedule</div></div>
     </div>
-    <div class="sc-facts">${facts}</div>
-    ${fit}
-    ${exp}
-    ${conf}
-    <div class="sc-acts">
-      <button class="btn pri sm" onclick="staffContact('${cg.id}')">${ic('phone',12)} Call</button>
-      ${action}
+    <div class="sc-grid">${staffMatchFactsHtml(cg, cl)}${exp}</div>
+    <div class="sc-foot">
+      ${conf}
+      <div class="sc-acts">
+        <button class="btn pri sm" onclick="staffContact('${cg.id}')">${ic('phone',12)} Call</button>
+        ${action}
+      </div>
     </div>
   </div>`;
 }
