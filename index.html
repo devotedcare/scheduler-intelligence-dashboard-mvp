@@ -926,6 +926,13 @@
   .sc-pl{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--ink-faint);margin-top:2px}
   .sc-facts{font-size:12px;color:var(--ink-soft);margin-top:7px;line-height:1.5}
   .sc-exp{font-size:11.5px;color:var(--ink-soft);margin-top:5px}
+  /* History with this client and fit to the client's preferences. */
+  .sc-fit{font-size:12px;margin-top:5px;display:flex;align-items:center;gap:5px;font-weight:600}
+  .sc-fit.good{color:var(--good-solid)}
+  .sc-fit.bad{color:var(--crit-solid)}
+  .sc-fit.warn{color:#9A6212}
+  .sc-fit.muted{color:var(--ink-soft);font-weight:500}
+  .sc-fit[title]{cursor:help}
   .sc-conf{font-size:11.5px;color:var(--crit-solid);font-weight:650;margin-top:5px;display:flex;align-items:center;gap:5px}
   .sc-noconf{font-size:11.5px;color:var(--good-solid);margin-top:5px;display:flex;align-items:center;gap:5px}
   .sc-acts{display:flex;gap:7px;flex-wrap:wrap;margin-top:11px}
@@ -8107,15 +8114,91 @@ function staffRemoveBackup(cgId){
   toast((cg?cg.name:'Caregiver')+' removed as a backup caregiver');
   render(); try{ CLOUD.save(); }catch(e){}
 }
+/* HAS THIS CAREGIVER WORKED WITH THIS CLIENT, AND DO THEY FIT WHAT THE CLIENT
+   ASKED FOR - the two things a scheduler picking a backup wants on the card
+   (Peter, 2026-10-06). Neither is new data:
+
+     history      CLVISITS, the client's own AxisCare visits, already loaded
+                  for the Primary Caregivers card above. Past and upcoming are
+                  counted apart by the visit's own date.
+     preferences  covClientPrefs(), the one reader of what Client Concierge
+                  holds - the same answers Find Coverage ranks on.
+
+   BOTH ARE TRI-STATE, and that is the safety of it. "Has not worked with
+   this client" is only said once the visits have LOADED, and only for the
+   window they cover; a fetch still in flight or failed says so instead. The
+   same for preferences: an unread Concierge table is "not loaded", never
+   "nothing asked for". A failed lookup that reads as a confident negative is
+   the failure this app keeps re-learning (CNSHIFT.had, AVAIL.dayAvail). */
+function staffHistory(cg, cl){
+  if(!cl || cl.axisId==null || typeof CLVISITS==='undefined') return {state:'nolink'};
+  const rec=CLVISITS.get(cl.id);
+  if(!rec || rec.status==='idle' || rec.status==='loading') return {state:'loading'};
+  if(rec.status!=='ready') return {state:'error'};
+  const today=toDateInput(NOW);
+  let past=0, upcoming=0, last=null;
+  Object.keys(rec.days||{}).forEach(function(ds){
+    (rec.days[ds]||[]).forEach(function(v){
+      if(v.caregiverId!==cg.id) return;
+      if(ds<today){ past++; if(!last || ds>last) last=ds; } else upcoming++;
+    });
+  });
+  return {state:'ready', past:past, upcoming:upcoming, last:last, from:rec.from||null};
+}
+function staffPrefFit(cg, cl){
+  const p=covClientPrefs(cl);
+  if(!p.matchKnown || !p.genderKnown) return {known:false, items:[]};
+  const items=[];
+  if(p.doNotSend.indexOf(cg.id)>=0) items.push({tone:'bad', text:'Blocked from this client'});
+  if(p.onList.indexOf(cg.id)>=0 || p.preferred.indexOf(cg.id)>=0)
+    items.push({tone:'good', text:'Asked for by the client'});
+  if(p.genderPref){
+    const want=p.genderPref==='F'?'female':'male';
+    if(!cg.gender) items.push({tone:'warn', text:'Client asked for a '+want+' caregiver — gender not recorded'});
+    else if(cg.gender===p.genderPref) items.push({tone:'good', text:'Matches: '+want+' caregiver'});
+    else items.push({tone:'bad', text:'Client asked for a '+want+' caregiver'});
+  }
+  if(p.drivingRequired===true){
+    const d=covDrives(cg, (typeof covDriveAudit==='function') ? covDriveAudit() : {});
+    items.push(d.ans==='yes' ? {tone:'good', text:'Matches: can drive the client', tip:d.tip}
+      : d.ans==='no' ? {tone:'bad', text:'Client needs a driver — does not drive clients', tip:d.tip}
+      : d.ans==='conflict' ? {tone:'warn', text:'Client needs a driver — driving records disagree', tip:d.tip}
+      : {tone:'warn', text:'Client needs a driver — driving not recorded', tip:d.tip});
+  }
+  return {known:true, items:items, any:!!(p.genderPref || p.drivingRequired===true || p.onList.length || p.preferred.length)};
+}
+function staffMatchFactsHtml(cg, cl){
+  if(!cl) return '';
+  const h=staffHistory(cg, cl), first=escText(String(cl.name||'this client').split(' ')[0]);
+  const line=(tone,inner,tip)=>`<div class="sc-fit ${tone}"${tip?` title="${esc(tip)}"`:''}>${ic(tone==='good'?'check':tone==='muted'?'history':'alerts',11)} <span>${inner}</span></div>`;
+  let hist='';
+  if(h.state==='loading') hist=line('muted','Checking visit history with '+first+'…');
+  else if(h.state==='error') hist=line('warn','Could not check visit history with '+first);
+  else if(h.state==='ready'){
+    const bits=[];
+    if(h.past) bits.push(h.past+' past visit'+(h.past===1?'':'s')+(h.last?', last '+escText(fmtDate(new Date(h.last+'T12:00:00'))):''));
+    if(h.upcoming) bits.push(h.upcoming+' upcoming');
+    hist = bits.length ? line('good','Has worked with '+first+': '+bits.join(' · '))
+      : line('muted','Has not worked with '+first+(h.from?' since '+escText(fmtDate(new Date(h.from+'T12:00:00'))):''));
+  }
+  const f=staffPrefFit(cg, cl);
+  const pref = !f.known ? line('warn','Client preferences not loaded — not checked')
+    : f.items.length ? f.items.map(i=>line(i.tone, escText(i.text), i.tip)).join('')
+    : f.any ? '' : line('muted','No caregiver preferences recorded for '+first);
+  return hist+pref;
+}
 function staffCard(e, sq, primaryIds, backupIds){
   const cg=e.cg;
   const role = primaryIds.includes(cg.id) ? 'primary' : backupIds.includes(cg.id) ? 'backup' : null;
   const facts=[
     cg.base + (sq.city?` · ${e.dist}mi (${e.drive}min)`:''),
-    `${cg.reliability}% reliable`,
+    /* `${null}% reliable` printed "null% reliable" on every live caregiver -
+       reliability is not tracked (CLAUDE.md, "Figures that read Not tracked"). */
+    hasVal(cg.reliability) ? `${cg.reliability}% reliable` : null,
     `Driver ${cg.driver?'Yes':'No'}`,
     (hasVal(cg.weekHrs) ? `${cg.weekHrs}h/wk · ~${e.capacity}h open${cg.weekHrs>=38?' · OT risk':''}` : 'Hours worked not tracked')
-  ].join(' · ');
+  ].filter(Boolean).join(' · ');
+  const fit=staffMatchFactsHtml(cg, sq.clientId?clById(sq.clientId):null);
   const exp = e.experience.length?`<div class="sc-exp">Worked similar cases: ${e.experience.join(', ')}</div>`:'';
   const conf = e.conflicts.length
     ? `<div class="sc-conf">${ic('alerts',11)} Schedule conflict: ${e.conflicts.join(' · ')}</div>`
@@ -8129,6 +8212,7 @@ function staffCard(e, sq, primaryIds, backupIds){
       <div class="sc-match"><div class="sc-pct">${e.matchPct}%</div><div class="sc-pl">availability</div></div>
     </div>
     <div class="sc-facts">${facts}</div>
+    ${fit}
     ${exp}
     ${conf}
     <div class="sc-acts">
