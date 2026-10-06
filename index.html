@@ -929,6 +929,44 @@
   .sc-pl{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--ink-faint);margin-top:2px}
   .sc-facts{flex-basis:100%;font-size:12px;color:var(--ink-soft);line-height:1.5}
   .sc-exp{font-size:11.5px;color:var(--ink-soft);margin-top:5px}
+  /* ---- Backup Caregivers page layout. Everything is scoped to .bk: .ws-card.pfx,
+     .cov-form, .sp-chip and .emp-row are shared with other screens. ---- */
+  .bk-head{align-items:flex-end}
+  .bk-pick{flex:0 1 340px;min-width:220px}
+  .bk-pick label{display:block;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-faint);margin-bottom:4px}
+  .bk-pick select{width:100%;padding:8px 10px;border:1px solid var(--line-strong);border-radius:var(--r);font-family:inherit;font-size:13px;color:var(--ink);background:#fff}
+  .bk-pick select:focus{outline:none;border-color:var(--brand)}
+  .bk-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:20px;align-items:start}
+  @media (max-width:900px){.bk-grid{grid-template-columns:1fr}}
+  .bk .ws-card.pfx{height:auto;min-height:0;margin:0;width:auto;overflow:visible}
+  .bk .ws-card.pfx .clm-body{overflow:visible;max-height:none}
+  .bk .ws-h{margin-bottom:8px}
+  .bk .clm-note{font-size:13px;color:var(--ink-soft);line-height:1.5}
+  .bk .emp-row{gap:14px;padding:7px 0}
+  .bk .emp-row:last-child{border-bottom:none}
+  .bk .emp-v{text-align:right}
+  .bk .sp-cands{margin-top:0}
+  .bk .sp-cl{opacity:1;color:var(--ink-faint)}
+  /* .sp-chip was drawn for a dark panel: white-on-white here. */
+  .bk .sp-chip{background:var(--panel-head);border:1px solid var(--line);color:var(--ink)}
+  .bk .sp-chip button{color:var(--ink-faint);opacity:1}
+  .bk .sp-chip button:hover{color:var(--crit-solid)}
+  .bk-sech{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:0 2px 8px}
+  .bk-sect{font-size:15px;font-weight:800;color:var(--ink)}
+  .bk-secd{font-size:12.5px;color:var(--ink-soft)}
+  .bk-formtop{display:flex;align-items:flex-end;gap:12px 16px;flex-wrap:wrap}
+  .bk-formtop .bk-time{flex:0 0 150px;min-width:130px}
+  .bk-formtop .bk-daysf{flex:1 1 320px;min-width:0}
+  .bk-daychips{display:flex;gap:6px;flex-wrap:wrap}
+  /* Stated in full rather than inherited: the day chips drew as bare words
+     here, with no border and NO visible selected state, so the days the
+     search was actually using could not be read off the screen. */
+  .bk-daychips .sk{min-width:46px;padding:7px 10px;font-size:12.5px;font-weight:700;text-align:center;border:1px solid var(--line-strong);border-radius:var(--r);background:#fff;color:var(--ink-soft);cursor:pointer}
+  .bk-daychips .sk:hover{border-color:var(--brand)}
+  .bk-daychips .sk.on{background:var(--brand);border-color:var(--brand);color:#fff}
+  .bk .clm-card{max-width:none;width:auto}
+  .bk .q-empty{padding:14px 16px;font-size:13px}
+  .bk .q-sec{margin-top:4px}
   /* The card body: labelled columns, so history, preferences and experience
      each have a place instead of stacking as six look-alike lines. */
   .sc-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px 22px;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
@@ -8340,7 +8378,7 @@ function renderStaffClientPicker(sq){
   const list=state.clients.slice().sort((a,b)=>String(a.name).localeCompare(String(b.name)));
   const opts=`<option value="">Select a client…</option>`+
     list.map(c=>`<option value="${c.id}" ${sq.clientId===c.id?'selected':''}>${c.name} — ${c.city||'no city on file'}</option>`).join('');
-  return `<div class="cov-form"><div class="cov-field"><label>Client</label><select onchange="setStaffClient(this.value)">${opts}</select></div></div>`;
+  return `<div class="bk-pick"><label for="bk-client">Client</label><select id="bk-client" onchange="setStaffClient(this.value)">${opts}</select></div>`;
 }
 function renderCareNeedsCard(cl){
   if(typeof CARE==='undefined') return '';
@@ -8379,12 +8417,15 @@ function renderCurrentBackups(cl){
 }
 function renderStaffForm(sq){
   const dayChips=REC_DAYS.map(d=>`<span class="sk ${sq.days.includes(d)?'on':''}" onclick="toggleStaffDay('${d}')">${d}</span>`).join('');
-  return `<div class="cov-form">
-    <div class="cov-row">
-      <div class="cov-field"><label>Start time</label><input type="time" value="${toTimeInput(sq.start)}" onchange="setStaff('start',this.value)"></div>
-      <div class="cov-field"><label>End time</label><input type="time" value="${toTimeInput(sq.end)}" onchange="setStaff('end',this.value)"></div>
+  /* Times and days share ONE row: each used to take the full width, so the
+     three controls that define the search cost three rows before a single
+     match was on screen. */
+  return `<div class="cov-form bk-form">
+    <div class="bk-formtop">
+      <div class="cov-field bk-time"><label>Start time</label><input type="time" value="${toTimeInput(sq.start)}" onchange="setStaff('start',this.value)"></div>
+      <div class="cov-field bk-time"><label>End time</label><input type="time" value="${toTimeInput(sq.end)}" onchange="setStaff('end',this.value)"></div>
+      <div class="cov-field bk-daysf"><label>Days needing backup coverage</label><div class="bk-daychips">${dayChips}</div></div>
     </div>
-    <div class="cov-days"><span class="cov-lbl">Days needing backup coverage</span>${dayChips}</div>
     ${renderFilterGroups(sq.skills, sq.filters||[], 'toggleStaffSkill', 'toggleStaffFilter')}
   </div>`;
 }
@@ -8395,8 +8436,8 @@ function viewStaffClient(){
   const picker=renderStaffClientPicker(sq);
 
   if(!cl){
-    const head=`<div class="lock-head"><div class="lk-main"><div class="lk-eyebrow">Backup Caregivers</div><div class="lk-client">Select a client</div><div class="lk-meta">Choose an existing client to see their primary caregiver, current backups, and recommended matches.</div></div></div>`;
-    return head + picker + `<div class="q-empty">Select a client above to get started.</div>`;
+    const head=`<div class="lock-head bk-head"><div class="lk-main"><div class="lk-eyebrow">Backup Caregivers</div><div class="lk-client">Select a client</div><div class="lk-meta">Choose an existing client to see their primary caregiver, current backups, and recommended matches.</div></div>${picker}</div>`;
+    return `<div class="bk">${head}<div class="q-empty">Select a client to get started.</div></div>`;
   }
 
   const sched=clRegularSchedule(cl);
@@ -8416,7 +8457,7 @@ function viewStaffClient(){
       : sched.status==='nolink' ? 'Not linked to AxisCare'
       : 'No current schedule on file';
 
-  const head=`<div class="lock-head"><div class="lk-main"><div class="lk-eyebrow">Backup Caregivers</div><div class="lk-client">${esc(cl.name)}</div><div class="lk-meta">${esc(cl.city||'City not set')} · ${scheduleText}</div></div></div>`;
+  const head=`<div class="lock-head bk-head"><div class="lk-main"><div class="lk-eyebrow">Backup Caregivers</div><div class="lk-client">${esc(cl.name)}</div><div class="lk-meta">${esc(cl.city||'City not set')} · ${scheduleText}</div></div>${picker}</div>`;
 
   const careCard=renderCareNeedsCard(cl);
   const matchCard=(typeof clMatchCard==='function') ? clMatchCard(cl) : '';
@@ -8440,9 +8481,22 @@ function viewStaffClient(){
     }
   }
 
-  return head + picker + careCard + matchCard + primaryCard + backupCard +
-    `<div class="sp-h">${ic('shield',14)} Recommended backup caregiver matches</div>` +
-    renderStaffForm(sq) + results;
+  /* THE PAGE, LAID OUT 2026-10-06 (Peter: "improve the whole tab"). Top to
+     bottom it used to be: header, a full-width picker, then four cards each
+     pinned to 260px by .ws-card.pfx whatever they held - Care Needs is one
+     sentence - then three full-width rows of search controls. The matches,
+     which are the point of the page, started about 1,500px down.
+
+     Now: the picker rides in the header; the four cards are a two-column
+     grid sized to their content (.bk scopes this - .ws-card.pfx is shared
+     with the caregiver profile and must keep its fixed height there); and
+     the search is one compact panel directly above its results. Nothing a
+     card SAYS has changed, only where it sits. */
+  return `<div class="bk">${head}
+    <div class="bk-grid">${careCard}${matchCard}${primaryCard}${backupCard}</div>
+    <div class="bk-sech"><span class="bk-sect">Find a backup</span><span class="bk-secd">Matches follow this client’s schedule until you change the days or times.</span></div>
+    ${renderStaffForm(sq)}${results}
+  </div>`;
 }
 /* ===================== MULTI-DAY AVAILABILITY SEARCH + SCORING ===================== */
 const DAY_PRESETS=[['Mon\u2013Fri',['Mon','Tue','Wed','Thu','Fri']],['Weekends',['Sat','Sun']],['Tue/Thu',['Tue','Thu']],['Mon/Wed/Fri',['Mon','Wed','Fri']],['Every day',['Mon','Tue','Wed','Thu','Fri','Sat','Sun']]];
