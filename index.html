@@ -9991,8 +9991,36 @@ function wkWhyNotListed(cg,dateStr){
   const d=AVAIL.dayAvail(cg.id, dateStr);
   if(d.state==='unloaded'||d.state==='error'||d.state==='unconfigured') return 'unknown';
   if(d.state==='blocked') return 'unavail';
-  if(d.state==='none' && !AVAIL.carryWindows(cg.id, dateStr).length) return 'none';
+  if(d.state==='none' && !AVAIL.carryWindows(cg.id, dateStr).length)
+    return wkBusyOn(cg, dateStr).length ? 'working' : 'none';
   return 'other';
+}
+/* "NOTHING ENTERED" WAS BEING SAID ABOUT PEOPLE WHO ARE AT WORK. Confirmed on
+   the live roster 2026-10-06: Jacqueline Gonzalez, nothing saved for the day,
+   and an AxisCare visit with Fayde Macune 3:30p-10:30p. Her Tuesdays were
+   almost certainly Open 2p-10p like her other weekdays; the carve cut the
+   visit out, the 90 minutes left is under AV_MIN_MIN, and the day was stored
+   empty - correctly. But the list then filed her beside caregivers nobody has
+   asked, which sends a scheduler to chase availability she already gave.
+
+   So a caregiver with nothing saved AND a visit that day reads "working a
+   visit that day", with the client and hours. The visits come from COVHIST's
+   busy-only read - that date and the one before it, one or two requests -
+   the same source covClash() uses.
+
+   TRI-STATE: until that read is in (or if it fails) nobody is moved out of
+   "nothing entered"; the old wording stands rather than a guess. And it is
+   asked for from here only when the cache is IDLE, so a failure is never
+   retried by a render - the same guard shape as wkEnsureWeek(). */
+function wkBusyOn(cg, dateStr){
+  if(typeof COVHIST==='undefined') return [];
+  const h=COVHIST.get(dateStr);
+  return h.state==='ready' ? (h.busy[cg.id]||[]) : [];
+}
+function wkEnsureBusy(dateStr){
+  if(typeof COVHIST==='undefined' || !dateStr) return;
+  if(COVHIST.get(dateStr).state!=='idle') return;
+  COVHIST.load(dateStr).then(function(){ try{ if(state.view==='coverage') render(); }catch(e){} });
 }
 /* Fetches once per week shown, not once per render — see the header
    comment above for why. */
@@ -10252,13 +10280,15 @@ function wkRestHtml(sel, listed){
   const on={}; listed.forEach(c=>{ on[c.id]=1; });
   const rest=wkActiveCaregivers().filter(c=>!on[c.id]).filter(wkFilterMatch);
   if(!rest.length) return '';
-  const G={other:[],none:[],unavail:[],unknown:[]};
+  wkEnsureBusy(sel.date);
+  const G={other:[],working:[],none:[],unavail:[],unknown:[]};
   rest.forEach(c=>{ G[wkWhyNotListed(c, sel.date)].push(c); });
-  const LAB={other:'open at other times that day', none:'nothing entered for that day', unavail:'marked unavailable', unknown:'availability not loaded'};
-  const order=['other','none','unavail','unknown'].filter(k=>G[k].length);
+  const LAB={other:'open at other times that day', working:'working a visit that day', none:'nothing entered for that day', unavail:'marked unavailable', unknown:'availability not loaded'};
+  const order=['other','working','none','unavail','unknown'].filter(k=>G[k].length);
   const names=k=>G[k].sort((a,b)=>a.name.localeCompare(b.name)).map(function(c){
     let extra='';
     if(k==='other'){ const w=wkDisplayWindows(c, sel.date, 0, 24); if(w&&w.length) extra=' <span class="wk-resttime">'+escText(Array.from(new Set(w.map(wkFmtWin))).join(', '))+'</span>'; }
+    if(k==='working'){ extra=' <span class="wk-resttime">'+escText(wkBusyOn(c, sel.date).map(b=>b.client+' '+fmtClock(b.s)+' – '+fmtClock(b.e)).join(', '))+'</span>'; }
     return `<span class="wk-restcg"><button type="button" class="wk-cgname" onclick="openCgFromCoverage('${c.id}')">${escText(c.name)}</button>${extra}</span>`;
   }).join('');
   return `<details class="wk-rest">
