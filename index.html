@@ -10757,7 +10757,7 @@ function renderCoverageCommand(q){
     return head+covMatchRow(r,q,i+1);
   }).join('');
   const relNote='<div class="cvm-relnote">Match % weighs client familiarity, schedule fit, distance, client requirements and weekly hours. Reliability is not tracked yet, so it is left out rather than guessed.</div>';
-  return {match:note, html:`<div class="cvm-list"><div class="cvm-h">Call in this order<span class="cvm-n">${queue.length}</span></div>${covSelBar(queue)}${rows}${relNote}</div>`
+  return {match:note, html:`<div class="cvm-list"><div class="cvm-h">Call in this order<span class="cvm-n">${queue.length}</span></div>${rows}${relNote}</div>`
     + covNotListedHtml(q, excluded, eligible) + renderAttemptHistory(q, contacted)};
 }
 /* WHAT THIS CLIENT ASKED FOR, above the list.
@@ -11008,8 +11008,11 @@ function covMatchRow(r,q,rank){
   const box=cg.phone
     ? `<input type="checkbox" class="osg-cbx" ${sel?'checked':''} onclick="covToggleSel('${cg.id}')" aria-label="Select ${esc(cg.name)} to text">`
     : `<span class="cvm-nocb" title="No phone number on file in AxisCare"></span>`;
-  return `<div class="cvm-row cvm-m g${grp}${rank===1?' first':''}${sel?' sel':''}">
-    <label class="cvm-cb">${box}</label>
+  /* NO TICK BOX AND NO "TEXT SEVERAL" BAR since 2026-10-06 (owner): one caregiver
+     is texted at a time from the Text button on their row. covSelBar() and the
+     covSel helpers are left in place, undrawn, so the bulk modal path still
+     compiles; nothing on this screen reaches them. */
+  return `<div class="cvm-row cvm-m g${grp}${rank===1?' first':''}">
     <div class="cvm-rank">${rank}</div>
     ${av}
     <div class="cvm-main">
