@@ -355,6 +355,59 @@ function copyClashes(wins, segs) {
   });
 }
 
+/* ---- THE UN-CLASH -------------------------------------------------------
+   copyClashes() stops the copy WRITING a non-Open shape onto a date that
+   already has a visit. It does nothing about one the copy wrote BEFORE the
+   visit existed: planRecarve() only ever cuts Open, and planMonth() skips a
+   clashing day without touching the row already on it. So the rule "a job
+   that copies last month forward may not manufacture a disagreement" held at
+   write time and not afterwards.
+
+   Confirmed on the live roster 2026-10-06: Alejandra Gibbs, 2026-10-05,
+   `Unavailable 9a-5p` recorded by Auto-copy beside an AxisCare visit with
+   Fayde Macune 3:30p-10:30p - one of fourteen such days in her October, none
+   of them a decision anybody made.
+
+   This pass finds those rows. FOUR LIMITS, all deliberate:
+     - ONLY a day the copy OWNS: every row on it stamped Auto-copy. One row a
+       person typed protects the whole day, exactly as it does in planMonth().
+       A person's Unavailable on a booked day is a real disagreement and stays
+       flagged for somebody to resolve.
+     - ONLY non-Open rows that actually OVERLAP a visit. An Unavailable 9a-12p
+       beside a 2p visit contradicts nothing and is left alone. Open is the
+       re-carve's business, not this pass's.
+     - the row is REMOVED, never trimmed. The copy asserted something about
+       hours the caregiver is booked for; what is left of that assertion is a
+       guess about the rest of the day that nobody made either.
+     - never the past.
+
+   IT REPORTS BY DEFAULT AND REMOVES NOTHING. UNCLASH_APPLY is the switch, and
+   it ships false: every run returns the list of what WOULD go (`unclash` in
+   the response, in `?dry=1` too) so it can be read before anything is
+   deleted from a live table by an hourly job. */
+const UNCLASH_APPLY = false;
+function planUnclash(days, cgId, visits, fromDate, toDate) {
+  const out = [];
+  Object.keys(days).sort().forEach(ds => {
+    if (ds < fromDate || ds > toDate) return;
+    const stored = days[ds];
+    if (!stored || !stored.length) return;
+    if (!stored.every(b => b.updatedBy === AV_AUTO_AUTHOR)) return;
+    const wins = visitWins(visits, cgId, ds);
+    if (!wins.length) return;
+    const hits = sg => {
+      if (sg.status === 'Open') return false;
+      const a = sg.allDay ? 0 : sg.startMin, b = sg.allDay ? 1440 : sg.endMin;
+      return wins.some(w => w[0] < b && w[1] > a);
+    };
+    const drop = stored.filter(hits);
+    if (!drop.length) return;
+    out.push({ day: ds, segs: stored.filter(sg => !hits(sg)).map(shape),
+               removed: drop.map(shape), visits: wins });
+  });
+  return out;
+}
+
 /* ---- one caregiver, one month --------------------------------------- */
 function planMonth(days, cgId, tgtYm, notBefore, visits) {
   const srcYm = sourceMonthFor(days, tgtYm);
@@ -468,6 +521,33 @@ async function runCopy(opts) {
     }
   }
 
+  /* ---- PASS A2: THE UN-CLASH ----------------------------------------
+     After the re-carve, so it reads the days as the re-carve left them.
+     Report-only unless UNCLASH_APPLY; wrapped whole, because a fault in a
+     pass that is only reporting must never cost the re-carve or the copy. */
+  const unclash = { apply: UNCLASH_APPLY, days: 0, rows: 0, caregivers: 0, removed: 0, changes: [], error: null };
+  try {
+    const hm = m => String(Math.floor(m / 60) % 24).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
+    for (const id of ids) {
+      if (outOfTime()) { unclash.stoppedAt = id; break; }
+      const plan = planUnclash(byCg[id], +id, visits, today, recarveTo);
+      if (!plan.length) continue;
+      unclash.caregivers++;
+      for (const p of plan) {
+        unclash.days++; unclash.rows += p.removed.length;
+        if (unclash.changes.length < 600) unclash.changes.push({ cg: +id, day: p.day,
+          remove: p.removed.map(fmtSeg), keep: p.segs.map(fmtSeg),
+          visits: p.visits.map(w => hm(w[0]) + '-' + hm(w[1])) });
+        if (!UNCLASH_APPLY || opts.dry) continue;
+        try {
+          await writeDays(+id, [p.day], p.segs, AV_AUTO_AUTHOR);
+          unclash.removed += p.removed.length;
+          byCg[id][p.day] = p.segs.map(x => Object.assign({}, x, { updatedBy: AV_AUTO_AUTHOR }));
+        } catch (e) { /* one day failing must not stop the sweep */ }
+      }
+    }
+  } catch (e) { unclash.error = String((e && e.message) || e); }
+
   /* ---- PASS B: THE MONTHLY COPY ------------------------------------
 
      A CHEAP WAY OUT, FOR THE COPY ONLY. The in-app copy already handles
@@ -491,6 +571,7 @@ async function runCopy(opts) {
       visitsFetched: true, months: [thisM, nextM],
       recarve: { changed: recarved, cleared: cleared, through: recarveTo,
                  resumeFrom: recarveStoppedAt, changes: changes },
+      unclash: unclash,
       ms: Date.now() - started };
   }
 
@@ -533,6 +614,7 @@ async function runCopy(opts) {
     monthsFilled: touched, written, visitsFetched: true, resumeFrom: stoppedAt,
     recarve: { changed: recarved, cleared: cleared, through: recarveTo,
                resumeFrom: recarveStoppedAt, changes: changes },
+      unclash: unclash,
     ms: Date.now() - started };
 }
 
@@ -555,3 +637,5 @@ exports.handler = async (event) => {
 };
 
 exports.runCopy = runCopy;
+/* For tests only. */
+exports._test = { planUnclash: planUnclash, planRecarve: planRecarve, planMonth: planMonth, UNCLASH_APPLY: UNCLASH_APPLY };
