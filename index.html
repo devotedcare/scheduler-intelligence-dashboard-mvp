@@ -952,6 +952,18 @@
   .bk .sp-chip button{color:var(--ink-faint);opacity:1}
   .bk .sp-chip button:hover{color:var(--crit-solid)}
   .bk-sech{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:0 2px 8px}
+  /* One line saying what the list was built from, with the form behind it. */
+  .bk-sumrow{display:flex;align-items:center;gap:8px 10px;flex-wrap:wrap;background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:9px 12px;margin-bottom:12px}
+  .bk-sum{display:inline-flex;align-items:baseline;gap:6px;font-size:13px;font-weight:650;color:var(--ink);background:var(--panel-head);border-radius:999px;padding:4px 11px}
+  .bk-sum.warn{background:var(--soon-bg);color:var(--soon-tx)}
+  .bk-suml{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--ink-faint)}
+  .bk-sumnote{font-size:12px;color:var(--ink-faint)}
+  .bk-advbtn{margin-left:auto;font-family:inherit;font-size:13px;font-weight:700;color:var(--brand);background:#fff;border:1px solid var(--line-strong);border-radius:var(--r);padding:6px 12px;cursor:pointer;white-space:nowrap}
+  .bk-advbtn:hover{border-color:var(--brand)}
+  .bk-advbtn span{font-size:10px;margin-left:3px}
+  .bk-adv{border:1px dashed var(--line-strong);border-radius:var(--r);padding:12px;margin-bottom:14px;background:var(--panel-head)}
+  .bk-adv .bk-grid{margin-bottom:12px}
+  .bk-adv .cov-form{margin-bottom:0}
   .bk-sect{font-size:15px;font-weight:800;color:var(--ink)}
   .bk-secd{font-size:12.5px;color:var(--ink-soft)}
   .bk-formtop{display:flex;align-items:flex-end;gap:12px 16px;flex-wrap:wrap}
@@ -8058,7 +8070,7 @@ function defaultStaffQuery(){ return {clientId:null, city:'', days:[], start:8, 
 function setStaff(field,val){ const sq=state.staffQuery; sq.customized=true; if(field==='start'||field==='end') sq[field]=decFromTime(val); else sq[field]=val; render(); }
 function toggleStaffDay(d){ const sq=state.staffQuery; sq.customized=true; const i=sq.days.indexOf(d); if(i>=0)sq.days.splice(i,1); else sq.days.push(d); render(); }
 function toggleStaffSkill(sk){ const sq=state.staffQuery; const i=sq.skills.indexOf(sk); if(i>=0)sq.skills.splice(i,1); else sq.skills.push(sk); render(); }
-function toggleStaffFilter(f){ const sq=state.staffQuery; if(!sq.filters)sq.filters=[]; const i=sq.filters.indexOf(f); if(i>=0)sq.filters.splice(i,1); else sq.filters.push(f); render(); }
+function toggleStaffFilter(f){ const sq=state.staffQuery; sq.filtersTouched=true; if(!sq.filters)sq.filters=[]; const i=sq.filters.indexOf(f); if(i>=0)sq.filters.splice(i,1); else sq.filters.push(f); render(); }
 /* Selecting a client is the one click that kicks off the real-data reads —
    the matching-table REST read (CLMATCH) and the client's own AxisCare
    visits (CLVISITS) cost nothing and are safe to call every render, but
@@ -8069,7 +8081,7 @@ function setStaffClient(clientId){
   const sq=state.staffQuery || (state.staffQuery=defaultStaffQuery());
   sq.clientId=clientId||null;
   sq.customized=false;
-  sq.skills=[]; sq.filters=[];
+  sq.skills=[]; sq.filters=[]; sq.filtersTouched=false;
   const cl=sq.clientId?clById(sq.clientId):null;
   /* Always reset days/start/end here, even for a client AxisCare has no
      link for — otherwise a client with no visits to derive a schedule from
@@ -8129,16 +8141,103 @@ function clRegularSchedule(cl){
     start: dom ? dom.start : 8,
     end: dom ? (dom.end!=null ? dom.end : dom.start+6) : 14};
 }
+/* WHAT THE CLIENT ASKED FOR, APPLIED WITHOUT ANYBODY PICKING CHIPS (the owner,
+   2026-10-06: the scheduler should land on who can cover, not on a form).
+
+   Nothing here asks a model. Every answer is already on the client's record:
+     days and times   the client's own AxisCare visits (clRegularSchedule),
+                      as before
+     caregiver gender Client Concierge's gender preference - applied as the
+                      Female / Male requirement, the same hard rule Find
+                      Coverage uses. It is a normal chip in Advanced settings,
+                      so a scheduler can see it and take it off.
+     care needs       read from Concierge's care requirements, the client's
+                      required skills and the care-needs line already on this
+                      page, and matched to this page's own care-need list.
+
+   CARE NEEDS RANK; THEY DO NOT FILTER. Picking a care-need chip by hand
+   excludes every caregiver who lacks that AxisCare tag - and four in ten
+   active caregivers carry no tags at all, so applying that automatically
+   would empty the list for most clients on evidence nobody recorded. The
+   auto-read needs put caregivers with matching recorded experience first
+   and are shown on the card; only a chip a scheduler ticks excludes.
+
+   DRIVING IS NOT AUTO-FILTERED EITHER, for the reason the ranker gives:
+   cg.driver is false whenever the tags are merely absent. The card's
+   preference chip says whether they can drive this client. */
+const STAFF_NEED_RX=[
+  ['Dementia', /dementia|alzheimer|memory (care|loss|prompt|impair)|cognitive/i],
+  ['Hospice', /hospice|end[- ]of[- ]life|palliative/i],
+  ['Hoyer Lift', /hoyer|mechanical lift/i],
+  ['Transfers', /transfer|bed[- ]?bound|wheelchair|two[- ]person|gait belt/i],
+  ['Feeding Tube', /feeding tube|g[- ]?tube|peg tube|tube feed/i],
+  ['Suctioning', /suction/i],
+  ['Medication Reminders', /medication reminder|med reminder/i],
+  ['Companion', /companion/i]
+];
+function staffAutoNeeds(cl){
+  if(!cl || cl.axisId==null) return {known:true, needs:[]};
+  const text=[];
+  let known=true;
+  if(typeof CLMATCH!=='undefined'){
+    if(CLMATCH.status()!=='ready') known=false;
+    else { const p=CLMATCH.prefs(cl.axisId);
+      if(p){ if(Array.isArray(p.care_req)) text.push(p.care_req.join(', '));
+             text.push(clmPref(p,'Caregiver skills')); text.push(clmPref(p,'Care requirements')); } }
+  }
+  if(typeof CARE!=='undefined'){
+    const st=CARE.status(cl.axisId);
+    if(st==='ready'){ const e=CARE.get(cl.axisId); if(e && e.line) text.push(e.line); }
+    else if(st==='idle'||st==='loading') known=false;
+  }
+  const all=text.filter(Boolean).join(' ; ');
+  return {known:known, needs:STAFF_NEED_RX.filter(r=>r[1].test(all)).map(r=>r[0])};
+}
+/* The client's gender preference, seeded once per client as the ordinary
+   Female / Male requirement - until the scheduler touches the requirement
+   chips, after which their choice stands (same rule as the days and times). */
+function staffSeedRequirements(sq, cl){
+  if(sq.filtersTouched) return;
+  const p=covClientPrefs(cl);
+  if(!p.genderKnown) return;
+  const want = p.genderHard && p.genderPref==='F' ? 'Female' : p.genderHard && p.genderPref==='M' ? 'Male' : null;
+  sq.filters=(sq.filters||[]).filter(x=>x!=='Female'&&x!=='Male').concat(want?[want]:[]);
+  sq.autoGender=want;
+}
+/* Who to look at first. The client's own wishes lead, then people who know
+   the client, then recorded experience for this client's needs, then the
+   nearest. A preference that is NOT met sinks the card rather than hiding
+   it - whoever is left may still be the only person free. */
+function staffRank(e, cl, needs){
+  const cg=e.cg, parts=staffFitParts(cg, cl), h=staffHistory(cg, cl);
+  let score=0;
+  if(parts){ parts.prefs.forEach(function(i){
+    if(i.text==='Asked for by the client') score+=100;
+    else if(i.tone==='bad') score-=200;
+    else if(i.tone==='warn') score-=10; }); }
+  if(h.state==='ready' && h.past) score+=60+Math.min(h.past,20);
+  score+=needs.filter(n=>cg.skills.includes(n)).length*8;
+  if(e.conflicts && e.conflicts.length) score-=50;
+  return score;
+}
 function staffSearch(sq){
   const rq={clientId:sq.clientId||null, city:sq.city, days:sq.days, start:sq.start, end:sq.end, skills:sq.skills, filters:sq.filters};
   const {full, partial, reqDays}=recurringSearch(rq);
+  const cl=sq.clientId?clById(sq.clientId):null;
+  const auto=staffAutoNeeds(cl).needs;
+  const needs=sq.skills.length ? sq.skills : auto;
   const enrich=e=>Object.assign({}, e, {
     matchPct: reqDays.length?Math.round(e.coverDays.length/reqDays.length*100):0,
     capacity: Math.max(0, 40-e.cg.weekHrs),
-    experience: sq.skills.length? sq.skills.filter(s=>e.cg.skills.includes(s)) : e.cg.skills.slice(0,3),
+    /* What they are tagged for among what THIS client needs; with nothing to
+       compare against, their first few tags, as before. */
+    experience: needs.length ? needs.filter(s=>e.cg.skills.includes(s)) : e.cg.skills.slice(0,3),
     conflicts: staffConflicts(e.cg, sq)
   });
-  return {full:full.map(enrich), partial:partial.map(enrich), reqDays};
+  const ranked=list=>list.map(enrich).map(e=>Object.assign(e,{rank:staffRank(e, cl, needs)}));
+  const byRank=(a,b)=>(b.rank-a.rank)||(a.dist-b.dist)||String(a.cg.name).localeCompare(String(b.cg.name));
+  return {full:ranked(full).sort(byRank),
+          partial:ranked(partial).sort((a,b)=>((b.count||0)-(a.count||0))||byRank(a,b)), reqDays};
 }
 /* state.clBackups: one row per CLIENT (id === the client's own id, since
    there is only ever one row per client). Same update pattern cgRatings and
@@ -8459,6 +8558,7 @@ function viewStaffClient(){
 
   const head=`<div class="lock-head bk-head"><div class="lk-main"><div class="lk-eyebrow">Backup Caregivers</div><div class="lk-client">${esc(cl.name)}</div><div class="lk-meta">${esc(cl.city||'City not set')} · ${scheduleText}</div></div>${picker}</div>`;
 
+  staffSeedRequirements(sq, cl);
   const careCard=renderCareNeedsCard(cl);
   const matchCard=(typeof clMatchCard==='function') ? clMatchCard(cl) : '';
   const primaryCard=renderPrimaryCaregivers(cl, sched);
@@ -8492,10 +8592,34 @@ function viewStaffClient(){
      with the caregiver profile and must keep its fixed height there); and
      the search is one compact panel directly above its results. Nothing a
      card SAYS has changed, only where it sits. */
+  /* ADVANCED SETTINGS (the owner, 2026-10-06). Care Needs, Primary
+     Caregivers and the whole search form moved behind one toggle: they are
+     filled in from the client's record, so a scheduler should not have to
+     read them to see who is available. What stays on screen is one line
+     saying what the list was built from - so "why these people" is always
+     answerable without opening anything - and the matches themselves.
+     state.staffAdv is one person's view of one screen, not a SLICES entry. */
+  const adv=!!state.staffAdv;
+  const auto=staffAutoNeeds(cl);
+  const needs=sq.skills.length ? sq.skills : auto.needs;
+  const bit=(label,val,tone)=>`<span class="bk-sum${tone?' '+tone:''}"><span class="bk-suml">${label}</span>${val}</span>`;
+  const reqs=(sq.filters||[]).map(x=> x===sq.autoGender && !sq.filtersTouched ? escText(x)+' caregivers only \u2014 client\u2019s preference' : escText(x));
+  const summary=`<div class="bk-sumrow">
+      ${bit('Days', sq.days.length ? escText(daySpanLabel(sq.days)) : 'None selected', sq.days.length?'':'warn')}
+      ${bit('Time', escText(fmtHr(sq.start)+'\u2013'+fmtHr(sq.end)))}
+      ${reqs.length ? bit('Requirements', reqs.join(', ')) : ''}
+      ${needs.length ? bit(sq.skills.length?'Care needs (must have)':'Care needs', escText(needs.join(', '))) : (!auto.known ? bit('Care needs','reading the client\u2019s record\u2026') : '')}
+      <span class="bk-sumnote">${sq.customized||sq.filtersTouched||sq.skills.length ? 'Edited by you' : 'Filled in from this client\u2019s record'}</span>
+      <button type="button" class="bk-advbtn" aria-expanded="${adv}" onclick="state.staffAdv=!state.staffAdv;render()">Advanced settings <span>${adv?'\u25be':'\u25b8'}</span></button>
+    </div>`;
+  const advanced = adv ? `<div class="bk-adv">
+      <div class="bk-grid">${careCard}${primaryCard}</div>
+      ${renderStaffForm(sq)}
+    </div>` : '';
   return `<div class="bk">${head}
-    <div class="bk-grid">${careCard}${matchCard}${primaryCard}${backupCard}</div>
-    <div class="bk-sech"><span class="bk-sect">Find a backup</span><span class="bk-secd">Matches follow this client’s schedule until you change the days or times.</span></div>
-    ${renderStaffForm(sq)}${results}
+    <div class="bk-grid">${matchCard}${backupCard}</div>
+    <div class="bk-sech"><span class="bk-sect">Available backup caregivers</span></div>
+    ${summary}${advanced}${results}
   </div>`;
 }
 /* ===================== MULTI-DAY AVAILABILITY SEARCH + SCORING ===================== */
