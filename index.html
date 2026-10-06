@@ -8130,20 +8130,77 @@ function staffRemoveBackup(cgId){
    same for preferences: an unread Concierge table is "not loaded", never
    "nothing asked for". A failed lookup that reads as a confident negative is
    the failure this app keeps re-learning (CNSHIFT.had, AVAIL.dayAvail). */
+/* HOW FAR BACK "the past" GOES. CLVISITS' own window is the month before
+   today to two months ahead - right for the schedule card, and about four
+   weeks of history, which would call a caregiver who covered this client all
+   spring "has not worked with". fetchClientVisits() takes an `around` date
+   and reads the month before it through two months after, so three more
+   reads centred 4, 8 and 12 months back tile the previous year with no gap
+   (-13..-10, -9..-6, -5..-2, then the default -1..+2). CLVISITS caches each
+   one per client, so this costs three extra reads the FIRST time a client is
+   chosen in a session and nothing after. */
+const STAFF_HIST_BACK=[4,8,12];
+function staffHistArounds(){
+  return STAFF_HIST_BACK.map(function(m){ const d=new Date(NOW.getFullYear(), NOW.getMonth()-m, 1); return toDateInput(d); });
+}
+/* Safe from a render, like CLVISITS.load() itself: it returns at once for a
+   window already asked for. */
+/* TWO BRAKES, both because of what AxisCare does under load (CLAUDE.md: 45
+   requests in three seconds were answered 429 on every one, account-wide):
+
+     - ONE WINDOW AT A TIME. The next read starts only once the one before it
+       is in - each landing re-renders, and the render calls this again.
+     - ONLY WHEN `clientIds` REALLY FILTERED. fetchClientVisits() reports
+       `filtered`: whether every visit AxisCare returned was this client's. If
+       the parameter was ignored, each window is every client's visits for
+       four months, paged - a cost worth paying once for the schedule and not
+       three more times for history. Then the cards honestly say "since" the
+       window that was read. */
+function staffHistLoad(cl){
+  if(!cl || cl.axisId==null || typeof CLVISITS==='undefined') return;
+  const base=CLVISITS.get(cl.id);
+  if(!base || base.status!=='ready' || base.filtered!==true) return;
+  const arounds=staffHistArounds();
+  for(let i=0;i<arounds.length;i++){
+    const r=CLVISITS.get(cl.id, arounds[i]);
+    if(r.status==='ready') continue;          /* this one is in - look at the next */
+    if(r.status==='idle') CLVISITS.load(cl, arounds[i]);
+    return;                                   /* loading, failed, or just started */
+  }
+}
 function staffHistory(cg, cl){
   if(!cl || cl.axisId==null || typeof CLVISITS==='undefined') return {state:'nolink'};
   const rec=CLVISITS.get(cl.id);
   if(!rec || rec.status==='idle' || rec.status==='loading') return {state:'loading'};
   if(rec.status!=='ready') return {state:'error'};
   const today=toDateInput(NOW);
-  let past=0, upcoming=0, last=null;
-  Object.keys(rec.days||{}).forEach(function(ds){
-    (rec.days[ds]||[]).forEach(function(v){
-      if(v.caregiverId!==cg.id) return;
-      if(ds<today){ past++; if(!last || ds>last) last=ds; } else upcoming++;
+  let past=0, upcoming=0, last=null, first=null;
+  const seen={};
+  const take=function(r){
+    Object.keys(r.days||{}).forEach(function(ds){
+      (r.days[ds]||[]).forEach(function(v, i){
+        if(v.caregiverId!==cg.id) return;
+        /* The windows touch at their edges; never count one visit twice. */
+        const k=ds+'|'+v.start+'|'+(v.end==null?'':v.end)+'|'+i; if(seen[k]) return; seen[k]=1;
+        if(ds<today){ past++; if(!last || ds>last) last=ds; if(!first || ds<first) first=ds; } else upcoming++;
+      });
     });
-  });
-  return {state:'ready', past:past, upcoming:upcoming, last:last, from:rec.from||null};
+  };
+  take(rec);
+  /* Walk back through the older windows IN ORDER and stop at the first one
+     that is not in: "since <date>" may only name a stretch that was read
+     without a gap, or it claims history nobody looked at. */
+  let from=rec.from||null, pending=false, failed=false;
+  /* When clientIds was ignored the older windows are never asked for (see
+     staffHistLoad), so they are not "pending" - there is simply no more. */
+  const older=rec.filtered===true ? staffHistArounds().map(function(a){ return CLVISITS.get(cl.id, a); }) : [];
+  for(let i=0;i<older.length;i++){
+    const r=older[i];
+    if(r.status==='ready'){ take(r); if(r.from && (!from || r.from<from)) from=r.from; continue; }
+    if(r.status==='error') failed=true; else pending=true;
+    break;
+  }
+  return {state:'ready', past:past, upcoming:upcoming, last:last, first:first, from:from, pending:pending, failed:failed};
 }
 function staffPrefFit(cg, cl){
   const p=covClientPrefs(cl);
@@ -8175,11 +8232,18 @@ function staffMatchFactsHtml(cg, cl){
   if(h.state==='loading') hist=line('muted','Checking visit history with '+first+'…');
   else if(h.state==='error') hist=line('warn','Could not check visit history with '+first);
   else if(h.state==='ready'){
-    const bits=[];
-    if(h.past) bits.push(h.past+' past visit'+(h.past===1?'':'s')+(h.last?', last '+escText(fmtDate(new Date(h.last+'T12:00:00'))):''));
+    const bits=[], dt=ds=>escText(fmtDate(new Date(ds+'T12:00:00')));
+    if(h.past) bits.push(h.past+' past visit'+(h.past===1?'':'s')+
+      (h.first && h.first!==h.last ? ', '+dt(h.first)+' to '+dt(h.last) : h.last ? ', '+dt(h.last) : ''));
     if(h.upcoming) bits.push(h.upcoming+' upcoming');
-    hist = bits.length ? line('good','Has worked with '+first+': '+bits.join(' · '))
-      : line('muted','Has not worked with '+first+(h.from?' since '+escText(fmtDate(new Date(h.from+'T12:00:00'))):''));
+    /* What the older reads have NOT established yet rides on the line, so a
+       count is never mistaken for the whole year while part of it is still
+       arriving, and "has not worked" is never said over a failed read. */
+    const tail = h.pending ? ' · checking older visits…'
+      : h.failed ? ' · could not check before '+(h.from?dt(h.from):'this window') : '';
+    hist = bits.length ? line('good','Has worked with '+first+': '+bits.join(' · ')+tail)
+      : h.pending ? line('muted','No visits with '+first+' found yet — checking the past year…')
+      : line(h.failed?'warn':'muted','Has not worked with '+first+(h.from?' since '+dt(h.from):'')+(h.failed?' — older history could not be checked':''));
   }
   const f=staffPrefFit(cg, cl);
   const pref = !f.known ? line('warn','Client preferences not loaded — not checked')
@@ -8285,6 +8349,9 @@ function viewStaffClient(){
   }
 
   const sched=clRegularSchedule(cl);
+  /* The past year of this client's visits, for "has worked with" on the
+     cards below. Idempotent, so it is safe here as well as on the click. */
+  staffHistLoad(cl);
   /* Auto-filled from the real schedule until the scheduler touches a day or
      time control themselves — after that their own edit wins, and stays
      won even as CLVISITS finishes loading behind it. */
