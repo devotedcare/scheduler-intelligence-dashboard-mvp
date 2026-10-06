@@ -2042,6 +2042,17 @@ body.ai-white .view{flex:1 1 auto;min-height:0;display:flex;flex-direction:colum
      the date is the marker. A ring means "this is the day you clicked". */
   .cal-cell.today{outline:none;border-color:var(--line);box-shadow:none}
   .cal-cell.today .cal-d{display:inline-flex;align-items:center;justify-content:center;flex:none;width:22px;height:22px;padding:0;border-radius:50%;background:#1e40af;color:#fff;line-height:1}
+  /* Calendar popup: tick several days on the grid, then hand them to the day panel. */
+  .cal-multi{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:8px 12px;margin:-2px 0 12px}
+  .cal-multi-hint{font-size:12px;color:var(--ink-faint)}
+  .cal-multi.on{background:#F2F7FA;border:1px solid #CFE0EA;border-radius:var(--r);padding:8px 12px}
+  .cal-multi-n{font-size:13px;font-weight:700;color:var(--brand);margin-right:auto}
+  .cal-cell.mmode{cursor:pointer}
+  .cal-cell.mmode:hover{background:#F2F7FA}
+  .cal-cell.mpick{outline:2px solid var(--brand);outline-offset:-2px;background:#E6F0F5;z-index:1}
+  .cal-cell.mpick .cal-d{color:var(--brand);font-weight:800}
+  .cal-cell.mpick::after{content:'\2713';position:absolute;top:6px;right:7px;width:18px;height:18px;border-radius:50%;background:var(--brand);color:#fff;font-size:11px;font-weight:800;line-height:18px;text-align:center}
+  .cal-cell.mmode{position:relative}
   .cal-cell.sel{outline:2px solid var(--brand);outline-offset:-2px;background:#F2F7FA;z-index:1}
 
   /* the verification card carries the out-of-date warning now */
@@ -12294,7 +12305,11 @@ function cgCalendar(c, inModal){
     const clash = S.conflict
       ? `<span class="cal-clash" title="${esc('Scheduled visit on a day marked '+S.conflict+' \u2014 the AxisCare visit is the actual assignment')}" aria-label="Conflicts with entered availability">!</span>`
       : '';
-    cells+=`<div class="cal-cell ${isToday?'today':''} ${ds===sel?'sel':''} ${blocks.length?'':'offday'}" onclick="openDayPanel('${c.id}','${date.toISOString()}')">
+    /* PICKING SEVERAL DAYS ON THE GRID ITSELF (calendar popup only). While
+       the mode is on, a click ticks the day instead of opening its panel. */
+    const mOn = inModal && CALMULTI.on && CALMULTI.cg===c.id;
+    const mPick = mOn && CALMULTI.picked[ds];
+    cells+=`<div class="cal-cell ${isToday?'today':''} ${ds===sel&&!mOn?'sel':''} ${blocks.length?'':'offday'}${mOn?' mmode':''}${mPick?' mpick':''}" onclick="${mOn?`calMultiToggle('${c.id}','${ds}')`:`openDayPanel('${c.id}','${date.toISOString()}')`}">
       <span class="cal-d">${d}</span>${note}${clash}
       ${body}
     </div>`;
@@ -12314,9 +12329,56 @@ function cgCalendar(c, inModal){
     : '';
   return `<div class="cal-wrap${busy?' cal-busy':''}">
     <div class="cal-bar"><button class="cal-nav" ${off<=CAL_MIN_OFF?'disabled':''} onclick="${inModal?`cgFullCalNav('${c.id}',-1)`:'cgCalNav(-1)'}">${ic('chevL',16)}</button><div class="cal-month">${cgMonthLabel(off)}</div><button class="cal-nav" ${off>=CAL_MAX_OFF?'disabled':''} onclick="${inModal?`cgFullCalNav('${c.id}',1)`:'cgCalNav(1)'}">${ic('chev',16)}</button></div>
+    ${inModal?calMultiBar(c):''}
     ${avFail}${busyRow}
     <div class="cal-grid"><div class="cal-dowrow">${dow}</div>${cells}</div>
   </div>`;
+}
+/* SELECT SEVERAL DAYS STRAIGHT ON THE CALENDAR POPUP (Peter, 2026-10-06).
+   The day panel has always been able to apply one entry to several dates -
+   "Apply to: Selected days" - but only after clicking a single day first,
+   which nobody found from here. This is a front door to that SAME path and
+   nothing more: the ticks are handed to the day panel as its picked days,
+   and the panel's own Save does the carve against AxisCare visits, the
+   three-hour floor and the write. Nothing here writes availability.
+
+   Module-level and NOT in `state`: it is one person's ticks inside one open
+   popup, the same reasoning as cmSel and state.covSel. The ticks survive
+   paging the month, so days in two months can go in one save, and are
+   dropped when the popup is handed to the panel or cancelled. */
+var CALMULTI={on:false, cg:null, picked:{}};
+function calMultiRedraw(id){
+  if(!mbg.classList.contains('show') || !mEl.querySelector('.cal-wrap')) return;
+  const keep=mEl.dataset.calFor;
+  openCgFullCal(id);
+  if(keep) mEl.dataset.calFor=keep;
+}
+function calMultiStart(id){ CALMULTI={on:true, cg:id, picked:{}}; calMultiRedraw(id); }
+function calMultiCancel(id){ CALMULTI={on:false, cg:null, picked:{}}; calMultiRedraw(id); }
+function calMultiToggle(id, ds){
+  if(!CALMULTI.on || CALMULTI.cg!==id) return;
+  if(CALMULTI.picked[ds]) delete CALMULTI.picked[ds]; else CALMULTI.picked[ds]=1;
+  calMultiRedraw(id);
+}
+function calMultiGo(id){
+  const keys=Object.keys(CALMULTI.picked).sort();
+  if(!keys.length) return;
+  CALMULTI={on:false, cg:null, picked:{}};
+  calMultiRedraw(id);
+  /* The earliest day is the panel's anchor; the rest ride as picked days. */
+  openDayPanel(id, new Date(keys[0]+'T12:00:00').toISOString());
+  modalState.multi=true;
+  modalState.picked={}; keys.forEach(function(k){ modalState.picked[k]=1; });
+  modalState.pickOff=dpAnchorOff();
+  renderDayPanel();
+}
+function calMultiBar(c){
+  const on=CALMULTI.on && CALMULTI.cg===c.id;
+  if(!on) return `<div class="cal-multi"><button type="button" class="btn sm" onclick="calMultiStart('${c.id}')">${ic('check',12)} Select multiple days</button><span class="cal-multi-hint">or click one day to edit it</span></div>`;
+  const n=Object.keys(CALMULTI.picked).length;
+  return `<div class="cal-multi on"><span class="cal-multi-n">${n?n+' day'+(n===1?'':'s')+' selected':'Click the days you want'}</span>
+    <button type="button" class="btn sm pri" ${n?'':'disabled'} onclick="calMultiGo('${c.id}')">Set availability for ${n||''} day${n===1?'':'s'}</button>
+    <button type="button" class="btn sm" onclick="calMultiCancel('${c.id}')">Cancel</button></div>`;
 }
 /* Its own banner ABOVE the calendar card, in the same shape as the roster
    banner on the Caregivers screen: what is live, and what is not. Nothing
@@ -18974,7 +19036,7 @@ const mbg=document.getElementById('modalbg'), mEl=document.getElementById('modal
    over THAT dialog. Cheap to bump, and it belongs here rather than in the
    composer because every close has to count, including the backdrop click
    and Escape. */
-function closeModal(){ state.textEpoch=(state.textEpoch||0)+1; mbg.classList.remove('show'); mEl.classList.remove('mwide'); mEl.classList.remove('mcomms'); mEl.innerHTML=''; }
+function closeModal(){ state.textEpoch=(state.textEpoch||0)+1; if(typeof CALMULTI!=='undefined') CALMULTI={on:false, cg:null, picked:{}}; mbg.classList.remove('show'); mEl.classList.remove('mwide'); mEl.classList.remove('mcomms'); mEl.innerHTML=''; }
 mbg.addEventListener('click', e=>{ if(e.target===mbg) closeModal(); });
 document.getElementById('sidebg').addEventListener('click', e=>{ if(e.target.id==='sidebg') closeSidePanel(); });
 
