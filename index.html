@@ -1031,6 +1031,51 @@
   .wk-restnames{display:flex;flex-wrap:wrap;gap:4px 14px}
   .wk-restcg{white-space:nowrap}
   .wk-resttime{font-size:12px;color:var(--ink-faint)}
+  /* Shift screen: who is not on the list, and how close they came. */
+  .cvr-rest{margin:10px 0 14px;background:#fff;border:1px solid var(--line);border-radius:var(--r)}
+  .cvr-note{font-size:12.5px;color:var(--ink-soft);margin:8px 0 0}
+  .cvr-rows{display:flex;flex-direction:column;gap:2px}
+  .cvr-row{display:flex;align-items:baseline;gap:6px 14px;flex-wrap:wrap;padding:5px 0;border-bottom:1px solid var(--line-soft)}
+  .cvr-row:last-child{border-bottom:none}
+  .cvr-hrs{font-size:12.5px;font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums}
+  .cvr-short{font-size:12.5px;color:var(--soon-tx);font-weight:650}
+  .cvr-where{font-size:12.5px;color:var(--ink-soft)}
+  /* Match score, reasons and the three groups on the shift calling list. */
+  .cvm-grp{display:flex;align-items:center;gap:8px;font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;padding:10px 14px 8px;border-bottom:1px solid var(--line-soft);background:var(--surface);color:var(--ink-soft)}
+  .cvm-grp:not(:first-of-type){border-top:1px solid var(--line)}
+  .cvm-grp-dot{width:8px;height:8px;border-radius:50%;background:var(--line-strong);flex:0 0 auto}
+  .cvm-grp.g0{color:var(--brand)}.cvm-grp.g0 .cvm-grp-dot{background:var(--brand)}
+  .cvm-grp.g1 .cvm-grp-dot{background:#8FB0C2}
+  .cvm-grp-sub{font-weight:500;text-transform:none;letter-spacing:0;color:var(--ink-faint);font-size:12px;margin-left:4px}
+  .cvm-row.cvm-m{align-items:center;padding:12px 14px;border-left:3px solid transparent}
+  .cvm-row.cvm-m.g0{border-left-color:var(--brand)}
+  .cvm-row.cvm-m.g1{border-left-color:#8FB0C2}
+  .cvm-row.cvm-m.g2{border-left-color:var(--line)}
+  .cvm-row.cvm-m.first{background:var(--surface)}
+  .cvm-row.cvm-m:hover{background:#F7FBFD}
+  .cvm-m .wk-cgphoto{width:44px;height:44px;border-radius:50%}
+  .cvm-m .cvm-nm{display:flex;align-items:center;flex-wrap:wrap;gap:4px 10px}
+  .cvm-rel{font-size:11.5px;font-weight:700;padding:2px 9px;border-radius:999px;background:#E6F0F5;color:var(--brand);white-space:nowrap}
+  .cvm-rel.none{background:var(--panel-head);color:var(--ink-soft);font-weight:600}
+  .cvm-m .cvm-facts{display:flex;flex-wrap:wrap;gap:3px 16px;margin-top:4px}
+  .cvm-fact{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+  .cvm-fact svg{color:var(--ink-faint);flex:0 0 auto}
+  .cvm-m .cvm-why{align-items:center;gap:5px 12px;margin-top:6px}
+  .cvm-rsn{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--ink-soft);white-space:nowrap}
+  .cvm-rsn svg{color:var(--brand);flex:0 0 auto}
+  .cvm-rsn.warn{color:var(--soon-tx);font-weight:650}.cvm-rsn.warn svg{color:var(--soon-solid)}
+  .cvm-score{flex:0 0 74px;text-align:center;margin-right:8px}
+  .cvm-score-n{font-size:22px;font-weight:800;line-height:1;color:var(--ink-soft);font-variant-numeric:tabular-nums}
+  .cvm-score-n span{font-size:12px;font-weight:700;margin-left:1px}
+  .cvm-score-bar{height:4px;border-radius:2px;background:var(--line);margin:6px 6px 4px;overflow:hidden}
+  .cvm-score-bar i{display:block;height:100%;border-radius:2px;background:var(--line-strong)}
+  .cvm-score-l{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-faint)}
+  .cvm-score.g0 .cvm-score-n{color:var(--brand)}.cvm-score.g0 .cvm-score-bar i{background:var(--brand)}
+  .cvm-score.g1 .cvm-score-n{color:var(--ink)}.cvm-score.g1 .cvm-score-bar i{background:#8FB0C2}
+  .cvm-relnote{font-size:12px;color:var(--ink-faint);padding:9px 14px;border-top:1px solid var(--line-soft);background:var(--panel-head)}
+  @media (max-width:900px){ .cvm-score{flex-basis:56px} .cvm-score-n{font-size:18px} }
+  .cvr-call{margin-left:auto;font-size:12px;font-weight:650;color:var(--brand);text-decoration:none;white-space:nowrap}
+  .cvr-call:hover{text-decoration:underline}
   .wk-partsub{font-weight:500;text-transform:none;letter-spacing:0;font-size:12px;color:var(--ink-faint)}
   .wk-detail{margin-top:14px;padding:0;overflow:hidden}
   .wk-detailhead{display:flex;align-items:center;gap:10px;padding:12px 15px;border-bottom:1px solid var(--line);background:var(--panel-head)}
@@ -8999,6 +9044,37 @@ function covClash(cg, ds, start, end){
   var a=assignedOnDate(cg.id, ds, start, end);
   return a ? ('Already assigned · '+a) : null;
 }
+/* CAN THEY GET FROM THEIR OTHER VISIT TO THIS ONE? Reads the same COVHIST
+   busy list covClash() does - no extra AxisCare call. For each visit that day
+   that does not overlap the shift, the gap is compared with the drive between
+   the two clients' cities.
+     block  the gap is shorter than the drive -> they cannot take the shift
+     near   the closest visit that DOES fit, for the schedule-fit score
+   A drive we cannot measure (either city unknown) blocks nobody. Visits on
+   the NEXT date after an overnight shift are not in this list, so that side
+   is not checked - the same limit covClash() documents. */
+function covTravel(cg, cl, ds, start, end){
+  var res={block:null, near:null};
+  if(end<=start) end+=24;
+  var h=COVHIST.get(ds);
+  if(h.state!=='ready') return res;
+  (h.busy[cg.id]||[]).forEach(function(b){
+    var before=b.e<=start, after=b.s>=end;
+    if(!before && !after) return;                      /* an overlap is covClash()'s */
+    var gap=before ? start-b.e : b.s-end;
+    if(gap>3) return;
+    var other=state.clients.filter(function(c){ return c.name===b.client; })[0];
+    var d=(other && other.city && cl && cl.city) ? driveBetween(other.city, cl.city) : null;
+    if(d && !d.same && gap*60<d.min){
+      res.block=before
+        ? 'Can’t arrive in time · with '+b.client+' until '+fmtHr(b.e)+', '+fmtDrive(d.min)+' away'
+        : 'Can’t reach their next visit · '+b.client+' at '+fmtHr(b.s)+', '+fmtDrive(d.min)+' away';
+    } else if(!res.near || gap<res.near.gap){
+      res.near={gap:gap, before:before, client:b.client, at:before?b.e:b.s};
+    }
+  });
+  return res;
+}
 /* Hours already scheduled that week. AxisCare is the real source; weekHrs is
    demo-only and null on a real caregiver, which renders as "Not tracked". */
 function covWeekHours(cg, ds){
@@ -9153,6 +9229,12 @@ function coverageMatches(q){
       dropKind='gender';
     }
     if(!drop) drop=covClash(cg, ds, start, end);
+    /* TRAVEL BETWEEN VISITS (owner's matching spec, 2026-10-06). A caregiver
+       whose other visit that day leaves less time than the drive between the
+       two clients cannot take the shift. Only a drive we can MEASURE blocks:
+       an unknown city is not evidence, so it never excludes anybody. */
+    var trav=drop ? {block:null, near:null} : covTravel(cg, cl, ds, start, end);
+    if(!drop && trav.block){ drop=trav.block; dropKind='travel'; }
     if(drop){ out.push({cg:cg, excluded:drop, dropKind:dropKind}); return; }
 
     /* AVAILABILITY DECIDES WHO IS ON THIS LIST, not merely where they sit
@@ -9214,6 +9296,14 @@ function coverageMatches(q){
        a red chip. */
     var drive = prefs.drivingRequired===true ? covDrives(cg, driveAudit||(driveAudit=covDriveAudit())) : null;
     var driveOk = (drive && drive.ans==='yes') ? true : null;
+    /* DRIVING IS A HARD FILTER NOW (owner's matching spec, 2026-10-06), where
+       it was a red warning. ONLY A RECORDED "NO" EXCLUDES. "Not recorded" and
+       "records disagree" stay on the list with their amber warning: absence
+       must never be read as a no, and cg.driver is still not evidence. */
+    if(drive && drive.ans==='no'){
+      out.push({cg:cg, excluded:'Doesn’t drive clients · client needs a driver', dropKind:'drive'});
+      return;
+    }
 
     /* THE ORDER OF THIS LIST, 2026-09-08. Rewritten with Carlo so that the
        client's wishes decide the top of the list, the caregiver's own
@@ -9363,7 +9453,46 @@ function coverageMatches(q){
        it applies to each. If the desk ever wants the hours back, this is where they
        were, and covWeekHours() still computes them. */
     if(hrs!=null && hrs>=32) score-=(hrs>=40 ? 25 : 8);
-    out.push({cg:cg, score:score, why:why, worked:worked, preferred:preferred, onList:onList, drv:drv,
+
+    /* ---------- THE MATCH SCORE (owner's matching spec, 2026-10-06) ----------
+       This REPLACES `score` above as what orders the list, and it is SHOWN.
+       Both reverse earlier desk decisions (scores hidden 2026-09-21, client
+       terms un-outrankable 2026-09-08) on the owner's explicit say-so.
+
+         client familiarity   30   regular 30 · on the client's list 25 ·
+                                   worked with them before 20 · new 0
+         schedule fit         20   free 20 · another visit within 2 h 12
+         distance             20   the same 0..20 on drive minutes as before
+         reliability          15   NOT SCORED - AxisCare has no such figure and
+                                   nothing derives one yet. Left out of the
+                                   total rather than invented, so the % is of 85.
+         requirements         10   driving (when the client needs it), and the
+                                   caregiver's own typed client preference
+         workload              5   hours already booked that week. NO overtime
+                                   figure anywhere - owner, 2026-10-06.
+
+       "Regular" is 4 or more visits with this client in COVHIST's 30-day
+       window (about weekly). "On the client's list" is Concierge's matched
+       list or AxisCare's preferredCaregiver - the nearest thing either system
+       records to a per-client backup. */
+    var mFam = worked>=4 ? 30 : (onList||preferred) ? 25 : worked ? 20 : 0;
+    var mFit = (trav.near && trav.near.gap<2) ? 12 : 20;
+    var mDist = drv ? Math.max(0, 20-drv.min*0.45) : 0;
+    var mReq = 10;
+    if(drive && drive.ans!=='yes') mReq-=5;
+    if(wants.why.length) mReq-=5;
+    var mLoad = hrs==null ? 3 : hrs>=40 ? 0 : hrs>=32 ? 2 : 5;
+    var match=Math.round((mFam+mFit+mDist+mReq+mLoad)/85*100);
+    var rel = worked>=4 ? 'Regular caregiver · '+worked+' visits in 30 days'
+            : (onList||preferred) ? 'On this client’s caregiver list'+(worked?' · '+worked+' recent visit'+(worked>1?'s':''):'')
+            : worked ? 'Worked with client '+worked+' time'+(worked>1?'s':'')+' in 30 days'
+            : 'New to this client';
+    var reasons=[rel];
+    reasons.push(trav.near && trav.near.gap<2
+      ? 'Other visit '+(trav.near.before?'ends ':'starts ')+fmtHr(trav.near.at)
+      : 'No schedule conflict');
+    if(drive && drive.ans==='yes') reasons.push('Drives clients');
+    out.push({cg:cg, score:score, match:match, reasons:reasons, rel:rel, why:why, worked:worked, preferred:preferred, onList:onList, drv:drv,
               dmin:drv?drv.min:null, hrs:hrs,
               availState:availState, availLabel:availLabel, excluded:null});
   });
@@ -9374,7 +9503,7 @@ function coverageMatches(q){
      that reads "Call in this order". */
   var mo=function(r){ var v=prefs.matchOrder[r.cg.id]; return v==null?9999:v; };
   var eligible=out.filter(function(r){ return !r.excluded; })
-    .sort(function(a,b){ return (b.score-a.score)
+    .sort(function(a,b){ return (b.match-a.match) || (b.score-a.score)
       || ((a.dmin==null?999:a.dmin)-(b.dmin==null?999:b.dmin))
       || (mo(a)-mo(b))
       || a.cg.name.localeCompare(b.cg.name); });
@@ -9385,7 +9514,7 @@ function coverageMatches(q){
      a blank screen has to be able to say whether the desk has asked and
      been told no, has not asked yet, or could not read the answer. */
   var dropped=out.filter(function(r){ return r.excluded; });
-  var tally={total:dropped.length, none:0, blocked:0, hours:0, unknown:0, gender:0, other:0};
+  var tally={total:dropped.length, none:0, blocked:0, hours:0, unknown:0, gender:0, drive:0, travel:0, other:0};
   dropped.forEach(function(r){ tally[r.dropKind||'other']++; });
   return {eligible:eligible, excluded:dropped, tally:tally, prefs:prefs};
 }
@@ -10549,6 +10678,106 @@ function renderCovStatusBar(D){
    is, because the next action is completely different each time: chase the
    caregivers nobody has asked, widen the shift, or fix a loading problem.
    Said here, once, and nowhere else. */
+/* WHO IS NOT ON THE LIST, AND HOW CLOSE THEY CAME (Peter, 2026-10-06). The
+   list holds only caregivers whose saved Open hours cover the WHOLE shift in
+   one block, which for a 12-hour overnight is a handful, and nothing said
+   where everybody else went: Brenda Janowski's Fri 8p-8a shift listed 3
+   while the weekly grid beside it showed 13 for "Overnight". The two use
+   different windows (10p-6a against 8p-8a), and nobody could see that.
+
+   NOTHING HERE CHANGES WHO MAY BE OFFERED THE SHIFT. This is a read-out under
+   the list: no checkbox, no Text, no assignment. A shift needs one person for
+   all of it, so partial availability is deliberately not eligibility; what it
+   buys is a scheduler seeing that somebody is an hour short and deciding
+   whether to ask.
+
+   Sorted into reasons, and each caregiver is in exactly ONE:
+     close       open that day, not for the whole shift - named, with their
+                 real hours and what is missing, nearest first
+     booked      already on an AxisCare visit or assigned - named, with when
+     gender      not the gender the client asked for - count only
+     blocked     recorded unavailable - count only
+     none        nothing entered for the date - count only
+     unknown     availability did not load - count only, and never a "no"
+     other       inactive, called off, flagged for this client - count only
+
+   Only 'close' and 'booked' are named: they are the ones a scheduler can act
+   on. The rest would be a wall of names on a roster of 180. */
+function covNear(cg, q){
+  const ds=q.date, s=q.start; let e=q.end; if(e<=s) e+=24;
+  const d=AVAIL.dayAvail(cg.id, ds);
+  if(d.state!=='open' && d.state!=='none') return null;
+  let wins=d.wins.concat(AVAIL.carryWindows(cg.id, ds));
+  if(e>24) wins=wins.concat(AVAIL.nextWindows(cg.id, ds));
+  let best=null, bestLen=0;
+  AVAIL.mergeWins(wins).forEach(function(w){
+    const len=Math.min(w[1],e)-Math.max(w[0],s);
+    if(len>bestLen){ bestLen=len; best=w; }
+  });
+  if(!best) return null;
+  const late=Math.max(0, best[0]-s), early=Math.max(0, e-best[1]);
+  return {win:best, covered:bestLen, late:late, early:early, short:late+early};
+}
+function covNearText(n){
+  const h=x=>{ const r=Math.round(x*10)/10; return r+(r===1?' hour':' hours'); };
+  const bits=[]; if(n.late>0) bits.push('starts '+h(n.late)+' late'); if(n.early>0) bits.push('ends '+h(n.early)+' early');
+  return bits.join(', ');
+}
+function covNotListedHtml(q, excluded, eligible){
+  if(!excluded || !excluded.length) return '';
+  const close=[], booked=[], c={gender:0, drive:0, blocked:0, none:0, unknown:0, other:0};
+  excluded.forEach(function(r){
+    const cg=r.cg;
+    if(r.dropKind==='hours'){
+      const n=covNear(cg, q);
+      if(n && n.covered>=AV_MIN_MIN/60) close.push({cg:cg, n:n}); else c.none++;   /* open, but for under 3 hours of it: not a near miss */
+    }
+    else if(r.dropKind==='gender') c.gender++;
+    else if(r.dropKind==='blocked') c.blocked++;
+    else if(r.dropKind==='none') c.none++;
+    else if(r.dropKind==='unknown') c.unknown++;
+    else if(r.dropKind==='drive') c.drive++;
+    else if(r.dropKind==='travel') booked.push(r);     /* named, with why: it is a booking problem */
+    else if(/^Already (booked|assigned)/.test(String(r.excluded||''))) booked.push(r);
+    else c.other++;
+  });
+  /* WHERE THEY ARE, in the same words as the calling list ("Camarillo · ~15
+     mins away"), so a near miss an hour short and ten minutes away reads
+     differently from one an hour short and an hour away. Distance still
+     excludes nobody; here it only breaks a tie between equal shortfalls. */
+  const _cl=q.clientId?clById(q.clientId):null;
+  const where=function(cg){
+    const place=drivePlace(cg), d=(_cl && _cl.city && place.key) ? driveBetween(place.key, _cl.city) : null;
+    const txt=!d ? 'Drive time not known' : d.same ? 'Same city' : fmtDrive(d.min)+' away';
+    return {min:!d ? 9999 : d.same ? 0 : d.min,
+      html:'<span class="cvr-where" title="'+esc(driveTip(place, _cl&&_cl.city, d))+'">'+(place.city?escText(place.city)+' · ':'')+txt+'</span>'};
+  };
+  close.forEach(function(x){ x.w=where(x.cg); });
+  close.sort((a,b)=>(a.n.short-b.n.short)||(a.w.min-b.w.min)||String(a.cg.name).localeCompare(String(b.cg.name)));
+  booked.sort((a,b)=>String(a.cg.name).localeCompare(String(b.cg.name)));
+  const total=close.length+booked.length+c.gender+c.drive+c.blocked+c.none+c.unknown+c.other;
+  if(!total) return '';
+  const summary=[];
+  if(close.length)  summary.push(close.length+' close');
+  if(booked.length) summary.push(booked.length+' already booked');
+  if(c.gender)      summary.push(c.gender+' not the gender asked for');
+  if(c.drive)       summary.push(c.drive+' who don’t drive clients');
+  if(c.blocked)     summary.push(c.blocked+' marked unavailable');
+  if(c.none)        summary.push(c.none+' with nothing entered');
+  if(c.unknown)     summary.push(c.unknown+' not loaded');
+  if(c.other)       summary.push(c.other+' inactive, called off or flagged for this client');
+  const tel=cg=>{ const d=String(cg.phone||'').replace(/[^0-9]/g,''); return d.length>=10 ? ' <a class="cvr-call" href="tel:'+d+'">'+ic('phone',11)+' '+escText(cg.phone)+'</a>' : ''; };
+  const closeHtml=close.length ? '<div class="wk-restgrp"><div class="wk-restlab">'+close.length+' close \u2014 open that day, not for the whole shift</div>'+
+    '<div class="cvr-rows">'+close.map(function(x){
+      const w=x.n.win;
+      return '<div class="cvr-row"><button type="button" class="wk-cgname" onclick="openCgFromCoverage(\''+x.cg.id+'\')">'+escText(x.cg.name)+'</button>'+
+        '<span class="cvr-hrs">'+escText(wkFmtWin(w))+'</span><span class="cvr-short">'+escText(covNearText(x.n))+'</span>'+x.w.html+tel(x.cg)+'</div>';
+    }).join('')+'</div></div>' : '';
+  const bookedHtml=booked.length ? '<div class="wk-restgrp"><div class="wk-restlab">'+booked.length+' already booked</div><div class="cvr-rows">'+
+    booked.map(function(r){ return '<div class="cvr-row"><button type="button" class="wk-cgname" onclick="openCgFromCoverage(\''+r.cg.id+'\')">'+escText(r.cg.name)+'</button><span class="cvr-short">'+escText(String(r.excluded).replace(/^Already (booked|assigned)\s*\u00b7?\s*/,''))+'</span>'+where(r.cg).html+'</div>'; }).join('')+'</div></div>' : '';
+  const note='<p class="cvr-note">Only caregivers whose saved Open hours cover the whole shift are offered it. These are here so you can see why the list is short \u2014 they are not eligible as things stand.</p>';
+  return '<details class="wk-rest cvr-rest"><summary><b>'+total+'</b> other caregiver'+(total===1?'':'s')+' not listed: '+summary.join(' \u00b7 ')+'</summary>'+note+closeHtml+bookedHtml+'</details>';
+}
 function covEmptyReason(q, tally, calledN){
   const t=tally||{};
   /* NOT AN ANSWER YET. openFindCoverage() pulls the date on the way in, so
@@ -10594,7 +10823,7 @@ function renderCoverageCommand(q){
     /* Nothing to match against once it is covered: no list, no facts. */
     return {match:'', html:`<div class="covered-card">${ic('check',26)}<div><div class="cv-t">Shift covered by ${cgById(s.assigned).name}</div><div class="cv-s">Assigned \u2713 \u00b7 logged in coverage history \u00b7 recorded in AxisCare</div></div></div>` + renderAttemptHistory(q, covPools(q).contacted)};
   }
-  const {eligible, tally}=coverageMatches(q);
+  const {eligible, excluded, tally}=coverageMatches(q);
   /* Straight from the log. covPools() ran an entire second search to reach
      the same list and needed query fields this screen no longer builds. */
   const seen={}; const contacted=[];
@@ -10608,11 +10837,23 @@ function renderCoverageCommand(q){
   const note=covMatchNote(q, queue);
   if(!queue.length){
     return {match:note, html:`<div class="cvm-list">${covEmptyReason(q, tally, called.length)}</div>`
-      + renderAttemptHistory(q, contacted)};
+      + covNotListedHtml(q, excluded, eligible) + renderAttemptHistory(q, contacted)};
   }
-  const rows=queue.map((r,i)=>covMatchRow(r,q,i+1)).join('');
-  return {match:note, html:`<div class="cvm-list"><div class="cvm-h">Call in this order<span class="cvm-n">${queue.length}</span></div>${covSelBar(queue)}${rows}</div>`
-    + renderAttemptHistory(q, contacted)};
+  /* THREE GROUPS (owner's matching spec, 2026-10-06), cut on the match %.
+     The rank number runs straight through them, so "call in this order" is
+     still one order. A group with nobody in it draws no heading. */
+  const grpOf=m=>m>=70?0:m>=45?1:2, GRP=['Best matches','Good matches','Other available'];
+  let lastG=-1;
+  const rows=queue.map((r,i)=>{
+    const g=grpOf(r.match), n=queue.filter(x=>grpOf(x.match)===g).length;
+    const GSUB=['Know the client and fit the shift','Reasonable alternatives','Can work the shift, weaker fit'];
+    const head=g!==lastG ? `<div class="cvm-grp g${g}"><span class="cvm-grp-dot"></span>${GRP[g]}<span class="cvm-n">${n}</span><span class="cvm-grp-sub">${GSUB[g]}</span></div>` : '';
+    lastG=g;
+    return head+covMatchRow(r,q,i+1);
+  }).join('');
+  const relNote='<div class="cvm-relnote">Match % weighs client familiarity, schedule fit, distance, client requirements and weekly hours. Reliability is not tracked yet, so it is left out rather than guessed.</div>';
+  return {match:note, html:`<div class="cvm-list"><div class="cvm-h">Call in this order<span class="cvm-n">${queue.length}</span></div>${rows}${relNote}</div>`
+    + covNotListedHtml(q, excluded, eligible) + renderAttemptHistory(q, contacted)};
 }
 /* WHAT THIS CLIENT ASKED FOR, above the list.
 
@@ -10822,11 +11063,32 @@ function covMatchRow(r,q,rank){
   const seenBefore = r.worked
     ? `<span title="${esc(r.worked+' visit'+(r.worked>1?'s':'')+' with this client in the last 30 days')}">${r.worked} recent visit${r.worked>1?'s':''}</span>`
     : null;
+  /* SINCE 2026-10-06 (owner's matching spec) the row says WHY it is where it
+     is: where they are, the hours they are open, the hours already booked
+     that week (a plain count - no overtime wording, owner's instruction),
+     then the reasons behind the match %. `asked` and `seenBefore` above are
+     folded into the relationship reason, so they are no longer drawn. */
+  const near=covNear(cg, q);
+  /* One icon per fact so the eye finds the same thing in the same place on
+     every row: where, when, how loaded. */
   const facts=[
-    asked,
-    `<span title="${esc(driveTip(place, cl&&cl.city, r.drv))}">${place.city ? escText(place.city)+' · ' : ''}${drive}</span>`,
-    seenBefore
-  ].filter(Boolean).join(' · ');
+    `<span class="cvm-fact" title="${esc(driveTip(place, cl&&cl.city, r.drv))}">${ic('coverage',12)}${place.city ? escText(place.city)+' · ' : ''}${drive}</span>`,
+    near ? `<span class="cvm-fact" title="The Open hours saved for them that cover this shift">${ic('clock',12)}Open ${escText(wkFmtWin(near.win))}</span>` : null,
+    r.hrs!=null ? `<span class="cvm-fact" title="Hours already scheduled in AxisCare in this shift’s Monday–Sunday week. Scheduled, not clocked.">${ic('calendar',12)}${r.hrs} h booked that week</span>` : null
+  ].filter(Boolean).join('');
+  const grp=r.match>=70?0:r.match>=45?1:2;
+  /* reasons[0] is the client relationship - it rides beside the name as a
+     pill, tinted only when there IS a relationship. The rest are ticks,
+     except a nearby visit, which is a caution and reads amber. */
+  const rs=r.reasons||[];
+  const relPill=rs[0] ? `<span class="cvm-rel${/^New to/.test(rs[0])?' none':''}">${escText(rs[0])}</span>` : '';
+  const reasons=rs.slice(1).map(x=>/^Other visit/.test(x)
+    ? `<span class="cvm-rsn warn">${ic('clock',11)}${escText(x)}</span>`
+    : `<span class="cvm-rsn">${ic('check',11)}${escText(x)}</span>`).join('');
+  const photo=cgPhotoUrl(cg,96);
+  const av=photo
+    ? `<div class="wk-cgphoto"><img src="${esc(photo)}" alt="" loading="lazy" decoding="async" onerror="cgPhotoFail(this)"></div>`
+    : `<div class="wk-cgphoto noimg">${ic('camera',14)}</div>`;
   /* Warnings only - red first, then amber - and never capped: since the travel-limit
      and weekly-hours chips were removed on 2026-09-25 there are at most two at once
      (driving, client gender), and a reason NOT to call must never be the thing that
@@ -10841,13 +11103,22 @@ function covMatchRow(r,q,rank){
   const box=cg.phone
     ? `<input type="checkbox" class="osg-cbx" ${sel?'checked':''} onclick="covToggleSel('${cg.id}')" aria-label="Select ${esc(cg.name)} to text">`
     : `<span class="cvm-nocb" title="No phone number on file in AxisCare"></span>`;
-  return `<div class="cvm-row${rank===1?' first':''}${sel?' sel':''}">
-    <label class="cvm-cb">${box}</label>
+  /* NO TICK BOX AND NO "TEXT SEVERAL" BAR since 2026-10-06 (owner): one caregiver
+     is texted at a time from the Text button on their row. covSelBar() and the
+     covSel helpers are left in place, undrawn, so the bulk modal path still
+     compiles; nothing on this screen reaches them. */
+  return `<div class="cvm-row cvm-m g${grp}${rank===1?' first':''}">
     <div class="cvm-rank">${rank}</div>
+    ${av}
     <div class="cvm-main">
-      <div class="cvm-nm"><button type="button" class="cvm-nmlink" onclick="openCgFromCoverage('${cg.id}')" title="Open ${esc(cg.name)}’s calendar">${cg.name}</button></div>
+      <div class="cvm-nm"><button type="button" class="cvm-nmlink" onclick="openCgFromCoverage('${cg.id}')" title="Open ${esc(cg.name)}’s calendar">${cg.name}</button>${relPill}</div>
       <div class="cvm-facts">${facts}</div>
-      ${why?`<div class="cvm-why">${why}</div>`:''}
+      ${(reasons||why)?`<div class="cvm-why">${reasons}${why}</div>`:''}
+    </div>
+    <div class="cvm-score g${grp}" title="Match score for this client and this shift">
+      <div class="cvm-score-n">${r.match}<span>%</span></div>
+      <div class="cvm-score-bar"><i style="width:${Math.max(0,Math.min(100,r.match))}%"></i></div>
+      <div class="cvm-score-l">match</div>
     </div>
     <div class="cvm-acts">
       <a class="q-b call" href="tel:${tel}" onclick="dispStartCall('${q.shiftId}','${cg.id}')">${ic('phone',12)} Call</a>
