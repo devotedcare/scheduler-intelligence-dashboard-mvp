@@ -2382,6 +2382,17 @@ body.ai-white .view{flex:1 1 auto;min-height:0;display:flex;flex-direction:colum
 .su-bar{display:flex;align-items:center;gap:10px 16px;flex-wrap:wrap;margin:0 0 12px}
 .su-step{display:inline-flex;align-items:center;gap:6px}
 .su-steplab{min-width:150px;text-align:center;font-size:15px;font-weight:800;color:var(--ink);font-variant-numeric:tabular-nums}
+.su-pickwrap{position:relative}
+.su-pickbtn{font-family:inherit;background:#fff;border:1px solid var(--line-strong);border-radius:var(--r);padding:5px 12px;cursor:pointer;min-width:176px;height:30px;display:inline-flex;align-items:center;justify-content:center;gap:7px}
+.su-pickbtn:hover,.su-pickbtn[aria-expanded="true"]{border-color:var(--brand)}
+.su-pickcar{font-size:10px;color:var(--ink-faint)}
+.su-pickmenu{position:absolute;top:calc(100% + 6px);left:50%;transform:translateX(-50%);z-index:30;width:248px;background:#fff;border:1px solid var(--line-strong);border-radius:10px;box-shadow:0 10px 30px rgba(18,40,63,.18);padding:10px 12px 12px}
+.su-picky{font-size:11px;font-weight:800;letter-spacing:.5px;color:var(--ink-faint);margin:4px 2px 6px}
+.su-pickgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin-bottom:6px}
+.su-pickm{font-family:inherit;font-size:13px;font-weight:650;color:var(--ink);background:#fff;border:1px solid var(--line);border-radius:7px;padding:7px 0;cursor:pointer}
+.su-pickm:hover{border-color:var(--brand);color:var(--brand)}
+.su-pickm.now{border-color:var(--brand)}
+.su-pickm.on{background:var(--brand);border-color:var(--brand);color:#fff}
 .su-step .cal-nav:disabled{opacity:.4;cursor:default}
 .su-quicks{display:inline-flex;gap:6px}
 .su-quick{font-family:inherit;font-size:12.5px;font-weight:650;color:var(--ink-soft);background:#fff;border:1px solid var(--line-strong);border-radius:999px;padding:5px 12px;cursor:pointer}
@@ -20757,7 +20768,7 @@ function suMonthOpts(){
   }
   return out;
 }
-function suSetMonth(v){ state.suMonth = suMonthOpts().some(o=>o.ym===v) ? v : ''; render(); }
+function suSetMonth(v){ state.suMonth = suMonthOpts().some(o=>o.ym===v) ? v : ''; if(!state.suMonth) state.suMonthMenu=false; render(); }
 /* THE PICKER, REDRAWN 2026-10-06 (Peter). It was one dropdown of fourteen
    rows, thirteen of them the same four words with a different month on the
    end - a list to read rather than a control to use. It is two things, and
@@ -20773,6 +20784,36 @@ function suMonthStep(d){
   if(i<0) return;
   const n=opts[i+d]; if(n) suSetMonth(n.ym);
 }
+/* The month grid behind the month name: every month the list can show,
+   grouped by year, the chosen one filled and the current one marked. One
+   click picks and closes. A click anywhere else closes it without changing
+   anything - the same mousedown-capture pattern the Find Coverage filter menu
+   uses, so the click that closes it never also lands on what is underneath.
+   state.suMonthMenu is one person's open menu, not a SLICES entry. */
+function suToggleMonthMenu(){ state.suMonthMenu=!state.suMonthMenu; render(); }
+function suPickMonth(ym){ state.suMonthMenu=false; suSetMonth(ym); }
+function suMonthMenuHtml(opts, cur){
+  const years={};
+  opts.forEach(function(o){ (years[o.ym.slice(0,4)]=years[o.ym.slice(0,4)]||[]).push(o); });
+  return '<div class="su-pickmenu" role="menu" aria-label="Choose a month" onclick="event.stopPropagation()">'+
+    Object.keys(years).sort().map(function(y){
+      return '<div class="su-picky">'+y+'</div><div class="su-pickgrid">'+years[y].map(function(o){
+        const mon=new Date(+o.ym.slice(0,4), +o.ym.slice(5,7)-1, 1).toLocaleDateString('en-US',{month:'short'});
+        return '<button type="button" role="menuitem" class="su-pickm'+(o.ym===cur?' on':'')+(o.off===0?' now':'')+'"'+
+          ' title="'+esc(o.label)+(o.off===0?' (this month)':'')+'" onclick="suPickMonth(\''+o.ym+'\')">'+mon+'</button>';
+      }).join('')+'</div>';
+    }).join('')+'</div>';
+}
+try{
+  document.addEventListener('mousedown', function(ev){
+    if(!state.suMonthMenu) return;
+    const w=ev.target && ev.target.closest ? ev.target.closest('.su-pickwrap') : null;
+    if(!w){ state.suMonthMenu=false; render(); }
+  }, true);
+  document.addEventListener('keydown', function(ev){
+    if(ev.key==='Escape' && state.suMonthMenu){ state.suMonthMenu=false; render(); }
+  });
+}catch(e){}
 function suMonthBar(){
   const opts=suMonthOpts(), cur=state.suMonth||'', i=opts.findIndex(o=>o.ym===cur);
   const thisYm=(opts.find(o=>o.off===0)||{}).ym, nextYm=(opts.find(o=>o.off===1)||{}).ym;
@@ -20784,7 +20825,13 @@ function suMonthBar(){
   return '<div class="su-bar">'+seg+
     '<div class="su-step" role="group" aria-label="Month">'+
       '<button type="button" class="cal-nav" aria-label="Previous month" '+(i<=0?'disabled':'')+' onclick="suMonthStep(-1)">'+ic('chevL',16)+'</button>'+
-      '<div class="su-steplab" aria-live="polite">'+escText(opts[i].label)+'</div>'+
+      /* THE MONTH NAME IS A BUTTON (Peter, 2026-10-06): the arrows are for the
+         month next door, this is for going straight to any month offered. */
+      '<div class="su-pickwrap">'+
+        '<button type="button" class="su-steplab su-pickbtn" aria-haspopup="true" aria-expanded="'+(!!state.suMonthMenu)+'" title="Choose a month" onclick="suToggleMonthMenu()">'+
+          escText(opts[i].label)+' <span class="su-pickcar">'+(state.suMonthMenu?'\u25b4':'\u25be')+'</span></button>'+
+        (state.suMonthMenu ? suMonthMenuHtml(opts, cur) : '')+
+      '</div>'+
       '<button type="button" class="cal-nav" aria-label="Next month" '+(i>=opts.length-1?'disabled':'')+' onclick="suMonthStep(1)">'+ic('chev',16)+'</button>'+
     '</div>'+
     '<div class="su-quicks">'+quick(thisYm,'This month')+quick(nextYm,'Next month')+'</div>'+
