@@ -2376,7 +2376,13 @@ body.ai-white .view{flex:1 1 auto;min-height:0;display:flex;flex-direction:colum
 .su-name:hover{text-decoration:underline}
 .su-when{font-size:12.5px;color:var(--ink-soft);font-variant-numeric:tabular-nums}
 /* View calendar on a Needs Update card: pinned right, so the city sits by the name. */
-.su-card-h .su-calbtn{margin-left:auto;display:inline-flex;align-items:center;gap:5px;align-self:center}
+.su-card-h .su-btns{margin-left:auto;display:inline-flex;align-items:center;gap:7px;flex-wrap:wrap;align-self:center}
+.su-btns .btn{display:inline-flex;align-items:center;gap:5px;text-decoration:none;white-space:nowrap}
+.su-nophone{font-size:12px;color:var(--ink-faint)}
+.su-bar{display:flex;align-items:center;gap:9px;margin:0 0 12px}
+.su-bar label{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-faint)}
+.su-bar select.su-monthsel{width:auto;min-width:290px;max-width:100%}
+.su-count{font-size:13px;color:var(--ink-soft);margin:0 2px 10px}
 .su-by{font-size:12.5px;color:var(--ink-soft);margin-top:2px}
 /* Availability Cadence page: one row per caregiver with no cadence set. */
 .cad-bar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:0 0 12px;font-size:13px;color:var(--ink-soft)}
@@ -19200,19 +19206,21 @@ const CG_REQUIRED=[
    stays one until Retry: it is never retried by a render. */
 var CGMONTH = (function(){
   'use strict';
-  var rec = {state:'idle', key:null, counts:{}, err:null, visits:0, requests:0};
-  function bounds(){
-    var n=new Date(), p=function(x){ return (x<10?'0':'')+x; };
-    var last=new Date(n.getFullYear(), n.getMonth()+1, 0).getDate();
-    var ym=n.getFullYear()+'-'+p(n.getMonth()+1);
-    return {key:ym, from:ym+'-01', to:ym+'-'+p(last)};
+  var recs = {};                                   /* 'YYYY-MM' -> record */
+  var p2=function(x){ return (x<10?'0':'')+x; };
+  function thisYm(){ var n=new Date(); return n.getFullYear()+'-'+p2(n.getMonth()+1); }
+  function bounds(ym){
+    ym = /^\d{4}-\d{2}$/.test(String(ym||'')) ? ym : thisYm();
+    var y=+ym.slice(0,4), m=+ym.slice(5,7);
+    return {key:ym, from:ym+'-01', to:ym+'-'+p2(new Date(y, m, 0).getDate())};
   }
-  function load(){
-    var b=bounds();
-    if(rec.key===b.key && rec.state!=='idle') return;       /* loading, ready or failed for THIS month */
-    if(typeof AxisCare==='undefined' || !AxisCare || !AxisCare.get){ rec={state:'unconfigured', key:b.key, counts:{}, err:'AxisCare is not configured here'}; return; }
-    var mine={state:'loading', key:b.key, counts:{}, err:null, visits:0, requests:0};
-    rec=mine;
+  function rec(ym){ return recs[bounds(ym).key] || {state:'idle', counts:{}, err:null, visits:0, requests:0}; }
+  function load(ym){
+    var b=bounds(ym);
+    if(recs[b.key] && recs[b.key].state!=='idle') return;   /* loading, ready or failed for THAT month */
+    if(typeof AxisCare==='undefined' || !AxisCare || !AxisCare.get){ recs[b.key]={state:'unconfigured', counts:{}, err:'AxisCare is not configured here', visits:0, requests:0}; return; }
+    var mine={state:'loading', counts:{}, err:null, visits:0, requests:0};
+    recs[b.key]=mine;
     var pages=0;
     function page(token){
       var q={startDate:b.from, endDate:b.to, limit:200};
@@ -19242,18 +19250,52 @@ var CGMONTH = (function(){
       if((e && e.status===404) || /\b404\b|No visits found/i.test(msg)){ mine.state='ready'; return; }
       mine.state='error'; mine.err=msg; mine.counts={};
     }).then(function(){
-      if(rec===mine) console.info('[cgmonth] '+b.key+': '+mine.visits+' visit(s), '+Object.keys(mine.counts).length+' caregiver(s), '+mine.requests+' request(s), '+mine.state);
-      try{ if(rec===mine && state.view==='schedupdates') render(); }catch(x){}
+      if(recs[b.key]===mine) console.info('[cgmonth] '+b.key+': '+mine.visits+' visit(s), '+Object.keys(mine.counts).length+' caregiver(s), '+mine.requests+' request(s), '+mine.state);
+      try{ if(recs[b.key]===mine && state.view==='schedupdates') render(); }catch(x){}
     });
+  }
+  /* Every reader takes an optional 'YYYY-MM'; with none it is the current
+     month, re-derived on each call so it follows the calendar over midnight. */
+  return {
+    load: load,
+    status: function(ym){ return rec(ym).state; },
+    /* null = not known. 0 is only ever returned from a completed read. */
+    visitsFor: function(cgId, ym){ var r=rec(ym); return r.state==='ready' ? (r.counts[cgId]||0) : null; },
+    error: function(ym){ return rec(ym).err; },
+    info: function(ym){ var r=rec(ym); return {state:r.state, month:bounds(ym).key, visits:r.visits, caregivers:Object.keys(r.counts).length, requests:r.requests, error:r.err}; },
+    retry: function(ym){ delete recs[bounds(ym).key]; load(ym); try{ render(); }catch(e){} },
+    bounds: bounds
+  };
+})();
+/* =========================================================
+   MONTHAV - does anybody have ANYTHING on the availability
+             calendar in a given month
+   ---------------------------------------------------------
+   The dashboard half of "no schedule that month", for a month the scheduler
+   picks. AVAIL.monthCoverage() answers this for the current month only; this
+   asks the same question of any month, once per month per session. A failed
+   read is an 'error' until Retry - never an empty answer, and never retried
+   by a render. Counts only; module-level, never in state. */
+var MONTHAV = (function(){
+  'use strict';
+  var recs = {};
+  function rec(ym){ return recs[ym] || {state:'idle', days:{}, err:null}; }
+  function load(ym){
+    if(recs[ym] && recs[ym].state!=='idle') return;
+    var b=CGMONTH.bounds(ym), mine={state:'loading', days:{}, err:null};
+    recs[ym]=mine;
+    var p;
+    try{ p=AVAIL.anyRowsBetween(b.from, b.to); }catch(e){ p=Promise.reject(e); }
+    Promise.resolve(p).then(function(map){ mine.days=map||{}; mine.state='ready'; },
+      function(e){ mine.state='error'; mine.err=String((e && e.message) || e); })
+      .then(function(){ try{ if(recs[ym]===mine && state.view==='schedupdates') render(); }catch(x){} });
   }
   return {
     load: load,
-    status: function(){ return (rec.key && rec.key!==bounds().key) ? 'idle' : rec.state; },
-    /* null = not known. 0 is only ever returned from a completed read. */
-    visitsFor: function(cgId){ return rec.state==='ready' ? (rec.counts[cgId]||0) : null; },
-    error: function(){ return rec.err; },
-    info: function(){ return {state:rec.state, month:rec.key, visits:rec.visits, caregivers:Object.keys(rec.counts).length, requests:rec.requests, error:rec.err}; },
-    retry: function(){ rec={state:'idle', key:null, counts:{}, err:null}; load(); try{ render(); }catch(e){} }
+    status: function(ym){ return rec(ym).state; },
+    daysFor: function(cgId, ym){ var r=rec(ym); return r.state==='ready' ? (r.days[cgId]||0) : null; },
+    error: function(ym){ return rec(ym).err; },
+    retry: function(ym){ delete recs[ym]; load(ym); try{ render(); }catch(e){} }
   };
 })();
 function cgNeedsUpdateReady(){
@@ -20658,9 +20700,11 @@ function suWhen(iso){
    and repaints the popup once - and only if it is still the calendar for
    this caregiver, so a different dialog opened in the meantime is never
    replaced by it. */
-function suOpenCal(id){
+function suOpenCal(id, ym){
   const c=cgById(id); if(!c) return;
-  state.cgCalMonth=0;
+  /* On the month the list is about, when there is one. */
+  const o=ym ? suMonthOpts().find(x=>x.ym===ym) : null;
+  state.cgCalMonth=o ? o.off : 0;
   openCgFullCal(id);
   mEl.dataset.calFor=id;
   const loads=[];
@@ -20674,7 +20718,81 @@ function suOpenCal(id){
 /* TAB 2 — who needs attention and exactly what is outstanding. Worked out
    from the record every time it renders, so completing the field is what
    clears the row. */
+/* CALL, ON EVERY CARD (Peter, 2026-10-06). The same tel: link the Find
+   Coverage rows use, with the number on the button so it can be read and
+   dialled by hand where the computer has nothing to place a call with. A
+   caregiver with no number gets no button - a Call that cannot call is a
+   promise the screen does not keep - and says why instead. */
+function suCallBtn(c){
+  const raw=String(c && c.phone || ''), digits=raw.replace(/[^0-9]/g,'');
+  if(digits.length<10) return '<span class="su-nophone">No phone on file</span>';
+  return '<a class="btn sm pri su-callbtn" href="tel:'+digits+'" title="Call '+esc(c.name)+'">'+ic('phone',12)+' Call \u00b7 '+escText(raw)+'</a>';
+}
+function suCardBtns(c, ym){
+  return '<span class="su-btns">'+suCallBtn(c)+
+    '<button type="button" class="btn sm su-calbtn" onclick="suOpenCal(\''+c.id+'\''+(ym?',\''+ym+'\'':'')+')">'+ic('calendar',12)+' View calendar</button></span>';
+}
+/* WHO HAS NO SCHEDULE IN A MONTH THE SCHEDULER PICKS (Peter, 2026-10-06).
+   The default view is unchanged - everything that needs updating, judged on
+   the current month. Picking a month swaps the list for ONE question about
+   that month: which active caregivers have no AxisCare visit in it AND
+   nothing on the availability calendar for it. The cadence and profile
+   reasons are about the caregiver, not a month, so they are not repeated
+   there.
+
+   The months offered are the ones the caregiver calendar can open (last
+   month to eleven ahead), so View calendar always lands on the month named.
+   state.suMonth is one person's view of one screen - not a SLICES entry. */
+function suMonthOpts(){
+  const out=[];
+  for(let o=CAL_MIN_OFF;o<=CAL_MAX_OFF;o++){
+    const d=new Date(NOW.getFullYear(), NOW.getMonth()+o, 1);
+    out.push({ym:d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'), off:o,
+              label:d.toLocaleDateString('en-US',{month:'long',year:'numeric'})});
+  }
+  return out;
+}
+function suSetMonth(v){ state.suMonth = suMonthOpts().some(o=>o.ym===v) ? v : ''; render(); }
+function suMonthBar(){
+  const cur=state.suMonth||'';
+  return '<div class="su-bar"><label for="su-month">Show</label><select id="su-month" class="ein su-monthsel" onchange="suSetMonth(this.value)">'+
+    '<option value="">Everything that needs updating</option>'+
+    suMonthOpts().map(o=>'<option value="'+o.ym+'"'+(cur===o.ym?' selected':'')+'>No schedule in '+escText(o.label)+(o.off===0?' (this month)':'')+'</option>').join('')+
+    '</select></div>';
+}
+function suNoSchedHTML(ym){
+  const opt=suMonthOpts().find(o=>o.ym===ym); if(!opt){ state.suMonth=''; return ''; }
+  CGMONTH.load(ym); MONTHAV.load(ym);                 /* both guarded: one read each per month */
+  const vs=CGMONTH.status(ym), as=MONTHAV.status(ym), mon=escText(opt.label);
+  if(rosterLoading()) return loadingState('Loading caregivers\u2026','The list appears once the roster has loaded.');
+  const failed=(st)=>st==='error'||st==='unconfigured';
+  if(failed(vs)||failed(as)){
+    /* Either half unread means nobody can be called empty. Say which, and
+       offer the retry; never a partial list dressed as the answer. */
+    return '<div class="demo-banner cal-meta err"><span class="db-ic">\u26A0</span><span><b>Could not check '+mon+'.</b> '+
+      (failed(vs)?'AxisCare visits could not be read ('+esc(CGMONTH.error(ym)||'')+'). ':'')+
+      (failed(as)?'The availability calendar could not be read ('+esc(MONTHAV.error(ym)||'')+'). ':'')+
+      'Nobody is listed, because a caregiver can only be called empty when both were read.'+
+      '<button class="cs-retry" onclick="'+(failed(vs)?'CGMONTH.retry(\''+ym+'\');':'')+(failed(as)?'MONTHAV.retry(\''+ym+'\');':'')+'">Retry</button></span></div>';
+  }
+  if(vs!=='ready'||as!=='ready') return loadingState('Checking '+mon+'\u2026','Reading AxisCare visits and the availability calendar for the month.');
+  const list=state.caregivers.filter(c=>c && c.active!==false && !(c.ops&&c.ops.archived)
+      && CGMONTH.visitsFor(c.id, ym)===0 && MONTHAV.daysFor(c.id, ym)===0)
+    .sort((x,y)=>String(x.name||'').localeCompare(String(y.name||'')));
+  if(!list.length) return emptyState('Everyone has something scheduled in '+mon,
+    'Every active caregiver has at least one AxisCare visit or one availability entry in that month.');
+  return '<div class="su-count">'+list.length+' active caregiver'+(list.length===1?'':'s')+' with no schedule in '+mon+'</div>'+
+    '<div class="su-list">'+list.map(function(c){
+      return '<div class="su-card"><div class="su-card-h">'+
+          '<button class="su-name" onclick="openCaregiver(\''+c.id+'\')">'+esc(c.name)+'</button>'+
+          (c.base?'<span class="su-when">'+esc(c.base)+'</span>':'')+suCardBtns(c, ym)+'</div>'+
+        '<div class="su-item"><div class="su-item-h"><span class="at-p bad">No visits and no availability</span>'+
+          '<span class="su-act">Action: Add availability</span></div>'+
+          '<ul class="su-changes"><li>No AxisCare visits in '+mon+'.</li><li>Nothing recorded on the availability calendar in '+mon+'.</li></ul></div></div>';
+    }).join('')+'</div>';
+}
 function suNeedsHTML(needs){
+  if(state.suMonth){ const body=suNoSchedHTML(state.suMonth); if(state.suMonth) return suMonthBar()+body; }
   /* Say when a check could not run. Silently dropping the availability
      check would make a short list look like good news. */
   let note='';
@@ -20707,14 +20825,14 @@ function suNeedsHTML(needs){
       }
     }
   }catch(e){}
-  if(!needs.length) return note+emptyState('Nothing needs attention',
+  if(!needs.length) return suMonthBar()+note+emptyState('Nothing needs attention',
     'Every active caregiver has their profile fields, availability and cadence up to date.');
-  return note+'<div class="su-list">'+needs.map(function(n){
+  return suMonthBar()+note+'<div class="su-list">'+needs.map(function(n){
     return '<div class="su-card">'+
       '<div class="su-card-h">'+
         '<button class="su-name" onclick="openCaregiver(\''+n.c.id+'\')">'+esc(n.c.name)+'</button>'+
         (n.c.base?'<span class="su-when">'+esc(n.c.base)+'</span>':'')+
-        '<button type="button" class="btn sm su-calbtn" onclick="suOpenCal(\''+n.c.id+'\')">'+ic('calendar',12)+' View calendar</button>'+
+        suCardBtns(n.c)+
       '</div>'+
       n.items.map(function(it){
         return '<div class="su-item">'+
@@ -27545,6 +27663,30 @@ var AVAIL = (function () {
       console.warn('[avail] month coverage failed', e);
     }).then(function () { try { render(); } catch (e) {} });
   }
+  /* ANY MONTH, for Needs Update's month picker. The request is the SAME shape
+     primeMonthCoverage() sends - same table, same columns, only the dates
+     differ - so app-gate's allowlist needs no new entry. Resolves to
+     { 'a<id>': <number of dates holding any row> }; a caregiver absent from
+     the map has nothing recorded for that span. Rejects on a failed read or
+     with no Supabase keys, so "could not read" is never an empty map. */
+  function anyRowsBetween(from, to) {
+    if (!configured()) return Promise.reject(new Error('No Supabase keys on this build.'));
+    var acc = {};
+    function page(offset) {
+      return coveragePage(from, to, offset, false).then(function (list) {
+        list = list || [];
+        list.forEach(function (r) {
+          var k = 'a' + r.caregiver_id, d = String(r.on_date).slice(0, 10);
+          (acc[k] || (acc[k] = {}))[d] = 1;
+        });
+        if (list.length === PAGE) return page(offset + PAGE);
+      });
+    }
+    return page(0).then(function () {
+      var out = {}; Object.keys(acc).forEach(function (k) { out[k] = Object.keys(acc[k]).length; });
+      return out;
+    });
+  }
   /* `days` counts dates with ANY status; `openDays` counts the Open ones.
      'none' means nothing at all was recorded for the month — the only state
      that is honestly "Availability missing". Somebody down as Vacation all
@@ -27850,7 +27992,7 @@ var AVAIL = (function () {
     /* A save changes the answer, so the next ask re-reads it. */
     forgetCoverage: forgetCov,
     /* The current-month-only cache behind Needs Update > Availability missing. */
-    primeMonthCoverage: primeMonthCoverage, monthCoverage: monthCoverage,
+    primeMonthCoverage: primeMonthCoverage, monthCoverage: monthCoverage, anyRowsBetween: anyRowsBetween,
     monthCoverageInfo: function () { return { state: monthCovState, err: monthCovErr, from: monthCovFrom, to: monthCovTo,
       caregivers: monthCovByCg ? Object.keys(monthCovByCg).length : 0 }; },
     forgetMonthCoverage: function () { monthCovByCg = null; monthCovState = 'idle'; },
