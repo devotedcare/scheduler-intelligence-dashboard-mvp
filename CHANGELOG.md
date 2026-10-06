@@ -2297,6 +2297,61 @@ is null, with a dropdown per row. `index.html` only; no table, no Edge Function,
   caregivers (the test copy cannot reach AxisCare). The real `region` values on this
   account have not been looked at.
 
+## 2026-10-06 — Find Coverage's weekly grid stops hiding caregivers who cover part of a window
+
+Reported by Peter: Rozenia Tillman appeared in **no** window on **any** day. Confirmed on
+the live roster with a read-only diagnose tool: on 2026-10-06 she holds `Open 8a–12p`
+(Auto-copy), which is 4 of Morning's 8 hours. The grid lists a caregiver only when
+`coverageDetail()` says their Open hours cover the **whole** bucket (the 2026-09-27
+revert), so anybody starting after 6am or ending before 10pm fits neither Morning,
+Afternoon nor Whole Day. Her other days are `Open 8a–8p` — twelve open hours, still no
+window.
+
+**The full-bucket rule is unchanged and so are its counts.** What is added sits beside it:
+
+- **`wkPartialCaregivers()`** — a second list, *Available for part of this window*, for a
+  caregiver with one **continuous** open stretch of at least `AV_MIN_MIN` (3 h) inside the
+  bucket. Its own headed section under the full matches, real hours on the row, and its
+  own `+N part` figure on the grid — never added into the full count.
+- **The 2026-09-27 complaint stays fixed.** That was an 8p–8a caregiver under Morning on
+  two hours of overlap; two is under three, so they are still not listed there.
+- **`wkHomeBucket()`** — a block that straddles two windows (Open 12p–3p: two hours in
+  Morning, one in Afternoon) is listed under the one holding most of it. Blocks **stored on
+  the date** only: homing a carried overnight tail would re-create the 09-27 complaint.
+- **`wkRestHtml()` — every active caregiver is accounted for.** Under the list, a collapsed
+  line counts everybody *not* listed by reason (`wkWhyNotListed()`): open at other times
+  that day, nothing entered, marked unavailable, not loaded. Listed + rest always equals
+  the active roster the filters allow.
+- **Display fix found on the way.** `wkDisplayWindows()` read the previous night's block
+  through `AVAIL.forDay()`, the per-caregiver calendar cache, which is empty until that
+  profile is opened. Erma Delassio was correctly listed under Morning (Monday overnight to
+  7am + Tuesday 7a–3:30p) while her row showed only `7:00 AM – 3:30 PM`. It reads the index
+  now, the same source `carryWindows()` decides eligibility from.
+
+Known and deliberate: a block entirely before 6am appears under the **previous** night's
+Overnight and that day's Whole Day, not under any of that day's three windows. A day
+holding only non-Open rows still lists nobody, timed rows included.
+
+Tested in a headless browser with made-up caregivers (25 checks, including 300 random
+ones: nobody listed twice in a window, nobody with a 3 h+ block missing from all three).
+**Not run against live availability** beyond the two diagnose reports above.
+
+## 2026-10-06 — CONFIRMED, NOT FIXED: Auto-copy leaves its own Unavailable on a booked day
+
+Alejandra Gibbs, live roster: 2026-10-05 holds `Unavailable 9a–5p` **recorded by
+Auto-copy** and an AxisCare visit with Fayde Macune 3:30p–10:30p; every other day of
+October is `Unavailable` by Auto-copy too. Fourteen conflict markers on one month, none of
+them a decision anybody made.
+
+`copyClashes()` stops the copy **writing** a non-Open shape onto a date that already has a
+visit. Nothing removes one it wrote **before** the visit existed: `planRecarve()` only cuts
+`Open`, and `planMonth()` `continue`s past a clashing day without touching the row already
+there. So "a job that copies last month forward may not manufacture a disagreement" holds
+at write time and not afterwards. The fix under discussion: on a future day **owned by
+Auto-copy**, remove its non-Open rows that overlap a real visit; a person's row is never
+touched. Not built — it deletes rows from the live table hourly, so it gets a dry-run list
+first.
+
 ---
 ## Still open
 

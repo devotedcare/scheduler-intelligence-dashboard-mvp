@@ -1014,6 +1014,24 @@
   .wk-blabel{font-size:11px;font-weight:500;color:var(--ink-soft)}
   .wk-bcount{font-size:12px;font-weight:700;color:var(--ink)}
   .wk-bucket.on .wk-bcount{color:var(--brand)}
+  /* Part-of-window matches: beside the full count on the grid, and their own
+     headed section in the list. Quieter than the full figure on purpose. */
+  /* On its own line under the count: beside it, "2 available +2 part" wrapped
+     mid-phrase in the narrow day column. */
+  .wk-bcount{white-space:nowrap;text-align:right}
+  .wk-bpart{display:block;font-weight:600;font-size:11px;line-height:1.2;color:var(--ink-soft)}
+  .wk-parthead{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;padding:12px 12px 8px;margin-top:6px;border-top:1px solid var(--line);font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--ink-soft)}
+  .wk-partn{font-weight:800;color:var(--ink)}
+  /* The rest of the roster: who is not listed for this window, and why. */
+  .wk-rest{margin-top:6px;border-top:1px solid var(--line);padding:10px 12px;font-size:13px;color:var(--ink-soft)}
+  .wk-rest summary{cursor:pointer}
+  .wk-rest summary b{color:var(--ink)}
+  .wk-restgrp{margin-top:10px}
+  .wk-restlab{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px}
+  .wk-restnames{display:flex;flex-wrap:wrap;gap:4px 14px}
+  .wk-restcg{white-space:nowrap}
+  .wk-resttime{font-size:12px;color:var(--ink-faint)}
+  .wk-partsub{font-weight:500;text-transform:none;letter-spacing:0;font-size:12px;color:var(--ink-faint)}
   .wk-detail{margin-top:14px;padding:0;overflow:hidden}
   .wk-detailhead{display:flex;align-items:center;gap:10px;padding:12px 15px;border-bottom:1px solid var(--line);background:var(--panel-head)}
   /* Grows to fill the row, which is what pushes Filter and Close to the
@@ -9895,6 +9913,87 @@ function wkIsWholeDayBucket(start,end){ return start===0 && end===24; }
 function wkAvailableCaregivers(dateStr,start,end){
   return wkActiveCaregivers().filter(cg=>coverageDetail(cg,dateStr,start,end).cov==='full');
 }
+/* PART OF A WINDOW - added 2026-10-06 (Peter), and it does NOT loosen the rule
+   above. The full-bucket test hid every caregiver whose hours start after a
+   bucket opens or end before it closes: Rozenia Tillman is Open 8a-8p most
+   days and 8a-12p the rest, which covers neither Morning (6a-2p), Afternoon
+   (2p-10p) nor Whole Day - so she appeared on this screen on NO day at all,
+   with twelve open hours on many of them.
+
+   The 2026-09-27 complaint that produced the full-bucket rule was an
+   8p-8a caregiver listed under Morning on two hours of overlap. That stays
+   fixed: a part match needs one CONTINUOUS open stretch of at least
+   AV_MIN_MIN inside the bucket - the same three hours below which this app
+   will not store an Open block, because nothing shorter is a workable shift.
+   8p-8a has two hours in Morning and is still not listed.
+
+   A part match is never mixed in with the full ones. It is its own section,
+   headed as partial, with the caregiver's real hours on the row, so nobody
+   reads "can cover the whole window" off somebody who cannot.
+
+   Same sources as coverageDetail(), in the same order, including its rule
+   that a day holding only non-Open rows is a no. */
+function wkPartHours(cg,dateStr,start,end){
+  const d=AVAIL.dayAvail(cg.id, dateStr);
+  if(end<=start) end+=24;
+  if(d.state!=='open' && d.state!=='none') return 0;   /* unloaded / error / blocked */
+  let wins=d.wins.concat(AVAIL.carryWindows(cg.id, dateStr));
+  if(end>24) wins=wins.concat(AVAIL.nextWindows(cg.id, dateStr));
+  let best=0;
+  AVAIL.mergeWins(wins).forEach(function(w){
+    const len=Math.min(w[1],end)-Math.max(w[0],start);
+    if(len>best) best=len;
+  });
+  return best;
+}
+/* A BLOCK THAT STRADDLES TWO WINDOWS. Open 12p-3p is a real three-hour block
+   with two hours in Morning and one in Afternoon - under the three-hour test
+   alone it reaches neither, and the caregiver is back to appearing nowhere.
+   Such a block is listed under the ONE time-of-day window holding most of it
+   (the earlier one on a tie).
+
+   Only blocks STORED ON THIS DATE count here, never the tail of last night's
+   overnight: 8p-8a carried in from yesterday has two hours in Morning and
+   would otherwise be "homed" there, which is exactly the 2026-09-27
+   complaint. Its hours belong to yesterday's Overnight window, where it is
+   already listed. */
+function wkHomeBucket(cg,dateStr){
+  const d=AVAIL.dayAvail(cg.id, dateStr);
+  if(d.state!=='open') return null;
+  const min=AV_MIN_MIN/60, tod=WK_BUCKETS.filter(b=>b[0]!=='Whole Day');
+  if(tod.some(b=>wkPartHours(cg,dateStr,b[1],b[2])>=min)) return null;   /* already listed somewhere */
+  let best=null, bestLen=0;
+  AVAIL.mergeWins(d.wins).forEach(function(w){
+    if(w[1]-w[0]<min) return;
+    tod.forEach(function(b){
+      const len=Math.min(w[1],b[2])-Math.max(w[0],b[1]);
+      if(len>bestLen){ bestLen=len; best=b[0]; }
+    });
+  });
+  return best;
+}
+function wkPartialCaregivers(dateStr,start,end){
+  const min=AV_MIN_MIN/60;
+  const here=(WK_BUCKETS.find(b=>b[1]===start&&b[2]===end)||[])[0];
+  return wkActiveCaregivers().filter(cg=>coverageDetail(cg,dateStr,start,end).cov!=='full'
+    && (wkPartHours(cg,dateStr,start,end)>=min || (here && here!=='Whole Day' && wkHomeBucket(cg,dateStr)===here)));
+}
+/* EVERY ACTIVE CAREGIVER IS ACCOUNTED FOR. Whoever is not on the list for
+   this window is sorted into exactly one reason, so the panel can say where
+   the rest of the roster went instead of leaving a scheduler to wonder
+   whether somebody was dropped. Reasons, in the order they are tested:
+
+     unknown   availability for that date did not load - never a "no"
+     unavail   the day holds only non-Open rows (Unavailable, Vacation...)
+     none      nothing recorded, and nothing running in from the night before
+     other     open that day, but not inside this window                    */
+function wkWhyNotListed(cg,dateStr){
+  const d=AVAIL.dayAvail(cg.id, dateStr);
+  if(d.state==='unloaded'||d.state==='error'||d.state==='unconfigured') return 'unknown';
+  if(d.state==='blocked') return 'unavail';
+  if(d.state==='none' && !AVAIL.carryWindows(cg.id, dateStr).length) return 'none';
+  return 'other';
+}
 /* Fetches once per week shown, not once per render — see the header
    comment above for why. */
 function wkEnsureWeek(){
@@ -9971,7 +10070,16 @@ function wkDisplayWindows(cg,dateStr,start,end){
   const out=[];
   d.wins.forEach(function(w){ if(w[0]<end && w[1]>start) out.push(w); });
   const prevDs=addDaysStr(dateStr,-1);
-  AVAIL.forDay(cg.id, prevDs).forEach(function(b){
+  /* Read from the roster-wide INDEX (dayAvail().blocks), not AVAIL.forDay().
+     forDay() is the per-caregiver calendar cache and is only filled once that
+     caregiver's profile has been opened in this tab, so the block that made
+     somebody eligible was silently missing from their row: Erma Delassio was
+     listed under Morning showing only "7:00 AM - 3:30 PM" while the Monday
+     overnight that actually covers 6-7am never appeared (confirmed on the
+     live roster, 2026-10-06). carryWindows() - which decides eligibility -
+     has always read the index; this now shows what it used. */
+  const prevIdx=AVAIL.dayAvail(cg.id, prevDs);
+  ((prevIdx && prevIdx.blocks && prevIdx.blocks.length) ? prevIdx.blocks : AVAIL.forDay(cg.id, prevDs)).forEach(function(b){
     if(b.status!=='Open' || b.allDay || b.end<=24) return;
     /* Same overlap test AVAIL.carryWindows() makes internally — this is
        what decides whether the spillover reaches this bucket at all — but
@@ -9993,8 +10101,10 @@ function wkDisplayWindows(cg,dateStr,start,end){
    full 24h or more (an all-day Open, or one merged with a neighbouring
    day's) — "12:00 AM – 12:00 AM" reads as zero duration, not a whole day. */
 function wkFmtWin(w){ return (w[1]-w[0]>=24) ? 'All day' : (fmtClock(w[0])+' – '+fmtClock(w[1])); }
-function wkCgRowHtml(cg,dateStr,start,end){
-  const wins=wkAvailWindows(cg,dateStr,start,end);
+function wkCgRowHtml(cg,dateStr,start,end,partial){
+  /* A part match is by definition not a full one, so wkAvailWindows() would
+     answer null for it; its real saved windows are what the row has to show. */
+  const wins=partial ? wkDisplayWindows(cg,dateStr,start,end) : wkAvailWindows(cg,dateStr,start,end);
   /* De-duplicated by LABEL, not by window — two distinct real windows (an
      all-day today plus an all-day tomorrow, kept separate on purpose so
      each keeps its own saved shape) can still format to the identical
@@ -10074,7 +10184,9 @@ function wkFilteredCaregivers(dateStr,start,end){
 /* Female/Male counts, ignoring the current gender selection itself so both
    buttons always show real, switchable counts — see the comment above. */
 function wkGenderCounts(dateStr,start,end){
-  const base=wkAvailableCaregivers(dateStr,start,end).filter(wkFilterMatchExceptGender);
+  /* Both sections of the list, or the Female/Male buttons would count fewer
+     people than the panel beneath them shows. */
+  const base=wkAvailableCaregivers(dateStr,start,end).concat(wkPartialCaregivers(dateStr,start,end)).filter(wkFilterMatchExceptGender);
   let f=0,m=0;
   base.forEach(function(cg){ if(cg.gender==='F') f++; else if(cg.gender==='M') m++; });
   return {f:f,m:m};
@@ -10131,6 +10243,29 @@ try{
     if(!w) wkCloseFilterMenu();
   }, true);
 }catch(e){}
+/* The rest of the roster, under the list: everybody active who is NOT listed
+   for this window, counted by reason, names one click away. Collapsed by
+   default - on a normal day it is most of the roster - but the count line is
+   always visible, and the three numbers plus the list above add up to every
+   active caregiver the current filters allow. */
+function wkRestHtml(sel, listed){
+  const on={}; listed.forEach(c=>{ on[c.id]=1; });
+  const rest=wkActiveCaregivers().filter(c=>!on[c.id]).filter(wkFilterMatch);
+  if(!rest.length) return '';
+  const G={other:[],none:[],unavail:[],unknown:[]};
+  rest.forEach(c=>{ G[wkWhyNotListed(c, sel.date)].push(c); });
+  const LAB={other:'open at other times that day', none:'nothing entered for that day', unavail:'marked unavailable', unknown:'availability not loaded'};
+  const order=['other','none','unavail','unknown'].filter(k=>G[k].length);
+  const names=k=>G[k].sort((a,b)=>a.name.localeCompare(b.name)).map(function(c){
+    let extra='';
+    if(k==='other'){ const w=wkDisplayWindows(c, sel.date, 0, 24); if(w&&w.length) extra=' <span class="wk-resttime">'+escText(Array.from(new Set(w.map(wkFmtWin))).join(', '))+'</span>'; }
+    return `<span class="wk-restcg"><button type="button" class="wk-cgname" onclick="openCgFromCoverage('${c.id}')">${escText(c.name)}</button>${extra}</span>`;
+  }).join('');
+  return `<details class="wk-rest">
+    <summary><b>${rest.length}</b> other active caregiver${rest.length===1?'':'s'} not listed here: ${order.map(k=>G[k].length+' '+LAB[k]).join(' · ')}</summary>
+    ${order.map(k=>`<div class="wk-restgrp"><div class="wk-restlab">${G[k].length} ${escText(LAB[k])}</div><div class="wk-restnames">${names(k)}</div></div>`).join('')}
+  </details>`;
+}
 function renderWeekSelDetail(){
   const sel=state.wkSel; if(!sel) return '';
   /* The week's own load state. The panel can now be on screen BEFORE the fetch
@@ -10143,10 +10278,20 @@ function renderWeekSelDetail(){
   const totalAvail=wkAvailableCaregivers(sel.date, sel.start, sel.end).length;
   const list=wkFilteredCaregivers(sel.date, sel.start, sel.end).sort((a,b)=>a.name.localeCompare(b.name));
   const filtersActive=!!(wkFilters().type||wkFilters().gender||wkFilters().driving||wkFilters().city);
-  const rows=list.length ? list.map(cg=>wkCgRowHtml(cg, sel.date, sel.start, sel.end)).join('')
+  const partAll=wkSt==='ready' ? wkPartialCaregivers(sel.date, sel.start, sel.end) : [];
+  const part=partAll.filter(wkFilterMatch).sort((a,b)=>a.name.localeCompare(b.name));
+  const whole=wkIsWholeDayBucket(sel.start, sel.end);
+  const partRows=part.length
+    ? `<div class="wk-parthead">Available for part of ${whole?'the day':'this window'} <span class="wk-partn">${part.length}</span>
+         <span class="wk-partsub">Open at least ${AV_MIN_MIN/60} hours in a row inside it. Their real hours are shown.</span></div>`
+      + part.map(cg=>wkCgRowHtml(cg, sel.date, sel.start, sel.end, true)).join('')
+    : '';
+  const rows=(list.length ? list.map(cg=>wkCgRowHtml(cg, sel.date, sel.start, sel.end)).join('')
     : wkSt==='loading' ? `<div class="ws-none">Loading availability for this week\u2026</div>`
       : wkSt==='error' ? `<div class="ws-none">Could not load availability for this week.</div>`
-      : `<div class="ws-none">${totalAvail && filtersActive ? 'No available caregivers match these filters.' : 'No caregivers have availability entered for this window.'}</div>`;
+      : `<div class="ws-none">${(totalAvail||partAll.length) && filtersActive && !part.length ? 'No available caregivers match these filters.'
+          : part.length ? `Nobody covers the whole ${whole?'day':'window'}.` : 'No caregivers have availability entered for this window.'}</div>`) + partRows
+    + (wkSt==='ready' ? wkRestHtml(sel, list.concat(part)) : '');
   return `<div class="ws-card wk-detail">
     <div class="wk-detailhead ${wkDayColorClass(sel.date)}">
       <div class="wk-detailheadmain">
@@ -10185,9 +10330,12 @@ function renderWeekAvailability(){
       ? WK_BUCKETS.map(b=>`<div class="wk-bucket wait"><span class="wk-blabel">${escText(b[0])}</span><span class="wk-bcount">…</span></div>`).join('')
       : WK_BUCKETS.map(function(b){
           const n=wkAvailableCaregivers(ds,b[1],b[2]).length;
+          /* The full count is unchanged; the part matches ride beside it as
+             their own figure, never added into it. */
+          const p=wkPartialCaregivers(ds,b[1],b[2]).length;
           const sel=state.wkSel && state.wkSel.date===ds && state.wkSel.label===b[0];
           return `<button type="button" class="wk-bucket${sel?' on':''}" onclick="wkSelectBucket('${ds}','${b[0]}',${b[1]},${b[2]})">
-            <span class="wk-blabel">${escText(b[0])}</span><span class="wk-bcount">${n} available</span></button>`;
+            <span class="wk-blabel">${escText(b[0])}</span><span class="wk-bcount">${n} available${p?`<span class="wk-bpart" title="${p} more open for part of this window">+${p} part</span>`:''}</span></button>`;
         }).join('');
     return `<div class="wk-day${isToday?' today':''}">
       <div class="wk-dayhead ${wkDayColorClass(ds)}">${escText(full)}<span class="wk-daydate">${escText(fmtDateShort(ds))}</span></div>
