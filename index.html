@@ -4509,7 +4509,6 @@ const NAVGROUPS=[
   {section:'Caregiver Management'},
   {link:{id:'avail', label:'Caregivers'}},
   {link:{id:'schedupdates', label:'Caregiver Record Status'}},
-  {link:{id:'cadence', label:'Availability Cadence'}},
 
   {section:'Operations'},
   {link:{id:'tasks', label:'Weekly Tasks'}},
@@ -19181,11 +19180,90 @@ const CG_REQUIRED=[
    reading it from: whoever's tab finished loading first saw the real
    count, everyone else saw an honest-looking but incomplete one. Callers
    must check this before trusting cgNeedsUpdate().length as final. */
+/* =========================================================
+   CGMONTH - who has an AxisCare visit in the CURRENT MONTH
+   ---------------------------------------------------------
+   One question, for Needs Update: is this caregiver's AxisCare calendar
+   empty this month? Nothing else in the browser answers it roster-wide -
+   CGVISITS is one caregiver, CLVISITS one client, COVHIST one date.
+
+   It is every assigned, non-removed visit from the 1st to the last day of the
+   month - the same window AVAIL.monthCoverage() reads - so the two halves of
+   the finding are about the same days. Roughly 900 visits over about ten
+   requests, ASKED ONE PAGE AT A TIME (the 429 lesson), once per month per
+   session, and only when Caregiver Record Status is opened.
+
+   Only a COUNT per caregiver is kept, in this module, never in state.
+   A 404 is an empty month, not a failure. A failed read is an 'error' that
+   stays one until Retry: it is never retried by a render. */
+var CGMONTH = (function(){
+  'use strict';
+  var rec = {state:'idle', key:null, counts:{}, err:null, visits:0, requests:0};
+  function bounds(){
+    var n=new Date(), p=function(x){ return (x<10?'0':'')+x; };
+    var last=new Date(n.getFullYear(), n.getMonth()+1, 0).getDate();
+    var ym=n.getFullYear()+'-'+p(n.getMonth()+1);
+    return {key:ym, from:ym+'-01', to:ym+'-'+p(last)};
+  }
+  function load(){
+    var b=bounds();
+    if(rec.key===b.key && rec.state!=='idle') return;       /* loading, ready or failed for THIS month */
+    if(typeof AxisCare==='undefined' || !AxisCare || !AxisCare.get){ rec={state:'unconfigured', key:b.key, counts:{}, err:'AxisCare is not configured here'}; return; }
+    var mine={state:'loading', key:b.key, counts:{}, err:null, visits:0, requests:0};
+    rec=mine;
+    var pages=0;
+    function page(token){
+      var q={startDate:b.from, endDate:b.to, limit:200};
+      if(token) q.nextPageToken=token;
+      return AxisCare.get('/api/visits', q).then(function(res){
+        var r=(res && res.data && res.data.results) || {};
+        (r.visits||[]).forEach(function(v){
+          if(!v || v.removed || !v.caregiver || v.caregiver.id==null) return;
+          /* The day is read off the string: AxisCare stamps its own offset. */
+          var day=/^(\d{4}-\d{2}-\d{2})/.exec(String(v.scheduledStartDate||v.startDate||''));
+          if(!day || day[1]<b.from || day[1]>b.to) return;
+          var k='a'+v.caregiver.id; mine.counts[k]=(mine.counts[k]||0)+1; mine.visits++;
+        });
+        mine.requests++;
+        var next=r.nextPage;
+        if(next && ++pages<40){
+          var t=/[?&]nextPageToken=([^&]+)/.exec(String(next));
+          if(t) return page(decodeURIComponent(t[1]));
+        }
+        /* A page cap reached with more to come is NOT a complete month, and
+           an incomplete count would call booked caregivers empty. */
+        if(next && pages>=40) throw new Error('more visits than could be read');
+      });
+    }
+    page(null).then(function(){ mine.state='ready'; }, function(e){
+      var msg=String((e && e.message) || e);
+      if((e && e.status===404) || /\b404\b|No visits found/i.test(msg)){ mine.state='ready'; return; }
+      mine.state='error'; mine.err=msg; mine.counts={};
+    }).then(function(){
+      if(rec===mine) console.info('[cgmonth] '+b.key+': '+mine.visits+' visit(s), '+Object.keys(mine.counts).length+' caregiver(s), '+mine.requests+' request(s), '+mine.state);
+      try{ if(rec===mine && state.view==='schedupdates') render(); }catch(x){}
+    });
+  }
+  return {
+    load: load,
+    status: function(){ return (rec.key && rec.key!==bounds().key) ? 'idle' : rec.state; },
+    /* null = not known. 0 is only ever returned from a completed read. */
+    visitsFor: function(cgId){ return rec.state==='ready' ? (rec.counts[cgId]||0) : null; },
+    error: function(){ return rec.err; },
+    info: function(){ return {state:rec.state, month:rec.key, visits:rec.visits, caregivers:Object.keys(rec.counts).length, requests:rec.requests, error:rec.err}; },
+    retry: function(){ rec={state:'idle', key:null, counts:{}, err:null}; load(); try{ render(); }catch(e){} }
+  };
+})();
 function cgNeedsUpdateReady(){
   if(rosterLoading()) return false;
   try{
     const cs=(typeof AVAIL!=='undefined'&&AVAIL.monthCoverageInfo)?AVAIL.monthCoverageInfo():null;
-    return !cs || cs.state==='ready';
+    if(cs && cs.state!=='ready') return false;
+    /* The count is not final while the AxisCare month is still arriving:
+       until it lands nobody can be called empty in BOTH places. An error is
+       final - the list falls back to the availability-only test and says so. */
+    const ms=(typeof CGMONTH!=='undefined') ? CGMONTH.status() : 'ready';
+    return ms!=='loading' && ms!=='idle';
   }catch(e){ return true; }
 }
 /* A caregiver appears once, carrying every reason they need attention. */
@@ -19235,12 +19313,31 @@ function cgNeedsUpdate(){
        so somebody down as Vacation or Unavailable for September has answered
        and is not chased — the desk asked, they replied, that is not a gap.
        `days` vs `openDays` is what tells the two apart. */
+    /* AND NOTHING IN AXISCARE EITHER (Peter, 2026-10-06). A blank availability
+       calendar alone flagged caregivers who are booked on visits all month -
+       the desk has nothing to ask them, their schedule IS the answer. The
+       finding is now: no row on this dashboard for the month AND no AxisCare
+       visit in it. CGMONTH is that second half, and it is a STATE:
+         ready    visits counted -> flag only when this caregiver has none
+         loading  not decided yet -> no item; the tab says it is checking
+         error    AxisCare could not be read -> the old availability-only
+                  finding, saying plainly that the AxisCare half is unchecked
+       'head' stays "Availability missing": aiBadWarnings() and the other
+       Ask Devi builders match on it. 'label' is what the card shows. */
     if(cvg && cvg.state==='none'){
       const mon=new Date(cvg.from+'T12:00:00').toLocaleDateString('en-US',{month:'long',year:'numeric'});
-      items.push({head:'Availability missing', tone:'bad',
-        lines:['Nothing recorded on the calendar for any day of '+mon+
-               ' ('+cvg.from+' to '+cvg.to+') — no Open, Unavailable, Vacation or any other status.'],
-        action:'Add availability'});
+      const ms=(typeof CGMONTH!=='undefined') ? CGMONTH.status() : 'error';
+      const visits=(ms==='ready') ? CGMONTH.visitsFor(c.id) : null;
+      const blank='Nothing recorded on the availability calendar for any day of '+mon+
+               ' ('+cvg.from+' to '+cvg.to+') — no Open, Unavailable, Vacation or any other status.';
+      if(ms==='ready' && visits===0){
+        items.push({head:'Availability missing', label:'No visits and no availability', tone:'bad',
+          lines:['No AxisCare visits in '+mon+'.', blank], action:'Add availability'});
+      } else if(ms==='error' || ms==='unconfigured'){
+        items.push({head:'Availability missing', tone:'bad',
+          lines:[blank, 'AxisCare visits could not be checked, so this caregiver may already be booked.'],
+          action:'Add availability'});
+      }
     }
 
     /* 3 — blank profile fields. */
@@ -20450,8 +20547,14 @@ function cadSetFromList(id, v){
   const nd = nextReview(c);
   toast(c.name+' — cadence set to '+v+(nd?' · next check '+fmtDate(nd):''));
 }
-function viewCadence(){
-  const head='<div class="upd-head"><span class="upd-h">Availability Cadence</span></div>';
+/* MOVED 2026-10-06 (Peter): Availability Cadence is a TAB of Caregiver Record
+   Status now, not its own sidebar page - it is the same kind of question as
+   Needs Update ("whose record is incomplete") and belongs beside it.
+   viewCadence() stays as the route, so a tab left open on the old page, or a
+   bookmark, lands on the new tab instead of a blank screen. */
+function viewCadence(){ state.view='schedupdates'; state.suTab='cadence'; return viewSchedUpdates(); }
+function cadenceBodyHTML(){
+  const head='';
   if(rosterLoading()) return head + loadingState('Loading caregivers…','The list appears once the roster has loaded.');
   const all=cadMissing();
   if(!all.length) return head + emptyState('Every active caregiver has a cadence',
@@ -20494,9 +20597,14 @@ function viewCadence(){
    state.schedChanges and nothing else: the current board cannot answer this
    question, because a shift that has been covered no longer looks like a
    call-off and yesterday's changes are gone from it entirely. */
-function setSuTab(t){ state.suTab = t==='needs' ? 'needs' : 'recent'; render(); window.scrollTo(0,0); }
+function setSuTab(t){ state.suTab = (t==='needs'||t==='cadence') ? t : 'recent'; render(); window.scrollTo(0,0); }
 function viewSchedUpdates(){
-  const tab = state.suTab==='needs' ? 'needs' : 'recent';
+  const tab = (state.suTab==='needs'||state.suTab==='cadence') ? state.suTab : 'recent';
+  /* The AxisCare month read behind "Availability missing" is asked for from
+     HERE - the page that shows it - and never from cgNeedsUpdate() itself,
+     which Ask Devi's builders also call. Guarded internally: one read per
+     month per session. */
+  try{ if(typeof CGMONTH!=='undefined') CGMONTH.load(); }catch(e){}
   const needs = cgNeedsUpdate();
   /* The badge must never show a confident number while the data it is
      counted from is still loading on THIS browser — see cgNeedsUpdateReady()
@@ -20507,8 +20615,9 @@ function viewSchedUpdates(){
   const tb=(k,label,n)=>'<button class="cgnav-t'+(tab===k?' on':'')+'" onclick="setSuTab(\''+k+'\')">'+
     label+(n?'<span class="su-n">'+n+'</span>':'')+'</button>';
   const head='<div class="upd-head"><span class="upd-h">Caregiver Record Status</span></div>'+
-    '<nav class="cgnav su-nav">'+tb('recent','Recent Updates')+tb('needs','Needs Update',ready?needs.length:'…')+'</nav>';
-  return head + (tab==='needs' ? suNeedsHTML(needs) : suRecentHTML());
+    '<nav class="cgnav su-nav">'+tb('recent','Recent Updates')+tb('needs','Needs Update',ready?needs.length:'…')+
+      tb('cadence','No Cadence',rosterLoading()?'…':cadMissing().length)+'</nav>';
+  return head + (tab==='needs' ? suNeedsHTML(needs) : tab==='cadence' ? cadenceBodyHTML() : suRecentHTML());
 }
 /* TAB 1 — what was changed, by whom, newest first. Everything one person
    changed on one caregiver in one sitting is one card. */
@@ -20550,6 +20659,15 @@ function suNeedsHTML(needs){
         '<span>Loading the caregiver roster\u2026 this list is not final yet.</span></div>';
     }else{
       const cs=(typeof AVAIL!=='undefined'&&AVAIL.monthCoverageInfo)?AVAIL.monthCoverageInfo():null;
+      const ms=(typeof CGMONTH!=='undefined') ? CGMONTH.status() : 'ready';
+      if((!cs || cs.state==='ready') && (ms==='loading'||ms==='idle')){
+        note='<div class="demo-banner cal-meta load"><span class="cs-spin"></span>'+
+          '<span>Checking this month\u2019s AxisCare visits\u2026 caregivers with no visits and no availability are added when it finishes.</span></div>';
+      } else if((!cs || cs.state==='ready') && ms==='error'){
+        note='<div class="demo-banner cal-meta err"><span class="db-ic">\u26A0</span><span><b>AxisCare visits could not be checked.</b> '+
+          esc(CGMONTH.error()||'')+' \u2014 caregivers with no availability are listed below whether or not they have visits.'+
+          '<button class="cs-retry" onclick="CGMONTH.retry()">Retry</button></span></div>';
+      }
       if(cs && cs.state!=='ready'){
         note='<div class="demo-banner cal-meta'+(cs.state==='loading'||cs.state==='idle'?' load':' err')+'">'+
           (cs.state==='loading'||cs.state==='idle'
@@ -20571,7 +20689,7 @@ function suNeedsHTML(needs){
       '</div>'+
       n.items.map(function(it){
         return '<div class="su-item">'+
-          '<div class="su-item-h"><span class="at-p '+(it.tone==='bad'?'bad':'neu')+'">'+esc(it.head)+'</span>'+
+          '<div class="su-item-h"><span class="at-p '+(it.tone==='bad'?'bad':'neu')+'">'+esc(it.label||it.head)+'</span>'+
             (it.action?'<span class="su-act">Action: '+esc(it.action)+'</span>':'')+'</div>'+
           '<ul class="su-changes">'+it.lines.map(l=>'<li>'+esc(l)+'</li>').join('')+'</ul>'+
         '</div>';
