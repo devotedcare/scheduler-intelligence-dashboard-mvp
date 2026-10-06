@@ -2375,6 +2375,8 @@ body.ai-white .view{flex:1 1 auto;min-height:0;display:flex;flex-direction:colum
 .su-name{background:none;border:none;padding:0;font-size:15.5px;font-weight:750;color:var(--navy-900);cursor:pointer;text-align:left}
 .su-name:hover{text-decoration:underline}
 .su-when{font-size:12.5px;color:var(--ink-soft);font-variant-numeric:tabular-nums}
+/* View calendar on a Needs Update card: pinned right, so the city sits by the name. */
+.su-card-h .su-calbtn{margin-left:auto;display:inline-flex;align-items:center;gap:5px;align-self:center}
 .su-by{font-size:12.5px;color:var(--ink-soft);margin-top:2px}
 /* Availability Cadence page: one row per caregiver with no cadence set. */
 .cad-bar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:0 0 12px;font-size:13px;color:var(--ink-soft)}
@@ -20643,6 +20645,32 @@ function suWhen(iso){
   return d.toLocaleDateString('en-US',{month:'short',day:'numeric'})+' at '+
     d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
 }
+/* DOUBLE-CHECK A ROW AGAINST THE CALENDAR, without leaving the list (Peter,
+   2026-10-06). "No visits and no availability" is a claim about a whole
+   month; the caregiver's own calendar - AxisCare visits in blue, what the
+   desk recorded in green and red - is the evidence for it, one click away.
+
+   It is the same popup as View Full Calendar on the profile, opened on the
+   current month. The one thing that differs: on the profile the visits and
+   availability are already loaded by the time anybody clicks, and here they
+   are not. render() rewrites only #view, so a popup opened cold would sit on
+   "Loading this caregiver's schedule" for good. This waits for both loads
+   and repaints the popup once - and only if it is still the calendar for
+   this caregiver, so a different dialog opened in the meantime is never
+   replaced by it. */
+function suOpenCal(id){
+  const c=cgById(id); if(!c) return;
+  state.cgCalMonth=0;
+  openCgFullCal(id);
+  mEl.dataset.calFor=id;
+  const loads=[];
+  try{ if(typeof AVAIL!=='undefined') loads.push(AVAIL.load(c)); }catch(e){}
+  try{ if(typeof CGVISITS!=='undefined') loads.push(CGVISITS.load(c)); }catch(e){}
+  Promise.all(loads.map(function(p){ return Promise.resolve(p).catch(function(){}); })).then(function(){
+    if(!mbg.classList.contains('show') || mEl.dataset.calFor!==id || !mEl.querySelector('.cal-wrap')) return;
+    openCgFullCal(id); mEl.dataset.calFor=id;
+  });
+}
 /* TAB 2 — who needs attention and exactly what is outstanding. Worked out
    from the record every time it renders, so completing the field is what
    clears the row. */
@@ -20686,6 +20714,7 @@ function suNeedsHTML(needs){
       '<div class="su-card-h">'+
         '<button class="su-name" onclick="openCaregiver(\''+n.c.id+'\')">'+esc(n.c.name)+'</button>'+
         (n.c.base?'<span class="su-when">'+esc(n.c.base)+'</span>':'')+
+        '<button type="button" class="btn sm su-calbtn" onclick="suOpenCal(\''+n.c.id+'\')">'+ic('calendar',12)+' View calendar</button>'+
       '</div>'+
       n.items.map(function(it){
         return '<div class="su-item">'+
