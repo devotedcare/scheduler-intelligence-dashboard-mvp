@@ -7331,10 +7331,21 @@ var QUOSEND = (function(){
     /* The line THIS BROWSER chose under Settings wins, when Quo still lists
        it. A stored id Quo no longer returns is ignored rather than trusted -
        sending from a line that has gone is a rejected send. */
-    try{ var pref = (typeof QUOPREF!=='undefined') ? QUOPREF.line() : ''; if(pref && byId(pref)) return pref; }catch(e){}
-    for(var i=0;i<l.length;i++) if(/schedul/i.test(l[i].name||'')) return l[i].id;
-    return l.length ? l[0].id : '';
+    /* ONLY A LINE THIS PERSON IS ON, when they are on any (Peter, 2026-10-06):
+       the settings page and the "Send from" picker both list just those, so
+       the default must come from the same set or it would name a line the
+       picker does not offer. A scheduler with no Quo account linked has no
+       such set, and falls back to every line exactly as before. */
+    var own = mine(), pool = own.length ? own : l;
+    var inPool = function(id){ for(var k=0;k<pool.length;k++) if(pool[k].id === id) return true; return false; };
+    try{ var pref = (typeof QUOPREF!=='undefined') ? QUOPREF.line() : ''; if(pref && inPool(pref)) return pref; }catch(e){}
+    for(var i=0;i<pool.length;i++) if(/schedul/i.test(pool[i].name||'')) return pool[i].id;
+    return pool.length ? pool[0].id : '';
   }
+  /* The lines the person working on this computer is a MEMBER of in Quo -
+     what their own Quo account shows them. meOn() is declared below; it is a
+     hoisted function, so the order here does not matter. */
+  function mine(){ return list().filter(function(x){ return !!meOn(x.id); }); }
 
   /* Who the message is attributed to INSIDE QUO. Quo requires the user to be
      a member of the line being sent from, and the lines differ sharply —
@@ -7352,7 +7363,7 @@ var QUOSEND = (function(){
   }
 
   return {
-    load: load, list: list, byId: byId, defaultLine: defaultLine,
+    load: load, list: list, byId: byId, defaultLine: defaultLine, mine: mine,
     usersFor: usersFor, meOn: meOn,
     status: function(){ return st; },
     error:  function(){ return err; },
@@ -7700,7 +7711,11 @@ function covSendText(){
   const a=document.getElementById('covTextArea');
   const content=a?a.value:(state.textDraft||'');
   if(!content.trim()){ toast('The message is empty'); return; }
-  const from=state.textFrom||QUOSEND.defaultLine();
+  /* The SAME line the picker is showing - see ctSendBar(). A line remembered
+     from before, that this person is not on, must not be what actually sends
+     while the picker displays another. */
+  const _mine=QUOSEND.mine(), _pool=_mine.length?_mine:QUOSEND.list();
+  const from=(state.textFrom && _pool.some(l=>l.id===state.textFrom)) ? state.textFrom : QUOSEND.defaultLine();
   if(!from){ toast('No agency line to send from'); return; }
   /* THE SAME derivation ctSendBar() uses, and that is the whole point: on a
      fresh open nobody has touched the dropdown, so state.textAs is still null
@@ -7849,9 +7864,15 @@ function viewSettings(){
   if(st==='idle'||st==='loading') linesHtml='<div class="set-note">'+ic('clock',13)+' Reading the agency’s phone lines from Quo…</div>';
   else if(st==='error') linesHtml='<div class="set-note bad">'+ic('alerts',13)+' '+escText(QUOSEND.error()||'The agency lines could not be read.')+
     ' You can still choose <b>Use my own number</b> below.</div>';
-  else linesHtml=QUOSEND.list().map(function(l){
+  /* ONLY THE LINES ON THIS PERSON'S OWN QUO ACCOUNT. Quo lets only a member
+     send from a line, so listing the rest offered choices that would not go
+     out under their name. Somebody with no lines sees why, and can still use
+     their own number. */
+  else if(!QUOSEND.mine().length) linesHtml='<div class="set-note">'+ic('alerts',13)+' <span><b>'+escText(state.onShift)+'</b> is not a member of any agency line in Quo, so there is no line to choose here. '+
+    'Ask for the line to be shared with you in Quo, check the name under <b>Working as</b> at the bottom left, or choose <b>Use my own number</b> below.</span></div>';
+  else linesHtml=QUOSEND.mine().map(function(l){
     const on=!own && l.id===chosen, us=(l.users||[]);
-    const mine=!!QUOSEND.meOn(l.id);
+    const mine=true;
     const names=us.slice(0,4).map(function(u){ return String(u.name||u.email||'').trim().split(' ')[0]; }).filter(Boolean).join(', ')+(us.length>4?' +'+(us.length-4):'');
     return '<button type="button" class="set-line'+(on?' on':'')+'" onclick="setQuoLine(\''+esc(l.id)+'\')" aria-pressed="'+(on?'true':'false')+'">'+
       '<span class="set-radio"></span>'+
@@ -7907,8 +7928,11 @@ function ctSendBar(){
   if(st==='error')
     return '<div class="ct-lines bad">'+ic('alerts',13)+' '+escText(QUOSEND.error()||'The agency lines could not be read.')+
       '</div>';
-  const lines=QUOSEND.list();
-  const from=state.textFrom||QUOSEND.defaultLine();
+  /* The picker offers the lines this person is on; everything when they are
+     on none, which is the old behaviour and still sends under Quo's default. */
+  const _mine=QUOSEND.mine();
+  const lines=_mine.length ? _mine : QUOSEND.list();
+  const from=(state.textFrom && lines.some(l=>l.id===state.textFrom)) ? state.textFrom : QUOSEND.defaultLine();
   const lineOpts=lines.map(l=>'<option value="'+esc(l.id)+'"'+(l.id===from?' selected':'')+'>'+
     escText(l.name||l.number)+' · '+escText(ctPhone(l.number))+'</option>').join('');
   const users=QUOSEND.usersFor(from);
