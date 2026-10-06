@@ -3046,6 +3046,7 @@ body.ai-white .view{flex:1 1 auto;min-height:0;display:flex;flex-direction:colum
 .set-ct{font-size:14px;font-weight:800;color:var(--ink)}
 .set-cd{font-size:12.5px;color:var(--ink-soft);margin-top:4px;line-height:1.5}
 .set-lines{margin-top:10px}
+.set-steps{margin:8px 0 6px 18px;padding:0;font-size:12.5px;color:var(--ink-soft);line-height:1.6}
 .set-note{font-size:12.5px;color:var(--ink-soft);display:flex;gap:7px;align-items:center;padding:8px 0}
 .set-note.bad{color:var(--crit-tx)}
 .set-line{display:flex;align-items:center;gap:12px;width:100%;text-align:left;font:inherit;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:10px 12px;margin-top:6px;cursor:pointer}
@@ -7792,6 +7793,53 @@ var QUOPREF=(function(){
 })();
 function setQuoLine(id){ QUOPREF.setLine(id); state.textFrom=null; state.textAs=null; toast('Texts from this computer now go out from that line'); render(); }
 function setQuoOwn(){ QUOPREF.setOwn(); toast('Texts from this computer now open in your own messaging app'); render(); }
+/* CALLING THROUGH QUO (Peter, 2026-10-06). Checked against Quo's own docs
+   the same day, because it decides what this can honestly promise:
+
+     · Quo's API has no endpoint that places a call. Nothing to proxy.
+     · Its deep link  openphone://dial?number=..&from=..&action=call  DOES
+       dial from a chosen line - on the MOBILE apps only. Quo's page says
+       web and desktop are not supported.
+     · On a computer the route is the tel: link every Call button already
+       is, once the Quo desktop app is the default TEL handler. tel: cannot
+       carry a "from", so the line is picked in Quo's dialer.
+
+   So: ONE listener, on every tel: link in the app, rather than editing each
+   Call button (there are a dozen and a missed one would silently dial from
+   the wrong place). On a phone or tablet in agency-line mode it swaps the
+   link for Quo's deep link with the chosen line as caller id. Everywhere
+   else it does nothing and the tel: link behaves as it always has.
+
+   The scheme is still "openphone://" after the rename to Quo - that is what
+   Quo documents. If the Quo app is not installed the link does nothing, so
+   own-number mode is the way out and the settings page says so. */
+function quoCallFrom(){
+  try{ var id=QUOSEND.defaultLine(), l=id?QUOSEND.byId(id):null; return (l && l.number) ? String(l.number) : ''; }catch(e){ return ''; }
+}
+function quoIsMobile(){
+  var ua=String(navigator.userAgent||'');
+  return /Android|iPhone|iPod/i.test(ua) || (/iPad|Macintosh/i.test(ua) && navigator.maxTouchPoints>1);
+}
+function quoCallHref(telHref){
+  var num=String(telHref||'').replace(/^tel:/i,'').replace(/[^0-9+]/g,'');
+  if(!num || QUOPREF.mode()!=='quo' || !quoIsMobile()) return null;
+  var from=quoCallFrom();
+  return 'openphone://dial?number='+encodeURIComponent(num)+(from?'&from='+encodeURIComponent(from):'')+'&action=call';
+}
+document.addEventListener('click', function(e){
+  var a=e.target && e.target.closest ? e.target.closest('a[href^="tel:"]') : null;
+  if(!a) return;
+  var href=quoCallHref(a.getAttribute('href'));
+  if(!href) return;                      /* desktop, or own-number mode: leave the tel: link alone */
+  e.preventDefault();                    /* any onclick on the link has already run - this is the bubble phase */
+  location.href=href;
+});
+/* The lines are only read when a text window or the settings page opens, so
+   a Call pressed first would have no caller id to pass. Warm them once, on
+   phones only - a computer never uses it - and never at boot. */
+if(typeof window!=='undefined') window.addEventListener('load', function(){
+  setTimeout(function(){ try{ if(quoIsMobile() && QUOPREF.mode()==='quo' && QUOSEND.status()==='idle') QUOSEND.load(); }catch(e){} }, 4000);
+});
 function viewSettings(){
   const st=QUOSEND.status();
   if(st==='idle'){ QUOSEND.load().then(function(){ if(state.view==='settings') render(); }); }
@@ -7824,8 +7872,16 @@ function viewSettings(){
         '<span class="set-num">Opens your phone’s own messaging app with the message filled in</span></span></button>'+
       '<div class="set-cd">Nothing goes through Quo: you press send on your own phone, the caregiver sees your personal number, and the message is <b>not</b> saved in Quo or shown on Communication Logs. One caregiver at a time.</div></div>'+
     '<div class="set-card"><div class="set-ct">Calling</div>'+
-      '<div class="set-cd">A <b>Call</b> button hands the number to this computer’s calling app. To call from an agency line, make the <b>Quo app</b> the default app for phone links on this computer and pick the line there; on a mobile phone it dials from the phone itself. '+
-      'The dashboard cannot start a Quo call by itself — its connection to Quo can read calls and send texts, nothing else.</div></div>'+
+      '<div class="set-cd">'+(own
+        ? 'With <b>Use my own number</b> chosen, a <b>Call</b> button dials from this device’s own phone.'
+        : 'A <b>Call</b> button opens the <b>Quo app</b> with the caregiver’s number ready to dial.')+'</div>'+
+      (own ? '' :
+      '<ul class="set-steps">'+
+        '<li><b>On a phone or tablet</b> the Quo app opens and calls from the line chosen above'+(quoCallFrom()?' ('+escText(ctPhone(quoCallFrom()))+')':'')+'.</li>'+
+        '<li><b>On a computer</b> the Quo desktop app has to be this computer’s default app for phone links. Set it once: Windows Settings › Apps › Default apps › search <b>TEL</b> › choose <b>Quo</b>. The number then loads in Quo’s dialer, where you pick the line and press call.</li>'+
+      '</ul>'+
+      '<div class="set-cd">The call itself is always placed by the Quo app, not by this page: Quo gives a web page no way to start a call directly.</div>')+
+    '</div>'+
   '</div>';
 }
 function ctPhone(e164){
