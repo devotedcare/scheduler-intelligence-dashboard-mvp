@@ -2044,6 +2044,22 @@ body.ai-white .view{flex:1 1 auto;min-height:0;display:flex;flex-direction:colum
   .cal-cell.today .cal-d{display:inline-flex;align-items:center;justify-content:center;flex:none;width:22px;height:22px;padding:0;border-radius:50%;background:#1e40af;color:#fff;line-height:1}
   /* Calendar popup: tick several days on the grid, then hand them to the day panel. */
   /* Needs Update: a missing field is a link to its editor. */
+  .su-find{display:flex;align-items:center;gap:12px;margin:0 0 12px}
+  .su-findin{max-width:340px}
+  .su-findn{font-size:12.5px;color:var(--ink-soft)}
+  .su-miss-sum{font-size:12.5px;color:var(--ink-soft);margin:8px 0 6px}
+  .su-miss-sum b{color:var(--ink)}
+  .su-miss{border:1px solid var(--line-soft);border-radius:var(--r);overflow:hidden}
+  .su-missrow{display:flex;align-items:flex-start;gap:12px;padding:8px 10px;border-top:1px solid var(--line-soft)}
+  .su-missrow:first-child{border-top:none}
+  .su-missk{flex:0 0 150px;font-size:12.5px;font-weight:700;color:var(--ink);padding-top:3px;display:flex;align-items:center;gap:6px}
+  .su-missn{font-size:11px;font-weight:800;min-width:18px;height:18px;border-radius:9px;background:var(--soon-bg);color:var(--soon-tx);display:inline-flex;align-items:center;justify-content:center;padding:0 5px}
+  .su-missf{flex:1;min-width:0;display:flex;flex-wrap:wrap;gap:5px}
+  .su-missnone{font-size:12.5px;color:var(--ink-faint);padding-top:3px}
+  .su-pill{font:inherit;font-size:12px;color:var(--ink-soft);background:var(--panel-head);border:1px solid var(--line);border-radius:999px;padding:2px 9px;cursor:pointer;white-space:nowrap}
+  .su-pill:hover{color:var(--brand);border-color:var(--brand);background:#F2F7FA}
+  .su-missgo{flex:0 0 auto;white-space:nowrap}
+  @media (max-width:760px){ .su-missrow{flex-wrap:wrap} .su-missk{flex-basis:100%} }
   .su-fill{font:inherit;color:var(--brand);background:none;border:none;padding:0;cursor:pointer;text-align:left;text-decoration:underline;text-decoration-color:#B9D0DC;text-underline-offset:2px}
   .su-fill:hover{text-decoration-color:var(--brand)}
   .su-actbtn{font:inherit;font-size:inherit;font-weight:inherit;background:none;border:none;padding:0;cursor:pointer}
@@ -7377,6 +7393,11 @@ const TEXT_TPL_BY_KEY=Object.fromEntries(TEXT_TEMPLATES.map(t=>[t.key,t]));
    greeting at all and is exactly what the desk would be blamed for.
    Caught by the browser test, not by reading. */
 function buildCoverageText(cgId,key,multi){
+  /* A RECORD-STATUS TEXT is not about a shift, so it must not be built from
+     state.coverageQuery - see SU_TEXT_TEMPLATES. Routed here, by key, so
+     every caller (template switch, the 2-to-1 recipient rebuild, the care
+     line reload) gets the right builder without knowing which mode it is in. */
+  if(/^su_/.test(String(key||''))) return suBuildText(cgId,key,multi);
   const c=coverageTextCtx(cgId);
   if(multi) c.cgName='{name}';
   return (TEXT_TPL_BY_KEY[key]||TEXT_TEMPLATES[0]).build(c);
@@ -7419,6 +7440,12 @@ function openCoverageTextFor(ids){
   state.textResults=null;
   state.textErr=null;
   state.textBusy=false;
+  /* Opened from Find Coverage unless suOpenText() says otherwise just before
+     calling. A record-status template left over from the last open must not
+     become the draft for a shift offer. */
+  if(state.textModeNext==='su'){ state.textMode='su'; }
+  else { state.textMode='cov'; if(/^su_/.test(String(state.textTemplate||''))) state.textTemplate='open'; }
+  state.textModeNext=null;
   if(!state.textTemplate) state.textTemplate='open';
   state.textDraft=buildCoverageText(ids[0],state.textTemplate,ids.length>1);
   renderCoverageTextModal(); mbg.classList.add('show');
@@ -7432,6 +7459,41 @@ function openCoverageTextFor(ids){
     });
   }
   ctLoadCare();
+}
+/* TEXTING FROM CAREGIVER RECORD STATUS (Peter, 2026-10-06). The same composer,
+   the same Quo send and the same server-side guards as Find Coverage - only
+   the wording differs, because these messages are about the caregiver's own
+   record and not about a shift.
+
+   NOTHING ABOUT A CLIENT GOES IN THESE. There is no shift here, so there is
+   no client to name, and the builder never reads state.coverageQuery.
+
+   GSM-7 ONLY, like every other outbound template: one curly quote or dash
+   roughly doubles what the message costs. Plain ASCII apostrophes below.
+
+   The keys all start su_ - that prefix is how buildCoverageText() routes
+   here, and it keeps them clear of 'weekend', the one key the care-needs
+   line waits on. */
+const SU_TEXT_TEMPLATES=[
+  {key:'su_profile', label:'Update profile details', build:c=>'Hi '+c.cgName+', this is Devoted Care. We are updating our caregiver records and are missing a few details from you. Could you call or text us back when you have a moment?'+ctCb(c)+' Thank you.'},
+  {key:'su_avail',   label:'Ask for availability',   build:c=>'Hi '+c.cgName+', this is Devoted Care. We do not have your availability for '+c.month+' yet. Could you reply with the days and times you are able to work?'+ctCb(c)+' Thank you.'},
+  {key:'su_checkin', label:'General check-in',       build:c=>'Hi '+c.cgName+', this is Devoted Care checking in. Please call or text us back when you have a moment.'+ctCb(c)+' Thank you.'}
+];
+function suBuildText(cgId,key,multi){
+  const cg=cgById(cgId);
+  const t=SU_TEXT_TEMPLATES.filter(x=>x.key===key)[0]||SU_TEXT_TEMPLATES[0];
+  return t.build({ cgName: multi?'{name}':(cg?cg.name.split(' ')[0]:'there'),
+    month: state.textSuMonth||NOW.toLocaleDateString('en-US',{month:'long'}), phone: SCHED_PHONE });
+}
+function suOpenText(id, ym){
+  const c=cgById(id); if(!c) return;
+  /* The month the list is about, by name, for the availability wording. */
+  let mon='';
+  if(ym){ const m=/^(\d{4})-(\d{2})$/.exec(ym); if(m) mon=new Date(+m[1], +m[2]-1, 1).toLocaleDateString('en-US',{month:'long'}); }
+  state.textSuMonth=mon||null;
+  state.textTemplate=ym?'su_avail':'su_profile';
+  state.textModeNext='su';
+  openCoverageTextFor([id]);
 }
 function textRecips(){ return (state.textIds||[]).map(id=>cgById(id)).filter(Boolean); }
 function setTextTemplate(k){ const ids=state.textIds||[]; state.textTemplate=k; state.textDraft=buildCoverageText(ids[0],k,ids.length>1); renderCoverageTextModal(); ctLoadCare(); }
@@ -7475,6 +7537,7 @@ function ctLoadCare(){
 /* What the draft looked like BEFORE the care line arrived - the comparison
    that tells an untouched draft from an edited one. */
 function buildCoverageTextWithout(cgId,key,multi){
+  if(/^su_/.test(String(key||''))) return suBuildText(cgId,key,multi);
   const c=coverageTextCtx(cgId);
   if(multi) c.cgName='{name}';
   c.careLine=null;
@@ -7668,7 +7731,7 @@ function renderCoverageTextModal(){
   }
 
   /* ---- compose / sending ---- */
-  const chips=TEXT_TEMPLATES.map(t=>'<button class="ctpl '+(state.textTemplate===t.key?'on':'')+'" onclick="setTextTemplate(\''+t.key+'\')">'+escText(t.label)+'</button>').join('');
+  const chips=(state.textMode==='su'?SU_TEXT_TEMPLATES:TEXT_TEMPLATES).map(t=>'<button class="ctpl '+(state.textTemplate===t.key?'on':'')+'" onclick="setTextTemplate(\''+t.key+'\')">'+escText(t.label)+'</button>').join('');
   const msg=state.textDraft||'';
   const ready=QUOSEND.status()==='ready';
   const sending=state.textPhase==='sending';
@@ -20809,8 +20872,17 @@ function suCallBtn(c){
   if(digits.length<10) return '<span class="su-nophone">No phone on file</span>';
   return '<a class="btn sm pri su-callbtn" href="tel:'+digits+'" title="Call '+esc(c.name)+'">'+ic('phone',12)+' Call \u00b7 '+escText(raw)+'</a>';
 }
+/* TEXT, beside Call. Offered only to somebody with a number that can be
+   texted - the same rule as Call: a button that cannot do the thing is a
+   promise the screen does not keep. */
+function suTextBtn(c, ym){
+  const digits=String(c && c.phone || '').replace(/[^0-9]/g,'');
+  if(digits.length<10) return '';
+  return '<button type="button" class="btn sm su-textbtn" title="Text '+esc(c.name)+' from an agency line" onclick="suOpenText(\''+c.id+'\''+(ym?',\''+ym+'\'':'')+')">'+ic('send',12)+' Text</button>';
+}
 function suCardBtns(c, ym){
   return '<span class="su-btns">'+suCallBtn(c)+
+    suTextBtn(c, ym)+
     '<button type="button" class="btn sm su-calbtn" onclick="suOpenCal(\''+c.id+'\''+(ym?',\''+ym+'\'':'')+')">'+ic('calendar',12)+' View calendar</button></span>';
 }
 /* WHO HAS NO SCHEDULE IN A MONTH THE SCHEDULER PICKS (Peter, 2026-10-06).
@@ -20992,6 +21064,44 @@ function suFill(id, label){
   state.cgReturn=null; state.cgOpen=id; state.cgCalMonth=0; state.cgTab='profile'; state.cbDel=null; state.view='avail';
   render(); window.scrollTo(0,0);
 }
+function suFilter(v){ state.suQ=String(v||''); suFilterApply(); }
+function suFilterApply(){
+  const q=String(state.suQ||'').trim().toLowerCase();
+  const cards=[].slice.call(document.querySelectorAll('.su-list .su-card[data-find]'));
+  if(!cards.length) return;
+  let shown=0;
+  cards.forEach(function(el){ const hit=!q || el.getAttribute('data-find').indexOf(q)>=0; el.style.display=hit?'':'none'; if(hit) shown++; });
+  const n=document.getElementById('suFindN');
+  if(n) n.textContent=q ? (shown+' of '+cards.length+' shown') : (cards.length+' caregiver'+(cards.length===1?'':'s'));
+}
+/* THE MISSING FIELDS, GROUPED BY WHERE THEY ARE FILLED IN (Peter, 2026-10-06).
+   It was one bullet per field - up to nineteen lines a caregiver - and a new
+   caregiver with nothing recorded is the common case, so a roster of them
+   was a wall. Now one row per editor: its name, how many fields it is
+   missing, the fields as small pills, and one button that opens it. Three or
+   four rows where there were nineteen.
+
+   Each pill is still its own link (suFill by INDEX into this caregiver's
+   missing list - see suFill for why not the label), so nothing that worked
+   on the long list stopped working. */
+function suMissingHtml(c, lines){
+  const ORDER=['prefs','skills','experience','profile'];
+  const NAME={prefs:'Work Preferences', skills:'Skills', experience:'Experience', profile:'Profile'};
+  const groups={};
+  lines.forEach(function(l,i){ const k=suFillKind(l); (groups[k]=groups[k]||[]).push({l:l,i:i}); });
+  const total=CG_REQUIRED.length;
+  const head='<div class="su-miss-sum"><b>'+lines.length+'</b> of '+total+' profile fields missing</div>';
+  return head+'<div class="su-miss">'+ORDER.filter(function(k){ return groups[k]; }).map(function(k){
+    const g=groups[k], first=g[0].i;
+    const one=(k==='skills'||k==='experience');
+    return '<div class="su-missrow">'+
+      '<div class="su-missk">'+NAME[k]+(one?'':'<span class="su-missn">'+g.length+'</span>')+'</div>'+
+      '<div class="su-missf">'+(one ? '<span class="su-missnone">Nothing recorded</span>'
+        : g.map(function(x){ return '<button type="button" class="su-pill" title="'+esc(suFillTip(x.l))+'" onclick="suFill(\''+c.id+'\','+x.i+')">'+escText(x.l)+'</button>'; }).join(''))+'</div>'+
+      '<button type="button" class="btn sm su-missgo" onclick="suFill(\''+c.id+'\','+first+')">'+(k==='profile'?'Open profile':'Fill in')+' \u203a</button>'+
+    '</div>';
+  }).join('')+'</div>';
+}
 function suNeedsHTML(needs){
   if(state.suMonth){ const body=suNoSchedHTML(state.suMonth); if(state.suMonth) return suMonthBar()+body; }
   /* Say when a check could not run. Silently dropping the availability
@@ -21028,8 +21138,16 @@ function suNeedsHTML(needs){
   }catch(e){}
   if(!needs.length) return suMonthBar()+note+emptyState('Nothing needs attention',
     'Every active caregiver has their profile fields, availability and cadence up to date.');
-  return suMonthBar()+note+'<div class="su-list">'+needs.map(function(n){
-    return '<div class="su-card">'+
+  /* FIND ONE CAREGIVER IN A LONG LIST. Filters the cards already on the
+     page by hiding them - it does NOT re-render, so the box keeps its focus
+     and its text through the 20-second poll's repaint of everything else is
+     re-applied by suFilterApply() below. Per browser, never a CLOUD slice. */
+  const q=String(state.suQ||'');
+  const find='<div class="su-find"><input class="ein su-findin" type="search" placeholder="Find a caregiver by name or city" value="'+esc(q)+'" oninput="suFilter(this.value)" aria-label="Find a caregiver">'+
+    '<span class="su-findn" id="suFindN">'+needs.length+' caregiver'+(needs.length===1?'':'s')+'</span></div>';
+  setTimeout(suFilterApply, 0);
+  return suMonthBar()+note+find+'<div class="su-list">'+needs.map(function(n){
+    return '<div class="su-card" data-find="'+esc((n.c.name+' '+(n.c.base||'')).toLowerCase())+'">'+
       '<div class="su-card-h">'+
         '<button class="su-name" onclick="openCaregiver(\''+n.c.id+'\')">'+esc(n.c.name)+'</button>'+
         (n.c.base?'<span class="su-when">'+esc(n.c.base)+'</span>':'')+
@@ -21044,11 +21162,9 @@ function suNeedsHTML(needs){
           /* A MISSING PROFILE FIELD IS A LINK TO WHERE IT IS FILLED IN (Peter,
              2026-10-06). Only the profile item: the availability and cadence
              items have their own buttons on the card. */
-          '<ul class="su-changes">'+it.lines.map(function(l){
-            return it.head==='Missing profile information'
-              ? '<li><button type="button" class="su-fill" title="'+esc(suFillTip(l))+'" onclick="suFill(\''+n.c.id+'\','+it.lines.indexOf(l)+')">'+escText(l)+'</button></li>'
-              : '<li>'+esc(l)+'</li>';
-          }).join('')+'</ul>'+
+          (it.head==='Missing profile information'
+            ? suMissingHtml(n.c, it.lines)
+            : '<ul class="su-changes">'+it.lines.map(function(l){ return '<li>'+esc(l)+'</li>'; }).join('')+'</ul>')+
         '</div>';
       }).join('')+
     '</div>';
