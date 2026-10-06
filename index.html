@@ -2379,9 +2379,14 @@ body.ai-white .view{flex:1 1 auto;min-height:0;display:flex;flex-direction:colum
 .su-card-h .su-btns{margin-left:auto;display:inline-flex;align-items:center;gap:7px;flex-wrap:wrap;align-self:center}
 .su-btns .btn{display:inline-flex;align-items:center;gap:5px;text-decoration:none;white-space:nowrap}
 .su-nophone{font-size:12px;color:var(--ink-faint)}
-.su-bar{display:flex;align-items:center;gap:9px;margin:0 0 12px}
-.su-bar label{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-faint)}
-.su-bar select.su-monthsel{width:auto;min-width:290px;max-width:100%}
+.su-bar{display:flex;align-items:center;gap:10px 16px;flex-wrap:wrap;margin:0 0 12px}
+.su-step{display:inline-flex;align-items:center;gap:6px}
+.su-steplab{min-width:150px;text-align:center;font-size:15px;font-weight:800;color:var(--ink);font-variant-numeric:tabular-nums}
+.su-step .cal-nav:disabled{opacity:.4;cursor:default}
+.su-quicks{display:inline-flex;gap:6px}
+.su-quick{font-family:inherit;font-size:12.5px;font-weight:650;color:var(--ink-soft);background:#fff;border:1px solid var(--line-strong);border-radius:999px;padding:5px 12px;cursor:pointer}
+.su-quick:hover{border-color:var(--brand);color:var(--brand)}
+.su-quick.on{background:var(--panel-head);border-color:var(--line);color:var(--ink-faint);cursor:default}
 .su-count{font-size:13px;color:var(--ink-soft);margin:0 2px 10px}
 .su-by{font-size:12.5px;color:var(--ink-soft);margin-top:2px}
 /* Availability Cadence page: one row per caregiver with no cadence set. */
@@ -20753,16 +20758,61 @@ function suMonthOpts(){
   return out;
 }
 function suSetMonth(v){ state.suMonth = suMonthOpts().some(o=>o.ym===v) ? v : ''; render(); }
+/* THE PICKER, REDRAWN 2026-10-06 (Peter). It was one dropdown of fourteen
+   rows, thirteen of them the same four words with a different month on the
+   end - a list to read rather than a control to use. It is two things, and
+   now looks like two things:
+     - WHICH LIST: a two-way switch, the same segmented control the
+       Caregivers page uses for Active / Inactive.
+     - WHICH MONTH: the caregiver calendar's own arrows either side of the
+       month, with one-click This month / Next month, shown only when the
+       month list is the one on screen.
+   Turning the month list on starts at the current month. */
+function suMonthStep(d){
+  const opts=suMonthOpts(), i=opts.findIndex(o=>o.ym===state.suMonth);
+  if(i<0) return;
+  const n=opts[i+d]; if(n) suSetMonth(n.ym);
+}
 function suMonthBar(){
-  const cur=state.suMonth||'';
-  return '<div class="su-bar"><label for="su-month">Show</label><select id="su-month" class="ein su-monthsel" onchange="suSetMonth(this.value)">'+
-    '<option value="">Everything that needs updating</option>'+
-    suMonthOpts().map(o=>'<option value="'+o.ym+'"'+(cur===o.ym?' selected':'')+'>No schedule in '+escText(o.label)+(o.off===0?' (this month)':'')+'</option>').join('')+
-    '</select></div>';
+  const opts=suMonthOpts(), cur=state.suMonth||'', i=opts.findIndex(o=>o.ym===cur);
+  const thisYm=(opts.find(o=>o.off===0)||{}).ym, nextYm=(opts.find(o=>o.off===1)||{}).ym;
+  const seg='<div class="cgf-seg su-seg" role="group" aria-label="Which list to show">'+
+    '<button type="button" class="cgf-segb'+(cur?'':' on')+'" aria-pressed="'+(!cur)+'" onclick="suSetMonth(\'\')">Needs updating</button>'+
+    '<button type="button" class="cgf-segb'+(cur?' on':'')+'" aria-pressed="'+(!!cur)+'" onclick="suSetMonth(\''+(cur||thisYm)+'\')">No schedule by month</button></div>';
+  if(!cur || i<0) return '<div class="su-bar">'+seg+'</div>';
+  const quick=(ym,label)=>'<button type="button" class="su-quick'+(cur===ym?' on':'')+'" onclick="suSetMonth(\''+ym+'\')">'+label+'</button>';
+  return '<div class="su-bar">'+seg+
+    '<div class="su-step" role="group" aria-label="Month">'+
+      '<button type="button" class="cal-nav" aria-label="Previous month" '+(i<=0?'disabled':'')+' onclick="suMonthStep(-1)">'+ic('chevL',16)+'</button>'+
+      '<div class="su-steplab" aria-live="polite">'+escText(opts[i].label)+'</div>'+
+      '<button type="button" class="cal-nav" aria-label="Next month" '+(i>=opts.length-1?'disabled':'')+' onclick="suMonthStep(1)">'+ic('chev',16)+'</button>'+
+    '</div>'+
+    '<div class="su-quicks">'+quick(thisYm,'This month')+quick(nextYm,'Next month')+'</div>'+
+  '</div>';
+}
+/* THE MONTH ARROWS MUST NOT START A READ PER CLICK. A month of AxisCare
+   visits is about ten requests; stepping from October to March would have
+   opened five of those pulls at once, which is exactly the burst AxisCare
+   answers with 429 on every request, account-wide. So the read waits 400ms
+   and is made only for the month the scheduler stopped on - the same
+   debounce CNSUM.soon() and CNSHIFT.soon() carry for the care-note day
+   arrows. Asked for once per month: `suMonthWant` stops a render (every save
+   and every 20-second poll) from restarting the timer. */
+let suMonthT=null, suMonthWant=null;
+function suMonthSoon(ym){
+  if(CGMONTH.status(ym)!=='idle' && MONTHAV.status(ym)!=='idle') return;
+  if(suMonthWant===ym) return;
+  suMonthWant=ym; clearTimeout(suMonthT);
+  suMonthT=setTimeout(function(){
+    suMonthWant=null;
+    if(state.suMonth!==ym || state.view!=='schedupdates') return;
+    CGMONTH.load(ym); MONTHAV.load(ym);
+    try{ render(); }catch(e){}
+  }, 400);
 }
 function suNoSchedHTML(ym){
   const opt=suMonthOpts().find(o=>o.ym===ym); if(!opt){ state.suMonth=''; return ''; }
-  CGMONTH.load(ym); MONTHAV.load(ym);                 /* both guarded: one read each per month */
+  suMonthSoon(ym);                                    /* one read each per month, for the month LANDED on */
   const vs=CGMONTH.status(ym), as=MONTHAV.status(ym), mon=escText(opt.label);
   if(rosterLoading()) return loadingState('Loading caregivers\u2026','The list appears once the roster has loaded.');
   const failed=(st)=>st==='error'||st==='unconfigured';
