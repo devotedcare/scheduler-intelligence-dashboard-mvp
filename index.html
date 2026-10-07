@@ -7923,39 +7923,39 @@ function quoCallHref(telHref){
   var from=quoCallFrom();
   return 'openphone://dial?number='+encodeURIComponent(num)+(from?'&from='+encodeURIComponent(from):'')+'&action=call';
 }
-/* A HAPPY-CLICK GUARD ON EVERY CALL BUTTON IN THE APP (Peter, 2026-10-07).
-   This listener already touches every tel: link site-wide - the one funnel
-   point CLAUDE.md's "seven lists" lesson says to prefer over editing a dozen
-   call sites by hand - so the confirm goes here too, rather than on each
-   button. ALWAYS preventDefault now, even on a desktop click that used to
-   fall through to the native tel: handler untouched: control has to pass
-   through the confirm before anything happens, not just before the parts
-   this file adds on top. A cancelled confirm leaves the page exactly as it
-   was - no copy, no redirect, nothing dialled. */
+/* NO CONFIRM ON CALL (Peter, 2026-10-07, reversed same day). A happy-click
+   guard was added here and then taken back off: on a computer this click
+   never places a real call - Quo's own API has no endpoint that can, so the
+   button only copies the number for pasting into Quo - and confirming an
+   action with no real consequence is just an extra click on every single
+   row. Text keeps its confirm (openCoverageText, openCoverageTextSel,
+   suOpenText) because Send there is a real, billed, irreversible message.
+
+   ONE CASE STILL DIALS FOR REAL: a phone or tablet with the Quo app
+   installed gets the openphone:// deep link below and auto-dials
+   immediately, no confirm, same as tapping a contact in any phone app. That
+   is accepted here as consistent with how calling behaves everywhere else on
+   a phone, not as an oversight - if it ever needs a guard back, this is
+   where it was. */
 document.addEventListener('click', function(e){
   var a=e.target && e.target.closest ? e.target.closest('a[href^="tel:"]') : null;
   if(!a) return;
-  e.preventDefault();
-  var raw=a.getAttribute('href')||'';
-  var num=String(raw).replace(/^tel:/i,'');
-  /* Most Call buttons carry no name in the DOM at all, only the number in
-     their own visible text - so title="Call <name>" is read where a button
-     happens to set it (suCallBtn does), and the number stands in everywhere
-     else. Either way the scheduler sees who or what they are about to call. */
-  var titleM=/^Call\s+(.+)$/i.exec(a.getAttribute('title')||'');
-  var who=titleM?titleM[1]:num;
-  if(!window.confirm('Call '+who+'?')) return;
-  var href=quoCallHref(raw);
-  /* COPY, UNLESS THE DEEP LINK IS ABOUT TO AUTO-DIAL. Quo's own docs say a
-     browser cannot be made a default calling app at all, so when the desk
-     works from Quo's WEBSITE in a tab, nothing this page can send reaches
-     it - copying the number so it can be pasted into Quo is the one real
-     thing left to do. Skipped only when the mobile deep link below is about
-     to fire for real, where a "paste it into Quo" toast would be confusing.
-     A failed clipboard write (insecure context, denied permission) fails
-     silently - the call still goes ahead either way. */
+  var num=String(a.getAttribute('href')||'').replace(/^tel:/i,'');
+  var href=quoCallHref(a.getAttribute('href'));
+  /* COPY, UNLESS THE DEEP LINK IS ABOUT TO AUTO-DIAL. That only fires on a
+     phone/tablet with the Quo app installed, where the number is about to
+     be dialled for real and a "paste it into Quo" toast would be confusing.
+     Everywhere else - which is this desk's real case, Quo's WEBSITE in a
+     browser tab - copying the number is the one thing this page can
+     actually do to help: Quo's own docs say a browser cannot be made a
+     default calling app, so there is no link or API call that reaches a
+     Quo tab from outside it. A failed clipboard write (an insecure context,
+     a denied permission) fails silently - the tel: link underneath still
+     does whatever it always did either way. */
   if(!href){ try{ navigator.clipboard.writeText(num).then(function(){ toast('Number copied — paste it into Quo'); }); }catch(e2){} }
-  location.href=href||raw;
+  if(!href) return;                      /* desktop, or own-number mode: leave the tel: link alone */
+  e.preventDefault();                    /* any onclick on the link has already run - this is the bubble phase */
+  location.href=href;
 });
 /* The lines are only read when a text window or the settings page opens, so
    a Call pressed first would have no caller id to pass. Warm them once, on
