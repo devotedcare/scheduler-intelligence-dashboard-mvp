@@ -4760,7 +4760,10 @@ const NAVGROUPS=[
   {link:{id:'avail', label:'Caregivers'}},
   {link:{id:'schedupdates', label:'Caregiver Record Status'}},
   {link:{id:'resumes', label:'Resume Builder'}},
-  {link:{id:'cadence', label:'Availability Cadence'}},
+  /* NOT a separate nav entry - Availability Cadence lives INSIDE Caregiver
+     Record Status as its "No Cadence" tab (Mitch's call, 2026-10-06). A
+     merge conflict resolution had briefly reintroduced this standalone
+     link; viewCadence() still redirects into the tab either way. */
 
   {section:'Operations'},
   {link:{id:'tasks', label:'Weekly Tasks'}},
