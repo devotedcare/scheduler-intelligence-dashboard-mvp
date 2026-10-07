@@ -879,7 +879,9 @@
   .rz-cgdrop button{display:flex;justify-content:space-between;gap:10px;width:100%;text-align:left;font:inherit;font-size:13px;color:var(--ink);background:none;border:none;border-top:1px solid var(--line-soft);padding:7px 10px;cursor:pointer}
   .rz-cgdrop button:first-child{border-top:none}
   .rz-cgdrop button:hover{background:#F2F7FA;color:var(--brand)}
-  .rz-cgdrop-city{color:var(--ink-faint);font-size:12px;flex:0 0 auto}
+  .rz-cgdrop-meta{display:flex;align-items:center;gap:8px;flex:0 0 auto}
+  .rz-cgdrop-city{color:var(--ink-faint);font-size:12px}
+  .rz-cgdrop-has{display:flex;align-items:center;gap:3px;color:var(--good-tx);font-size:11.5px;white-space:nowrap}
   .rz-cgdrop-empty{padding:10px;font-size:12.5px;color:var(--ink-faint)}
 
   .rz-list{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
@@ -18399,7 +18401,24 @@ function resumeLinesField(label, field, hint){
 function resumeCgSearchOpen(){ state.resumeCgOpen=true; render(); }
 function resumeCgSearchInput(v){ state.resumeCgQ=v; state.resumeCgOpen=true; render(); }
 function resumeCgSearchClose(){ if(state.resumeCgOpen){ state.resumeCgOpen=false; render(); } }
-function resumeCgSearchPick(cgId){ state.resumeCgQ=''; state.resumeCgOpen=false; resumeOpenFromCg(cgId); }
+/* resumeForCg() answers "does this caregiver already have a resume on file"
+   - a caregiver can in principle have more than one (nothing here enforces
+   one-per-person), so this is the MOST RECENTLY UPDATED one, matching the
+   library's own sort order. Used both to show the badge below and to stop
+   the picker quietly creating a second draft for someone who already has one. */
+function resumeForCg(cgId){
+  const hits=(state.resumes||[]).filter(r=>r.cgId===cgId);
+  if(!hits.length) return null;
+  return hits.slice().sort((a,b)=>new Date(b.updatedAt)-new Date(a.updatedAt))[0];
+}
+function resumeCgSearchPick(cgId){
+  state.resumeCgQ=''; state.resumeCgOpen=false;
+  const existing=resumeForCg(cgId);
+  /* Open the one already on file rather than seeding a fresh draft from the
+     AxisCare tags again - the scheduler just saw "Resume on file" in the
+     dropdown, so picking the name means "go to it", not "start another". */
+  if(existing) resumeOpenEdit(existing.id); else resumeOpenFromCg(cgId);
+}
 function resumeCgMatches(){
   const q=String(state.resumeCgQ||'').trim().toLowerCase();
   const active=(state.caregivers||[]).filter(c=>c.active!==false);
@@ -18413,7 +18432,11 @@ function resumeCgSearchHtml(){
   if(open){
     const matches=resumeCgMatches().slice(0,60);
     list = matches.length
-      ? matches.map(c=>`<button type="button" onmousedown="event.preventDefault()" onclick="resumeCgSearchPick('${c.id}')"><span>${escText(c.name)}</span>${c.base?`<span class="rz-cgdrop-city">${escText(c.base)}</span>`:''}</button>`).join('')
+      ? matches.map(c=>{
+          const ex=resumeForCg(c.id);
+          const tag=ex?`<span class="rz-cgdrop-has">${ic('check',11)} Resume updated ${escText(new Date(ex.updatedAt).toLocaleDateString('en-US',{month:'short',day:'numeric'}))}</span>`:'';
+          return `<button type="button" onmousedown="event.preventDefault()" onclick="resumeCgSearchPick('${c.id}')"><span>${escText(c.name)}</span><span class="rz-cgdrop-meta">${c.base?`<span class="rz-cgdrop-city">${escText(c.base)}</span>`:''}${tag}</span></button>`;
+        }).join('')
       : `<div class="rz-cgdrop-empty">No caregiver matches "${escText(q)}"</div>`;
   }
   return `<div class="rz-cgsearch">
