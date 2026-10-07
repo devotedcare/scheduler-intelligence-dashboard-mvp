@@ -7671,6 +7671,7 @@ function openCoverageTextFor(ids){
   state.textResults=null;
   state.textErr=null;
   state.textBusy=false;
+  state.textAiErr=null; state.textAiBusy=false; state.textAiGenerated=false;
   /* Opened from Find Coverage unless suOpenText() says otherwise just before
      calling. A record-status template left over from the last open must not
      become the draft for a shift offer. */
@@ -8031,6 +8032,88 @@ function ctHeadline(cgs){
 /* The line picker, the sender picker, and the sentence that says what the
    caregiver will actually see. Four states, because "still loading" and
    "Quo would not answer" must not both render as an empty dropdown. */
+/* =========================================================
+   AI-WRITTEN SHIFT TEXTS — a prompt in, the message box filled, regenerate
+   as many times as needed (Peter, 2026-10-07)
+   ---------------------------------------------------------
+   A near-clone of Resume Builder's "Ask AI" (ResumeAI), POSTing to its own
+   Edge Function, text-assist, so a problem in one can never take the other
+   down. Two differences that matter:
+
+     · GROUNDED IN THE SHIFT, not a free prompt. The function is handed the
+       same facts buildCoverageText() already uses - client, city, date,
+       times, requirements, the care-needs line if this is a weekend offer -
+       and is told to use ONLY those. A scheduler asking for "a weekend offer
+       for Maria next Tuesday" cannot make the model invent a date; it has to
+       come from the actual shift this composer was opened for.
+     · NEVER LOSES THE {name} TOKEN. A multi-recipient draft carries the
+       literal {name} for the server to fill in per caregiver (see
+       buildCoverageText's own header) - rewriting it away would greet every
+       recipient by the first name on the sheet, exactly the bug that
+       existed in the Quo review before this app shipped. The instruction
+       the model receives says so explicitly, and the browser also checks
+       the token survived before accepting the model's text.
+
+   ALWAYS REGENERATE-ABLE: nothing here locks after one generation. The
+   button reads "Regenerate" once a message exists, and clicking it again -
+   same prompt or a new one - asks again and replaces the draft once more.
+   The scheduler's own edits in the box are never silently kept across a
+   regenerate; if they typed over the draft by hand, state.textDraft already
+   reads their words either way, so "regenerate" always rewrites from the
+   shift facts and the prompt, not from whatever is sitting in the box. */
+var TextAI=(function(){
+  function fnUrl(){ var u=(window.SCHEDULER_CONFIG||{}).supabaseUrl; return u?String(u).replace(/\/+$/,'')+'/functions/v1/text-assist':''; }
+  function ask(context, prompt){
+    var base=fnUrl();
+    if(!base) return Promise.reject(new Error('This copy of the dashboard has no Supabase URL, so AI assistance is unavailable.'));
+    return fetch(base, { method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'}, body:JSON.stringify({context:context, prompt:prompt}) })
+      .then(function(r){ return r.json().catch(function(){ return null; }).then(function(b){
+        if(r.status===404){ var ours=b&&b.ok===false&&b.error; if(!ours) throw new Error('The text-assist function is not deployed. Committing does not deploy it — it needs: npx supabase functions deploy text-assist --no-verify-jwt'); }
+        if(!r.ok) throw new Error((b&&(b.error||b.message))||('HTTP '+r.status));
+        return String((b||{}).message||'');
+      }); });
+  }
+  return { ask:ask };
+})();
+function ctAiGenerate(){
+  const ta=document.getElementById('ctAiPrompt'); const prompt=(ta&&ta.value||'').trim();
+  if(!prompt){ toast('Say what the message should do or say first'); return; }
+  const ids=state.textIds||[]; if(!ids.length) return;
+  const multi=ids.length>1;
+  const ctx=Object.assign({multi:multi, template:state.textTemplate}, coverageTextCtx(ids[0]));
+  state.textAiBusy=true; state.textAiErr=null; renderCoverageTextModal();
+  TextAI.ask(ctx, prompt).then(function(message){
+    state.textAiBusy=false;
+    /* THE ONE THING THAT MUST SURVIVE. Rather than trust the model, check:
+       a multi-recipient message with no {name} left in it is rejected here,
+       in the browser, and reported as an error rather than silently sent -
+       the same "never trust, verify" the rest of this file applies to a
+       model's output. */
+    if(multi && message.indexOf('{name}')<0){
+      state.textAiErr='The AI’s draft dropped the {name} placeholder this needs for several recipients — try again, or edit the message by hand.';
+      renderCoverageTextModal(); return;
+    }
+    state.textDraft=message;
+    state.textAiGenerated=true;
+    if(ta) ta.value='';
+    renderCoverageTextModal();
+    const box=document.getElementById('covTextArea'); if(box) ctCount();
+  }).catch(function(e){
+    state.textAiBusy=false; state.textAiErr=(e&&e.message)||'Could not reach the AI assistant.';
+    renderCoverageTextModal();
+  });
+}
+function ctAiBar(){
+  const busy=!!state.textAiBusy, regen=!!state.textAiGenerated;
+  return `<div class="rz-ai">
+    <div class="rz-ai-h">${ic('spark',14)} Write this message with AI</div>
+    <div class="rz-ai-sub">Describe the tone or what to add — "make it sound urgent", "mention this is a 12-hour overnight", "keep it under three sentences". Grounded in this shift’s own client, date, time and requirements — it cannot invent new ones. Nothing is sent until you click ${ic('send',11)} Send.</div>
+    <div class="rz-ai-row"><textarea id="ctAiPrompt" class="ein" rows="2" placeholder="What should this message say or sound like?" ${busy?'disabled':''}></textarea>
+      <button class="btn pri" onclick="ctAiGenerate()" ${busy?'disabled':''}>${busy?'<span class="cs-spin"></span> Writing…':ic('spark',13)+' '+(regen?'Regenerate':'Generate')}</button></div>
+    ${state.textAiErr?`<div class="ct-err">${ic('alerts',13)} ${escText(state.textAiErr)}</div>`:''}
+    ${regen&&!busy&&!state.textAiErr?`<div class="rz-atthint">Written by AI — edit the message below, or describe a change above and click Regenerate.</div>`:''}
+  </div>`;
+}
 function ctSendBar(){
   const st=QUOSEND.status();
   if(st==='idle'||st==='loading')
@@ -8184,6 +8267,7 @@ function renderCoverageTextModal(){
         (cgs.length>1?'. <b>Own-number texting is one caregiver at a time</b> — remove the others, or switch to an agency line in Settings':'')+
         '. <a class="ai-cg" onclick="closeModal();go(\'settings\')">Change</a></span></div>'
       : ctSendBar())+
+    ctAiBar()+
     '<div class="ct-label">Message</div>'+
     /* The count sits INSIDE the box, bottom-left. Bottom-right is the
        conventional corner and it is taken: the textarea is resize:vertical
