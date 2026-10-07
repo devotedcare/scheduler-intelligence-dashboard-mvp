@@ -7915,7 +7915,17 @@ function quoCallHref(telHref){
 document.addEventListener('click', function(e){
   var a=e.target && e.target.closest ? e.target.closest('a[href^="tel:"]') : null;
   if(!a) return;
+  var num=String(a.getAttribute('href')||'').replace(/^tel:/i,'');
   var href=quoCallHref(a.getAttribute('href'));
+  /* COPY, UNLESS THE DEEP LINK IS ABOUT TO AUTO-DIAL (Peter, 2026-10-07).
+     Quo's own docs say a browser cannot be made a default calling app at
+     all, so when the desk works from Quo's WEBSITE in a tab, nothing this
+     page can send reaches it - copying the number so it can be pasted into
+     Quo is the one real thing left to do. Skipped only when the mobile deep
+     link below is about to fire for real, where a "paste it into Quo" toast
+     would be confusing. A failed clipboard write (insecure context, denied
+     permission) fails silently - the tel: link underneath is unaffected. */
+  if(!href){ try{ navigator.clipboard.writeText(num).then(function(){ toast('Number copied — paste it into Quo'); }); }catch(e2){} }
   if(!href) return;                      /* desktop, or own-number mode: leave the tel: link alone */
   e.preventDefault();                    /* any onclick on the link has already run - this is the bubble phase */
   location.href=href;
@@ -7964,15 +7974,17 @@ function viewSettings(){
         '<span class="set-num">Opens your phone’s own messaging app with the message filled in</span></span></button>'+
       '<div class="set-cd">Nothing goes through Quo: you press send on your own phone, the caregiver sees your personal number, and the message is <b>not</b> saved in Quo or shown on Communication Logs. One caregiver at a time.</div></div>'+
     '<div class="set-card"><div class="set-ct">Calling</div>'+
-      '<div class="set-cd">'+(own
-        ? 'With <b>Use my own number</b> chosen, a <b>Call</b> button dials from this device’s own phone.'
-        : 'A <b>Call</b> button opens the <b>Quo app</b> with the caregiver’s number ready to dial.')+'</div>'+
-      (own ? '' :
+      (own
+        ? '<div class="set-cd">With <b>Use my own number</b> chosen, a <b>Call</b> button dials from this device’s own phone.</div>'
+        : '<div class="set-cd">If this desk calls from <b>Quo’s website</b> in a browser tab, a <b>Call</b> button cannot open or dial into it — '+
+          'Quo says so itself: a web browser cannot be made a default calling app the way a phone or a desktop app can, so there is no link this '+
+          'page can send that reaches a Quo tab from outside it. What it does instead: clicking <b>Call</b> copies the number, ready to paste into '+
+          'Quo’s own dialer or search box.</div>'+
       '<ul class="set-steps">'+
-        '<li><b>On a phone or tablet</b> the Quo app opens and calls from the line chosen above'+(quoCallFrom()?' ('+escText(ctPhone(quoCallFrom()))+')':'')+'.</li>'+
-        '<li><b>On a computer</b> the Quo desktop app has to be this computer’s default app for phone links. Set it once: Windows Settings › Apps › Default apps › search <b>TEL</b> › choose <b>Quo</b>. The number then loads in Quo’s dialer, where you pick the line and press call.</li>'+
-      '</ul>'+
-      '<div class="set-cd">The call itself is always placed by the Quo app, not by this page: Quo gives a web page no way to start a call directly.</div>')+
+        '<li><b>Using Quo’s website</b> (most schedulers): click Call, switch to the Quo tab, and paste — the number is already on the clipboard.</li>'+
+        '<li><b>On a phone or tablet with the Quo app installed</b> Call opens Quo directly and dials from the line chosen above'+(quoCallFrom()?' ('+escText(ctPhone(quoCallFrom()))+')':'')+' — no copy-paste needed there.</li>'+
+        '<li><b>If anyone instead has the Quo desktop app</b>, Windows Settings › Apps › Default apps › search <b>TEL</b> › choose Quo makes Call open it with the number ready.</li>'+
+      '</ul>')+
     '</div>'+
   '</div>';
 }
