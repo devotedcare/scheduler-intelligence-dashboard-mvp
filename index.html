@@ -886,6 +886,8 @@
   .rz-fhint{font-size:11.5px;color:var(--ink-faint);margin-top:-2px}
   .rz-addrow{display:flex;gap:6px;margin-top:4px}
   .rz-addrow input{flex:1}
+  .rz-photorow{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .rz-photorow input{flex:1;min-width:160px}
   .rz-editfoot{display:flex;align-items:center;gap:8px;margin-top:4px;padding-top:12px;border-top:1px solid var(--line-soft)}
   .rz-preview-pane{flex:1;min-width:0;position:sticky;top:14px}
   .rz-previewlabel{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-faint);margin-bottom:8px}
@@ -16794,6 +16796,86 @@ function resumeAddCustom(field,el){
   if(a.indexOf(v)<0) a.push(v);
   el.value=''; renderResumeEditor();
 }
+/* ---------- THE PHOTO FIELD — two different buttons, because there are two
+   genuinely different places the bytes can go (Peter, 2026-10-07) ----------
+
+   LINKED to a caregiver (d.cgId set): "Upload" reuses CGPHOTO.pick() — the
+   SAME upload this caregiver's own profile page already offers, into the
+   SAME public bucket, keyed by their AxisCare id. There is no second photo
+   to manage: uploading here replaces their one real photo, and every other
+   screen that shows it (their profile, Find Coverage, …) picks up the same
+   change. That also means there is nothing new to approve — CGPHOTO's rules
+   in CLAUDE.md already cover this upload end to end.
+
+   NOT linked (a blank resume — e.g. a new applicant with no AxisCare id
+   yet): there is no caregiver record to attach a photo to, and inventing a
+   second Supabase Storage bucket for that is a real architecture decision
+   (what bucket, what key, who can write it) that CLAUDE.md reserves for
+   Carlo — the same reasoning as every other storage choice in this app.
+   So this path never touches Supabase: the file is read and resized in the
+   browser, exactly like CGPHOTO.fit() does, and kept as a data: URL on the
+   draft itself — it rides in the same JSON the resume's other fields
+   already do. The cap here is far smaller than CGPHOTO's 512px (160, not
+   512) for the same reason that one exists: this bytes-as-text copy sits in
+   `scheduler_state.overlay`, the shared row every save rewrites whole, and
+   CLAUDE.md's hardest-won lesson in this file (3c-2 onward) is that nothing
+   large belongs in there. A 160px JPEG keeps one photo to a few KB; several
+   of them are still real weight on that row, which is why the hint under
+   the field says so rather than leaving it to be discovered later. */
+const RESUME_PHOTO_MAX_EDGE=160;
+function resumePhotoField(d){
+  const busy=!!state.resumePhotoBusy;
+  if(d.cgId){
+    const c=cgById(d.cgId);
+    return `<div class="rz-field"><div class="rz-flabel">Photo</div>
+      <div class="rz-fhint">Linked to ${c?escText(c.name):'this caregiver'}’s own profile photo — uploading here replaces it everywhere, not just on this resume.</div>
+      <div class="rz-photorow">
+        <button type="button" class="btn sm" onclick="CGPHOTO.pick('${d.cgId}')">${ic('camera',13)} Upload photo</button>
+        <button type="button" class="btn sm" onclick="resumeSet('photoUrl','');renderResumeEditor()">Use placeholder instead</button>
+      </div></div>`;
+  }
+  return `<div class="rz-field"><div class="rz-flabel">Photo</div>
+    <div class="rz-fhint">Not linked to a caregiver record, so there is nowhere to upload it TO — the file is resized in your browser and saved as part of this resume’s own text. Keep it small; a few of these add up on a shared record.</div>
+    <div class="rz-photorow">
+      <button type="button" class="btn sm" ${busy?'disabled':''} onclick="resumePhotoPick()">${busy?'<span class="cs-spin"></span> Reading…':ic('camera',13)+' Upload a photo'}</button>
+      <input class="ein" type="text" value="${esc(/^data:/.test(d.photoUrl||'')?'':d.photoUrl)}" oninput="resumeSet('photoUrl',this.value)" placeholder="…or paste an image URL">
+      ${d.photoUrl?`<button type="button" class="btn sm" onclick="resumeSet('photoUrl','');renderResumeEditor()">Remove</button>`:''}
+    </div>
+    ${state.resumePhotoErr?`<div class="ct-err soft">${ic('alerts',13)} ${escText(state.resumePhotoErr)}</div>`:''}
+  </div>`;
+}
+/* Same shape as CGPHOTO.fit(), scaled down for where this one lives — see
+   the header above. White-fill first: a transparent PNG otherwise encodes
+   every empty pixel as black once flattened to JPEG. */
+function resumePhotoPick(){
+  if(state.resumePhotoBusy) return;
+  const inp=document.createElement('input');
+  inp.type='file'; inp.accept='image/jpeg,image/png,.jpg,.jpeg,.png';
+  inp.onchange=function(){
+    const f=inp.files&&inp.files[0]; if(!f) return;
+    if(!/^image\/(jpeg|png)$/.test(f.type)){ state.resumePhotoErr='Choose a JPEG or PNG image'; renderResumeEditor(); return; }
+    state.resumePhotoBusy=true; state.resumePhotoErr=null; renderResumeEditor();
+    const u=URL.createObjectURL(f), img=new Image();
+    img.onload=function(){
+      try{
+        const w=img.naturalWidth,h=img.naturalHeight,longest=Math.max(w,h);
+        const k=longest>RESUME_PHOTO_MAX_EDGE?RESUME_PHOTO_MAX_EDGE/longest:1;
+        const cw=Math.max(1,Math.round(w*k)), ch=Math.max(1,Math.round(h*k));
+        const cv=document.createElement('canvas'); cv.width=cw; cv.height=ch;
+        const ctx=cv.getContext('2d');
+        ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,cw,ch);
+        ctx.drawImage(img,0,0,cw,ch);
+        URL.revokeObjectURL(u);
+        state.resumePhotoBusy=false;
+        if(state.resumeDraft) state.resumeDraft.photoUrl=cv.toDataURL('image/jpeg',0.82);
+        renderResumeEditor();
+      }catch(e){ URL.revokeObjectURL(u); state.resumePhotoBusy=false; state.resumePhotoErr='Could not process that image'; renderResumeEditor(); }
+    };
+    img.onerror=function(){ URL.revokeObjectURL(u); state.resumePhotoBusy=false; state.resumePhotoErr='That file is not a readable image'; renderResumeEditor(); };
+    img.src=u;
+  };
+  inp.click();
+}
 function resumeSave(){
   const d=state.resumeDraft; if(!d) return;
   if(!d.name.trim()){ toast('Give the resume a name first'); return; }
@@ -17040,16 +17122,20 @@ function resumeLibraryHtml(){
 }
 function resumeEditorHtml(){
   const d=state.resumeDraft; if(!d) return '';
+  /* LINKED resumes read the LIVE photo on every render, not the one-time copy
+     resume2FromCaregiver() took — otherwise clicking Upload photo above would
+     write the new photo to the caregiver and the preview would still show the
+     old one until the page was reopened. CGPHOTO's own cache-buster is what
+     makes the browser actually fetch the new bytes instead of the cached old
+     ones under the same URL. */
+  if(d.cgId){ const c=cgById(d.cgId); if(c) d.photoUrl=cgPhotoUrl(c,160)||''; }
   return `<div class="rz-editor">
     <button class="btn sm" onclick="resumeCloseEditor()">${ic('chevL',12)} Back to Resumes</button>
     ${resumeAiBar()}
     <div class="rz-split">
       <div class="rz-form">
         <div class="rz-field"><div class="rz-flabel">Name</div><input class="ein" type="text" value="${esc(d.name)}" oninput="resumeSet('name',this.value)" placeholder="Full name"></div>
-        <div class="rz-field"><div class="rz-flabel">Photo</div>
-          <div class="rz-fhint">${d.cgId?'Pulled from this caregiver’s profile photo. ':''}Paste an image URL, or leave blank for the placeholder — there is no photo upload here.</div>
-          <input class="ein" type="text" value="${esc(d.photoUrl)}" oninput="resumeSet('photoUrl',this.value)" placeholder="https://…">
-        </div>
+        ${resumePhotoField(d)}
         <div class="rz-field2col">
           <div class="rz-field"><div class="rz-flabel">Title</div><input class="ein" type="text" value="${esc(d.title)}" oninput="resumeSet('title',this.value)"></div>
           <div class="rz-field"><div class="rz-flabel">Years of experience</div><input class="ein" type="text" value="${esc(d.years)}" oninput="resumeSet('years',this.value)" placeholder="e.g. 4+"></div>
