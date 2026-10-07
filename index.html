@@ -919,6 +919,14 @@
   .rz-ai-sub{font-size:12px;color:var(--ink-soft);margin:4px 0 9px}
   .rz-ai-row{display:flex;gap:8px;align-items:flex-start}
   .rz-ai-row textarea{flex:1}
+  .rz-attrow{display:flex;align-items:center;gap:10px;margin-top:8px}
+  .rz-atthint{font-size:11.5px;color:var(--ink-faint)}
+  .rz-attchips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+  .rz-attchip{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-soft);background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:3px 8px 3px 3px}
+  .rz-attchip img{width:20px;height:20px;border-radius:50%;object-fit:cover}
+  .rz-attchip button{font:inherit;color:var(--ink-faint);background:none;border:none;cursor:pointer;padding:0 2px}
+  .rz-attchip button:hover{color:var(--crit-tx)}
+
   .q-b{font-family:inherit;font-size:11.5px;font-weight:700;line-height:1.4;padding:5px 11px;border-radius:var(--r);border:1px solid var(--line-strong);background:#fff;color:var(--ink-soft);cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;gap:4px}
   .q-b:hover{border-color:var(--brand);color:var(--brand)}
   .q-b.call{background:var(--brand);border-color:var(--brand);color:#fff}
@@ -18014,11 +18022,118 @@ var ResumeAI=(function(){
       }); });
   }
   /* mode:'edit' - returns {patch}, only the resume fields that changed.
-     mode:'email' - returns {subject, body}, a draft about this resume. */
-  function ask(draft, prompt){ return call({draft:draft, prompt:prompt, mode:'edit'}).then(function(b){ return b.patch||{}; }); }
-  function email(draft, prompt){ return call({draft:draft, prompt:prompt, mode:'email'}).then(function(b){ return {subject:b.subject||'', body:b.body||''}; }); }
+     mode:'email' - returns {subject, body}, a draft about this resume.
+     attachments: [{mediaType, data (base64, no data: prefix), kind}], from
+     RZATTACH below - a screenshot or document the model should look at.
+     Never stored anywhere; it rides this one request and nothing else. */
+  function ask(draft, prompt, attachments){ return call({draft:draft, prompt:prompt, mode:'edit', attachments:attachments||[]}).then(function(b){ return b.patch||{}; }); }
+  function email(draft, prompt, attachments){ return call({draft:draft, prompt:prompt, mode:'email', attachments:attachments||[]}).then(function(b){ return {subject:b.subject||'', body:b.body||''}; }); }
   return { ask:ask, email:email };
 })();
+
+/* =========================================================
+   RZATTACH — attach a file or paste a screenshot into an AI prompt
+   ---------------------------------------------------------
+   Used by both AI boxes (edit the resume, draft an email). A caregiver's
+   old resume, a certificate, a screenshot of a text thread — the model can
+   look at it, same as a person would, rather than being told about it in
+   words. Images and PDFs only: those are the two content types the
+   Anthropic API can read directly, so anything else is refused here rather
+   than silently sent as unreadable bytes. A plain .txt is read as TEXT and
+   folded into the prompt itself instead, since there is nothing visual to
+   attach.
+
+   NOTHING HERE IS SAVED. The file is read in the browser, sent once with
+   the request, and the attachment list is cleared the moment the request
+   finishes (success or failure) - it is not part of the resume draft and
+   is never written into the resumes table.
+
+   Capped at 3 files and 5MB each - generous for a screenshot or a one-page
+   PDF, and small enough that a mis-click does not wait forever on a 40MB
+   scan to read and re-encode in the browser before the cap is even checked. */
+const RZATTACH_MAX_FILES=3, RZATTACH_MAX_BYTES=5*1024*1024;
+const RZATTACH_IMG_TYPES={'image/jpeg':1,'image/png':1,'image/webp':1,'image/gif':1};
+function rzAttachList(key){ return (state[key]=state[key]||[]); }
+function rzFileToAttachment(file){
+  return new Promise(function(done,fail){
+    if(file.size>RZATTACH_MAX_BYTES){ fail(new Error(file.name+' is over 5MB — too large to attach.')); return; }
+    if(/^text\/plain$/.test(file.type)){
+      var tr=new FileReader();
+      tr.onload=function(){ done({name:file.name, kind:'text', text:String(tr.result||'').slice(0,20000)}); };
+      tr.onerror=function(){ fail(new Error('Could not read '+file.name)); };
+      tr.readAsText(file); return;
+    }
+    if(!RZATTACH_IMG_TYPES[file.type] && file.type!=='application/pdf'){
+      fail(new Error(file.name+' is a '+(file.type||'file type')+' — only images, PDFs and .txt files can be attached.')); return;
+    }
+    var r=new FileReader();
+    r.onload=function(){
+      var s=String(r.result||''), i=s.indexOf(',');
+      done({ name:file.name, kind:file.type==='application/pdf'?'pdf':'image', mediaType:file.type, data:i>=0?s.slice(i+1):'',
+             previewUrl:file.type==='application/pdf'?null:s });
+    };
+    r.onerror=function(){ fail(new Error('Could not read '+file.name)); };
+    r.readAsDataURL(file);
+  });
+}
+/* `key` is the state array this attachment list lives on - 'resumeAiAttach'
+   for the edit box, 'resumeEmailAttach' for the email-draft box. Two call
+   sites, not one shared one with a callback, because the two panels render
+   through different functions (renderResumeEditor / renderResumeEmailModal)
+   and a shared function would have to know which to call anyway. */
+function rzAttachPick(key, renderFn){
+  const list=rzAttachList(key);
+  if(list.length>=RZATTACH_MAX_FILES){ toast('Up to '+RZATTACH_MAX_FILES+' files at a time'); return; }
+  const inp=document.createElement('input');
+  inp.type='file'; inp.accept='image/jpeg,image/png,image/webp,image/gif,application/pdf,text/plain,.jpg,.jpeg,.png,.webp,.gif,.pdf,.txt';
+  inp.multiple=true;
+  inp.onchange=function(){
+    const files=[].slice.call(inp.files||[]).slice(0, RZATTACH_MAX_FILES-list.length);
+    files.forEach(function(f){
+      rzFileToAttachment(f).then(function(a){ list.push(a); renderFn(); })
+        .catch(function(e){ toast((e&&e.message)||'Could not attach that file'); });
+    });
+  };
+  inp.click();
+}
+function rzAttachRemove(key, i, renderFn){ rzAttachList(key).splice(i,1); renderFn(); }
+/* Screenshots are usually PASTED (Ctrl+V), not opened through a file dialog
+   - this is the path that actually matters for "attach a screenshot". A
+   paste with no image in it (plain text, pasting a sentence) falls through
+   untouched. */
+function rzAttachPaste(e, key, renderFn){
+  const items=(e.clipboardData && e.clipboardData.items) || [];
+  const list=rzAttachList(key);
+  for(let i=0;i<items.length;i++){
+    if(items[i].kind==='file' && /^image\//.test(items[i].type)){
+      if(list.length>=RZATTACH_MAX_FILES){ toast('Up to '+RZATTACH_MAX_FILES+' files at a time'); return; }
+      const f=items[i].getAsFile(); if(!f) continue;
+      rzFileToAttachment(f).then(function(a){ a.name=a.name||'Pasted screenshot'; list.push(a); renderFn(); })
+        .catch(function(err){ toast((err&&err.message)||'Could not attach that image'); });
+    }
+  }
+}
+/* renderFnName is the NAME of the render function as a bare string
+   ('renderResumeEditor', not a reference) - it is written unquoted into the
+   inline onclick below, where the browser resolves it as the global
+   function at click time. Passing the function itself would stringify its
+   source into the attribute instead of calling it. */
+function rzAttachChips(key, renderFnName){
+  const list=rzAttachList(key);
+  if(!list.length) return '';
+  return `<div class="rz-attchips">${list.map((a,i)=>`<span class="rz-attchip">${
+      a.previewUrl?`<img src="${esc(a.previewUrl)}" alt="">`:ic(a.kind==='pdf'?'forms':'log',12)
+    }${escText(a.name||'Attachment')}<button type="button" onclick="rzAttachRemove('${key}',${i},${renderFnName})">×</button></span>`).join('')}</div>`;
+}
+/* Sent to the Edge Function: images/pdfs as {mediaType,data,kind}; a .txt
+   attachment carries no image data at all - its text is folded straight
+   into the prompt instead, since the model reads that as well as anyone. */
+function rzAttachPayload(key, basePrompt){
+  const list=rzAttachList(key);
+  const files=list.filter(a=>a.kind!=='text').map(a=>({mediaType:a.mediaType, data:a.data, kind:a.kind}));
+  const textAttach=list.filter(a=>a.kind==='text').map(a=>'\n\n--- '+a.name+' ---\n'+a.text).join('');
+  return { attachments:files, prompt:basePrompt+textAttach };
+}
 function resumeAiAsk(){
   const ta=document.getElementById('rzAiPrompt'); const prompt=(ta&&ta.value||'').trim();
   if(!prompt){ toast('Say what you’d like changed or added first'); return; }
@@ -18028,15 +18143,18 @@ function resumeAiAsk(){
     bilingual:state.resumeDraft.bilingual, personality:state.resumeDraft.personality, communication:state.resumeDraft.communication,
     reliability:state.resumeDraft.reliability, skills:state.resumeDraft.skills, caregivingStyle:state.resumeDraft.caregivingStyle,
     careExperience:state.resumeDraft.careExperience, about:state.resumeDraft.about };
-  ResumeAI.ask(snapshot, prompt).then(function(patch){
+  const pay=rzAttachPayload('resumeAiAttach', prompt);
+  ResumeAI.ask(snapshot, pay.prompt, pay.attachments).then(function(patch){
     state.resumeAiBusy=false;
     if(!state.resumeDraft) return;
     Object.keys(patch||{}).forEach(function(k){ if(k in state.resumeDraft) state.resumeDraft[k]=patch[k]; });
     if(ta) ta.value='';
+    state.resumeAiAttach=[];
     toast('Applied — review below, then Save');
     renderResumeEditor();
   }).catch(function(e){
     state.resumeAiBusy=false; state.resumeAiErr=(e&&e.message)||'Could not reach the AI assistant.';
+    state.resumeAiAttach=[];
     renderResumeEditor();
   });
 }
@@ -18051,6 +18169,7 @@ function resumeOpenEmailDraft(id){
   const r=id?(state.resumes||[]).find(x=>x.id===id):state.resumeDraft;
   if(!r) return;
   state.resumeEmailDraft={ forId:id, prompt:'', subject:'', body:'', busy:false, err:null, ready:false };
+  state.resumeEmailAttach=[];
   renderResumeEmailModal(); mbg.classList.add('show');
 }
 function resumeEmailDraftGenerate(){
@@ -18059,11 +18178,12 @@ function resumeEmailDraftGenerate(){
   if(!prompt){ toast('Say who it’s to and what it should say'); return; }
   const r=ed.forId?(state.resumes||[]).find(x=>x.id===ed.forId):state.resumeDraft; if(!r) return;
   ed.prompt=prompt; ed.busy=true; ed.err=null; renderResumeEmailModal();
+  const pay=rzAttachPayload('resumeEmailAttach', prompt);
   ResumeAI.email({ name:r.name, title:r.title, years:r.years, bilingual:r.bilingual, personality:r.personality,
       communication:r.communication, reliability:r.reliability, skills:r.skills, caregivingStyle:r.caregivingStyle,
-      careExperience:r.careExperience, about:r.about }, prompt)
-    .then(function(res){ ed.busy=false; ed.subject=res.subject; ed.body=res.body; ed.ready=true; renderResumeEmailModal(); })
-    .catch(function(e){ ed.busy=false; ed.err=(e&&e.message)||'Could not reach the AI assistant.'; renderResumeEmailModal(); });
+      careExperience:r.careExperience, about:r.about }, pay.prompt, pay.attachments)
+    .then(function(res){ ed.busy=false; ed.subject=res.subject; ed.body=res.body; ed.ready=true; state.resumeEmailAttach=[]; renderResumeEmailModal(); })
+    .catch(function(e){ ed.busy=false; ed.err=(e&&e.message)||'Could not reach the AI assistant.'; state.resumeEmailAttach=[]; renderResumeEmailModal(); });
 }
 function resumeEmailDraftEdit(field,val){ if(state.resumeEmailDraft) state.resumeEmailDraft[field]=val; }
 function resumeEmailDraftOpenMail(){
@@ -18081,8 +18201,10 @@ function renderResumeEmailModal(){
   mEl.innerHTML=`<div class="mh"><span class="mt">${ic('spark',15)} Draft an email</span><button class="mc" onclick="closeModal()">×</button></div>
     <div class="mb">
       <div class="rz-ai-sub">Say who this is for and what the email should cover — "introduce her to the Jordan family for a possible weekend shift", "a short note to a referral partner". The AI writes a draft below; nothing is sent from here.</div>
-      <div class="rz-ai-row"><textarea id="rzeAiPrompt" class="ein" rows="2" placeholder="Who is this to, and what should it say?" ${ed.busy?'disabled':''}>${escText(ed.prompt)}</textarea>
+      <div class="rz-ai-row"><textarea id="rzeAiPrompt" class="ein" rows="2" placeholder="Who is this to, and what should it say? (paste a screenshot with Ctrl+V)" onpaste="rzAttachPaste(event,'resumeEmailAttach',renderResumeEmailModal)" ${ed.busy?'disabled':''}>${escText(ed.prompt)}</textarea>
         <button class="btn pri" onclick="resumeEmailDraftGenerate()" ${ed.busy?'disabled':''}>${ed.busy?'<span class="cs-spin"></span> Writing…':ic('spark',13)+' Generate'}</button></div>
+      <div class="rz-attrow"><button type="button" class="btn sm" ${ed.busy?'disabled':''} onclick="rzAttachPick('resumeEmailAttach',renderResumeEmailModal)">${ic('log',12)} Attach a file</button><span class="rz-atthint">Image, PDF or .txt — or paste a screenshot above</span></div>
+      ${rzAttachChips('resumeEmailAttach','renderResumeEmailModal')}
       ${ed.err?`<div class="ct-err">${ic('alerts',13)} ${escText(ed.err)}</div>`:''}
       ${ed.ready?`
         <div class="rz-field"><div class="rz-flabel">Subject</div><input class="ein" type="text" value="${esc(ed.subject)}" oninput="resumeEmailDraftEdit('subject',this.value)"></div>
@@ -18099,8 +18221,10 @@ function resumeAiBar(){
   return `<div class="rz-ai">
     <div class="rz-ai-h">${ic('spark',14)} Ask AI to help write this resume</div>
     <div class="rz-ai-sub">Describe what you want — "make the about paragraph warmer", "add bathing and dressing assistance to skills", "she speaks Tagalog too". It edits the fields below; nothing is saved until you click Save.</div>
-    <div class="rz-ai-row"><textarea id="rzAiPrompt" class="ein" rows="2" placeholder="What would you like changed or added?" ${busy?'disabled':''}></textarea>
+    <div class="rz-ai-row"><textarea id="rzAiPrompt" class="ein" rows="2" placeholder="What would you like changed or added? (paste a screenshot with Ctrl+V)" onpaste="rzAttachPaste(event,'resumeAiAttach',renderResumeEditor)" ${busy?'disabled':''}></textarea>
       <button class="btn pri" onclick="resumeAiAsk()" ${busy?'disabled':''}>${busy?'<span class="cs-spin"></span> Working…':ic('spark',13)+' Ask AI'}</button></div>
+    <div class="rz-attrow"><button type="button" class="btn sm" ${busy?'disabled':''} onclick="rzAttachPick('resumeAiAttach',renderResumeEditor)">${ic('log',12)} Attach a file</button><span class="rz-atthint">Image, PDF or .txt — a screenshot, an old resume, a certificate. Nothing attached is saved.</span></div>
+    ${rzAttachChips('resumeAiAttach','renderResumeEditor')}
     ${state.resumeAiErr?`<div class="ct-err">${ic('alerts',13)} ${escText(state.resumeAiErr)}</div>`:''}
   </div>`;
 }

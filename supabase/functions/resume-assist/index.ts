@@ -32,7 +32,10 @@
 //
 // SECRETS (Supabase project secrets):
 //   ANTHROPIC_API_KEY   shared with every other AI function here
-//   RESUME_MODEL        optional; falls back to CONCIERGE_MODEL, then Haiku
+//   RESUME_MODEL        optional; must be a Sonnet or Haiku model - anything
+//                        else is rejected and Haiku is used instead (owner,
+//                        2026-10-07: never Opus here). Falls back to Haiku
+//                        when unset. Does NOT fall back to CONCIERGE_MODEL.
 //   RESUME_EFFORT       optional; NOT sent to Haiku, which 400s on it
 //   ALLOWED_ORIGIN      shared with devi-agent, quo, care-brief
 //
@@ -40,7 +43,15 @@
 //   npx supabase functions deploy resume-assist --project-ref <ref> --no-verify-jwt
 
 const KEY = (Deno.env.get("ANTHROPIC_API_KEY") ?? "").trim();
-const MODEL = (Deno.env.get("RESUME_MODEL") ?? Deno.env.get("CONCIERGE_MODEL") ?? "claude-haiku-4-5").trim();
+/* SONNET OR HAIKU ONLY (owner, 2026-10-07) - deliberately NOT falling back to
+   CONCIERGE_MODEL the way care-brief does, because that secret is Opus 5
+   ("CONCIERGE_MODEL | claude-opus-5" - CLAUDE.md). Falling back to it here
+   would silently put Opus behind this screen the moment RESUME_MODEL went
+   unset, which is the one thing this was just asked not to do. A model set
+   that is neither family is rejected, not merely ignored - see below. */
+const RAW_MODEL = (Deno.env.get("RESUME_MODEL") ?? "claude-haiku-4-5").trim();
+const MODEL_OK = /sonnet|haiku/i.test(RAW_MODEL);
+const MODEL = MODEL_OK ? RAW_MODEL : "claude-haiku-4-5";
 const EFFORT = (Deno.env.get("RESUME_EFFORT") ?? "").trim();
 const ORIGINS = (Deno.env.get("ALLOWED_ORIGIN") ?? "*").split(",").map((s) => s.trim()).filter(Boolean);
 
@@ -168,6 +179,13 @@ const EDIT_SYSTEM = [
   "never invent a fact the instruction or the current draft does not support (a certification, a",
   "language, a care condition) - ask for shorter or more general wording instead.",
   "",
+  "You may be shown one or more attached images or PDF pages alongside the instruction - a",
+  "screenshot, an old resume, a certificate. Use them as REFERENCE the way a person reading over",
+  "the scheduler's shoulder would: pull out facts the instruction asks you to use (a certification",
+  "name, a language, a skill actually shown), never invent what an attachment does not actually",
+  "show, and never copy its wording verbatim into a field unless asked to - write it in this",
+  "resume's own house style instead.",
+  "",
   "Personality, Reliability, Skills & Strengths and Care Experience are short words or two-word",
   "phrases, not sentences. Communication and Caregiving Style are short first-person-plural-style",
   "phrases describing how the caregiver works, one per array entry, matching this house style:",
@@ -189,17 +207,20 @@ const EMAIL_SYSTEM = [
   "something the resume gives no basis for, write the email anyway using what IS there and leave",
   "the unsupported part out rather than guessing. This is a DRAFT the scheduler will read and edit",
   "before anyone sends it - nothing here is sent automatically.",
+  "",
+  "You may be shown one or more attached images or PDF pages - use them as reference for facts the",
+  "instruction asks you to include; never invent what an attachment does not actually show.",
   "Write plain ASCII only: no en dashes, em dashes, curly quotes or ellipses.",
 ].join("\n");
 
-async function callClaude(system: string, userText: string, tool: Record<string, unknown>) {
+async function callClaude(system: string, content: unknown, tool: Record<string, unknown>) {
   const body: Record<string, unknown> = {
     model: MODEL,
     max_tokens: MAX_TOKENS,
     system,
     tools: [tool],
     tool_choice: { type: "tool", name: (tool as { name: string }).name },
-    messages: [{ role: "user", content: userText }],
+    messages: [{ role: "user", content }],
   };
   /* EFFORT, NOT TO HAIKU - it answers 400 to a field it does not recognise.
      NO temperature anywhere - Sonnet 5 / Opus 5 reject one, so the first
@@ -236,7 +257,13 @@ Deno.serve(async (req) => {
 
   const url = new URL(req.url);
   if (req.method === "GET" && url.searchParams.get("action") === "status") {
-    return json(cors, 200, { ok: true, configured: !!KEY, model: MODEL, missing: KEY ? [] : ["ANTHROPIC_API_KEY"] });
+    return json(cors, 200, {
+      ok: true, configured: !!KEY, model: MODEL, missing: KEY ? [] : ["ANTHROPIC_API_KEY"],
+      /* Non-null only when RESUME_MODEL was set to something outside Sonnet/
+         Haiku and got overridden - so a mistaken secret is visible here
+         rather than quietly running the fallback forever. */
+      modelOverridden: MODEL_OK ? null : RAW_MODEL,
+    });
   }
   if (req.method !== "POST") return json(cors, 405, { ok: false, error: "Only POST is supported." });
   if (!KEY) return json(cors, 503, { ok: false, error: "AI assistance is not configured on the server (ANTHROPIC_API_KEY missing)." });
@@ -247,24 +274,61 @@ Deno.serve(async (req) => {
   let body: Record<string, unknown>;
   try { body = await req.json(); } catch { return json(cors, 400, { ok: false, error: "Expected a JSON body." }); }
 
-  const prompt = String(body?.prompt ?? "").trim().slice(0, 2000);
+  /* 24000, not 2000: a .txt attachment is folded into this same string by the
+     browser (RZATTACH) before it ever reaches here, so the cap has to leave
+     room for that, not just a typed sentence. Still far short of a context
+     the model cannot handle - roughly 6,000 tokens of plain text. */
+  const prompt = String(body?.prompt ?? "").trim().slice(0, 24000);
   if (!prompt) return json(cors, 400, { ok: false, error: "A prompt is required." });
   const draft = stripDraft((body?.draft ?? {}) as Record<string, unknown>);
   const mode = body?.mode === "email" ? "email" : "edit";
 
+  /* ATTACHMENTS — a screenshot, an old resume, a certificate. Validated here
+     rather than trusted from the browser: a request is still just a request,
+     and nothing stops someone calling this endpoint directly. Capped the
+     same two ways the browser already caps them (RZATTACH_MAX_FILES,
+     RZATTACH_MAX_BYTES) so a client that skipped its own limits does not get
+     a free pass - these are the SAME numbers, not a second policy to keep in
+     step; see index.html if either ever changes. */
+  const ATTACH_MAX = 3, ATTACH_MAX_B64 = Math.ceil(5 * 1024 * 1024 * 4 / 3);
+  const IMG_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+  const rawAttach = Array.isArray(body?.attachments) ? (body.attachments as Array<Record<string, unknown>>) : [];
+  if (rawAttach.length > ATTACH_MAX) return json(cors, 400, { ok: false, error: "Up to " + ATTACH_MAX + " attachments at a time." });
+  const contentBlocks: Array<Record<string, unknown>> = [];
+  for (const a of rawAttach) {
+    const mediaType = String(a?.mediaType ?? "");
+    const data = String(a?.data ?? "");
+    if (!data || data.length > ATTACH_MAX_B64) return json(cors, 400, { ok: false, error: "An attachment was missing or too large (5MB limit)." });
+    if (!/^[A-Za-z0-9+/]+=*$/.test(data)) return json(cors, 400, { ok: false, error: "An attachment was not valid base64 data." });
+    if (IMG_TYPES.has(mediaType)) {
+      contentBlocks.push({ type: "image", source: { type: "base64", media_type: mediaType, data } });
+    } else if (mediaType === "application/pdf") {
+      contentBlocks.push({ type: "document", source: { type: "base64", media_type: mediaType, data } });
+    } else {
+      return json(cors, 400, { ok: false, error: "Attachments must be JPEG, PNG, WEBP, GIF or PDF." });
+    }
+  }
+
   const draftText = "Current resume draft (JSON):\n" + JSON.stringify(draft, null, 2) +
     "\n\nInstruction:\n" + prompt;
+  /* Attachments BEFORE the text that refers to them - Anthropic's own
+     guidance for multi-image/document requests, and the only order that
+     reads naturally either way ("here is a screenshot; here is what I want
+     done with it" rather than the other way round). A request with nothing
+     attached sends a plain string, exactly as before - no behaviour change
+     for the common case. */
+  const content = contentBlocks.length ? [...contentBlocks, { type: "text", text: draftText }] : draftText;
 
   try {
     if (mode === "email") {
-      const out = await callClaude(EMAIL_SYSTEM, draftText, EMAIL_TOOL);
+      const out = await callClaude(EMAIL_SYSTEM, content, EMAIL_TOOL);
       return json(cors, 200, {
         ok: true,
         subject: String(out.subject ?? "").slice(0, 300),
         body: String(out.body ?? "").slice(0, 8000),
       });
     }
-    const out = await callClaude(EDIT_SYSTEM, draftText, EDIT_TOOL);
+    const out = await callClaude(EDIT_SYSTEM, content, EDIT_TOOL);
     const patch = stripDraft(out);
     return json(cors, 200, { ok: true, patch });
   } catch (err) {
