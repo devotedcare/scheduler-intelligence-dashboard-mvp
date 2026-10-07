@@ -873,6 +873,15 @@
   /* Resume Builder */
   .rz-lib{max-width:900px}
   .rz-libtop{display:flex;gap:10px;align-items:center;margin-bottom:14px}
+  .rz-cgsearch{position:relative;max-width:280px;flex:1}
+  .rz-cgsearch input{width:100%}
+  .rz-cgdrop{position:absolute;top:calc(100% + 4px);left:0;right:0;max-height:260px;overflow:auto;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);box-shadow:0 4px 16px rgba(0,0,0,.12);z-index:20}
+  .rz-cgdrop button{display:flex;justify-content:space-between;gap:10px;width:100%;text-align:left;font:inherit;font-size:13px;color:var(--ink);background:none;border:none;border-top:1px solid var(--line-soft);padding:7px 10px;cursor:pointer}
+  .rz-cgdrop button:first-child{border-top:none}
+  .rz-cgdrop button:hover{background:#F2F7FA;color:var(--brand)}
+  .rz-cgdrop-city{color:var(--ink-faint);font-size:12px;flex:0 0 auto}
+  .rz-cgdrop-empty{padding:10px;font-size:12.5px;color:var(--ink-faint)}
+
   .rz-list{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
   .rz-row{display:flex;align-items:center;gap:12px;padding:11px 14px;border-top:1px solid var(--line-soft)}
   .rz-row:first-child{border-top:none}
@@ -17218,6 +17227,57 @@ function resumeLinesField(label, field, hint){
   </div>`;
 }
 
+/* ---------- "Start from a caregiver" — a searchable dropdown, not a <select> ----------
+   A plain <select> listed every active caregiver alphabetically - fine on
+   the sample data, unusable scrolling past 180 real names on the live
+   roster to find one. This is a text box that filters by name OR city as
+   you type, with the matches in a dropdown underneath; a native <select>'s
+   own type-ahead cannot search a city at all.
+
+   state.resumeCgQ / state.resumeCgOpen are per-browser UI state for this one
+   control, not resume data - reset once a caregiver is picked so the box
+   reads empty next time the library opens, the same as any other picker in
+   this app that is not meant to remember what was last searched. */
+function resumeCgSearchOpen(){ state.resumeCgOpen=true; render(); }
+function resumeCgSearchInput(v){ state.resumeCgQ=v; state.resumeCgOpen=true; render(); }
+function resumeCgSearchClose(){ if(state.resumeCgOpen){ state.resumeCgOpen=false; render(); } }
+function resumeCgSearchPick(cgId){ state.resumeCgQ=''; state.resumeCgOpen=false; resumeOpenFromCg(cgId); }
+function resumeCgMatches(){
+  const q=String(state.resumeCgQ||'').trim().toLowerCase();
+  const active=(state.caregivers||[]).filter(c=>c.active!==false);
+  const hit=q ? active.filter(c=>(c.name||'').toLowerCase().indexOf(q)>=0 || (c.base||'').toLowerCase().indexOf(q)>=0) : active;
+  return hit.slice().sort((a,b)=>a.name.localeCompare(b.name));
+}
+function resumeCgSearchHtml(){
+  const open=!!state.resumeCgOpen;
+  const q=String(state.resumeCgQ||'');
+  let list='';
+  if(open){
+    const matches=resumeCgMatches().slice(0,60);
+    list = matches.length
+      ? matches.map(c=>`<button type="button" onmousedown="event.preventDefault()" onclick="resumeCgSearchPick('${c.id}')"><span>${escText(c.name)}</span>${c.base?`<span class="rz-cgdrop-city">${escText(c.base)}</span>`:''}</button>`).join('')
+      : `<div class="rz-cgdrop-empty">No caregiver matches "${escText(q)}"</div>`;
+  }
+  return `<div class="rz-cgsearch">
+    <input class="ein" type="text" placeholder="Start from a caregiver… (search name or city)"
+      value="${esc(q)}" oninput="resumeCgSearchInput(this.value)" onfocus="resumeCgSearchOpen()"
+      onkeydown="if(event.key==='Escape') resumeCgSearchClose()">
+    ${open?`<div class="rz-cgdrop">${list}</div>`:''}
+  </div>`;
+}
+/* Closed on any click outside the box, the same pattern CGPHOTO's menu uses -
+   a blur handler on the input would fire BEFORE the dropdown button's own
+   click lands, which is why the buttons also carry onmousedown=preventDefault
+   above: together they let a click on a result register before anything
+   closes it. */
+try{
+  document.addEventListener('mousedown', function(ev){
+    if(!state.resumeCgOpen) return;
+    const w=ev.target&&ev.target.closest?ev.target.closest('.rz-cgsearch'):null;
+    if(!w) resumeCgSearchClose();
+  }, true);
+}catch(e){}
+
 /* ---------- the two screens: library, and the editor ---------- */
 function viewResumes(){ return state.resumeEditId ? resumeEditorHtml() : resumeLibraryHtml(); }
 function resumeLibraryHtml(){
@@ -17232,14 +17292,11 @@ function resumeLibraryHtml(){
         <button class="q-b" onclick="resumeOpenEmailDraft('${r.id}')">${ic('spark',12)} Draft with AI</button>
         <button class="btn sm danger" onclick="resumeDelete('${r.id}')">${ic('trash',12)}</button>
       </div></div>`).join('');
-  const cgOpts=(state.caregivers||[]).filter(c=>c.active!==false).sort((a,b)=>a.name.localeCompare(b.name))
-    .map(c=>`<option value="${c.id}">${escText(c.name)}</option>`).join('');
   return `<div class="rz-lib">
     <div class="rep-intro"><b>Build a caregiver resume.</b> Start blank, or seed one from an existing caregiver's recorded Skills and Experience, then edit it or ask AI to help write it. Nothing here changes the caregiver's own record.</div>
     <div class="rz-libtop">
       <button class="btn pri" onclick="resumeOpenNew()">${ic('check',14)} New Resume</button>
-      <select class="ein" style="max-width:260px" onchange="if(this.value){resumeOpenFromCg(this.value);this.value='';}">
-        <option value="">Start from a caregiver…</option>${cgOpts}</select>
+      ${resumeCgSearchHtml()}
     </div>
     ${list.length?`<div class="rz-list">${rows}</div>`:emptyState('No resumes yet','Click New Resume, or start from an existing caregiver.')}
   </div>`;
