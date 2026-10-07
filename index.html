@@ -870,6 +870,52 @@
   .q-facts{font-size:11.5px;color:var(--ink-soft);margin-top:3px;line-height:1.5}
   .q-ot{color:var(--soon-tx);font-weight:700}
   .q-acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}
+  /* Resume Builder */
+  .rz-lib{max-width:900px}
+  .rz-libtop{display:flex;gap:10px;align-items:center;margin-bottom:14px}
+  .rz-list{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+  .rz-row{display:flex;align-items:center;gap:12px;padding:11px 14px;border-top:1px solid var(--line-soft)}
+  .rz-row:first-child{border-top:none}
+  .rz-rowmain{display:flex;flex-direction:column;flex:1;min-width:0}
+  .rz-editor{max-width:1240px}
+  .rz-split{display:flex;gap:22px;margin-top:14px;align-items:flex-start}
+  .rz-form{flex:0 0 420px;display:flex;flex-direction:column;gap:14px}
+  .rz-field2col{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .rz-field{display:flex;flex-direction:column;gap:5px}
+  .rz-flabel{font-size:12.5px;font-weight:700;color:var(--ink-soft)}
+  .rz-fhint{font-size:11.5px;color:var(--ink-faint);margin-top:-2px}
+  .rz-addrow{display:flex;gap:6px;margin-top:4px}
+  .rz-addrow input{flex:1}
+  .rz-editfoot{display:flex;align-items:center;gap:8px;margin-top:4px;padding-top:12px;border-top:1px solid var(--line-soft)}
+  .rz-preview-pane{flex:1;min-width:0;position:sticky;top:14px}
+  .rz-previewlabel{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-faint);margin-bottom:8px}
+  .rz2-doc{background:#fff;border:1px solid var(--line-strong);border-radius:var(--r);box-shadow:0 1px 3px rgba(0,0,0,.08);transform-origin:top left}
+  .rz2-doc{font-family:'Inter',system-ui,Arial,sans-serif;color:#1B2B36;padding:28px 32px;line-height:1.5;font-size:14px}
+  .rz2-brand{display:flex;align-items:center;gap:10px;border-bottom:1px solid #D5E0E7;padding-bottom:12px;margin-bottom:16px}
+  .rz2-logo{width:34px;height:34px;object-fit:contain}
+  .rz2-brandco{font-size:13px;font-weight:800;color:#1B3B54}
+  .rz2-brandtag{font-size:7.5px;font-weight:700;letter-spacing:1px;color:#7a8590}
+  .rz2-meet{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.5px;color:#2E9E6A}
+  .rz2-h{display:flex;gap:14px;align-items:center;margin-bottom:16px}
+  .rz2-photo{width:60px;height:60px;border-radius:8px;background:#EFF4F7;display:flex;align-items:center;justify-content:center;color:#9aa6b0;flex:0 0 auto}
+  .rz2-name{font-size:19px;font-weight:800;color:#1B3B54;letter-spacing:-.3px}
+  .rz2-years{font-size:11.5px;font-weight:700;color:#2E9E6A;margin-top:1px}
+  .rz2-sub{font-size:11.5px;color:#5A7184;margin-top:1px}
+  .rz2-row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px}
+  .rz2-row2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+  .rz2-box{border:1px solid #D5E0E7;border-radius:6px;padding:10px 12px}
+  .rz2-boxl{font-size:10.5px;font-weight:800;text-transform:uppercase;color:#1B3B54;border-bottom:2px solid #2E9E6A;display:inline-block;padding-bottom:2px;margin-bottom:7px}
+  .rz2-tags{display:flex;flex-wrap:wrap;gap:5px}
+  .rz2-tags span{font-size:11.5px}
+  .rz2-ul{margin:0;padding-left:15px}.rz2-ul li{font-size:11.5px;margin-bottom:2px}
+  .rz2-about{background:#F2F7F4;border-left:4px solid #2E9E6A;border-radius:4px;padding:10px 14px;margin-bottom:12px}
+  .rz2-about p{font-size:12px;margin:0}
+  .rz2-foot{font-size:10px;color:#90A2AE;border-top:1px solid #E2E8ED;padding-top:9px;margin-top:9px}
+  .rz-ai{background:#F2F7FA;border:1px solid #CFE0EA;border-radius:var(--r);padding:12px 14px;margin-bottom:16px}
+  .rz-ai-h{font-size:13px;font-weight:800;color:var(--brand);display:flex;align-items:center;gap:6px}
+  .rz-ai-sub{font-size:12px;color:var(--ink-soft);margin:4px 0 9px}
+  .rz-ai-row{display:flex;gap:8px;align-items:flex-start}
+  .rz-ai-row textarea{flex:1}
   .q-b{font-family:inherit;font-size:11.5px;font-weight:700;line-height:1.4;padding:5px 11px;border-radius:var(--r);border:1px solid var(--line-strong);background:#fff;color:var(--ink-soft);cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;gap:4px}
   .q-b:hover{border-color:var(--brand);color:var(--brand)}
   .q-b.call{background:var(--brand);border-color:var(--brand);color:#fff}
@@ -4509,6 +4555,7 @@ const NAVGROUPS=[
   {section:'Caregiver Management'},
   {link:{id:'avail', label:'Caregivers'}},
   {link:{id:'schedupdates', label:'Caregiver Record Status'}},
+  {link:{id:'resumes', label:'Resume Builder'}},
   {link:{id:'cadence', label:'Availability Cadence'}},
 
   {section:'Operations'},
@@ -4554,7 +4601,7 @@ function navLink(it, sub){
 /* Every screen the router can reach. Today is deliberately absent - the
    dashboard no longer has that page, and state.view falls back to 'avail'. */
 const VIEWS={open:viewOpen,coverage:viewCoverage,clientcal:viewClientSchedule,updates:viewUpdates,staff:viewStaffClient,calloff:viewCallOff,
-    avail:viewAvail,log:viewLog,handoff:viewHandoff,assistant:viewAssistant,tasks:viewTasks,reports:viewReports,forms:viewForms,meds:viewMeds,guides:viewGuides,infographics:viewInfographics,attendance:viewAttendance,carenotes:viewCareNotes,schedupdates:viewSchedUpdates,cadence:viewCadence,kb:viewKB};
+    avail:viewAvail,log:viewLog,handoff:viewHandoff,assistant:viewAssistant,tasks:viewTasks,reports:viewReports,forms:viewForms,meds:viewMeds,guides:viewGuides,resumes:viewResumes,infographics:viewInfographics,attendance:viewAttendance,carenotes:viewCareNotes,schedupdates:viewSchedUpdates,cadence:viewCadence,kb:viewKB};
 function renderNav(){
   let html='';
   NAVGROUPS.forEach(g=>{
@@ -16659,6 +16706,348 @@ function copyResume(id){ try{ navigator.clipboard.writeText(plainResume(cgById(i
 function printProfile(id){ document.body.classList.add('printing'); try{ window.print(); }catch(e){ toast('Print not available here'); } setTimeout(()=>document.body.classList.remove('printing'),500); }
 function emailProfile(id){ emailResume(id); }
 
+/* =========================================================
+   RESUME BUILDER  —  a standalone resume, not tied to a caregiver record
+   ---------------------------------------------------------
+   `openResumeModal()` above is a DIFFERENT, older feature: it reads one
+   caregiver's own profile fields (skills, languages, persona) and prints
+   them in a plain text-document shape. This is a second, visual template —
+   the "Meet Your Caregiver" card used for recruiting and client hand-offs
+   (photo, Personality / Communication / Reliability, a three-column Skills
+   & Strengths grid, Care Experience, an About paragraph) — built and edited
+   from scratch, or seeded from an existing caregiver's recorded fields as a
+   starting point. The two do not share markup or state.
+
+   Saved drafts are a tracked CLOUD slice (`resumes`, see SLICES), the same
+   shape as `guides`: shared across the desk, deleted with a tombstone via
+   cloudForget() so a delete cannot silently come back (CLAUDE.md, 3g).
+
+   state.resumeEditId: null (library) | 'new' | an existing resume's id.
+   state.resumeDraft: the record being edited, mutated in place by the
+   pickers below and committed to state.resumes only on Save — so a
+   half-finished edit, or one abandoned by closing the tab, never reaches
+   the shared overlay. */
+const RESUME2_PERSONALITY_OPTS=['Warm','Respectful','Patient','Calm','Compassionate','Positive','Mature','Detail-oriented','Cheerful','Gentle','Easygoing','Empathetic'];
+const RESUME2_RELIABILITY_OPTS=['Reliable','Punctual','Consistent','Trustworthy','Dependable','Responsible'];
+function resume2Blank(){
+  return { id:null, cgId:null, name:'', title:'Caregiver', years:'',
+    bilingual:[], personality:[], communication:[], reliability:[],
+    skills:[], caregivingStyle:[], careExperience:[], about:'',
+    updatedBy:state.onShift, updatedAt:new Date() };
+}
+/* A starting point, not a sync — this COPIES the caregiver's current chips
+   once. Editing the draft afterward never writes back to the caregiver
+   record, and a later change to their real profile does not reach a resume
+   already started. */
+function resume2FromCaregiver(c){
+  const d=resume2Blank();
+  d.cgId=c.id; d.name=c.name; d.title='Caregiver';
+  d.years=String(cgYears(c)||'')+(cgYears(c)?'+':'');
+  d.bilingual=(c.languages||[]).slice();
+  const temper=(c.ops&&c.ops.persona&&c.ops.persona.temperament)||'';
+  d.personality=temper.split(/,|·/).map(x=>x.trim()).filter(x=>RESUME2_PERSONALITY_OPTS.indexOf(x)>=0);
+  d.reliability=hasVal(c.reliability)&&c.reliability>=90?['Reliable','Punctual']:[];
+  d.skills=cgChips(c,'skills').slice();
+  d.careExperience=cgChips(c,'experience').filter(x=>x!=='Others').slice();
+  return d;
+}
+function resumeOpenNew(){ state.view='resumes'; state.resumeDraft=resume2Blank(); state.resumeEditId='new'; render(); window.scrollTo(0,0); }
+function resumeOpenFromCg(cgId){
+  const c=cgById(cgId); if(!c) return;
+  state.view='resumes'; state.resumeDraft=resume2FromCaregiver(c); state.resumeEditId='new'; render(); window.scrollTo(0,0);
+}
+function resumeOpenEdit(id){
+  const r=(state.resumes||[]).find(x=>x.id===id); if(!r) return;
+  state.view='resumes';
+  state.resumeDraft=Object.assign({},r, {
+    bilingual:(r.bilingual||[]).slice(), personality:(r.personality||[]).slice(),
+    communication:(r.communication||[]).slice(), reliability:(r.reliability||[]).slice(),
+    skills:(r.skills||[]).slice(), caregivingStyle:(r.caregivingStyle||[]).slice(),
+    careExperience:(r.careExperience||[]).slice() });
+  state.resumeEditId=id; render(); window.scrollTo(0,0);
+}
+function resumeCloseEditor(){ state.resumeEditId=null; state.resumeDraft=null; render(); window.scrollTo(0,0); }
+function resumeSet(field,val){ if(state.resumeDraft) state.resumeDraft[field]=val; }
+function resumeToggle(field,val){
+  const d=state.resumeDraft; if(!d) return;
+  const a=d[field]=d[field]||[]; const i=a.indexOf(val);
+  if(i>=0) a.splice(i,1); else a.push(val);
+  renderResumeEditor();
+}
+/* The three fields the sample card writes as short SENTENCES rather than
+   single words (Communication, Caregiving Style, and the free-text side of
+   Skills/Personality) are edited as one line per item, split on newlines —
+   simpler than a tag picker for prose, and it is exactly how the template
+   itself reads ("Explains each step to clients"). */
+function resumeSetLines(field,text){ if(state.resumeDraft) state.resumeDraft[field]=String(text||'').split('\n').map(x=>x.trim()).filter(Boolean); }
+function resumeAddCustom(field,el){
+  const v=(el.value||'').trim(); if(!v||!state.resumeDraft) return;
+  const a=state.resumeDraft[field]=state.resumeDraft[field]||[];
+  if(a.indexOf(v)<0) a.push(v);
+  el.value=''; renderResumeEditor();
+}
+function resumeSave(){
+  const d=state.resumeDraft; if(!d) return;
+  if(!d.name.trim()){ toast('Give the resume a name first'); return; }
+  d.updatedBy=state.onShift; d.updatedAt=new Date();
+  if(!d.id){ d.id='rz'+Date.now()+Math.random().toString(36).slice(2,6); state.resumes=[d,...(state.resumes||[])]; }
+  else { const i=state.resumes.findIndex(x=>x.id===d.id); if(i>=0) state.resumes[i]=d; else state.resumes=[d,...(state.resumes||[])]; }
+  toast('Resume saved'); resumeCloseEditor();
+}
+function resumeDelete(id){
+  if(!confirm('Delete this resume? This cannot be undone.')) return;
+  cloudForget('resumes', id);
+  state.resumes=(state.resumes||[]).filter(x=>x.id!==id);
+  toast('Resume deleted'); render();
+}
+
+/* ---------- the visual template (the "Meet Your Caregiver" card) ---------- */
+function resume2Html(d){
+  const chips=a=>`<div class="rz2-tags">${(a||[]).map(x=>`<span>${escText(x)}</span>`).join('')}</div>`;
+  const lines=a=>`<ul class="rz2-ul">${(a||[]).map(x=>`<li>${escText(x)}</li>`).join('')}</ul>`;
+  const box=(label,body)=>body?`<div class="rz2-box"><div class="rz2-boxl">${escText(label)}</div>${body}</div>`:'';
+  const sub=[d.title||'Caregiver', d.bilingual&&d.bilingual.length?'Bilingual: '+escText(d.bilingual.join(', ')):''].filter(Boolean).join(' · ');
+  return `<div class="rz2-brand">${brandLogo('rz2-logo')}<div class="rz2-brandid"><div class="rz2-brandco">Devoted Care Services, LLC</div><div class="rz2-brandtag">BECAUSE YOU DESERVE, DEVOTED CARE</div></div><div class="rz2-meet">MEET YOUR CAREGIVER</div></div>
+    <div class="rz2-h"><div class="rz2-photo">${ic('camera',22)}</div><div><div class="rz2-name">${escText(d.name||'Untitled')}</div>${d.years?`<div class="rz2-years">${escText(d.years)} Years of Caregiving Experience</div>`:''}<div class="rz2-sub">${sub}</div></div></div>
+    <div class="rz2-row3">
+      ${box('Personality', chips(d.personality))}
+      ${box('Communication', lines(d.communication))}
+      ${box('Reliability', chips(d.reliability))}
+    </div>
+    ${box('Skills & Strengths', chips(d.skills))}
+    <div class="rz2-row2">
+      ${box('Caregiving Style', lines(d.caregivingStyle))}
+      ${box('Care Experience', chips(d.careExperience))}
+    </div>
+    ${d.about?`<div class="rz2-about"><div class="rz2-boxl">About ${escText((d.name||'').split(' ')[0]||'')}</div><p>${escText(d.about)}</p></div>`:''}
+    <div class="rz2-foot">Devoted Care Services, LLC</div>`;
+}
+function resume2Plain(d){
+  const L=[d.name||'Untitled', d.years?d.years+' Years of Caregiving Experience':'', d.title||'Caregiver', ''];
+  const sec=(l,a)=>{ if(a&&a.length){ L.push(l.toUpperCase(), a.join(a.length&&a[0].length<30?', ':'\n'), ''); } };
+  sec('Personality',d.personality); sec('Communication',d.communication); sec('Reliability',d.reliability);
+  sec('Skills & Strengths',d.skills); sec('Caregiving Style',d.caregivingStyle); sec('Care Experience',d.careExperience);
+  if(d.about) L.push('ABOUT',d.about,'');
+  return L.join('\n');
+}
+const RESUME2_PRINT_CSS=`*{box-sizing:border-box}body{font-family:'Inter',system-ui,Arial,sans-serif;color:#1B2B36;margin:0;padding:40px 48px;line-height:1.5}
+.rz2-brand{display:flex;align-items:center;gap:12px;border-bottom:1px solid #D5E0E7;padding-bottom:14px;margin-bottom:20px}
+.rz2-logo{width:40px;height:40px;object-fit:contain}
+.rz2-brandco{font-size:15px;font-weight:800;color:#1B3B54}
+.rz2-brandtag{font-size:8px;font-weight:700;letter-spacing:1px;color:#7a8590}
+.rz2-meet{margin-left:auto;font-size:11px;font-weight:800;letter-spacing:.5px;color:#2E9E6A}
+.rz2-h{display:flex;gap:18px;align-items:center;margin-bottom:20px}
+.rz2-photo{width:84px;height:84px;border-radius:8px;background:#EFF4F7;display:flex;align-items:center;justify-content:center;color:#9aa6b0;flex:0 0 auto}
+.rz2-name{font-size:24px;font-weight:800;color:#1B3B54;letter-spacing:-.4px}
+.rz2-years{font-size:13px;font-weight:700;color:#2E9E6A;margin-top:2px}
+.rz2-sub{font-size:13px;color:#5A7184;margin-top:2px}
+.rz2-row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px}
+.rz2-row2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
+.rz2-box{border:1px solid #D5E0E7;border-radius:6px;padding:12px 14px}
+.rz2-boxl{font-size:12px;font-weight:800;text-transform:uppercase;color:#1B3B54;border-bottom:2px solid #2E9E6A;display:inline-block;padding-bottom:2px;margin-bottom:8px}
+.rz2-tags{display:flex;flex-wrap:wrap;gap:6px}
+.rz2-tags span{font-size:12.5px}
+.rz2-tags span::before{content:'• '}
+.rz2-ul{margin:0;padding-left:16px}.rz2-ul li{font-size:12.5px;margin-bottom:3px}
+.rz2-about{background:#F2F7F4;border-left:4px solid #2E9E6A;border-radius:4px;padding:12px 16px;margin-bottom:14px}
+.rz2-about p{font-size:13px;margin:0}
+.rz2-foot{font-size:11px;color:#90A2AE;border-top:1px solid #E2E8ED;padding-top:10px;margin-top:10px}`;
+function resume2Window(d){
+  let w; try{ w=window.open('','_blank','width=860,height=1050'); }catch(e){ w=null; }
+  if(!w){ toast('Allow pop-ups to print or save the resume'); return null; }
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escText(d.name||'Resume')} — Caregiver Resume</title><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet"><style>${RESUME2_PRINT_CSS}</style></head><body>${resume2Html(d)}</body></html>`);
+  w.document.close(); return w;
+}
+function resumePrint(id){ const r=(state.resumes||[]).find(x=>x.id===id); if(!r) return; const w=resume2Window(r); if(w){ w.focus(); setTimeout(()=>{ try{w.print();}catch(e){} },350); } }
+function resumeDownloadPDF(id){ const r=(state.resumes||[]).find(x=>x.id===id); if(!r) return; const w=resume2Window(r); if(w){ w.focus(); setTimeout(()=>{ try{w.print();}catch(e){} },350); toast('Choose “Save as PDF” in the print dialog'); } }
+function resumeEmail(id){ const r=(state.resumes||[]).find(x=>x.id===id); if(!r) return; const subj=encodeURIComponent((r.name||'Caregiver')+' — Resume'); const body=encodeURIComponent(resume2Plain(r)); try{ window.location.href=`mailto:?subject=${subj}&body=${body}`; }catch(e){ toast('Email not available here'); } }
+function resumeCopy(id){ const r=(state.resumes||[]).find(x=>x.id===id)||state.resumeDraft; if(!r) return; try{ navigator.clipboard.writeText(resume2Plain(r)); toast('Copied to clipboard'); }catch(e){ toast('Copy not available here'); } }
+
+/* ---------- AI assistance — a prompt, not a form ---------- */
+/* A near-clone of CARE and Quo above: the key lives in the Supabase Edge
+   Function `resume-assist`, never in the browser. The browser sends the
+   draft's CURRENT fields and the scheduler's instruction; the function
+   returns only the fields it changed, so a vague prompt cannot blank out
+   the rest of the resume. Nothing here is PHI and nothing about a shift or
+   a client goes with it — just the resume text itself. */
+var ResumeAI=(function(){
+  function fnUrl(){ var u=(window.SCHEDULER_CONFIG||{}).supabaseUrl; return u?String(u).replace(/\/+$/,'')+'/functions/v1/resume-assist':''; }
+  function call(body){
+    var base=fnUrl();
+    if(!base) return Promise.reject(new Error('This copy of the dashboard has no Supabase URL, so AI assistance is unavailable.'));
+    return fetch(base, { method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'}, body:JSON.stringify(body) })
+      .then(function(r){ return r.json().catch(function(){ return null; }).then(function(b){
+        if(r.status===404){ var ours=b&&b.ok===false&&b.error; if(!ours) throw new Error('The resume-assist function is not deployed. Committing does not deploy it — it needs: npx supabase functions deploy resume-assist --no-verify-jwt'); }
+        if(!r.ok) throw new Error((b&&(b.error||b.message))||('HTTP '+r.status));
+        return b||{};
+      }); });
+  }
+  /* mode:'edit' - returns {patch}, only the resume fields that changed.
+     mode:'email' - returns {subject, body}, a draft about this resume. */
+  function ask(draft, prompt){ return call({draft:draft, prompt:prompt, mode:'edit'}).then(function(b){ return b.patch||{}; }); }
+  function email(draft, prompt){ return call({draft:draft, prompt:prompt, mode:'email'}).then(function(b){ return {subject:b.subject||'', body:b.body||''}; }); }
+  return { ask:ask, email:email };
+})();
+function resumeAiAsk(){
+  const ta=document.getElementById('rzAiPrompt'); const prompt=(ta&&ta.value||'').trim();
+  if(!prompt){ toast('Say what you’d like changed or added first'); return; }
+  if(!state.resumeDraft) return;
+  state.resumeAiBusy=true; state.resumeAiErr=null; renderResumeEditor();
+  const snapshot={ name:state.resumeDraft.name, title:state.resumeDraft.title, years:state.resumeDraft.years,
+    bilingual:state.resumeDraft.bilingual, personality:state.resumeDraft.personality, communication:state.resumeDraft.communication,
+    reliability:state.resumeDraft.reliability, skills:state.resumeDraft.skills, caregivingStyle:state.resumeDraft.caregivingStyle,
+    careExperience:state.resumeDraft.careExperience, about:state.resumeDraft.about };
+  ResumeAI.ask(snapshot, prompt).then(function(patch){
+    state.resumeAiBusy=false;
+    if(!state.resumeDraft) return;
+    Object.keys(patch||{}).forEach(function(k){ if(k in state.resumeDraft) state.resumeDraft[k]=patch[k]; });
+    if(ta) ta.value='';
+    toast('Applied — review below, then Save');
+    renderResumeEditor();
+  }).catch(function(e){
+    state.resumeAiBusy=false; state.resumeAiErr=(e&&e.message)||'Could not reach the AI assistant.';
+    renderResumeEditor();
+  });
+}
+/* ---------- EMAIL DRAFT — a prompt in, a subject+body out, nothing sent ---------- */
+/* Deliberately NOT a send button. Quo sends only from the modal that already
+   enforces the roster/line guards (CLAUDE.md, "Texting a caregiver"); this is
+   a different audience entirely — a family, a referral source, a client —
+   which that allowlist was never built for. So the generated draft can only
+   be copied or handed to the scheduler's own email app via mailto:, the same
+   boundary resumeEmail() already draws. */
+function resumeOpenEmailDraft(id){
+  const r=id?(state.resumes||[]).find(x=>x.id===id):state.resumeDraft;
+  if(!r) return;
+  state.resumeEmailDraft={ forId:id, prompt:'', subject:'', body:'', busy:false, err:null, ready:false };
+  renderResumeEmailModal(); mbg.classList.add('show');
+}
+function resumeEmailDraftGenerate(){
+  const ta=document.getElementById('rzeAiPrompt'); const prompt=(ta&&ta.value||'').trim();
+  const ed=state.resumeEmailDraft; if(!ed) return;
+  if(!prompt){ toast('Say who it’s to and what it should say'); return; }
+  const r=ed.forId?(state.resumes||[]).find(x=>x.id===ed.forId):state.resumeDraft; if(!r) return;
+  ed.prompt=prompt; ed.busy=true; ed.err=null; renderResumeEmailModal();
+  ResumeAI.email({ name:r.name, title:r.title, years:r.years, bilingual:r.bilingual, personality:r.personality,
+      communication:r.communication, reliability:r.reliability, skills:r.skills, caregivingStyle:r.caregivingStyle,
+      careExperience:r.careExperience, about:r.about }, prompt)
+    .then(function(res){ ed.busy=false; ed.subject=res.subject; ed.body=res.body; ed.ready=true; renderResumeEmailModal(); })
+    .catch(function(e){ ed.busy=false; ed.err=(e&&e.message)||'Could not reach the AI assistant.'; renderResumeEmailModal(); });
+}
+function resumeEmailDraftEdit(field,val){ if(state.resumeEmailDraft) state.resumeEmailDraft[field]=val; }
+function resumeEmailDraftOpenMail(){
+  const ed=state.resumeEmailDraft; if(!ed) return;
+  try{ window.location.href='mailto:?subject='+encodeURIComponent(ed.subject||'')+'&body='+encodeURIComponent(ed.body||''); }
+  catch(e){ toast('Email not available here'); }
+}
+function resumeEmailDraftCopy(){
+  const ed=state.resumeEmailDraft; if(!ed) return;
+  try{ navigator.clipboard.writeText((ed.subject?('Subject: '+ed.subject+'\n\n'):'')+(ed.body||'')); toast('Copied to clipboard'); }
+  catch(e){ toast('Copy not available here'); }
+}
+function renderResumeEmailModal(){
+  const ed=state.resumeEmailDraft; if(!ed) return;
+  mEl.innerHTML=`<div class="mh"><span class="mt">${ic('spark',15)} Draft an email</span><button class="mc" onclick="closeModal()">×</button></div>
+    <div class="mb">
+      <div class="rz-ai-sub">Say who this is for and what the email should cover — "introduce her to the Jordan family for a possible weekend shift", "a short note to a referral partner". The AI writes a draft below; nothing is sent from here.</div>
+      <div class="rz-ai-row"><textarea id="rzeAiPrompt" class="ein" rows="2" placeholder="Who is this to, and what should it say?" ${ed.busy?'disabled':''}>${escText(ed.prompt)}</textarea>
+        <button class="btn pri" onclick="resumeEmailDraftGenerate()" ${ed.busy?'disabled':''}>${ed.busy?'<span class="cs-spin"></span> Writing…':ic('spark',13)+' Generate'}</button></div>
+      ${ed.err?`<div class="ct-err">${ic('alerts',13)} ${escText(ed.err)}</div>`:''}
+      ${ed.ready?`
+        <div class="rz-field"><div class="rz-flabel">Subject</div><input class="ein" type="text" value="${esc(ed.subject)}" oninput="resumeEmailDraftEdit('subject',this.value)"></div>
+        <div class="rz-field"><div class="rz-flabel">Body</div><textarea class="ein" rows="9" oninput="resumeEmailDraftEdit('body',this.value)">${escText(ed.body)}</textarea></div>
+      `:''}
+    </div>
+    <div class="mf">
+      <button class="btn" onclick="closeModal()">Close</button>
+      ${ed.ready?`<button class="btn" onclick="resumeEmailDraftCopy()">${ic('log',13)} Copy</button><button class="btn pri" onclick="resumeEmailDraftOpenMail()">${ic('send',13)} Open in my email app</button>`:''}
+    </div>`;
+}
+function resumeAiBar(){
+  const busy=!!state.resumeAiBusy;
+  return `<div class="rz-ai">
+    <div class="rz-ai-h">${ic('spark',14)} Ask AI to help write this resume</div>
+    <div class="rz-ai-sub">Describe what you want — "make the about paragraph warmer", "add bathing and dressing assistance to skills", "she speaks Tagalog too". It edits the fields below; nothing is saved until you click Save.</div>
+    <div class="rz-ai-row"><textarea id="rzAiPrompt" class="ein" rows="2" placeholder="What would you like changed or added?" ${busy?'disabled':''}></textarea>
+      <button class="btn pri" onclick="resumeAiAsk()" ${busy?'disabled':''}>${busy?'<span class="cs-spin"></span> Working…':ic('spark',13)+' Ask AI'}</button></div>
+    ${state.resumeAiErr?`<div class="ct-err">${ic('alerts',13)} ${escText(state.resumeAiErr)}</div>`:''}
+  </div>`;
+}
+
+/* ---------- chip / line editor fields ---------- */
+function resumeChipField(label, field, opts){
+  const d=state.resumeDraft, sel=d[field]||[];
+  const quick=(opts||[]).map(o=>`<label class="qs-opt${sel.indexOf(o)>=0?' on':''}"><input type="checkbox" ${sel.indexOf(o)>=0?'checked':''} onchange="resumeToggle('${field}','${esc(o)}')"><span class="qs-box">${ic('check',11)}</span>${escText(o)}</label>`).join('');
+  const extra=sel.filter(s=>(opts||[]).indexOf(s)<0);
+  const extraChips=extra.map(s=>`<span class="qs-tag">${escText(s)}<button class="qs-tagx" onclick="resumeToggle('${field}','${esc(s)}')">×</button></span>`).join('');
+  return `<div class="rz-field"><div class="rz-flabel">${label}</div>
+    <div class="qs-opts">${quick}</div>
+    ${extraChips?`<div class="qs-tags">${extraChips}</div>`:''}
+    <div class="rz-addrow"><input class="ein sm" type="text" placeholder="Add another…" onkeydown="if(event.key==='Enter'){event.preventDefault();resumeAddCustom('${field}',this);}">
+      <button type="button" class="btn sm" onclick="resumeAddCustom('${field}',this.previousElementSibling)">Add</button></div>
+  </div>`;
+}
+function resumeLinesField(label, field, hint){
+  const d=state.resumeDraft;
+  return `<div class="rz-field"><div class="rz-flabel">${label}</div>
+    <div class="rz-fhint">${hint||'One per line.'}</div>
+    <textarea class="ein" rows="3" oninput="resumeSetLines('${field}',this.value)">${escText((d[field]||[]).join('\n'))}</textarea>
+  </div>`;
+}
+
+/* ---------- the two screens: library, and the editor ---------- */
+function viewResumes(){ return state.resumeEditId ? resumeEditorHtml() : resumeLibraryHtml(); }
+function resumeLibraryHtml(){
+  const list=(state.resumes||[]).slice().sort((a,b)=>new Date(b.updatedAt)-new Date(a.updatedAt));
+  const rows=list.map(r=>`<div class="rz-row">
+      <div class="rz-rowmain"><button class="su-name" onclick="resumeOpenEdit('${r.id}')">${escText(r.name||'Untitled')}</button>
+        <span class="su-when">${escText(r.title||'Caregiver')}${r.updatedBy?' · last edited by '+escText(r.updatedBy):''}</span></div>
+      <div class="cvm-acts">
+        <button class="q-b" onclick="resumePrint('${r.id}')">${ic('log',12)} Print</button>
+        <button class="q-b" onclick="resumeDownloadPDF('${r.id}')">${ic('log',12)} PDF</button>
+        <button class="q-b" onclick="resumeEmail('${r.id}')">${ic('send',12)} Email</button>
+        <button class="q-b" onclick="resumeOpenEmailDraft('${r.id}')">${ic('spark',12)} Draft with AI</button>
+        <button class="btn sm danger" onclick="resumeDelete('${r.id}')">${ic('trash',12)}</button>
+      </div></div>`).join('');
+  const cgOpts=(state.caregivers||[]).filter(c=>c.active!==false).sort((a,b)=>a.name.localeCompare(b.name))
+    .map(c=>`<option value="${c.id}">${escText(c.name)}</option>`).join('');
+  return `<div class="rz-lib">
+    <div class="rep-intro"><b>Build a caregiver resume.</b> Start blank, or seed one from an existing caregiver's recorded Skills and Experience, then edit it or ask AI to help write it. Nothing here changes the caregiver's own record.</div>
+    <div class="rz-libtop">
+      <button class="btn pri" onclick="resumeOpenNew()">${ic('check',14)} New Resume</button>
+      <select class="ein" style="max-width:260px" onchange="if(this.value){resumeOpenFromCg(this.value);this.value='';}">
+        <option value="">Start from a caregiver…</option>${cgOpts}</select>
+    </div>
+    ${list.length?`<div class="rz-list">${rows}</div>`:emptyState('No resumes yet','Click New Resume, or start from an existing caregiver.')}
+  </div>`;
+}
+function resumeEditorHtml(){
+  const d=state.resumeDraft; if(!d) return '';
+  return `<div class="rz-editor">
+    <button class="btn sm" onclick="resumeCloseEditor()">${ic('chevL',12)} Back to Resumes</button>
+    ${resumeAiBar()}
+    <div class="rz-split">
+      <div class="rz-form">
+        <div class="rz-field"><div class="rz-flabel">Name</div><input class="ein" type="text" value="${esc(d.name)}" oninput="resumeSet('name',this.value)" placeholder="Full name"></div>
+        <div class="rz-field2col">
+          <div class="rz-field"><div class="rz-flabel">Title</div><input class="ein" type="text" value="${esc(d.title)}" oninput="resumeSet('title',this.value)"></div>
+          <div class="rz-field"><div class="rz-flabel">Years of experience</div><input class="ein" type="text" value="${esc(d.years)}" oninput="resumeSet('years',this.value)" placeholder="e.g. 4+"></div>
+        </div>
+        <div class="rz-field"><div class="rz-flabel">Languages</div><input class="ein" type="text" value="${esc((d.bilingual||[]).join(', '))}" oninput="resumeSet('bilingual',this.value.split(',').map(function(x){return x.trim();}).filter(Boolean))" placeholder="English, Filipino"></div>
+        ${resumeChipField('Personality','personality',RESUME2_PERSONALITY_OPTS)}
+        ${resumeLinesField('Communication','communication','Short phrases, one per line — "Explains each step to clients".')}
+        ${resumeChipField('Reliability','reliability',RESUME2_RELIABILITY_OPTS)}
+        ${resumeChipField('Skills &amp; Strengths','skills',CARE_SKILL_OPTS)}
+        ${resumeLinesField('Caregiving Style','caregivingStyle','One per line — "Gives clients space when needed".')}
+        ${resumeChipField('Care Experience','careExperience',CG_EXP_OPTS.filter(x=>x!=='Others'))}
+        <div class="rz-field"><div class="rz-flabel">About</div><textarea class="ein" rows="4" oninput="resumeSet('about',this.value)" placeholder="A short paragraph about this caregiver.">${escText(d.about)}</textarea></div>
+        <div class="rz-editfoot"><button class="btn" onclick="resumeCopy(null)">${ic('log',13)} Copy text</button><button class="btn" onclick="resumeOpenEmailDraft(null)">${ic('spark',13)} Draft an email</button><span class="ct-sp"></span><button class="btn" onclick="resumeCloseEditor()">Cancel</button><button class="btn pri" onclick="resumeSave()">${ic('check',14)} Save</button></div>
+      </div>
+      <div class="rz-preview-pane"><div class="rz-previewlabel">Preview</div><div class="rz2-doc">${resume2Html(d)}</div></div>
+    </div>
+  </div>`;
+}
+
 /* ============ CONTACT LOG ============ */
 function openContactLog(shiftId){ state.activeShift=shiftId; go('log'); }
 function viewLog(){
@@ -24330,6 +24719,10 @@ const CLOUD = (function(){
     { path:'customForms',       key:'id' },
     { path:'sentForms',         key:'id' },
     { path:'offerTemplates',    key:'id' },
+    /* Resume Builder drafts - saved resumes, shared and tombstone-capable
+       exactly like guides/offerTemplates. The draft being actively EDITED
+       (state.resumeDraft) is not here - only a Saved resume is. */
+    { path:'resumes',           key:'id' },
     { path:'handoff.opener',    key:'id' },
     { path:'handoff.closer',    key:'id' },
     { path:'formActivity',      sig:['type','formName','clientId','by','at'] },
@@ -24494,6 +24887,7 @@ const CLOUD = (function(){
       try{ state.offerTemplates = defaultOfferTemplates(); }catch(e){ state.offerTemplates = []; }
     }
     if(!state.offerTemplates) state.offerTemplates = [];
+    if(!state.resumes) state.resumes = [];
   }
 
   /* ---------- baseline / diff / apply ---------- */
