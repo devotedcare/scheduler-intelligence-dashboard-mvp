@@ -7628,7 +7628,16 @@ function buildCoverageText(cgId,key,multi){
    One entry point for one caregiver and one for a ticked selection. Both
    land on the same array, so the modal never has two shapes to reason
    about — a single recipient is just a selection of one. */
-function openCoverageText(cgId){ openCoverageTextFor([cgId]); }
+/* A HAPPY-CLICK GUARD, on every entry into the composer (Peter, 2026-10-07).
+   Nothing is sent yet at this point - the composer itself still needs a
+   template, a Send click and Quo's own reply - but opening it is also the
+   single click away a busy scheduler's thumb can land on by mistake while
+   scrolling a long list, so it gets the same one-line confirm Call does. */
+function openCoverageText(cgId){
+  const c=cgById(cgId);
+  if(!window.confirm('Text '+(c?c.name:'this caregiver')+'?')) return;
+  openCoverageTextFor([cgId]);
+}
 /* THE BUTTON SENDS EXACTLY WHAT IT COUNTED, and the list is handed in
    rather than re-derived. It used to call covSelIds() — every id ticked
    anywhere in this tab — while the label beside it counted only the ids in
@@ -7644,6 +7653,7 @@ function openCoverageText(cgId){ openCoverageTextFor([cgId]); }
 function openCoverageTextSel(ids){
   const list=String(ids||'').split(',').filter(Boolean).filter(id=>cgById(id));
   if(!list.length){ toast('Tick the caregivers you want to text first'); return; }
+  if(!window.confirm('Text '+list.length+' caregiver'+(list.length===1?'':'s')+'?')) return;
   openCoverageTextFor(list);
 }
 function openCoverageTextFor(ids){
@@ -7708,6 +7718,7 @@ function suBuildText(cgId,key,multi){
 }
 function suOpenText(id, ym){
   const c=cgById(id); if(!c) return;
+  if(!window.confirm('Text '+c.name+'?')) return;
   /* The month the list is about, by name, for the availability wording. */
   let mon='';
   if(ym){ const m=/^(\d{4})-(\d{2})$/.exec(ym); if(m) mon=new Date(+m[1], +m[2]-1, 1).toLocaleDateString('en-US',{month:'long'}); }
@@ -7912,23 +7923,39 @@ function quoCallHref(telHref){
   var from=quoCallFrom();
   return 'openphone://dial?number='+encodeURIComponent(num)+(from?'&from='+encodeURIComponent(from):'')+'&action=call';
 }
+/* A HAPPY-CLICK GUARD ON EVERY CALL BUTTON IN THE APP (Peter, 2026-10-07).
+   This listener already touches every tel: link site-wide - the one funnel
+   point CLAUDE.md's "seven lists" lesson says to prefer over editing a dozen
+   call sites by hand - so the confirm goes here too, rather than on each
+   button. ALWAYS preventDefault now, even on a desktop click that used to
+   fall through to the native tel: handler untouched: control has to pass
+   through the confirm before anything happens, not just before the parts
+   this file adds on top. A cancelled confirm leaves the page exactly as it
+   was - no copy, no redirect, nothing dialled. */
 document.addEventListener('click', function(e){
   var a=e.target && e.target.closest ? e.target.closest('a[href^="tel:"]') : null;
   if(!a) return;
-  var num=String(a.getAttribute('href')||'').replace(/^tel:/i,'');
-  var href=quoCallHref(a.getAttribute('href'));
-  /* COPY, UNLESS THE DEEP LINK IS ABOUT TO AUTO-DIAL (Peter, 2026-10-07).
-     Quo's own docs say a browser cannot be made a default calling app at
-     all, so when the desk works from Quo's WEBSITE in a tab, nothing this
-     page can send reaches it - copying the number so it can be pasted into
-     Quo is the one real thing left to do. Skipped only when the mobile deep
-     link below is about to fire for real, where a "paste it into Quo" toast
-     would be confusing. A failed clipboard write (insecure context, denied
-     permission) fails silently - the tel: link underneath is unaffected. */
+  e.preventDefault();
+  var raw=a.getAttribute('href')||'';
+  var num=String(raw).replace(/^tel:/i,'');
+  /* Most Call buttons carry no name in the DOM at all, only the number in
+     their own visible text - so title="Call <name>" is read where a button
+     happens to set it (suCallBtn does), and the number stands in everywhere
+     else. Either way the scheduler sees who or what they are about to call. */
+  var titleM=/^Call\s+(.+)$/i.exec(a.getAttribute('title')||'');
+  var who=titleM?titleM[1]:num;
+  if(!window.confirm('Call '+who+'?')) return;
+  var href=quoCallHref(raw);
+  /* COPY, UNLESS THE DEEP LINK IS ABOUT TO AUTO-DIAL. Quo's own docs say a
+     browser cannot be made a default calling app at all, so when the desk
+     works from Quo's WEBSITE in a tab, nothing this page can send reaches
+     it - copying the number so it can be pasted into Quo is the one real
+     thing left to do. Skipped only when the mobile deep link below is about
+     to fire for real, where a "paste it into Quo" toast would be confusing.
+     A failed clipboard write (insecure context, denied permission) fails
+     silently - the call still goes ahead either way. */
   if(!href){ try{ navigator.clipboard.writeText(num).then(function(){ toast('Number copied — paste it into Quo'); }); }catch(e2){} }
-  if(!href) return;                      /* desktop, or own-number mode: leave the tel: link alone */
-  e.preventDefault();                    /* any onclick on the link has already run - this is the bubble phase */
-  location.href=href;
+  location.href=href||raw;
 });
 /* The lines are only read when a text window or the settings page opens, so
    a Call pressed first would have no caller id to pass. Warm them once, on
