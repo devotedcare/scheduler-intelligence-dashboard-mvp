@@ -897,7 +897,8 @@
   .rz2-brandtag{font-size:7.5px;font-weight:700;letter-spacing:1px;color:#7a8590}
   .rz2-meet{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.5px;color:#2E9E6A}
   .rz2-h{display:flex;gap:14px;align-items:center;margin-bottom:16px}
-  .rz2-photo{width:60px;height:60px;border-radius:8px;background:#EFF4F7;display:flex;align-items:center;justify-content:center;color:#9aa6b0;flex:0 0 auto}
+  .rz2-photo{width:60px;height:60px;border-radius:8px;background:#EFF4F7;display:flex;align-items:center;justify-content:center;color:#9aa6b0;flex:0 0 auto;overflow:hidden}
+  .rz2-photo img{width:100%;height:100%;object-fit:cover;display:block}
   .rz2-name{font-size:19px;font-weight:800;color:#1B3B54;letter-spacing:-.3px}
   .rz2-years{font-size:11.5px;font-weight:700;color:#2E9E6A;margin-top:1px}
   .rz2-sub{font-size:11.5px;color:#5A7184;margin-top:1px}
@@ -17762,7 +17763,7 @@ function emailProfile(id){ emailResume(id); }
 const RESUME2_PERSONALITY_OPTS=['Warm','Respectful','Patient','Calm','Compassionate','Positive','Mature','Detail-oriented','Cheerful','Gentle','Easygoing','Empathetic'];
 const RESUME2_RELIABILITY_OPTS=['Reliable','Punctual','Consistent','Trustworthy','Dependable','Responsible'];
 function resume2Blank(){
-  return { id:null, cgId:null, name:'', title:'Caregiver', years:'',
+  return { id:null, cgId:null, name:'', title:'Caregiver', years:'', photoUrl:'',
     bilingual:[], personality:[], communication:[], reliability:[],
     skills:[], caregivingStyle:[], careExperience:[], about:'',
     updatedBy:state.onShift, updatedAt:new Date() };
@@ -17774,6 +17775,13 @@ function resume2Blank(){
 function resume2FromCaregiver(c){
   const d=resume2Blank();
   d.cgId=c.id; d.name=c.name; d.title='Caregiver';
+  /* READ-ONLY, from the caregiver's own public photo - cgPhotoUrl() is the
+     plain object URL CLAUDE.md requires (never the billed render endpoint),
+     and photo reads need no PIN. A copy of the URL, taken once: editing the
+     caregiver's photo later does not reach a resume already started, same as
+     every other field this seeds. null (no photo on file) is kept as '' so
+     the template's own placeholder - not a broken image - is what shows. */
+  d.photoUrl=cgPhotoUrl(c,160)||'';
   d.years=String(cgYears(c)||'')+(cgYears(c)?'+':'');
   d.bilingual=(c.languages||[]).slice();
   const temper=(c.ops&&c.ops.persona&&c.ops.persona.temperament)||'';
@@ -17839,8 +17847,16 @@ function resume2Html(d){
   const lines=a=>`<ul class="rz2-ul">${(a||[]).map(x=>`<li>${escText(x)}</li>`).join('')}</ul>`;
   const box=(label,body)=>body?`<div class="rz2-box"><div class="rz2-boxl">${escText(label)}</div>${body}</div>`:'';
   const sub=[d.title||'Caregiver', d.bilingual&&d.bilingual.length?'Bilingual: '+escText(d.bilingual.join(', ')):''].filter(Boolean).join(' · ');
+  /* Same fallback shape as the caregiver list's own photo cells: try the
+     image, and onerror swap to the camera placeholder rather than showing a
+     broken-image icon. This markup can land in a print POPUP window (see
+     resume2Window), which has no access to this page's cgPhotoFail() helper
+     - so the swap is written inline here instead of calling out to it. */
+  const photo=d.photoUrl
+    ? `<img src="${esc(d.photoUrl)}" alt="" onerror="this.outerHTML='${ic('camera',22).replace(/'/g,"\\'")}'">`
+    : ic('camera',22);
   return `<div class="rz2-brand">${brandLogo('rz2-logo')}<div class="rz2-brandid"><div class="rz2-brandco">Devoted Care Services, LLC</div><div class="rz2-brandtag">BECAUSE YOU DESERVE, DEVOTED CARE</div></div><div class="rz2-meet">MEET YOUR CAREGIVER</div></div>
-    <div class="rz2-h"><div class="rz2-photo">${ic('camera',22)}</div><div><div class="rz2-name">${escText(d.name||'Untitled')}</div>${d.years?`<div class="rz2-years">${escText(d.years)} Years of Caregiving Experience</div>`:''}<div class="rz2-sub">${sub}</div></div></div>
+    <div class="rz2-h"><div class="rz2-photo">${photo}</div><div><div class="rz2-name">${escText(d.name||'Untitled')}</div>${d.years?`<div class="rz2-years">${escText(d.years)} Years of Caregiving Experience</div>`:''}<div class="rz2-sub">${sub}</div></div></div>
     <div class="rz2-row3">
       ${box('Personality', chips(d.personality))}
       ${box('Communication', lines(d.communication))}
@@ -17869,7 +17885,8 @@ const RESUME2_PRINT_CSS=`*{box-sizing:border-box}body{font-family:'Inter',system
 .rz2-brandtag{font-size:8px;font-weight:700;letter-spacing:1px;color:#7a8590}
 .rz2-meet{margin-left:auto;font-size:11px;font-weight:800;letter-spacing:.5px;color:#2E9E6A}
 .rz2-h{display:flex;gap:18px;align-items:center;margin-bottom:20px}
-.rz2-photo{width:84px;height:84px;border-radius:8px;background:#EFF4F7;display:flex;align-items:center;justify-content:center;color:#9aa6b0;flex:0 0 auto}
+.rz2-photo{width:84px;height:84px;border-radius:8px;background:#EFF4F7;display:flex;align-items:center;justify-content:center;color:#9aa6b0;flex:0 0 auto;overflow:hidden}
+.rz2-photo img{width:100%;height:100%;object-fit:cover;display:block}
 .rz2-name{font-size:24px;font-weight:800;color:#1B3B54;letter-spacing:-.4px}
 .rz2-years{font-size:13px;font-weight:700;color:#2E9E6A;margin-top:2px}
 .rz2-sub{font-size:13px;color:#5A7184;margin-top:2px}
@@ -18061,6 +18078,10 @@ function resumeEditorHtml(){
     <div class="rz-split">
       <div class="rz-form">
         <div class="rz-field"><div class="rz-flabel">Name</div><input class="ein" type="text" value="${esc(d.name)}" oninput="resumeSet('name',this.value)" placeholder="Full name"></div>
+        <div class="rz-field"><div class="rz-flabel">Photo</div>
+          <div class="rz-fhint">${d.cgId?'Pulled from this caregiver’s profile photo. ':''}Paste an image URL, or leave blank for the placeholder — there is no photo upload here.</div>
+          <input class="ein" type="text" value="${esc(d.photoUrl)}" oninput="resumeSet('photoUrl',this.value)" placeholder="https://…">
+        </div>
         <div class="rz-field2col">
           <div class="rz-field"><div class="rz-flabel">Title</div><input class="ein" type="text" value="${esc(d.title)}" oninput="resumeSet('title',this.value)"></div>
           <div class="rz-field"><div class="rz-flabel">Years of experience</div><input class="ein" type="text" value="${esc(d.years)}" oninput="resumeSet('years',this.value)" placeholder="e.g. 4+"></div>
