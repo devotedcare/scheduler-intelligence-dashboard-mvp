@@ -136,14 +136,14 @@ function stripDraft(d: Record<string, unknown>): Record<string, unknown> {
 
 const EDIT_TOOL = {
   name: "update_resume",
-  description: "Apply the scheduler's requested change to the caregiver resume draft. " +
-    "Return ONLY the fields that should change; leave out any field the instruction did not touch.",
+  description: "Apply the scheduler's instruction to the caregiver resume draft. For a targeted edit, " +
+    "return only the fields that change. For a build from sources, return every field the sources support.",
   input_schema: {
     type: "object",
     properties: {
       name: { type: "string" },
       title: { type: "string" },
-      years: { type: "string", description: "e.g. '4+'" },
+      years: { type: "string", description: "'4+', or the whole line 'Caregiving Since November 2025' when under a year" },
       bilingual: { type: "array", items: { type: "string" }, description: "Languages spoken" },
       personality: { type: "array", items: { type: "string" }, description: "Single words or short phrases" },
       communication: { type: "array", items: { type: "string" }, description: "Short phrases, e.g. 'Explains each step to clients'" },
@@ -151,7 +151,17 @@ const EDIT_TOOL = {
       skills: { type: "array", items: { type: "string" }, description: "Skills & Strengths" },
       caregivingStyle: { type: "array", items: { type: "string" }, description: "Short phrases" },
       careExperience: { type: "array", items: { type: "string" } },
-      about: { type: "string", description: "One short paragraph" },
+      about: { type: "string", description: "Three to five short sentences of background only" },
+      notes: {
+        type: "object",
+        description: "For the scheduler, never printed on the resume.",
+        properties: {
+          builtFrom: { type: "string", description: "One short line naming the sources used" },
+          leftOff: { type: "array", items: { type: "string" }, description: "What was deliberately left off the page, and why" },
+          confirm: { type: "array", items: { type: "string" }, description: "Conflicts or doubtful details to check" },
+        },
+        additionalProperties: false,
+      },
     },
     additionalProperties: false,
   },
@@ -170,29 +180,88 @@ const EMAIL_TOOL = {
   },
 };
 
+/* THE RULES BELOW ARE THE OFFICE'S OWN "caregiver-resume" SKILL (owner, 2026-10-07).
+   The same rulebook claude.ai follows when the office builds one of these by hand,
+   so a resume made here and one made there leave the same things off and sort a
+   fact into the same box. If the skill changes, this prompt changes with it.
+
+   What could NOT come across: the skill draws the PDF with a Python builder
+   (ReportLab) that scales the type to fill the page. There is no Python in a
+   browser or an Edge Function, so the page here is still the HTML template in
+   index.html (resume2Html) printed to PDF. The CONTENT rules are the skill's;
+   the page layout is this app's own approximation of it. */
 const EDIT_SYSTEM = [
-  "You help a scheduler at a home-care agency fill in and edit a caregiver's recruiting resume",
-  "('Meet Your Caregiver' card). You are given the CURRENT draft and ONE instruction. Call",
-  "update_resume exactly once, with ONLY the fields the instruction asks to change - leave every",
-  "other field out of the call entirely, even if you could improve it. The scheduler reviews",
-  "everything before anything is saved, so do not be shy about proposing specific wording, but",
-  "never invent a fact the instruction or the current draft does not support (a certification, a",
-  "language, a care condition) - ask for shorter or more general wording instead.",
+  "You build and edit Devoted Care's one-page 'Meet Your Caregiver' resume, which introduces a",
+  "caregiver to a client's FAMILY. You are given the CURRENT draft and ONE instruction, sometimes",
+  "with sources: pasted office notes or call transcripts, attached screenshots of the caregiver",
+  "dashboard, an older resume, a certificate. Call update_resume exactly once.",
   "",
-  "You may be shown one or more attached images or PDF pages alongside the instruction - a",
-  "screenshot, an old resume, a certificate. Use them as REFERENCE the way a person reading over",
-  "the scheduler's shoulder would: pull out facts the instruction asks you to use (a certification",
-  "name, a language, a skill actually shown), never invent what an attachment does not actually",
-  "show, and never copy its wording verbatim into a field unless asked to - write it in this",
-  "resume's own house style instead.",
+  "TWO KINDS OF INSTRUCTION",
+  "1. A targeted edit ('make the about warmer', 'add Hoyer lift to skills'). Return ONLY the fields",
+  "   it asks to change and leave every other field out of the call.",
+  "2. A build ('create her resume', 'recreate this', 'use this', or sources handed over with little",
+  "   instruction). Return EVERY field the sources support. The current draft counts as a source:",
+  "   its skills, care experience and personality usually came from the caregiver dashboard. Return",
+  "   those fields too, cleaned up by the rules below.",
   "",
-  "Personality, Reliability, Skills & Strengths and Care Experience are short words or two-word",
-  "phrases, not sentences. Communication and Caregiving Style are short first-person-plural-style",
-  "phrases describing how the caregiver works, one per array entry, matching this house style:",
-  "'Explains each step to clients', 'Gives clients space when needed', 'Handles client refusals well'.",
-  "About is ONE short paragraph, third person, warm and specific, with no medical claims and no",
-  "promises about availability or pay. Never write placeholder text like 'TBD' or 'N/A' - if there",
-  "is nothing to say yet, leave the field out of the call.",
+  "SOURCES",
+  "Every line must trace to the draft, the instruction or an attachment. Never invent a trait, a",
+  "skill, years or a credential, and never fill a gap with a guess. An empty box is correct when",
+  "nothing supports it: leave that field out. When sources disagree, use the most direct one (what",
+  "the caregiver said outranks a draft somebody wrote) and say so in notes.confirm.",
+  "When an attachment is itself a finished resume with labelled boxes, each box goes to the field",
+  "of the SAME name: its RELIABILITY items into reliability, its CAREGIVING STYLE items into",
+  "caregivingStyle, its COMMUNICATION items into communication. Do not move an item to a different",
+  "box and do not rewrite a box from the About paragraph.",
+  "",
+  "ALWAYS LEAVE OFF (a family reads this page)",
+  "- Availability and schedules: shift times, days, weekends, overnights, long hours, 'flexible'.",
+  "- Where they live, service areas, travel, driving, a car, license numbers, contact details, age,",
+  "  date of birth, pay.",
+  "- Internal office notes: lift limits, coaching, AxisCare or other software, 'ideal client",
+  "  match', placement considerations, deal-breakers.",
+  "- Text written for one family's request, such as 'Why we recommend her'.",
+  "- 'Active' after a credential, expired certifications, and credentials nobody has confirmed.",
+  "- Medical tasks. Devoted Care is non-medical: write 'Medication reminders', never giving or",
+  "  administering medication, and no catheter, injection or wound care. A nursing credential (LVN,",
+  "  CNA) may still be stated as background.",
+  "- Names of other agencies, employers or past clients, and health details about the caregiver.",
+  "- Anything negative. Every line should read as a positive trait to a family.",
+  "",
+  "DO NOT REPEAT",
+  "- Each fact appears once on the page.",
+  "- About never restates the boxes. It carries only what the boxes do not say.",
+  "- Drop near-synonyms within a list (Warm / Friendly, Compassionate / Empathetic), and a style",
+  "  line that only restates a listed trait ('unhurried' when Calm and Patient are listed).",
+  "- Do not repeat a box's title in its items: under care experience write 'Stroke', not 'Stroke",
+  "  care'; 'Hospice', not 'Hospice care'.",
+  "",
+  "THE FIELDS",
+  "- years: '4+' style when a total is known. When it is under a year or no total is given, write",
+  "  the whole line instead: 'Caregiving Since November 2025'.",
+  "- title: the confirmed credential, such as 'Registered Home Care Aide (HCA)'. With no confirmed",
+  "  credential, 'Caregiver'. Languages go in bilingual, not here.",
+  "- personality: single trait words.",
+  "- communication: how they talk with clients or keep the family informed. Not paperwork.",
+  "- reliability: only what the sources support, such as 'Reliable', 'Punctual'. A trait listed",
+  "  under personality that is really about reliability belongs here instead. Never fill this box",
+  "  with 'flexible' or with availability.",
+  "- caregivingStyle: how they work with clients, such as 'Gives clients space when needed'.",
+  "- skills: the dashboard skill tags, transfers and mobility first, then personal care, then",
+  "  daily-living help.",
+  "- careExperience: conditions from the dashboard's Experience section.",
+  "- about: three to five short, plain, third-person sentences of BACKGROUND only: where they have",
+  "  worked (private homes, a home care company, facilities, hospice), the kinds of clients, their",
+  "  credential history ('was previously a CNA'), what references say, comfort with pets.",
+  "Items are short sentence-case phrases with no full stop, in plain, simple, positive words. Never",
+  "write placeholder text such as 'TBD' or 'N/A'.",
+  "",
+  "NOTES (always fill these in on a build; on a small edit they may be empty)",
+  "- notes.builtFrom: one short line naming the sources used.",
+  "- notes.leftOff: what you deliberately left off the page and, in a few words, why.",
+  "- notes.confirm: conflicts between sources, and anything that looks filled in by default rather",
+  "  than known, for the scheduler to check. Do not recap the resume.",
+  "",
   "Write plain ASCII only: no en dashes, em dashes, curly quotes or ellipses.",
 ].join("\n");
 
@@ -210,6 +279,11 @@ const EMAIL_SYSTEM = [
   "",
   "You may be shown one or more attached images or PDF pages - use them as reference for facts the",
   "instruction asks you to include; never invent what an attachment does not actually show.",
+  "",
+  "When the email is to a client's FAMILY, keep it short, warm and professional: introduce the",
+  "caregiver, add one sentence of highlights, invite questions, give the office number",
+  "(805) 419-6909, and sign off 'Devoted Care Services, LLC'. Leave out the caregiver's",
+  "availability, where they live, driving and contact details.",
   "Write plain ASCII only: no en dashes, em dashes, curly quotes or ellipses.",
 ].join("\n");
 
@@ -330,7 +404,19 @@ Deno.serve(async (req) => {
     }
     const out = await callClaude(EDIT_SYSTEM, content, EDIT_TOOL);
     const patch = stripDraft(out);
-    return json(cors, 200, { ok: true, patch });
+    /* NOTES ride beside the patch, never inside it: stripDraft() keeps only
+       real resume fields, so a note can never be saved onto the resume or
+       printed on the page a family reads. Capped like every other model
+       output here, because it is arbitrary text. */
+    const rawNotes = (out.notes ?? {}) as Record<string, unknown>;
+    const list = (v: unknown) => Array.isArray(v)
+      ? v.map((x) => String(x).trim().slice(0, 300)).filter(Boolean).slice(0, 12) : [];
+    const notes = {
+      builtFrom: String(rawNotes.builtFrom ?? "").trim().slice(0, 300),
+      leftOff: list(rawNotes.leftOff),
+      confirm: list(rawNotes.confirm),
+    };
+    return json(cors, 200, { ok: true, patch, notes });
   } catch (err) {
     const e = err as Error;
     const timedOut = e && (e.name === "TimeoutError" || e.name === "AbortError");

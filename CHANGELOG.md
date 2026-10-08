@@ -2428,3 +2428,43 @@ The rest are counts only: gender, marked unavailable, nothing entered, not loade
 
 **Who may be offered the shift is unchanged.** The section has no checkbox, no Text and no
 assign control. "Not loaded" is its own count and is never read as a no.
+
+## 2026-10-07 — Find Coverage checks the client's Caregiver Matching card and Care Plan
+
+Asked for by the desk for Jose Ortiz ("only Spanish speaker, and female"), then widened by
+the owner: *"check what the client's preferences is before giving a match ... it's about
+the caregiver matching and careplan."*
+
+- **The match reads the client's record.** Concierge's language (Spanish only) and its
+  "Male / Female preferred" wording, which the sync was dropping, now count: marked on the
+  row, costing match points, and keeping a non-fit out of Best matches. `covClientNeeds()`
+  reads the care needs from the Caregiver Matching card and from a Care Plan already in the
+  session cache, and compares them with the caregiver's Skills and Experience cards.
+  **None of this removes anybody**, and a profile with nothing ticked is "not recorded",
+  not a miss.
+- **Find Coverage never loads a Care Plan itself** — that can regenerate one on Opus. The
+  header chip says whether the plan was included.
+- **A desk rule that does filter**, one per client, on the Caregiver Matching card: female
+  only / male only, and one required language. New `covRules` slice. A first version split
+  it by day and night shift; the owner corrected that the same day and it has no time of
+  day in it.
+- **An empty list says why first**, a name that is not a match asks before opening, and the
+  profile then carries a card with the reasons (`covOpenUnmatched`, `cgWhyNotCard`).
+
+**Measured:** 13 of 173 active caregivers are recorded as Spanish speakers and 78 carry no
+tags, so a Spanish-only list is short. The fix is to record the language on the caregiver.
+
+## 2026-10-07 — Resume Builder follows the office's caregiver-resume skill
+
+`resume-assist`'s edit prompt is now the office's own `caregiver-resume` skill: what to
+leave off a family-facing page (availability, where they live, driving, office notes),
+no repeated facts, About as background only, and a labelled box from an old resume going
+to the field of the same name. It returns `notes` (built from / left off / please check),
+shown under the AI box and never saved. **Not measured before deploy** — no Anthropic key
+on the machine it was written on; compare against a known resume before trusting it.
+
+Also: every box is a bulleted list and an empty box is left off the page; a photo embedded
+in an attached PDF is extracted in the browser (no model), applied to a standalone resume
+and offered, with a confirm, for a caregiver-linked one; Print and Download PDF work on an
+unsaved draft; and `renderResumeEditor()`, which never existed and froze every AI request,
+is `render()`.

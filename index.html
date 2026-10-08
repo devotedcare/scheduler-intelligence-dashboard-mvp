@@ -910,24 +910,37 @@
   .rz2-brandtag{font-size:7.5px;font-weight:700;letter-spacing:1px;color:#7a8590}
   .rz2-meet{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.5px;color:#2E9E6A}
   .rz2-h{display:flex;gap:14px;align-items:center;margin-bottom:16px}
-  .rz2-photo{width:60px;height:60px;border-radius:8px;background:#EFF4F7;display:flex;align-items:center;justify-content:center;color:#9aa6b0;flex:0 0 auto;overflow:hidden}
+  .rz2-photo{width:64px;height:80px;border-radius:2px;border:1px solid #D5E0E7;background:#EFF4F7;display:flex;align-items:center;justify-content:center;color:#9aa6b0;flex:0 0 auto;overflow:hidden}
   .rz2-photo img{width:100%;height:100%;object-fit:cover;display:block}
   .rz2-name{font-size:19px;font-weight:800;color:#1B3B54;letter-spacing:-.3px}
   .rz2-years{font-size:11.5px;font-weight:700;color:#2E9E6A;margin-top:1px}
   .rz2-sub{font-size:11.5px;color:#5A7184;margin-top:1px}
-  .rz2-row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px}
-  .rz2-row2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+  .rz2-row{display:grid;gap:10px;margin-bottom:10px}
   .rz2-box{border:1px solid #D5E0E7;border-radius:6px;padding:10px 12px}
   .rz2-boxl{font-size:10.5px;font-weight:800;text-transform:uppercase;color:#1B3B54;border-bottom:2px solid #2E9E6A;display:inline-block;padding-bottom:2px;margin-bottom:7px}
-  .rz2-tags{display:flex;flex-wrap:wrap;gap:5px}
-  .rz2-tags span{font-size:11.5px}
-  .rz2-ul{margin:0;padding-left:15px}.rz2-ul li{font-size:11.5px;margin-bottom:2px}
+  .rz2-ul{margin:0;padding-left:15px}.rz2-ul li{font-size:11.5px;margin-bottom:2px;break-inside:avoid}
+  .rz2-c2{columns:2;column-gap:22px}.rz2-c3{columns:3;column-gap:22px}
   .rz2-about{background:#F2F7F4;border-left:4px solid #2E9E6A;border-radius:4px;padding:10px 14px;margin-bottom:12px}
   .rz2-about p{font-size:12px;margin:0}
   .rz2-foot{font-size:10px;color:#90A2AE;border-top:1px solid #E2E8ED;padding-top:9px;margin-top:9px}
   .rz-ai{background:#F2F7FA;border:1px solid #CFE0EA;border-radius:var(--r);padding:12px 14px;margin-bottom:16px}
   .rz-ai-h{font-size:13px;font-weight:800;color:var(--brand);display:flex;align-items:center;gap:6px}
   .rz-ai-sub{font-size:12px;color:var(--ink-soft);margin:4px 0 9px}
+  .rz-notes{margin-top:10px;padding:10px 12px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);font-size:12.5px;color:var(--ink);display:flex;flex-direction:column;gap:7px;align-items:flex-start}
+  .rz-notes ul{margin:3px 0 0;padding-left:18px}
+  .rz-notes li{margin-bottom:2px}
+  .rz-notes-chk{color:var(--soon-tx)}
+  .cgwhy{margin:0 0 14px;padding:11px 14px;background:var(--soon-bg);border:1px solid rgba(120,81,9,.22);border-radius:var(--r);color:var(--soon-tx);font-size:13px;max-width:640px}
+  .cgwhy-h{font-weight:800;display:flex;align-items:center;gap:6px}
+  .cgwhy ul{margin:6px 0 9px;padding-left:20px}.cgwhy li{margin-bottom:2px}
+  .q-lead{display:block;margin-top:6px;color:var(--ink)}
+  .cvr-pref{margin-top:10px}.cvr-pref>summary{cursor:pointer}
+  .cvrule{margin:10px 0 12px;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel-head)}
+  .cvrule-row{display:flex;align-items:center;gap:8px;margin-top:7px;flex-wrap:wrap}
+  .cvrule-l{flex:0 0 82px;font-size:12px;font-weight:700;color:var(--ink)}
+  .cvrule-row select{flex:1 1 120px;min-width:0}
+  .cvrule-hint{font-size:11.5px;color:var(--ink-faint);margin-top:7px}
+  .cvrule-warn{font-size:11.5px;color:var(--soon-tx);background:var(--soon-bg);border-radius:var(--r);padding:6px 8px;margin-top:7px}
   .rz-ai-row{display:flex;gap:8px;align-items:flex-start}
   .rz-ai-row textarea{flex:1}
   .rz-attrow{display:flex;align-items:center;gap:10px;margin-top:8px}
@@ -9518,6 +9531,169 @@ var COVHIST = (function(){
   };
 })();
 
+/* THE DESK'S OWN COVERAGE RULE FOR A CLIENT.
+
+   Asked for by the desk on 2026-10-07, for Jose Ortiz: "only Spanish speaker,
+   and female" - so that caregivers who do not fit stop appearing in Find
+   Coverage. Client Concierge records "Male preferred" and "Spanish" for him,
+   so the desk needed somewhere to state what it actually works to.
+
+   ONE RULE PER CLIENT, FOR EVERY SHIFT. The first version split it into day
+   and night shifts, read off the calendar. The owner corrected that the same
+   day: "it's not about the sched, it's about the caregiver matching and
+   careplan." The rule is about the CLIENT, so it has no time of day in it.
+
+   A PERSON SETS THIS; NOTHING DERIVES IT. Concierge's "Language" does not
+   filter on its own - it is the language the client speaks, and it scores
+   (see covClientPrefs). Only this rule removes somebody from the list.
+
+   A desk gender rule OUTRANKS Concierge's - that is the point of it - and the
+   card that sets it prints Concierge's own value beside the control, so the
+   override is made with the record in view.
+
+   LANGUAGE IS MATCHED ON c.languages: the AxisCare "Speak Spanish" tag plus
+   whatever the desk ticked under Languages spoken. Measured on the day this
+   was written: 13 of 173 active caregivers are recorded as Spanish speakers
+   and 78 carry no tags at all. So a Spanish-only list is short, and a Spanish
+   speaker nobody has recorded is not on it - the fix is to record the
+   language on the caregiver, never to loosen the rule. */
+const COV_RULE_LANGS=['Spanish','Tagalog','Ilocano','Vietnamese','Korean','Mandarin','Armenian','Russian','American Sign Language'];
+function covRuleRow(cl){ return cl ? ((state.covRules||[]).find(function(r){ return r.id===cl.id; })||null) : null; }
+function covRuleFor(cl){
+  var row=covRuleRow(cl);
+  if(!row || !(row.gender || row.lang)) return null;
+  return {gender:(row.gender==='F'||row.gender==='M')?row.gender:null, lang:row.lang||null, by:row.by||null};
+}
+/* Replaced whole, never patched in place and never cloudForget()'d: one row
+   per client under a stable id is a re-add under the same id (CLAUDE.md 3g). */
+function covRuleSet(clId, field, val){
+  var cl=clById(clId); if(!cl || (field!=='gender' && field!=='lang')) return;
+  if(field==='gender' && val!=='F' && val!=='M') val='';
+  if(field==='lang' && COV_RULE_LANGS.indexOf(val)<0) val='';
+  var old=covRuleRow(cl)||{};
+  var next={id:cl.id, gender:old.gender||'', lang:old.lang||'', at:new Date().toISOString(), by:state.onShift};
+  next[field]=val;
+  state.covRules=(state.covRules||[]).filter(function(r){ return r.id!==cl.id; }).concat([next]);
+  toast('Find Coverage rule saved for '+cl.name);
+  render();
+}
+function covSpeaks(cg, lang){ return (cg.languages||[]).indexOf(lang)>=0; }
+/* The editor, drawn on the client's Caregiver Matching card. */
+function covRuleEditorHtml(cl, concGender){
+  var row=covRuleRow(cl)||{};
+  var sel=function(field, opts){
+    var cur=row[field]||'';
+    return '<select class="ein sm" onchange="covRuleSet(\''+esc(cl.id)+'\',\''+field+'\',this.value)">'+
+      opts.map(function(o){ return '<option value="'+esc(o[0])+'"'+(o[0]===cur?' selected':'')+'>'+escText(o[1])+'</option>'; }).join('')+'</select>';
+  };
+  var g=[['','Gender: as Concierge'],['F','Female only'],['M','Male only']];
+  var l=[['','Any language']].concat(COV_RULE_LANGS.map(function(x){ return [x, x+' speakers only']; }));
+  var warn=(row.gender && concGender && !/^no preference$/i.test(concGender))
+    ? '<div class="cvrule-warn">'+ic('alerts',12)+' Client Concierge records “'+escText(concGender)+'” for caregiver gender. The rule above replaces it — read the caregiver preferences below first.</div>' : '';
+  return '<div class="cvrule"><div class="clm-l">Find Coverage rule — set by the desk</div>'+
+    '<div class="cvrule-row">'+sel('gender',g)+sel('lang',l)+'</div>'+
+    '<div class="cvrule-hint">Only caregivers who fit are listed for this client, on every shift.'+
+    (row.by?' Last set by '+escText(row.by)+'.':'')+'</div>'+warn+'</div>';
+}
+
+/* WHAT THIS CLIENT NEEDS FROM A CAREGIVER - read off the Caregiver Matching
+   card and the Care Plan (owner, 2026-10-07: "check what the client's
+   preferences is before giving a match ... it's about the caregiver matching
+   and careplan").
+
+   Both already sat on the client's page and neither reached the match. This
+   reads them for the care needs a caregiver's profile can actually answer:
+   the conditions on the Experience card and the hands-on work on the Skills
+   card. Nothing else is compared, because nothing else is recorded on both
+   sides.
+
+     Caregiver Matching   Concierge's ticked care requirements, its "Caregiver
+                          skills" line and "About the client". Read from
+                          CLMATCH, which is already loaded.
+     Care Plan            the saved plan's own text - but ONLY when it is
+                          already in this session's cache. Find Coverage never
+                          calls CAREPLAN.load(): that can REGENERATE a plan on
+                          Opus (30-50 cents a client, CLAUDE.md), and a list
+                          that re-renders every 20 seconds must not be able to
+                          spend that. Opening the client's page loads it; the
+                          header chip says whether the plan was included.
+
+   IT NEVER REMOVES ANYBODY. A need is found by a word in a sentence, and a
+   caregiver's skills are whatever somebody ticked - 78 active caregivers have
+   nothing ticked at all. So an unmet need costs match points and is said on
+   the row; a profile with nothing recorded is "not recorded", which is not a
+   "no" (the null < 85 trap, CLAUDE.md). A word after "no", "not", "without" or
+   "never" is not a need. */
+const COV_NEED_WORDS=[
+  ['experience','Dementia / Alzheimer’s care',/dementia|alzheimer/i],
+  ['experience','Parkinson’s care',/parkinson/i],
+  ['experience','Stroke care',/\bstroke\b/i],
+  ['experience','Diabetes care',/diabet/i],
+  ['experience','Hospice care',/hospice|end[- ]of[- ]life/i],
+  ['skills','Hoyer lift',/hoyer/i],
+  ['skills','Gait belt',/gait belt/i],
+  ['skills','Transfer assistance',/transfer/i],
+  ['skills','Wheelchair assistance',/wheelchair/i],
+  ['skills','Mobility assistance',/walker|mobility|ambulat/i],
+  ['skills','Fall prevention',/\bfalls?\b|fall (risk|prevention)/i],
+  ['skills','Bedbound care',/bed[- ]?bound/i],
+  ['skills','Bathing assistance',/shower|bath/i],
+  ['skills','Dressing assistance',/dressing/i],
+  ['skills','Toileting assistance',/toilet/i],
+  ['skills','Incontinence care',/incontinen/i],
+  ['skills','Feeding assistance',/feeding|help(ing)? (him|her|them) eat/i],
+  ['skills','Meal preparation',/meal prep/i]
+];
+function covNeedHit(text, re){
+  var m, g=new RegExp(re.source, 'gi');
+  while((m=g.exec(text))){
+    var before=text.slice(Math.max(0,m.index-14), m.index).toLowerCase();
+    if(!/\b(no|not|without|never)\b[^.]*$/.test(before)) return true;
+    if(m.index===g.lastIndex) g.lastIndex++;
+  }
+  return false;
+}
+function covClientNeeds(cl){
+  var out={needs:[], matching:false, plan:'none'};
+  if(!cl || cl.axisId==null) return out;
+  var texts=[];
+  if(typeof CLMATCH!=='undefined' && CLMATCH.status()==='ready'){
+    var p=CLMATCH.prefs(cl.axisId);
+    if(p){
+      var t=[].concat(Array.isArray(p.care_req)?p.care_req:[]).join('. ')+'. '+clmPref(p,'Caregiver skills')+'. '+clmPref(p,'About the client');
+      if(t.replace(/[.\s]/g,'')){ texts.push(['Caregiver Matching', t]); out.matching=true; }
+    }
+  }
+  if(typeof CAREPLAN!=='undefined'){
+    var st=CAREPLAN.status(cl.axisId), d=CAREPLAN.get(cl.axisId);
+    if(st==='ready' && d && (d.sections||[]).length){
+      texts.push(['Care Plan', d.sections.map(function(s){ return (s.items||[]).join('. '); }).join('. ')]);
+      out.plan='read';
+    } else out.plan=(st==='loading') ? 'loading' : 'notopened';
+  }
+  var seen={};
+  COV_NEED_WORDS.forEach(function(w){
+    texts.forEach(function(tx){
+      if(!covNeedHit(tx[1], w[2])) return;
+      if(seen[w[1]]){ if(seen[w[1]].from.indexOf(tx[0])<0) seen[w[1]].from.push(tx[0]); return; }
+      seen[w[1]]={kind:w[0], label:w[1], from:[tx[0]]};
+      out.needs.push(seen[w[1]]);
+    });
+  });
+  return out;
+}
+/* Shown without the trailing "care": "Stroke", not "Stroke care". */
+function covNeedName(n){ return String(n.label).replace(/\s+care$/i,''); }
+/* {met, missing, blank}. blank = this caregiver has NOTHING ticked on either
+   card, so every need is unanswered rather than unmet. */
+function covNeedsFit(cg, needs){
+  var sk=cgChips(cg,'skills'), ex=cgChips(cg,'experience');
+  if(!sk.length && !ex.length) return {met:[], missing:[], blank:needs.length>0};
+  var met=[], missing=[];
+  needs.forEach(function(n){ ((n.kind==='skills'?sk:ex).indexOf(n.label)>=0 ? met : missing).push(n); });
+  return {met:met, missing:missing, blank:false};
+}
+
 /* The client's practical matching preferences, in ONE place.
 
    THE CAREGIVER GENDER PREFERENCE COMES FROM CLIENT CONCIERGE, through
@@ -9548,9 +9724,10 @@ var COVHIST = (function(){
    It is a BONUS ONLY. `cg.driver` is false whenever the DL/OC tags are
    merely absent, so a penalty would dock people for a question nobody
    asked — see the ranker for the full reason. */
-function covClientPrefs(cl){
+function covClientPrefs(cl, start){
   if(!cl) return {genderPref:null, genderHard:false, genderKnown:true, drivingRequired:null, drivingKnown:true,
-                  preferred:[], onList:[], matchOrder:{}, matchKnown:true, doNotSend:[]};
+                  preferred:[], onList:[], matchOrder:{}, matchKnown:true, doNotSend:[],
+                  genderFrom:null, genderSoft:null, clientLang:null, langReq:null, rule:null};
   var restr=cl.restrictions||[];
   var hard=reqGender(restr);
   var soft=restr.indexOf('Female caregiver preferred')>=0 ? 'F'
@@ -9561,10 +9738,34 @@ function covClientPrefs(cl){
      answered; a real one is answered only once the table is in. */
   var known = (cl.axisId==null) ||
               (typeof CLMATCH!=='undefined' && CLMATCH.status()==='ready');
-  var cm=null, cmDrive=null, onList=[], matchOrder={};
+  var cm=null, cmDrive=null, onList=[], matchOrder={}, cmSoft=null, cmLang=null;
   if(known && cl.axisId!=null && typeof CLMATCH!=='undefined'){
     var p=CLMATCH.prefs(cl.axisId);
     if(p && (p.gender_pref==='F' || p.gender_pref==='M')) cm=p.gender_pref;
+    /* "MALE PREFERRED" IS AN ANSWER, AND IT WAS BEING THROWN AWAY. The sync
+       keeps a gender only when Concierge says exactly "Female" or "Male", so
+       "Male preferred" arrived as null and this client read as having no
+       preference at all. It is not a filter - "preferred" is the client's
+       own word - so it is carried as a SOFT preference: it never drops
+       anybody, it costs match points and it is said on the row. Read from
+       raw_prefs here rather than by changing the sync, which would have
+       turned a preference into a hard filter for every shift. */
+    if(!cm){
+      var gRaw=clmPref(p,'Caregiver gender');
+      if(/\bfemale\b/i.test(gRaw) && /prefer/i.test(gRaw)) cmSoft='F';
+      else if(/\bmale\b/i.test(gRaw) && /prefer/i.test(gRaw)) cmSoft='M';
+    }
+    /* THE CLIENT'S LANGUAGE, when it is not English. Concierge writes
+       "Spanish", "Arabic", "Tagalog (Filippino)" - the first word is the
+       language. Never a filter by itself (see covRuleFor): it scores, and it
+       is said on the row. */
+    /* SPANISH ONLY (owner, 2026-10-07). It is the one language the roster
+       records speakers for in any number (13 tagged). Concierge also holds a
+       Tagalog client and an Arabic one, and no caregiver is recorded as
+       speaking Arabic - so checking every language would mark that client's
+       whole list as a mismatch. Those two stay exactly as they were. */
+    var lRaw=String((p && p.language) || '').trim().split(/[\s(]/)[0];
+    if(/^spanish$/i.test(lRaw)) cmLang='Spanish';
     /* WIRED 2026-09-08. cl.drivingRequired is a property nothing in this
        file has ever assigned, so the driving branch in the ranker could
        never fire - while Concierge records the answer for 16 clients and
@@ -9607,12 +9808,24 @@ function covClientPrefs(cl){
     });
   }
 
+  /* The desk's own rule for this client. Its gender outranks Concierge's and
+     is always "known": a person typed it. */
+  var rule=covRuleFor(cl), dg=rule?rule.gender:null;
   return {
-    genderPref: cm || hard || soft,
+    genderPref: dg || cm || hard || soft,
     /* Concierge's answer FILTERS. So does a typed 'caregiver only'
-       restriction. 'preferred' on a seed client stays a soft nudge. */
-    genderHard: !!(cm || hard),
-    genderKnown: known,
+       restriction, and so does the desk's rule. 'preferred' on a seed client
+       stays a soft nudge. */
+    genderHard: !!(dg || cm || hard),
+    genderKnown: dg ? true : known,
+    genderFrom: dg ? 'desk' : cm ? 'concierge' : null,
+    /* Concierge's "Male preferred" / "Female preferred". Null whenever a hard
+       gender applies, so the two are never both in force. */
+    genderSoft: (dg || cm || hard) ? null : cmSoft,
+    clientLang: cmLang,
+    /* A language the desk REQUIRES for this client. Filters. */
+    langReq: rule ? rule.lang : null,
+    rule: rule,
     /* Concierge first; cl.drivingRequired stays underneath for a seed
        client, which has no Concierge record to look up. */
     drivingRequired: cmDrive!==null ? cmDrive : driving,
@@ -9982,7 +10195,8 @@ function coverageMatches(q){
      coverageDetail() both give it. The daily-overtime figure noted below would need
      this back, per DAY rather than per shift. */
   var driveAudit=null;                     /* built once, and only if a client needs a driver */
-  var prefs=covClientPrefs(cl);
+  var prefs=covClientPrefs(cl, q.start);
+  var needs=covClientNeeds(cl);          /* from Caregiver Matching and the Care Plan */
   var sh=q.shiftId?state.shifts.find(function(x){ return x.id===q.shiftId; }):null;
   var out=[];
 
@@ -10005,6 +10219,15 @@ function coverageMatches(q){
       drop=(cg.gender ? 'Client asks for a ' : 'Gender not recorded · client asks for a ')
            +(prefs.genderPref==='F'?'female':'male')+' caregiver';
       dropKind='gender';
+    }
+    /* THE DESK'S LANGUAGE RULE FOR THIS SHIFT. Only a caregiver RECORDED as
+       speaking it passes - the same strictness as an unrecorded gender, and
+       for the same reason: sending somebody who cannot talk to the client is
+       the failure that matters, and it is one tick on the caregiver's
+       Languages spoken to correct. */
+    if(!drop && prefs.langReq && !covSpeaks(cg, prefs.langReq)){
+      drop='Not recorded as speaking '+prefs.langReq+' · the desk requires it for this client';
+      dropKind='language';
     }
     if(!drop) drop=covClash(cg, ds, start, end);
     /* TRAVEL BETWEEN VISITS (owner's matching spec, 2026-10-06). A caregiver
@@ -10259,8 +10482,45 @@ function coverageMatches(q){
     var mReq = 10;
     if(drive && drive.ans!=='yes') mReq-=5;
     if(wants.why.length) mReq-=5;
+    /* THE CLIENT'S OWN RECORDED PREFERENCES (owner, 2026-10-07: "check what
+       the client's preferences is before giving a match"). Concierge's
+       language and its "Male / Female preferred" were on the client's card
+       and nowhere in the match. Neither drops anybody - a hard gender and the
+       desk's rule do that, above - so each unmet one costs requirement
+       points and is SAID on the row; a met one is said too, so a scheduler
+       can see the preference was checked rather than assume it.
+
+       An unmet preference also caps the row below "Best matches": somebody
+       the client's own record says is not what they asked for should not
+       head the list on distance alone. Capped, not zeroed - they can still
+       be the right call when nobody else is free. */
+    var prefMiss=0, prefOk=[];
+    if(prefs.clientLang){
+      if(covSpeaks(cg, prefs.clientLang)) prefOk.push('Speaks '+prefs.clientLang);
+      else{ prefMiss++; why.push({t:'Not recorded as speaking '+prefs.clientLang, k:'minus',
+        tip:'Client Concierge records '+prefs.clientLang+' as this client’s language. This caregiver’s Languages spoken does not list it — tick it on their Work Preferences if they do speak it.'}); }
+    }
+    if(prefs.genderSoft){
+      var gWord=prefs.genderSoft==='F'?'female':'male';
+      if(cg.gender===prefs.genderSoft) prefOk.push('Client prefers a '+gWord+' caregiver');
+      else{ prefMiss++; why.push({t:'Client prefers a '+gWord+' caregiver', k:'minus',
+        tip:'Client Concierge records “'+(prefs.genderSoft==='F'?'Female':'Male')+' preferred” for this client. A preference, not a requirement, so nobody is left off the list for it.'}); }
+    }
+    /* THE CLIENT'S CARE NEEDS against this caregiver's Skills and Experience
+       cards. A need they have nothing recorded for is said and scored like
+       any other unmet preference; a profile with nothing ticked at all is
+       NOT a miss - nobody has asked - so it changes no score and is said
+       only in the "why" list, never as a mark on the row. */
+    var fitN=needs.needs.length ? covNeedsFit(cg, needs.needs) : null;
+    if(fitN && !fitN.blank){
+      if(fitN.missing.length){ prefMiss++; why.push({t:'Not recorded: '+fitN.missing.slice(0,3).map(covNeedName).join(', ')+(fitN.missing.length>3?' +'+(fitN.missing.length-3):''), k:'minus',
+        tip:'This client needs: '+needs.needs.map(covNeedName).join(', ')+'. This caregiver’s Skills and Experience cards do not list: '+fitN.missing.map(function(n){ return covNeedName(n)+' (from '+n.from.join(' and ')+')'; }).join('; ')+'.'}); }
+      else prefOk.push('Covers all '+needs.needs.length+' care needs');
+    }
+    mReq=Math.max(0, mReq-5*prefMiss);
     var mLoad = hrs==null ? 3 : hrs>=40 ? 0 : hrs>=32 ? 2 : 5;
     var match=Math.round((mFam+mFit+mDist+mReq+mLoad)/85*100);
+    if(prefMiss) match=Math.min(match, 69);        /* 70 is the Best matches line */
     var rel = worked>=4 ? 'Regular caregiver · '+worked+' visits in 30 days'
             : (onList||preferred) ? 'On this client’s caregiver list'+(worked?' · '+worked+' recent visit'+(worked>1?'s':''):'')
             : worked ? 'Worked with client '+worked+' time'+(worked>1?'s':'')+' in 30 days'
@@ -10270,9 +10530,10 @@ function coverageMatches(q){
       ? 'Other visit '+(trav.near.before?'ends ':'starts ')+fmtHr(trav.near.at)
       : 'No schedule conflict');
     if(drive && drive.ans==='yes') reasons.push('Drives clients');
+    prefOk.forEach(function(t){ reasons.push(t); });
     out.push({cg:cg, score:score, match:match, reasons:reasons, rel:rel, why:why, worked:worked, preferred:preferred, onList:onList, drv:drv,
               dmin:drv?drv.min:null, hrs:hrs,
-              availState:availState, availLabel:availLabel, excluded:null});
+              availState:availState, availLabel:availLabel, excluded:null, prefMiss:prefMiss});
   });
 
   /* Concierge's own sort_order sits between drive time and the alphabet: on
@@ -10292,9 +10553,9 @@ function coverageMatches(q){
      a blank screen has to be able to say whether the desk has asked and
      been told no, has not asked yet, or could not read the answer. */
   var dropped=out.filter(function(r){ return r.excluded; });
-  var tally={total:dropped.length, none:0, blocked:0, hours:0, unknown:0, gender:0, drive:0, travel:0, other:0};
+  var tally={total:dropped.length, none:0, blocked:0, hours:0, unknown:0, gender:0, language:0, drive:0, travel:0, other:0};
   dropped.forEach(function(r){ tally[r.dropKind||'other']++; });
-  return {eligible:eligible, excluded:dropped, tally:tally, prefs:prefs};
+  return {eligible:eligible, excluded:dropped, tally:tally, prefs:prefs, needs:needs};
 }
 
 /* ===================== CLIENT SCHEDULE =====================
@@ -10386,7 +10647,7 @@ function clMatchCard(cl){
 
   var p = CLMATCH.prefs(cl.axisId), ms = CLMATCH.matches(cl.axisId);
   if(!p && !ms.length)
-    return wrap('<div class="clm-note">Client Concierge has no caregiver matching recorded for '+esc(cl.name)+' yet.</div>');
+    return wrap(covRuleEditorHtml(cl, '')+'<div class="clm-note">Client Concierge has no caregiver matching recorded for '+esc(cl.name)+' yet.</div>');
 
   var row = function(l,v){
     return v ? '<div class="emp-row"><span class="emp-l">'+l+'</span><span class="emp-v">'+esc(v)+'</span></div>' : ''; };
@@ -10397,6 +10658,9 @@ function clMatchCard(cl){
   out += row('Caregiver gender preference', clmPref(p,'Caregiver gender'));
   out += row('Driving required', clmPref(p,'Driving required') || clmPref(p,'Driving requirement'));
   out += row('Preferred caregiver language', clmPref(p,'Language'));
+  /* The desk's own per-shift rule sits directly under what Concierge
+     records, so an override is made with the record in view. */
+  out += covRuleEditorHtml(cl, clmPref(p,'Caregiver gender'));
 
   /* The two standardized checkbox lists. Concierge picks these from a
      fixed set rather than typing them, so they read the same client to
@@ -11533,14 +11797,18 @@ function covNearText(n){
 }
 function covNotListedHtml(q, excluded, eligible){
   if(!excluded || !excluded.length) return '';
-  const close=[], booked=[], c={gender:0, drive:0, blocked:0, none:0, unknown:0, other:0};
+  const close=[], booked=[], pref=[], c={gender:0, language:0, drive:0, blocked:0, none:0, unknown:0, other:0};
+  COV_UNMATCHED.q={clientId:q.clientId, date:q.date, start:q.start, end:q.end, shiftId:q.shiftId};
   excluded.forEach(function(r){
     const cg=r.cg;
+    COV_UNMATCHED.why[cg.id]=r.excluded;
+    if(r.dropKind==='gender' || r.dropKind==='language') pref.push(r);
     if(r.dropKind==='hours'){
       const n=covNear(cg, q);
       if(n && n.covered>=AV_MIN_MIN/60) close.push({cg:cg, n:n}); else c.none++;   /* open, but for under 3 hours of it: not a near miss */
     }
     else if(r.dropKind==='gender') c.gender++;
+    else if(r.dropKind==='language') c.language++;
     else if(r.dropKind==='blocked') c.blocked++;
     else if(r.dropKind==='none') c.none++;
     else if(r.dropKind==='unknown') c.unknown++;
@@ -11563,12 +11831,13 @@ function covNotListedHtml(q, excluded, eligible){
   close.forEach(function(x){ x.w=where(x.cg); });
   close.sort((a,b)=>(a.n.short-b.n.short)||(a.w.min-b.w.min)||String(a.cg.name).localeCompare(String(b.cg.name)));
   booked.sort((a,b)=>String(a.cg.name).localeCompare(String(b.cg.name)));
-  const total=close.length+booked.length+c.gender+c.drive+c.blocked+c.none+c.unknown+c.other;
+  const total=close.length+booked.length+c.gender+c.language+c.drive+c.blocked+c.none+c.unknown+c.other;
   if(!total) return '';
   const summary=[];
   if(close.length)  summary.push(close.length+' close');
   if(booked.length) summary.push(booked.length+' already booked');
   if(c.gender)      summary.push(c.gender+' not the gender asked for');
+  if(c.language)    summary.push(c.language+' not recorded as speaking the language required');
   if(c.drive)       summary.push(c.drive+' who don’t drive clients');
   if(c.blocked)     summary.push(c.blocked+' marked unavailable');
   if(c.none)        summary.push(c.none+' with nothing entered');
@@ -11578,13 +11847,120 @@ function covNotListedHtml(q, excluded, eligible){
   const closeHtml=close.length ? '<div class="wk-restgrp"><div class="wk-restlab">'+close.length+' close \u2014 open that day, not for the whole shift</div>'+
     '<div class="cvr-rows">'+close.map(function(x){
       const w=x.n.win;
-      return '<div class="cvr-row"><button type="button" class="wk-cgname" onclick="openCgFromCoverage(\''+x.cg.id+'\')">'+escText(x.cg.name)+'</button>'+
+      return '<div class="cvr-row"><button type="button" class="wk-cgname" onclick="covOpenUnmatched(\''+x.cg.id+'\')">'+escText(x.cg.name)+'</button>'+
         '<span class="cvr-hrs">'+escText(wkFmtWin(w))+'</span><span class="cvr-short">'+escText(covNearText(x.n))+'</span>'+x.w.html+tel(x.cg)+'</div>';
     }).join('')+'</div></div>' : '';
   const bookedHtml=booked.length ? '<div class="wk-restgrp"><div class="wk-restlab">'+booked.length+' already booked</div><div class="cvr-rows">'+
-    booked.map(function(r){ return '<div class="cvr-row"><button type="button" class="wk-cgname" onclick="openCgFromCoverage(\''+r.cg.id+'\')">'+escText(r.cg.name)+'</button><span class="cvr-short">'+escText(String(r.excluded).replace(/^Already (booked|assigned)\s*\u00b7?\s*/,''))+'</span>'+where(r.cg).html+'</div>'; }).join('')+'</div></div>' : '';
+    booked.map(function(r){ return '<div class="cvr-row"><button type="button" class="wk-cgname" onclick="covOpenUnmatched(\''+r.cg.id+'\')">'+escText(r.cg.name)+'</button><span class="cvr-short">'+escText(String(r.excluded).replace(/^Already (booked|assigned)\s*\u00b7?\s*/,''))+'</span>'+where(r.cg).html+'</div>'; }).join('')+'</div></div>' : '';
+  pref.sort((a,b)=>String(a.cg.name).localeCompare(String(b.cg.name)));
+  const prefHtml=pref.length ? '<details class="wk-restgrp cvr-pref"><summary class="wk-restlab">'+pref.length+' left out by this client\u2019s preferences \u2014 show names</summary><div class="cvr-rows">'+
+    pref.map(function(r){ return '<div class="cvr-row"><button type="button" class="wk-cgname" onclick="covOpenUnmatched(\''+r.cg.id+'\')">'+escText(r.cg.name)+'</button><span class="cvr-short">'+escText(covWhyNotList(r.cg, q, r.excluded).join(' \u00b7 '))+'</span></div>'; }).join('')+'</div></details>' : '';
   const note='<p class="cvr-note">Only caregivers whose saved Open hours cover the whole shift are offered it. These are here so you can see why the list is short \u2014 they are not eligible as things stand.</p>';
-  return '<details class="wk-rest cvr-rest"><summary><b>'+total+'</b> other caregiver'+(total===1?'':'s')+' not listed: '+summary.join(' \u00b7 ')+'</summary>'+note+closeHtml+bookedHtml+'</details>';
+  return '<details class="wk-rest cvr-rest"><summary><b>'+total+'</b> other caregiver'+(total===1?'':'s')+' not listed: '+summary.join(' \u00b7 ')+'</summary>'+note+closeHtml+bookedHtml+prefHtml+'</details>';
+}
+/* ---------- OPENING SOMEBODY WHO DID NOT MATCH (owner, 2026-10-07) ----------
+   A caregiver named under "not listed" is there because something rules them
+   out for THIS shift. Their name used to open the profile directly, with
+   nothing on it to say why they had been left off. Now the desk is asked
+   first, told why, and - if they go ahead - the profile carries a small card
+   repeating the reasons, so nobody rings a caregiver off that page having
+   forgotten the client asked for somebody else.
+
+   COV_UNMATCHED is module-level, not in `state`: it is rebuilt on every
+   render of the panel and is one screen's lookup table, not a record.
+   state.cgWhyNot IS on state, but it is not a SLICES entry, so it stays in
+   this browser and never reaches another desk. */
+var COV_UNMATCHED={q:null, why:{}};
+/* EVERY reason, not just the first gate that failed. coverageMatches() stops
+   at the first one - right for a count, wrong for a person deciding whether
+   to ring anyway: a man left off a female-only Spanish shift who also has
+   nothing on his calendar should read all three. */
+function covWhyNotList(cg, q, excludedText){
+  var cl=q&&q.clientId?clById(q.clientId):null, p=covClientPrefs(cl, q?q.start:null), out=[];
+  var add=function(t){ t=String(t||'').trim(); if(t && out.indexOf(t)<0) out.push(t); };
+  if(p.genderHard && cg.gender!==p.genderPref)
+    add((cg.gender ? 'Client asks for a ' : 'Gender not recorded · client asks for a ')+(p.genderPref==='F'?'female':'male')+' caregiver');
+  if(p.langReq && !covSpeaks(cg, p.langReq))
+    add('Not recorded as speaking '+p.langReq+' · the desk requires it for this client');
+  if(p.genderSoft && cg.gender!==p.genderSoft)
+    add('Client prefers a '+(p.genderSoft==='F'?'female':'male')+' caregiver');
+  if(p.clientLang && !p.langReq && !covSpeaks(cg, p.clientLang))
+    add('Not recorded as speaking '+p.clientLang+' · the client’s language');
+  /* The care needs, from the Caregiver Matching card and the Care Plan. */
+  var nd=covClientNeeds(cl);
+  if(nd.needs.length){
+    var fit=covNeedsFit(cg, nd.needs);
+    if(fit.blank) add('Skills and experience not recorded on this profile · client needs '+nd.needs.map(covNeedName).join(', '));
+    else if(fit.missing.length){
+      var src={}; fit.missing.forEach(function(n){ n.from.forEach(function(f){ src[f]=1; }); });
+      add('Nothing recorded on their profile for: '+fit.missing.map(covNeedName).join(', ')+' · needed per the '+Object.keys(src).map(function(f){ return f==='Caregiver Matching'?'Caregiver Matching card':f; }).join(' and '));
+    }
+  }
+  /* LAST, and labelled: it is true and worth knowing, but it is about the
+     calendar, not about whether this caregiver suits the client. */
+  if(excludedText && out.indexOf(String(excludedText).trim())<0)
+    add((/^(Do not send|Inactive|Called off|Doesn)/.test(String(excludedText)) ? '' : 'Schedule: ')+excludedText);
+  return out;
+}
+function covShiftLabel(q){
+  if(!q) return '';
+  var t=[];
+  try{ if(q.date) t.push(fmtDateShort(q.date)); }catch(e){}
+  try{ if(isFinite(q.start)) t.push(fmtHr(q.start)+(isFinite(q.end)?'–'+fmtHr(q.end):'')); }catch(e){}
+  return t.join(' · ');
+}
+/* From the calling list. Somebody ON the list has no schedule problem, so
+   they are asked about only when the client's own record says they are not a
+   fit - otherwise the name opens straight away, as it always did. */
+function covOpenRow(cgId){
+  var cg=cgById(cgId), q=COV_UNMATCHED.q;
+  if(!cg || !q || !covWhyNotList(cg, q, '').length){ openCgFromCoverage(cgId); return; }
+  COV_UNMATCHED.why[cgId]='';
+  covOpenUnmatched(cgId);
+}
+function covOpenUnmatched(cgId){
+  var cg=cgById(cgId); if(!cg) return;
+  var q=COV_UNMATCHED.q, cl=q&&q.clientId?clById(q.clientId):null;
+  var reasons=covWhyNotList(cg, q, COV_UNMATCHED.why[cgId]);
+  if(!reasons.length){ openCgFromCoverage(cgId); return; }
+  var who=cl?cl.name:'this client', when=covShiftLabel(q);
+  if(!window.confirm(cg.name+' is not a match for '+who+(when?' ('+when+')':'')+':\n\n'+
+      reasons.map(function(r){ return '• '+r; }).join('\n')+'\n\nOpen the profile anyway?')) return;
+  openCgFromCoverage(cgId);
+  state.cgWhyNot={cgId:cgId, client:who, when:when, reasons:reasons};
+  render();
+}
+/* The card on the caregiver's profile. escText throughout: a reason can carry
+   a client or caregiver name. */
+function cgWhyNotCard(c){
+  var w=state.cgWhyNot; if(!w || w.cgId!==c.id || !(w.reasons||[]).length) return '';
+  return '<div class="cgwhy">'+
+    '<div class="cgwhy-h">'+ic('alerts',14)+' Not a match for '+escText(w.client)+(w.when?' · '+escText(w.when):'')+'</div>'+
+    '<ul>'+w.reasons.map(function(r){ return '<li>'+escText(r)+'</li>'; }).join('')+'</ul>'+
+    '<button type="button" class="btn sm" onclick="state.cgWhyNot=null;render()">Dismiss</button></div>';
+}
+/* WHY THE LIST IS EMPTY, in a sentence before the counts. The counts below
+   were already honest but they are a tally; a scheduler looking at "Nobody is
+   available" wants the cause first. The gates in coverageMatches() run in
+   order - preference, then booking, then availability - so every count after
+   the preference ones describes only caregivers who DID fit the client. */
+function covEmptyLead(q, t){
+  var cl=q&&q.clientId?clById(q.clientId):null, p=covClientPrefs(cl, q?q.start:null), out=[];
+  var want=[];
+  if(p.genderHard) want.push(p.genderPref==='F'?'female':'male');
+  if(p.langReq) want.push(p.langReq+'-speaking');
+  var left=(t.gender||0)+(t.language||0);
+  if(want.length)
+    out.push('Only <b>'+escText(want.join(', '))+'</b> caregivers are listed for this shift'+
+      (p.rule ? ' — the desk’s rule for this client' : ' — from Client Concierge')+
+      (left ? ', which left out <b>'+left+'</b>' : '')+'.');
+  var fit=[['none',t.none||0,'have nothing entered on their calendar for this date'],
+           ['hours',t.hours||0,'are open that day, but not for the whole shift'],
+           ['blocked',t.blocked||0,'are recorded as unavailable that day']].sort(function(a,b){ return b[1]-a[1]; });
+  if(fit[0][1])
+    out.push((want.length?'Of the caregivers who do fit, ':'')+(want.length?'most':'Most')+' '+fit[0][2]+' (<b>'+fit[0][1]+'</b>).');
+  if(t.travel) out.push('<b>'+t.travel+'</b> could not get here in time from another visit.');
+  return out.length ? '<div class="q-lead">'+out.join(' ')+'</div>' : '';
 }
 function covEmptyReason(q, tally, calledN){
   const t=tally||{};
@@ -11604,6 +11980,7 @@ function covEmptyReason(q, tally, calledN){
   }
   const bits=[];
   if(t.gender)  bits.push(`<b>${t.gender}</b> not the gender this client asks for`);
+  if(t.language) bits.push(`<b>${t.language}</b> not recorded as speaking the language the desk requires for this client`);
   if(t.blocked) bits.push(`<b>${t.blocked}</b> recorded unavailable`);
   if(t.hours)   bits.push(`<b>${t.hours}</b> open at other hours`);
   if(t.none)    bits.push(`<b>${t.none}</b> with nothing entered for this date`);
@@ -11619,7 +11996,7 @@ function covEmptyReason(q, tally, calledN){
   const head = calledN
     ? `Nobody else is available for this shift.`
     : `Nobody is available for this shift.`;
-  return `<div class="q-empty">${head}${why}</div>`;
+  return `<div class="q-empty">${head}${covEmptyLead(q, t)}${why}</div>`;
 }
 /* Returns {match, html}: the matching facts for the summary card above, and
    the screen below it. Two values because the facts have to say which of the
@@ -11631,7 +12008,8 @@ function renderCoverageCommand(q){
     /* Nothing to match against once it is covered: no list, no facts. */
     return {match:'', html:`<div class="covered-card">${ic('check',26)}<div><div class="cv-t">Shift covered by ${cgById(s.assigned).name}</div><div class="cv-s">Assigned \u2713 \u00b7 logged in coverage history \u00b7 recorded in AxisCare</div></div></div>` + renderAttemptHistory(q, covPools(q).contacted)};
   }
-  const {eligible, excluded, tally}=coverageMatches(q);
+  const {eligible, excluded, tally, needs}=coverageMatches(q);
+  COV_UNMATCHED={q:{clientId:q.clientId, date:q.date, start:q.start, end:q.end, shiftId:q.shiftId}, why:{}};
   /* Straight from the log. covPools() ran an entire second search to reach
      the same list and needed query fields this screen no longer builds. */
   const seen={}; const contacted=[];
@@ -11681,7 +12059,7 @@ function renderCoverageCommand(q){
 function covMatchNote(q, queue){
   const h=COVHIST.get(q.date);
   const cl=q.clientId?clById(q.clientId):null;
-  const p=covClientPrefs(cl);
+  const p=covClientPrefs(cl, q.start);
   /* 'Not yet' and 'not at all' need different words: one resolves on its
      own in a moment, the other is Carlo's and never will. */
   const cm=(typeof CLMATCH!=='undefined') ? CLMATCH.status() : 'error';
@@ -11723,7 +12101,32 @@ function covMatchNote(q, queue){
       'Client Concierge records the caregiver gender preference. The list below was built without it, so it may hold caregivers this client would not accept.');
   else if(p.genderPref)
     chip((p.genderPref==='F'?'Female':'Male')+' only', '',
-      'From Client Concierge. Only caregivers AxisCare records as this gender are listed.');
+      p.genderFrom==='desk'
+        ? 'Set by the desk for this client'+(p.rule.by?' ('+p.rule.by+')':'')+'. Only caregivers AxisCare records as this gender are listed. Change it on the client\u2019s Caregiver Matching card.'
+        : 'From Client Concierge. Only caregivers AxisCare records as this gender are listed.');
+  else if(p.genderSoft)
+    chip((p.genderSoft==='F'?'Female':'Male')+' preferred', '',
+      'From Client Concierge. A preference, not a requirement: nobody is left off the list, but it counts in the match and is marked on each row.');
+
+  /* THE CARE NEEDS CHECKED, and whether the Care Plan was part of it. */
+  { const nd=covClientNeeds(cl);
+    if(nd.needs.length)
+      chip(nd.needs.length+' care need'+(nd.needs.length===1?'':'s')+' checked', '',
+        'Compared with each caregiver\u2019s Skills and Experience cards: '+nd.needs.map(function(n){ return covNeedName(n)+' ('+n.from.join(' + ')+')'; }).join(', ')+'. '+
+        (nd.plan==='read' ? 'The Care Plan was included.' : 'From the Caregiver Matching card only \u2014 the Care Plan is included once this client\u2019s page has been opened.'));
+    if(nd.plan!=='read' && cl && cl.axisId!=null)
+      chip('Care plan not read yet', '', 'Open this client\u2019s page (click the name) to load the Care Plan; its needs are then checked here too. Find Coverage does not load it by itself because building a plan is a paid AI call.');
+  }
+
+  /* LANGUAGE. A requirement the desk set filters; the client's own language
+     from Concierge only scores. Two different chips, because one changes who
+     is on the list and the other does not. */
+  if(p.langReq)
+    chip(escText(p.langReq)+' speakers only', '',
+      'Set by the desk for this client'+(p.rule.by?' ('+p.rule.by+')':'')+'. Only caregivers whose Languages spoken lists '+p.langReq+' are shown. Change it on the client\u2019s Caregiver Matching card.');
+  else if(p.clientLang)
+    chip('Speaks '+escText(p.clientLang), '',
+      'From Client Concierge. Counts in the match and is marked on each row, but nobody is left off the list for it. To list '+p.clientLang+' speakers only, set a Find Coverage rule on the client\u2019s Caregiver Matching card.');
   /* p.genderPref null and known = "Either". No chip: nothing is filtered,
      and a chip that changes nothing is the noise this change removed. */
 
@@ -11919,7 +12322,7 @@ function covMatchRow(r,q,rank){
     <div class="cvm-rank">${rank}</div>
     ${av}
     <div class="cvm-main">
-      <div class="cvm-nm"><button type="button" class="cvm-nmlink" onclick="openCgFromCoverage('${cg.id}')" title="Open ${esc(cg.name)}’s calendar">${cg.name}</button>${relPill}</div>
+      <div class="cvm-nm"><button type="button" class="cvm-nmlink" onclick="covOpenRow('${cg.id}')" title="Open ${esc(cg.name)}’s calendar">${cg.name}</button>${relPill}</div>
       <div class="cvm-facts">${facts}</div>
       ${(reasons||why)?`<div class="cvm-why">${reasons}${why}</div>`:''}
     </div>
@@ -12011,7 +12414,7 @@ function dateSearch(sq){
      from the Coverage Planner; the plain date search has none and filters
      on nothing, as before. */
   const cl=sq.clientId?clById(sq.clientId):null;
-  const cp=covClientPrefs(cl);
+  const cp=covClientPrefs(cl, start);
   const rg=cp.genderHard?cp.genderPref:null, rows=[], verifyOverdue=[];
   const includeUnverified=(sq.filters||[]).includes('Include Unverified Caregivers');
   state.caregivers.forEach(cg=>{
@@ -12023,6 +12426,7 @@ function dateSearch(sq){
        with a reason; offering the caregiver costs a call that ends in no. */
     if(sq.clientId && cgBlockedFrom(cg, sq.clientId)) return;
     if(rg && cg.gender!==rg) return;                    /* unrecorded gender is not a match */
+    if(cp.langReq && !covSpeaks(cg, cp.langReq)) return; /* the desk's language rule for this window */
     /* covClash, NOT assignedOnDate. assignedOnDate only ever knew about
        shifts assigned inside this dashboard; covClash asks AxisCare through
        COVHIST first and falls back to the same in-app check, so it is a
@@ -12152,10 +12556,12 @@ function covWhyExcluded(cgRef, ctx){
     if(s && s.callOff && s.prevCaregiver===cg.id) sh={result:'excluded', rule:'called-off', label:'Called off this shift'};
   }
   if(sh.result==='eligible'){
-    var prefsC=covClientPrefs(cl);
+    var prefsC=covClientPrefs(cl, start);
     if(prefsC.doNotSend.indexOf(cg.id)>=0) sh={result:'excluded', rule:'do-not-send', label:'Do not send — flagged for this client'};
     else if(prefsC.genderHard && cg.gender!==prefsC.genderPref)
       sh={result:'excluded', rule:'gender', label:(cg.gender?'Client asks for a ':'Gender not recorded · client asks for a ')+(prefsC.genderPref==='F'?'female':'male')+' caregiver'};
+    else if(prefsC.langReq && !covSpeaks(cg, prefsC.langReq))
+      sh={result:'excluded', rule:'language', label:'Not recorded as speaking '+prefsC.langReq+' \u00b7 the desk requires it for this client'};
     else{
       var clashS=covClash(cg, ds, start, end);
       if(clashS) sh={result:'excluded', rule:'clash', label:clashS};
@@ -12174,8 +12580,9 @@ function covWhyExcluded(cgRef, ctx){
   else if(ctx.clientId && cgBlockedFrom(cg, ctx.clientId))
     pl={result:'excluded', rule:'blocked', label:'Blocked from this client'};
   else{
-    var cpP=covClientPrefs(cl), rgP=cpP.genderHard?cpP.genderPref:null;
+    var cpP=covClientPrefs(cl, start), rgP=cpP.genderHard?cpP.genderPref:null;
     if(rgP && cg.gender!==rgP) pl={result:'excluded', rule:'gender', label:'Client asks for a '+(rgP==='F'?'female':'male')+' caregiver'};
+    else if(cpP.langReq && !covSpeaks(cg, cpP.langReq)) pl={result:'excluded', rule:'language', label:'Not recorded as speaking '+cpP.langReq+' \u00b7 the desk requires it for this client'};
     else{
       var clashP=covClash(cg, ds, start, end);
       var covP=clashP?'conflict':cd.cov;
@@ -12687,17 +13094,17 @@ function fmtTenure(d){ const days=Math.max(0,Math.floor((NOW-new Date(d))/864e5)
    over so a second caregiver opened straight onto Profile rather than
    Overview, and an armed Remove confirm survived the trip and came back
    pre-armed on whatever was opened next. */
-function openCaregiver(id){ state.cgReturn=null; state.cgOpen=id; state.cgCalMonth=0; state.cgTab='overview'; state.cbDel=null; state.view='avail'; render(); window.scrollTo(0,0); }
+function openCaregiver(id){ state.cgReturn=null; state.cgWhyNot=null; state.cgOpen=id; state.cgCalMonth=0; state.cgTab='overview'; state.cbDel=null; state.view='avail'; render(); window.scrollTo(0,0); }
 /* Opened from a row on Find Coverage. The only thing recorded is where to
    go back to - none of the coverage state (client, date, shift, filters,
    contact log, the ranked list) is touched, so closing re-renders exactly
    the screen that was left. */
 function openCgFromCoverage(id){ openCaregiver(id); state.cgReturn='coverage'; render(); }
 function closeCgCalendar(){
-  state.cgOpen=null; state.cgReturn=null; state.view='coverage';
+  state.cgOpen=null; state.cgReturn=null; state.cgWhyNot=null; state.view='coverage';
   render(); window.scrollTo(0,0);
 }
-function backToCaregivers(){ state.cgOpen=null; state.cbDel=null; render(); }
+function backToCaregivers(){ state.cgOpen=null; state.cbDel=null; state.cgWhyNot=null; render(); }
 function viewAvail(){
   if(state.cgOpen) return viewCaregiverWorkspace(cgById(state.cgOpen));
   const d=cgDir();
@@ -13059,7 +13466,7 @@ var CGPHOTO = (function(){
     }, true);
   }catch(e){}
 
-  return { stamp:stamp, toggle:toggle, close:close, pick:pick, remove:remove,
+  return { stamp:stamp, toggle:toggle, close:close, pick:pick, remove:remove, upload:upload,
            headerHtml:headerHtml, maxEdge:function(){ return MAX_EDGE; },
            busy:function(){ return busyFor; } };
 })();
@@ -17337,6 +17744,7 @@ function viewCaregiverWorkspace(c){
         ${fromCov?`<button class="ws-x" onclick="closeCgCalendar()" title="Close and go back to Find Coverage" aria-label="Close">×</button>`:''}
       </div>
     </div>
+    ${cgWhyNotCard(c)}
     ${tab==='overview' ? cgHeaderCard(c) : ''}
     ${tab==='overview' ? overview : profile}`;
 }
@@ -17938,10 +18346,10 @@ function resume2FromCaregiver(c){
   d.careExperience=cgChips(c,'experience').filter(x=>x!=='Others').slice();
   return d;
 }
-function resumeOpenNew(){ state.view='resumes'; state.resumeDraft=resume2Blank(); state.resumeEditId='new'; render(); window.scrollTo(0,0); }
+function resumeOpenNew(){ state.view='resumes'; state.resumeDraft=resume2Blank(); state.resumeEditId='new'; state.resumeFoundPhoto=null; state.resumeAiNotes=null; render(); window.scrollTo(0,0); }
 function resumeOpenFromCg(cgId){
   const c=cgById(cgId); if(!c) return;
-  state.view='resumes'; state.resumeDraft=resume2FromCaregiver(c); state.resumeEditId='new'; render(); window.scrollTo(0,0);
+  state.view='resumes'; state.resumeDraft=resume2FromCaregiver(c); state.resumeEditId='new'; state.resumeFoundPhoto=null; state.resumeAiNotes=null; render(); window.scrollTo(0,0);
 }
 function resumeOpenEdit(id){
   const r=(state.resumes||[]).find(x=>x.id===id); if(!r) return;
@@ -17951,9 +18359,9 @@ function resumeOpenEdit(id){
     communication:(r.communication||[]).slice(), reliability:(r.reliability||[]).slice(),
     skills:(r.skills||[]).slice(), caregivingStyle:(r.caregivingStyle||[]).slice(),
     careExperience:(r.careExperience||[]).slice() });
-  state.resumeEditId=id; render(); window.scrollTo(0,0);
+  state.resumeEditId=id; state.resumeFoundPhoto=null; state.resumeAiNotes=null; render(); window.scrollTo(0,0);
 }
-function resumeCloseEditor(){ state.resumeEditId=null; state.resumeDraft=null; render(); window.scrollTo(0,0); }
+function resumeCloseEditor(){ state.resumeEditId=null; state.resumeDraft=null; state.resumeFoundPhoto=null; state.resumeAiNotes=null; render(); window.scrollTo(0,0); }
 function resumeSet(field,val){ if(state.resumeDraft) state.resumeDraft[field]=val; }
 function resumeToggle(field,val){
   const d=state.resumeDraft; if(!d) return;
@@ -18004,12 +18412,19 @@ function resumePhotoField(d){
   const busy=!!state.resumePhotoBusy;
   if(d.cgId){
     const c=cgById(d.cgId);
+    const found=(state.resumeFoundPhoto && state.resumeFoundPhoto.cgId===d.cgId) ? state.resumeFoundPhoto : null;
     return `<div class="rz-field"><div class="rz-flabel">Photo</div>
       <div class="rz-fhint">Linked to ${c?escText(c.name):'this caregiver'}’s own profile photo — uploading here replaces it everywhere, not just on this resume.</div>
       <div class="rz-photorow">
         <button type="button" class="btn sm" onclick="CGPHOTO.pick('${d.cgId}')">${ic('camera',13)} Upload photo</button>
         <button type="button" class="btn sm" onclick="resumeSet('photoUrl','');render()">Use placeholder instead</button>
-      </div></div>`;
+      </div>
+      ${found?`<div class="rz-fhint" style="margin-top:8px"><b>Found a photo in the attached PDF.</b> Set it as ${c?escText(c.name):'this caregiver'}’s profile photo? This replaces their photo everywhere, not just here.
+        <div class="rz-photorow" style="margin-top:6px">
+          <button type="button" class="btn sm pri" onclick="resumeApplyFoundPhoto()">${ic('check',13)} Use this photo</button>
+          <button type="button" class="btn sm" onclick="state.resumeFoundPhoto=null;render()">Dismiss</button>
+        </div></div>`:''}
+      </div>`;
   }
   return `<div class="rz-field"><div class="rz-flabel">Photo</div>
     <div class="rz-fhint">Not linked to a caregiver record, so there is nowhere to upload it TO — the file is resized in your browser and saved as part of this resume’s own text. Keep it small; a few of these add up on a shared record.</div>
@@ -18024,6 +18439,15 @@ function resumePhotoField(d){
 /* Same shape as CGPHOTO.fit(), scaled down for where this one lives — see
    the header above. White-fill first: a transparent PNG otherwise encodes
    every empty pixel as black once flattened to JPEG. */
+/* The scheduler's explicit confirm before a PDF-extracted photo overwrites a
+   caregiver's REAL, shared profile photo (CGPHOTO.upload reaches every screen
+   that reads it, not just this resume) - see resumePhotoField()'s suggestion
+   row and resumeAiAsk()'s extraction step. */
+function resumeApplyFoundPhoto(){
+  const f=state.resumeFoundPhoto; if(!f) return;
+  state.resumeFoundPhoto=null;
+  CGPHOTO.upload(f.cgId, new Blob([f.bytes], {type:'image/jpeg'}));
+}
 function resumePhotoPick(){
   if(state.resumePhotoBusy) return;
   const inp=document.createElement('input');
@@ -18069,39 +18493,60 @@ function resumeDelete(id){
 }
 
 /* ---------- the visual template (the "Meet Your Caregiver" card) ---------- */
+/* EVERY BOX IS A BULLETED LIST, as on the office's own resumes (the
+   caregiver-resume skill, and the PDF this template was built from). It used
+   to draw Personality, Reliability, Skills and Care Experience as an
+   unbulleted run of words, with bullets added only in the print window - so
+   the preview and the printed page disagreed, and neither matched the
+   original. One list shape now, in columns where the original has them.
+
+   AN EMPTY BOX IS LEFT OFF THE PAGE. The skill's rule: a box appears only
+   when the sources support it. An empty bordered rectangle headed
+   RELIABILITY told a family nothing was known about it. */
+function resume2ExpLine(y){
+  y=String(y||'').trim(); if(!y) return '';
+  /* '4+' is a count; anything else ('Caregiving Since November 2025') is
+     already the whole line and is printed as written. */
+  return /^\d+(\.\d+)?\+?$/.test(y) ? y+' Years of Caregiving Experience' : y;
+}
+/* "Stroke care" under a box headed CARE EXPERIENCE says care twice. Display
+   only - the stored value keeps matching the caregiver's dashboard chip. */
+function resume2Exp(a){ return (a||[]).map(x=>String(x).replace(/\s+care$/i,'')); }
 function resume2Html(d){
-  const chips=a=>`<div class="rz2-tags">${(a||[]).map(x=>`<span>${escText(x)}</span>`).join('')}</div>`;
-  const lines=a=>`<ul class="rz2-ul">${(a||[]).map(x=>`<li>${escText(x)}</li>`).join('')}</ul>`;
-  const box=(label,body)=>body?`<div class="rz2-box"><div class="rz2-boxl">${escText(label)}</div>${body}</div>`:'';
-  const sub=[d.title||'Caregiver', d.bilingual&&d.bilingual.length?'Bilingual: '+escText(d.bilingual.join(', ')):''].filter(Boolean).join(' · ');
+  const has=a=>!!(a&&a.length);
+  const list=(a,cols)=>`<ul class="rz2-ul${cols>1?' rz2-c'+cols:''}">${(a||[]).map(x=>`<li>${escText(x)}</li>`).join('')}</ul>`;
+  const box=(label,a,cols)=>has(a)?`<div class="rz2-box"><div class="rz2-boxl">${escText(label)}</div>${list(a,cols||1)}</div>`:'';
+  const row=(cells,shares)=>{
+    const on=cells.map((c,i)=>c?{c:c,w:shares[i]}:null).filter(Boolean);
+    return on.length?`<div class="rz2-row" style="grid-template-columns:${on.map(o=>o.w+'fr').join(' ')}">${on.map(o=>o.c).join('')}</div>`:'';
+  };
+  const sub=[escText(d.title||'Caregiver'), d.bilingual&&d.bilingual.length?'Bilingual: '+escText(d.bilingual.join(', ')):''].filter(Boolean).join(' · ');
   /* Same fallback shape as the caregiver list's own photo cells: try the
      image, and onerror swap to the camera placeholder rather than showing a
      broken-image icon. This markup can land in a print POPUP window (see
      resume2Window), which has no access to this page's cgPhotoFail() helper
-     - so the swap is written inline here instead of calling out to it. */
+     - so the swap is written inline here instead of calling out to it.
+     esc() on the icon markup is load-bearing: ic() is full of double quotes,
+     and unescaped they end the onerror attribute early and print a stray
+     '"> beside every photo. */
   const photo=d.photoUrl
-    ? `<img src="${esc(d.photoUrl)}" alt="" onerror="this.outerHTML='${ic('camera',22).replace(/'/g,"\\'")}'">`
+    ? `<img src="${esc(d.photoUrl)}" alt="" onerror="this.outerHTML='${esc(ic('camera',22).replace(/'/g,"\\'"))}'">`
     : ic('camera',22);
+  const exp=resume2ExpLine(d.years);
+  const pers=d.personality||[];
   return `<div class="rz2-brand">${brandLogo('rz2-logo')}<div class="rz2-brandid"><div class="rz2-brandco">Devoted Care Services, LLC</div><div class="rz2-brandtag">BECAUSE YOU DESERVE, DEVOTED CARE</div></div><div class="rz2-meet">MEET YOUR CAREGIVER</div></div>
-    <div class="rz2-h"><div class="rz2-photo">${photo}</div><div><div class="rz2-name">${escText(d.name||'Untitled')}</div>${d.years?`<div class="rz2-years">${escText(d.years)} Years of Caregiving Experience</div>`:''}<div class="rz2-sub">${sub}</div></div></div>
-    <div class="rz2-row3">
-      ${box('Personality', chips(d.personality))}
-      ${box('Communication', lines(d.communication))}
-      ${box('Reliability', chips(d.reliability))}
-    </div>
-    ${box('Skills & Strengths', chips(d.skills))}
-    <div class="rz2-row2">
-      ${box('Caregiving Style', lines(d.caregivingStyle))}
-      ${box('Care Experience', chips(d.careExperience))}
-    </div>
+    <div class="rz2-h"><div class="rz2-photo">${photo}</div><div><div class="rz2-name">${escText(d.name||'Untitled')}</div>${exp?`<div class="rz2-years">${escText(exp)}</div>`:''}<div class="rz2-sub">${sub}</div></div></div>
+    ${row([box('Personality',pers,pers.length>4?2:1), box('Communication',d.communication), box('Reliability',d.reliability)],[pers.length>4?1.7:1,1,1])}
+    ${row([box('Skills & Strengths',d.skills,3)],[1])}
+    ${row([box('Caregiving Style',d.caregivingStyle), box('Care Experience',resume2Exp(d.careExperience),2)],[0.75,1])}
     ${d.about?`<div class="rz2-about"><div class="rz2-boxl">About ${escText((d.name||'').split(' ')[0]||'')}</div><p>${escText(d.about)}</p></div>`:''}
     <div class="rz2-foot">Devoted Care Services, LLC</div>`;
 }
 function resume2Plain(d){
-  const L=[d.name||'Untitled', d.years?d.years+' Years of Caregiving Experience':'', d.title||'Caregiver', ''];
+  const L=[d.name||'Untitled', resume2ExpLine(d.years), d.title||'Caregiver', ''];
   const sec=(l,a)=>{ if(a&&a.length){ L.push(l.toUpperCase(), a.join(a.length&&a[0].length<30?', ':'\n'), ''); } };
   sec('Personality',d.personality); sec('Communication',d.communication); sec('Reliability',d.reliability);
-  sec('Skills & Strengths',d.skills); sec('Caregiving Style',d.caregivingStyle); sec('Care Experience',d.careExperience);
+  sec('Skills & Strengths',d.skills); sec('Caregiving Style',d.caregivingStyle); sec('Care Experience',resume2Exp(d.careExperience));
   if(d.about) L.push('ABOUT',d.about,'');
   return L.join('\n');
 }
@@ -18112,19 +18557,16 @@ const RESUME2_PRINT_CSS=`*{box-sizing:border-box}body{font-family:'Inter',system
 .rz2-brandtag{font-size:8px;font-weight:700;letter-spacing:1px;color:#7a8590}
 .rz2-meet{margin-left:auto;font-size:11px;font-weight:800;letter-spacing:.5px;color:#2E9E6A}
 .rz2-h{display:flex;gap:18px;align-items:center;margin-bottom:20px}
-.rz2-photo{width:84px;height:84px;border-radius:8px;background:#EFF4F7;display:flex;align-items:center;justify-content:center;color:#9aa6b0;flex:0 0 auto;overflow:hidden}
+.rz2-photo{width:92px;height:115px;border-radius:2px;border:1px solid #D5E0E7;background:#EFF4F7;display:flex;align-items:center;justify-content:center;color:#9aa6b0;flex:0 0 auto;overflow:hidden}
 .rz2-photo img{width:100%;height:100%;object-fit:cover;display:block}
 .rz2-name{font-size:24px;font-weight:800;color:#1B3B54;letter-spacing:-.4px}
 .rz2-years{font-size:13px;font-weight:700;color:#2E9E6A;margin-top:2px}
 .rz2-sub{font-size:13px;color:#5A7184;margin-top:2px}
-.rz2-row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px}
-.rz2-row2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
+.rz2-row{display:grid;gap:12px;margin-bottom:12px}
 .rz2-box{border:1px solid #D5E0E7;border-radius:6px;padding:12px 14px}
 .rz2-boxl{font-size:12px;font-weight:800;text-transform:uppercase;color:#1B3B54;border-bottom:2px solid #2E9E6A;display:inline-block;padding-bottom:2px;margin-bottom:8px}
-.rz2-tags{display:flex;flex-wrap:wrap;gap:6px}
-.rz2-tags span{font-size:12.5px}
-.rz2-tags span::before{content:'• '}
-.rz2-ul{margin:0;padding-left:16px}.rz2-ul li{font-size:12.5px;margin-bottom:3px}
+.rz2-ul{margin:0;padding-left:16px}.rz2-ul li{font-size:12.5px;margin-bottom:3px;break-inside:avoid}
+.rz2-c2{columns:2;column-gap:26px}.rz2-c3{columns:3;column-gap:26px}
 .rz2-about{background:#F2F7F4;border-left:4px solid #2E9E6A;border-radius:4px;padding:12px 16px;margin-bottom:14px}
 .rz2-about p{font-size:13px;margin:0}
 .rz2-foot{font-size:11px;color:#90A2AE;border-top:1px solid #E2E8ED;padding-top:10px;margin-top:10px}`;
@@ -18134,9 +18576,14 @@ function resume2Window(d){
   w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escText(d.name||'Resume')} — Caregiver Resume</title><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet"><style>${RESUME2_PRINT_CSS}</style></head><body>${resume2Html(d)}</body></html>`);
   w.document.close(); return w;
 }
-function resumePrint(id){ const r=(state.resumes||[]).find(x=>x.id===id); if(!r) return; const w=resume2Window(r); if(w){ w.focus(); setTimeout(()=>{ try{w.print();}catch(e){} },350); } }
-function resumeDownloadPDF(id){ const r=(state.resumes||[]).find(x=>x.id===id); if(!r) return; const w=resume2Window(r); if(w){ w.focus(); setTimeout(()=>{ try{w.print();}catch(e){} },350); toast('Choose “Save as PDF” in the print dialog'); } }
-function resumeEmail(id){ const r=(state.resumes||[]).find(x=>x.id===id); if(!r) return; const subj=encodeURIComponent((r.name||'Caregiver')+' — Resume'); const body=encodeURIComponent(resume2Plain(r)); try{ window.location.href=`mailto:?subject=${subj}&body=${body}`; }catch(e){ toast('Email not available here'); } }
+/* `|| state.resumeDraft` on all three, matching resumeCopy() below - a resume
+   being edited for the first time has no id yet (state.resumeEditId is the
+   string 'new', not a real one), so without this fallback these three simply
+   did nothing on every draft until the scheduler clicked Save first, and
+   there was no button here to reveal that at all - see resumeEditorHtml(). */
+function resumePrint(id){ const r=id?(state.resumes||[]).find(x=>x.id===id):state.resumeDraft; if(!r) return; const w=resume2Window(r); if(w){ w.focus(); setTimeout(()=>{ try{w.print();}catch(e){} },350); } }
+function resumeDownloadPDF(id){ const r=id?(state.resumes||[]).find(x=>x.id===id):state.resumeDraft; if(!r) return; const w=resume2Window(r); if(w){ w.focus(); setTimeout(()=>{ try{w.print();}catch(e){} },350); toast('Choose “Save as PDF” in the print dialog'); } }
+function resumeEmail(id){ const r=id?(state.resumes||[]).find(x=>x.id===id):state.resumeDraft; if(!r) return; const subj=encodeURIComponent((r.name||'Caregiver')+' — Resume'); const body=encodeURIComponent(resume2Plain(r)); try{ window.location.href=`mailto:?subject=${subj}&body=${body}`; }catch(e){ toast('Email not available here'); } }
 function resumeCopy(id){ const r=(state.resumes||[]).find(x=>x.id===id)||state.resumeDraft; if(!r) return; try{ navigator.clipboard.writeText(resume2Plain(r)); toast('Copied to clipboard'); }catch(e){ toast('Copy not available here'); } }
 
 /* ---------- AI assistance — a prompt, not a form ---------- */
@@ -18163,7 +18610,7 @@ var ResumeAI=(function(){
      attachments: [{mediaType, data (base64, no data: prefix), kind}], from
      RZATTACH below - a screenshot or document the model should look at.
      Never stored anywhere; it rides this one request and nothing else. */
-  function ask(draft, prompt, attachments){ return call({draft:draft, prompt:prompt, mode:'edit', attachments:attachments||[]}).then(function(b){ return b.patch||{}; }); }
+  function ask(draft, prompt, attachments){ return call({draft:draft, prompt:prompt, mode:'edit', attachments:attachments||[]}).then(function(b){ return { patch:b.patch||{}, notes:b.notes||null }; }); }
   function email(draft, prompt, attachments){ return call({draft:draft, prompt:prompt, mode:'email', attachments:attachments||[]}).then(function(b){ return {subject:b.subject||'', body:b.body||''}; }); }
   return { ask:ask, email:email };
 })();
@@ -18271,6 +18718,88 @@ function rzAttachPayload(key, basePrompt){
   const textAttach=list.filter(a=>a.kind==='text').map(a=>'\n\n--- '+a.name+' ---\n'+a.text).join('');
   return { attachments:files, prompt:basePrompt+textAttach };
 }
+
+/* ---------- pulling a REAL photo out of an attached PDF, deterministically ----------
+   A model can describe a photo in a PDF but it cannot return pixels - no tool
+   schema or "better" model changes that (see CLAUDE.md-equivalent reasoning in
+   the resume-assist header: photoUrl isn't a field the model is ever asked
+   for). But a caregiver's old resume PDF usually embeds their actual headshot
+   as a plain JPEG object (/Subtype /Image /Filter [.../DCTDecode]), sometimes
+   wrapped in /ASCII85Decode - both are a PDF *container* detail, not something
+   that needs a model at all. This scans the raw PDF bytes for every image
+   XObject, keeps only genuine JPEGs (DCTDecode, and the decoded bytes must
+   start FF D8 - the real JPEG marker, not just a label on the dictionary),
+   and returns the LARGEST by pixel area - a resume's own logo is always far
+   smaller than a portrait headshot, so no content heuristic is needed. */
+function b64ToBytes(b64){
+  const bin=atob(b64); const out=new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) out[i]=bin.charCodeAt(i);
+  return out;
+}
+function pdfA85Decode(str){
+  str=str.replace(/\s+/g,'');
+  if(str.slice(-2)==='~>') str=str.slice(0,-2);
+  const bytes=[];
+  let i=0;
+  while(i<str.length){
+    if(str[i]==='z'){ bytes.push(0,0,0,0); i++; continue; }
+    let chunk=str.slice(i,i+5); const n=chunk.length;
+    while(chunk.length<5) chunk+='u';
+    let val=0; for(let k=0;k<5;k++) val=val*85+(chunk.charCodeAt(k)-33);
+    const grp=[(val>>>24)&0xFF,(val>>>16)&0xFF,(val>>>8)&0xFF,val&0xFF];
+    for(let k=0;k<n-1;k++) bytes.push(grp[k]);
+    i+=5;
+  }
+  return new Uint8Array(bytes);
+}
+function extractPdfPhotoBytes(pdfBytes){
+  let s=''; for(let i=0;i<pdfBytes.length;i++) s+=String.fromCharCode(pdfBytes[i]);
+  const re=/\d+\s+0\s+obj\s*<<([^]*?)>>\s*stream\r?\n/g;
+  let m, best=null;
+  while((m=re.exec(s))){
+    const dict=m[1];
+    if(!/\/Subtype\s*\/Image/.test(dict) || !/DCTDecode/.test(dict)) continue;
+    const wM=/\/Width\s+(\d+)/.exec(dict), hM=/\/Height\s+(\d+)/.exec(dict);
+    const area=(wM?+wM[1]:0)*(hM?+hM[1]:0);
+    const streamStart=m.index+m[0].length;
+    const endIdx=s.indexOf('endstream', streamStart);
+    if(endIdx<0) continue;
+    let raw=s.slice(streamStart, endIdx);
+    while(raw.length && (raw.charCodeAt(raw.length-1)===0x0A || raw.charCodeAt(raw.length-1)===0x0D)) raw=raw.slice(0,-1);
+    let jpg;
+    try{
+      jpg = /ASCII85Decode/.test(dict) ? pdfA85Decode(raw) : Uint8Array.from(Array.from(raw).map(ch=>ch.charCodeAt(0)&0xFF));
+    }catch(e){ continue; }
+    if(jpg.length<2 || jpg[0]!==0xFF || jpg[1]!==0xD8) continue;
+    if(!best || area>best.area) best={bytes:jpg, area};
+  }
+  return best ? best.bytes : null;
+}
+/* Same canvas fit/re-encode shape as resumePhotoPick() and CGPHOTO.fit() -
+   kept separate rather than shared because the two callers want different
+   MAX_EDGE values and one is a Blob upload while the other is a data: URL. */
+function jpegBytesToDataUrl(bytes, maxEdge){
+  return new Promise(function(resolve, reject){
+    const blob=new Blob([bytes], {type:'image/jpeg'});
+    const u=URL.createObjectURL(blob), img=new Image();
+    img.onload=function(){
+      try{
+        const w=img.naturalWidth, h=img.naturalHeight, longest=Math.max(w,h);
+        const k=longest>maxEdge?maxEdge/longest:1;
+        const cw=Math.max(1,Math.round(w*k)), ch=Math.max(1,Math.round(h*k));
+        const cv=document.createElement('canvas'); cv.width=cw; cv.height=ch;
+        const ctx=cv.getContext('2d');
+        ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,cw,ch);
+        ctx.drawImage(img,0,0,cw,ch);
+        URL.revokeObjectURL(u);
+        resolve(cv.toDataURL('image/jpeg',0.88));
+      }catch(e){ URL.revokeObjectURL(u); reject(e); }
+    };
+    img.onerror=function(){ URL.revokeObjectURL(u); reject(new Error('unreadable image')); };
+    img.src=u;
+  });
+}
+
 function resumeAiAsk(){
   const ta=document.getElementById('rzAiPrompt'); const prompt=(ta&&ta.value||'').trim();
   if(!prompt){ toast('Say what you’d like changed or added first'); return; }
@@ -18281,10 +18810,40 @@ function resumeAiAsk(){
     reliability:state.resumeDraft.reliability, skills:state.resumeDraft.skills, caregivingStyle:state.resumeDraft.caregivingStyle,
     careExperience:state.resumeDraft.careExperience, about:state.resumeDraft.about };
   const pay=rzAttachPayload('resumeAiAttach', prompt);
-  ResumeAI.ask(snapshot, pay.prompt, pay.attachments).then(function(patch){
+  /* A real photo pulled out of an attached PDF, deterministically - see
+     extractPdfPhotoBytes(). Runs alongside the AI call, not gated on it:
+     the photo isn't something the model touches either way (CLAUDE.md-style
+     reasoning above resumeAiAsk), so there's no reason to wait on the model
+     to apply it. A STANDALONE resume gets it immediately; a resume linked to
+     a real caregiver only gets a SUGGESTION, because applying it would
+     silently overwrite that caregiver's shared profile photo everywhere. */
+  const pdfAttach=(pay.attachments||[]).find(a=>a.kind==='pdf');
+  if(pdfAttach){
+    try{
+      const found=extractPdfPhotoBytes(b64ToBytes(pdfAttach.data));
+      if(found && state.resumeDraft){
+        if(state.resumeDraft.cgId){
+          state.resumeFoundPhoto={cgId:state.resumeDraft.cgId, bytes:found};
+          render(); /* show the suggestion now - don't wait on the AI call below */
+        } else {
+          jpegBytesToDataUrl(found, RESUME_PHOTO_MAX_EDGE).then(function(url){
+            if(state.resumeDraft && !state.resumeDraft.cgId){ state.resumeDraft.photoUrl=url; toast('Found a photo in the attached PDF — added'); render(); }
+          }).catch(function(){});
+        }
+      }
+    }catch(e){ /* not a parseable PDF image - the AI call below still runs on the text/instruction as normal */ }
+  }
+  state.resumeAiNotes=null;
+  ResumeAI.ask(snapshot, pay.prompt, pay.attachments).then(function(res){
     state.resumeAiBusy=false;
     if(!state.resumeDraft) return;
-    Object.keys(patch||{}).forEach(function(k){ if(k in state.resumeDraft) state.resumeDraft[k]=patch[k]; });
+    const patch=res.patch||{};
+    Object.keys(patch).forEach(function(k){ if(k in state.resumeDraft) state.resumeDraft[k]=patch[k]; });
+    /* What it built from, what it left off and what to check - shown under
+       the box, never saved and never printed. An older resume-assist that
+       sends no notes simply shows nothing here. */
+    const n=res.notes;
+    state.resumeAiNotes=(n && (n.builtFrom || (n.leftOff||[]).length || (n.confirm||[]).length)) ? n : null;
     if(ta) ta.value='';
     state.resumeAiAttach=[];
     toast('Applied — review below, then Save');
@@ -18357,12 +18916,24 @@ function resumeAiBar(){
   const busy=!!state.resumeAiBusy;
   return `<div class="rz-ai">
     <div class="rz-ai-h">${ic('spark',14)} Ask AI to help write this resume</div>
-    <div class="rz-ai-sub">Describe what you want — "make the about paragraph warmer", "add bathing and dressing assistance to skills", "she speaks Tagalog too". It edits the fields below; nothing is saved until you click Save.</div>
+    <div class="rz-ai-sub">Ask for one change — "add Hoyer lift to skills" — or have it build the whole resume: paste the office note or call notes, attach dashboard screenshots or an older resume, and say "create her resume". It follows the office's resume rules, so availability, where she lives, driving and office-only notes stay off the page. Nothing is saved until you click Save.</div>
     <div class="rz-ai-row"><textarea id="rzAiPrompt" class="ein" rows="2" placeholder="What would you like changed or added? (paste a screenshot with Ctrl+V)" onpaste="rzAttachPaste(event,'resumeAiAttach',render)" ${busy?'disabled':''}></textarea>
       <button class="btn pri" onclick="resumeAiAsk()" ${busy?'disabled':''}>${busy?'<span class="cs-spin"></span> Working…':ic('spark',13)+' Ask AI'}</button></div>
     <div class="rz-attrow"><button type="button" class="btn sm" ${busy?'disabled':''} onclick="rzAttachPick('resumeAiAttach',render)">${ic('log',12)} Attach a file</button><span class="rz-atthint">Image, PDF or .txt — a screenshot, an old resume, a certificate. Nothing attached is saved.</span></div>
     ${rzAttachChips('resumeAiAttach','render')}
     ${state.resumeAiErr?`<div class="ct-err">${ic('alerts',13)} ${escText(state.resumeAiErr)}</div>`:''}
+    ${resumeAiNotesHtml()}
+  </div>`;
+}
+/* escText throughout: this is model output, arbitrary text. */
+function resumeAiNotesHtml(){
+  const n=state.resumeAiNotes; if(!n) return '';
+  const ul=a=>`<ul>${a.map(x=>`<li>${escText(x)}</li>`).join('')}</ul>`;
+  return `<div class="rz-notes">
+    ${n.builtFrom?`<div><b>Built from:</b> ${escText(n.builtFrom)}</div>`:''}
+    ${(n.leftOff||[]).length?`<div><b>Left off the page</b>${ul(n.leftOff)}</div>`:''}
+    ${(n.confirm||[]).length?`<div class="rz-notes-chk"><b>Please check</b>${ul(n.confirm)}</div>`:''}
+    <button type="button" class="btn sm" onclick="state.resumeAiNotes=null;render()">Dismiss</button>
   </div>`;
 }
 
@@ -18510,7 +19081,7 @@ function resumeEditorHtml(){
         ${resumeLinesField('Caregiving Style','caregivingStyle','One per line — "Gives clients space when needed".')}
         ${resumeChipField('Care Experience','careExperience',CG_EXP_OPTS.filter(x=>x!=='Others'))}
         <div class="rz-field"><div class="rz-flabel">About</div><textarea class="ein" rows="4" oninput="resumeSet('about',this.value)" placeholder="A short paragraph about this caregiver.">${escText(d.about)}</textarea></div>
-        <div class="rz-editfoot"><button class="btn" onclick="resumeCopy(null)">${ic('log',13)} Copy text</button><button class="btn" onclick="resumeOpenEmailDraft(null)">${ic('spark',13)} Draft an email</button><span class="ct-sp"></span><button class="btn" onclick="resumeCloseEditor()">Cancel</button><button class="btn pri" onclick="resumeSave()">${ic('check',14)} Save</button></div>
+        <div class="rz-editfoot"><button class="btn" onclick="resumeCopy(null)">${ic('log',13)} Copy text</button><button class="btn" onclick="resumePrint(null)">${ic('log',13)} Print</button><button class="btn" onclick="resumeDownloadPDF(null)">${ic('log',13)} Download PDF</button><button class="btn" onclick="resumeOpenEmailDraft(null)">${ic('spark',13)} Draft an email</button><span class="ct-sp"></span><button class="btn" onclick="resumeCloseEditor()">Cancel</button><button class="btn pri" onclick="resumeSave()">${ic('check',14)} Save</button></div>
       </div>
       <div class="rz-preview-pane"><div class="rz-previewlabel">Preview</div><div class="rz2-doc">${resume2Html(d)}</div></div>
     </div>
@@ -26616,6 +27187,10 @@ const CLOUD = (function(){
        cgRatings/cgProfiles use). Shared across all three schedulers like
        everything else here. */
     { path:'clBackups',         key:'id' },
+    /* The desk's own Find Coverage rule for a client, one row per CLIENT
+       (id === the client's id), replaced whole on every change exactly as
+       clBackups is. See covRuleFor(). */
+    { path:'covRules',          key:'id' },
     /* One row per completed reference check, keyed by its own id — a
        caregiver can have several. Shared and tombstone-capable like
        cgNotes/attendance. */
@@ -26805,6 +27380,7 @@ const CLOUD = (function(){
     }
     if(!state.offerTemplates) state.offerTemplates = [];
     if(!state.resumes) state.resumes = [];
+    if(!state.covRules) state.covRules = [];
   }
 
   /* ---------- baseline / diff / apply ---------- */
