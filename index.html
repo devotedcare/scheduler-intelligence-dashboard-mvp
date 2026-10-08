@@ -1340,9 +1340,19 @@
   .pp-row{display:flex;gap:12px;padding:5px 0;font-size:13px}
   .pp-l{flex:0 0 110px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--ink-faint);padding-top:2px}
   .pp-v{color:var(--ink);font-weight:600}
-  /* resume generator */
+  /* resume generator - these must stay in step with RESUME_PRINT_CSS (near
+     resumeWindow()): one is the on-screen preview, the other is what the
+     print window / PDF actually renders, and they are meant to match. */
   .resume-doc{background:#fff;border:1px solid var(--line-strong);border-radius:var(--r);padding:20px 22px;margin-bottom:10px}
-  .rz-h{border-bottom:2px solid var(--brand);padding-bottom:10px;margin-bottom:14px}
+  .rz-brand{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+  .rz-logo-img{width:24px;height:24px;object-fit:contain}
+  .rz-logo-img.logo-fallback{display:inline-flex;align-items:center;justify-content:center;border:2px solid var(--brand);color:var(--brand);border-radius:50%;font-size:14px;width:24px;height:24px}
+  .rz-brandco{font-size:12px;font-weight:800;color:var(--brand);letter-spacing:-.2px}
+  .rz-brandtag{font-size:7px;font-weight:700;letter-spacing:.7px;color:var(--ink-faint)}
+  .rz-h{display:flex;align-items:center;gap:14px;border-bottom:2px solid var(--brand);padding-bottom:10px;margin-bottom:14px}
+  .rz-photo{flex:0 0 auto;width:58px;height:58px;border-radius:50%;overflow:hidden;background:var(--panel-head);border:1px solid var(--line)}
+  .rz-photo img{width:100%;height:100%;object-fit:cover;display:block}
+  .rz-photo-ph{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:800;color:var(--brand)}
   .rz-name{font-size:19px;font-weight:800;color:var(--ink)}
   .rz-role{font-size:12.5px;color:var(--ink-soft);margin-top:2px;font-weight:600}
   .rz-sec{margin-bottom:12px}
@@ -11379,11 +11389,38 @@ function resumeData(c){
     summary:resumeSummaryText(c)
   };
 }
+/* First + last initial, for the photo fallback - the same shape cgPhotoFail()
+   swaps to on the caregiver card. Kept self-contained here (not a shared
+   caregiver-card helper) because resumePhotoHtml()'s markup also runs inside
+   the print window in resumeWindow(), a SEPARATE document that cannot call
+   back into anything defined on the main page. */
+function resumeInitials(name){
+  const parts=String(name||'').trim().split(/\s+/).filter(Boolean);
+  if(!parts.length) return '';
+  return (parts[0][0]+(parts.length>1?parts[parts.length-1][0]:'')).toUpperCase();
+}
+/* The caregiver's OWN photo - cgPhotoUrl(), the same bucket and URL the
+   profile card uses, never a second source, so the resume always shows
+   whichever photo is currently on file and nothing has to be kept in sync.
+   160px is sized for the print circle (84px) at roughly 2x for a crisp PDF.
+   The onerror fallback is written INLINE rather than calling cgPhotoFail():
+   this HTML is also written into resumeWindow()'s print-window document,
+   which has no access to functions defined on the main page. A caregiver
+   with no photo on file (cgPhotoUrl returns a URL that 404s, or null with no
+   Supabase keys) gets the same initials circle either way. */
+function resumePhotoHtml(c){
+  const url=cgPhotoUrl(c,160);
+  const ph=`<div class="rz-photo-ph">${resumeInitials(c.name)}</div>`;
+  if(!url) return `<div class="rz-photo">${ph}</div>`;
+  return `<div class="rz-photo"><img src="${url}" alt="" `+
+    `onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`+
+    `<div class="rz-photo-ph" style="display:none">${resumeInitials(c.name)}</div></div>`;
+}
 function cgResumeHtml(c){
   const r=resumeData(c);
   const sec=(l,b)=>`<div class="rz-sec"><div class="rz-l">${l}</div>${b}</div>`;
   return `<div class="rz-brand">${brandLogo('rz-logo-img')}<div class="rz-brandid"><div class="rz-brandco">Devoted Care Services</div><div class="rz-brandtag">BECAUSE YOU DESERVE, DEVOTED CARE</div></div></div>
-    <div class="rz-h"><div class="rz-name">${c.name}</div><div class="rz-role">Registered Home Care Aide (HCA) \u00b7 Devoted Care Services</div></div>
+    <div class="rz-h">${resumePhotoHtml(c)}<div class="rz-hinfo"><div class="rz-name">${c.name}</div><div class="rz-role">Registered Home Care Aide (HCA) \u00b7 Devoted Care Services</div></div></div>
     ${sec('Professional Summary',`<p>${r.summary}</p>`)}
     ${sec('Experience',`<div>${r.experience} \u2014 private-duty senior care across Ventura County</div>`)}
     ${sec('Core Skills',`<div class="rz-tags">${r.skills.map(s=>`<span>${s}</span>`).join('')}</div>`)}
@@ -11398,6 +11435,13 @@ function cgResumeHtml(c){
 function plainResume(c){
   const r=resumeData(c), L=[];
   L.push(c.name,'Registered Home Care Aide (HCA) \u2014 Devoted Care Services','');
+  /* mailto: has no way to embed or attach an image - that is a limit of the
+     scheme itself, not something fixable here - so the emailed resume links
+     to the caregiver's own photo (the same cgPhotoUrl() the printed/PDF
+     resume embeds) instead of carrying it inline. Omitted entirely when
+     there is no URL to give (no photo bucket configured). */
+  const photoUrl=cgPhotoUrl(c,160);
+  if(photoUrl) L.push('Photo: '+photoUrl,'');
   L.push('PROFESSIONAL SUMMARY', r.summary,'');
   L.push('EXPERIENCE', r.experience+' \u2014 private-duty senior care across Ventura County','');
   L.push('CORE SKILLS', r.skills.join(', '),'');
@@ -11411,12 +11455,15 @@ function plainResume(c){
   return L.join('\n');
 }
 const RESUME_PRINT_CSS=`*{box-sizing:border-box}body{font-family:'Inter',system-ui,Arial,sans-serif;color:#1B2B36;margin:0;padding:48px 56px;line-height:1.5}
-.rz-brand{display:flex;align-items:center;gap:12px;margin-bottom:18px}
-.rz-logo-img{width:50px;height:50px;object-fit:contain}
-.rz-logo-img.logo-fallback{display:inline-flex;align-items:center;justify-content:center;border:2px solid #2C5F7C;color:#2C5F7C;border-radius:50%;font-size:26px}
-.rz-brandco{font-size:17px;font-weight:800;color:#2C5F7C;letter-spacing:-.2px}
-.rz-brandtag{font-size:8.5px;font-weight:700;letter-spacing:1px;color:#7a8590}
-.rz-h{border-bottom:3px solid #2C5F7C;padding-bottom:14px;margin-bottom:22px}
+.rz-brand{display:flex;align-items:center;gap:9px;margin-bottom:16px}
+.rz-logo-img{width:28px;height:28px;object-fit:contain}
+.rz-logo-img.logo-fallback{display:inline-flex;align-items:center;justify-content:center;border:2px solid #2C5F7C;color:#2C5F7C;border-radius:50%;font-size:15px;width:28px;height:28px}
+.rz-brandco{font-size:13px;font-weight:800;color:#2C5F7C;letter-spacing:-.2px}
+.rz-brandtag{font-size:7px;font-weight:700;letter-spacing:.8px;color:#7a8590}
+.rz-h{display:flex;align-items:center;gap:18px;border-bottom:3px solid #2C5F7C;padding-bottom:14px;margin-bottom:22px}
+.rz-photo{flex:0 0 auto;width:84px;height:84px;border-radius:50%;overflow:hidden;background:#EFF4F7;border:1px solid #D5E0E7}
+.rz-photo img{width:100%;height:100%;object-fit:cover;display:block}
+.rz-photo-ph{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:800;color:#2C5F7C}
 .rz-name{font-size:28px;font-weight:800;letter-spacing:-.5px;color:#1B3B54}
 .rz-role{font-size:13px;color:#5A7184;font-weight:600;margin-top:3px}
 .rz-sec{margin-bottom:18px}
@@ -11433,8 +11480,24 @@ function resumeWindow(c){
   w.document.close(); return w;
 }
 function emailResume(id){ const c=cgById(id); const subj=encodeURIComponent('Caregiver Profile \u2014 '+c.name); const body=encodeURIComponent(plainResume(c)); try{ window.location.href=`mailto:?subject=${subj}&body=${body}`; toast('Opening email with '+c.name.split(' ')[0]+'\u2019s resume\u2026'); }catch(e){ toast('Email not available here'); } closeModal(); }
-function printResume(id){ const w=resumeWindow(cgById(id)); if(w){ w.focus(); setTimeout(()=>{ try{w.print();}catch(e){} },350); } closeModal(); }
-function downloadResumePDF(id){ const w=resumeWindow(cgById(id)); if(w){ w.focus(); setTimeout(()=>{ try{w.print();}catch(e){} },350); toast('Choose \u201cSave as PDF\u201d in the print dialog'); } closeModal(); }
+/* The photo is a cross-origin network image, not something already in the
+   print window's document, so printing on a flat timer was a race: it fired
+   whether or not the image had actually loaded, and a slow connection
+   printed a blank circle. This waits on the one <img> the resume ever
+   embeds (none when the caregiver has no photo URL at all, so it resolves
+   immediately), with a hard cap so a stalled or failed load still lets the
+   dialog open rather than never printing. */
+function resumeReady(w, cb){
+  const img = w.document.querySelector('.rz-photo img');
+  if(!img || img.complete){ cb(); return; }
+  let done=false;
+  const go=()=>{ if(done) return; done=true; cb(); };
+  img.addEventListener('load', go);
+  img.addEventListener('error', go);
+  setTimeout(go, 2000);
+}
+function printResume(id){ const w=resumeWindow(cgById(id)); if(w){ w.focus(); resumeReady(w, ()=>{ try{w.print();}catch(e){} }); } closeModal(); }
+function downloadResumePDF(id){ const w=resumeWindow(cgById(id)); if(w){ w.focus(); resumeReady(w, ()=>{ try{w.print();}catch(e){} }); toast('Choose \u201cSave as PDF\u201d in the print dialog'); } closeModal(); }
 function openResumeModal(id){
   const c=cgById(id);
   mEl.innerHTML=`<div class="mh"><span class="mt">Send Resume \u2014 ${c.name}</span><button class="mc" onclick="closeModal()">×</button></div>
