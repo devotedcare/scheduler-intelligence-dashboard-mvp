@@ -9578,14 +9578,19 @@ function covRuleSet(clId, field, val){
   render();
 }
 function covSpeaks(cg, lang){ return (cg.languages||[]).indexOf(lang)>=0; }
-/* THE CLIENT'S OWN PREFERENCE KEEPS A NON-FIT OFF THE LIST (owner, 2026-10-07,
-   on seeing the first version live: "it still displayed caregivers that the
-   client does not prefer!"). That version only marked and down-ranked them.
-   Concierge's "Male / Female preferred" and a Spanish-speaking client's
-   language now leave a caregiver OFF the calling list. They are not lost:
-   they are named under "not listed", and opening one asks first and says why.
-   Returns {text, kind} or null. Care needs are NOT here - those still only
-   mark the row, because a skill nobody ticked is not a preference unmet. */
+/* NOT THE GENDER OR LANGUAGE THE CLIENT PREFERS. Three versions in one day,
+   all the owner's calls, so read the arc before changing it again:
+     1. marked and down-ranked, anywhere on the list. "It still displayed
+        caregivers that the client does not prefer!"
+     2. taken OFF the list and named under "not listed". Too hidden: 113
+        names in a collapsed panel.
+     3. (this) LISTED, BUT ONLY UNDER "OTHER AVAILABLE", below everybody who
+        fits, marked, and opening one asks first.
+   This only decides WHO that is; coverageMatches() caps their match at 44
+   to put them in that group. A hard "Female"/"Male" from Concierge and
+   the desk's own rule still take a caregiver off the list altogether.
+   Returns {text, kind} or null. Care needs are NOT here - those only mark
+   the row, because a skill nobody ticked is not a preference unmet. */
 function covPrefDrop(cg, p){
   if(p.genderSoft && cg.gender!==p.genderSoft)
     return {text:'Client prefers a '+(p.genderSoft==='F'?'female':'male')+' caregiver', kind:'gender'};
@@ -9761,10 +9766,10 @@ function covClientPrefs(cl, start){
        keeps a gender only when Concierge says exactly "Female" or "Male", so
        "Male preferred" arrived as null and this client read as having no
        preference at all. It is carried apart from a plain "Female" / "Male"
-       so the screen can say "preferred" - but since 2026-10-07 it DOES keep
-       a non-fit off the calling list (owner: "gender is a big factor"), see
-       covPrefDrop(). Read from raw_prefs here rather than by changing the
-       sync. */
+       so the screen can say "preferred". A caregiver of the other gender is
+       still listed, but only under "Other available" (owner: "gender is a
+       big factor") - see covPrefDrop(). Read from raw_prefs here rather
+       than by changing the sync. */
     if(!cm){
       var gRaw=clmPref(p,'Caregiver gender');
       if(/\bfemale\b/i.test(gRaw) && /prefer/i.test(gRaw)) cmSoft='F';
@@ -9772,8 +9777,8 @@ function covClientPrefs(cl, start){
     }
     /* THE CLIENT'S LANGUAGE, when it is not English. Concierge writes
        "Spanish", "Arabic", "Tagalog (Filippino)" - the first word is the
-       language. Since 2026-10-07 a caregiver not recorded as speaking it is
-       kept off the calling list - see covPrefDrop(). */
+       language. A caregiver not recorded as speaking it is still listed,
+       but only under "Other available" - see covPrefDrop(). */
     /* SPANISH ONLY (owner, 2026-10-07). It is the one language the roster
        records speakers for in any number (13 tagged). Concierge also holds a
        Tagalog client and an Arabic one, and no caregiver is recorded as
@@ -10244,7 +10249,6 @@ function coverageMatches(q){
       drop='Not recorded as speaking '+prefs.langReq+' · the desk requires it for this client';
       dropKind='language';
     }
-    if(!drop){ var pd=covPrefDrop(cg, prefs); if(pd){ drop=pd.text; dropKind=pd.kind; } }
     if(!drop) drop=covClash(cg, ds, start, end);
     /* TRAVEL BETWEEN VISITS (owner's matching spec, 2026-10-06). A caregiver
        whose other visit that day leaves less time than the drive between the
@@ -10537,6 +10541,10 @@ function coverageMatches(q){
     var mLoad = hrs==null ? 3 : hrs>=40 ? 0 : hrs>=32 ? 2 : 5;
     var match=Math.round((mFam+mFit+mDist+mReq+mLoad)/85*100);
     if(prefMiss) match=Math.min(match, 69);        /* 70 is the Best matches line */
+    /* NOT THE GENDER OR LANGUAGE THE CLIENT PREFERS: listed, but only under
+       "Other available" (owner, 2026-10-07). 45 is the Good matches line, so
+       the cap is what puts them in the last group, below everybody who fits. */
+    if(covPrefDrop(cg, prefs)) match=Math.min(match, 44);
     var rel = worked>=4 ? 'Regular caregiver · '+worked+' visits in 30 days'
             : (onList||preferred) ? 'On this client’s caregiver list'+(worked?' · '+worked+' recent visit'+(worked>1?'s':''):'')
             : worked ? 'Worked with client '+worked+' time'+(worked>1?'s':'')+' in 30 days'
@@ -11964,13 +11972,11 @@ function covEmptyLead(q, t){
   var cl=q&&q.clientId?clById(q.clientId):null, p=covClientPrefs(cl, q?q.start:null), out=[];
   var want=[];
   if(p.genderHard) want.push(p.genderPref==='F'?'female':'male');
-  else if(p.genderSoft) want.push(p.genderSoft==='F'?'female':'male');
   if(p.langReq) want.push(p.langReq+'-speaking');
-  else if(p.clientLang) want.push(p.clientLang+'-speaking');
   var left=(t.gender||0)+(t.language||0);
   if(want.length)
     out.push('Only <b>'+escText(want.join(', '))+'</b> caregivers are listed for this shift'+
-      (p.rule ? ' — the desk’s rule and the client’s Caregiver Matching card' : ' — from the client’s Caregiver Matching card')+
+      (p.rule ? ' — the desk’s rule for this client' : ' — from Client Concierge')+
       (left ? ', which left out <b>'+left+'</b>' : '')+'.');
   var fit=[['none',t.none||0,'have nothing entered on their calendar for this date'],
            ['hours',t.hours||0,'are open that day, but not for the whole shift'],
@@ -12124,7 +12130,7 @@ function covMatchNote(q, queue){
         : 'From Client Concierge. Only caregivers AxisCare records as this gender are listed.');
   else if(p.genderSoft)
     chip((p.genderSoft==='F'?'Female':'Male')+' preferred', '',
-      'From the client\u2019s Caregiver Matching card. Only caregivers of this gender are listed. The others are under \u201cnot listed\u201d below and can still be opened \u2014 you are asked first.');
+      'From the client\u2019s Caregiver Matching card. Caregivers of the other gender are still listed, but only under \u201cOther available\u201d, marked. Opening one asks you first.');
 
   /* THE CARE NEEDS CHECKED, and whether the Care Plan was part of it. */
   { const nd=covClientNeeds(cl);
@@ -12143,8 +12149,8 @@ function covMatchNote(q, queue){
     chip(escText(p.langReq)+' speakers only', '',
       'Set by the desk for this client'+(p.rule.by?' ('+p.rule.by+')':'')+'. Only caregivers whose Languages spoken lists '+p.langReq+' are shown. Change it on the client\u2019s Caregiver Matching card.');
   else if(p.clientLang)
-    chip(escText(p.clientLang)+' speakers only', '',
-      'From the client\u2019s Caregiver Matching card. Only caregivers whose Languages spoken lists '+p.clientLang+' are shown. The others are under \u201cnot listed\u201d below and can still be opened \u2014 you are asked first.');
+    chip(escText(p.clientLang)+' speakers preferred', '',
+      'From the client\u2019s Caregiver Matching card. Caregivers not recorded as speaking '+p.clientLang+' are still listed, but only under \u201cOther available\u201d, marked. Opening one asks you first. To hide them altogether, set a Find Coverage rule on the card.');
   /* p.genderPref null and known = "Either". No chip: nothing is filtered,
      and a chip that changes nothing is the noise this change removed. */
 
@@ -12445,7 +12451,6 @@ function dateSearch(sq){
     if(sq.clientId && cgBlockedFrom(cg, sq.clientId)) return;
     if(rg && cg.gender!==rg) return;                    /* unrecorded gender is not a match */
     if(cp.langReq && !covSpeaks(cg, cp.langReq)) return; /* the desk's language rule */
-    if(covPrefDrop(cg, cp)) return;                      /* the client's own gender / language preference */
     /* covClash, NOT assignedOnDate. assignedOnDate only ever knew about
        shifts assigned inside this dashboard; covClash asks AxisCare through
        COVHIST first and falls back to the same in-app check, so it is a
@@ -12581,8 +12586,6 @@ function covWhyExcluded(cgRef, ctx){
       sh={result:'excluded', rule:'gender', label:(cg.gender?'Client asks for a ':'Gender not recorded · client asks for a ')+(prefsC.genderPref==='F'?'female':'male')+' caregiver'};
     else if(prefsC.langReq && !covSpeaks(cg, prefsC.langReq))
       sh={result:'excluded', rule:'language', label:'Not recorded as speaking '+prefsC.langReq+' \u00b7 the desk requires it for this client'};
-    else if(covPrefDrop(cg, prefsC))
-      sh={result:'excluded', rule:'preference', label:covPrefDrop(cg, prefsC).text};
     else{
       var clashS=covClash(cg, ds, start, end);
       if(clashS) sh={result:'excluded', rule:'clash', label:clashS};
@@ -12604,7 +12607,6 @@ function covWhyExcluded(cgRef, ctx){
     var cpP=covClientPrefs(cl, start), rgP=cpP.genderHard?cpP.genderPref:null;
     if(rgP && cg.gender!==rgP) pl={result:'excluded', rule:'gender', label:'Client asks for a '+(rgP==='F'?'female':'male')+' caregiver'};
     else if(cpP.langReq && !covSpeaks(cg, cpP.langReq)) pl={result:'excluded', rule:'language', label:'Not recorded as speaking '+cpP.langReq+' \u00b7 the desk requires it for this client'};
-    else if(covPrefDrop(cg, cpP)) pl={result:'excluded', rule:'preference', label:covPrefDrop(cg, cpP).text};
     else{
       var clashP=covClash(cg, ds, start, end);
       var covP=clashP?'conflict':cd.cov;

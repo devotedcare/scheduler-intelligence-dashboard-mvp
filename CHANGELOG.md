@@ -2458,6 +2458,12 @@ Spanish-speaking client's language now **keep a non-fit off the calling list**
 (`covPrefDrop()`), instead of only marking the row. They are named under "not listed" and
 opening one asks first. Care needs still only mark the row.
 
+**And once more, later that day:** hidden turned out to be too hidden (113 names in a
+collapsed panel). A caregiver who is not the gender or language the client prefers is now
+**listed again, but only under "Other available"**, below everybody who fits, marked, and
+still asked about before opening. Their match is capped at 44 to hold them in that group.
+A plain "Female" / "Male" from Concierge and the desk's own rule still remove somebody.
+
 **Measured:** 13 of 173 active caregivers are recorded as Spanish speakers and 78 carry no
 tags, so a Spanish-only list is short. The fix is to record the language on the caregiver.
 
