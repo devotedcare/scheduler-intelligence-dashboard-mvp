@@ -2451,6 +2451,13 @@ the caregiver matching and careplan."*
 - **An empty list says why first**, a name that is not a match asks before opening, and the
   profile then carries a card with the reasons (`covOpenUnmatched`, `cgWhyNotCard`).
 
+**Corrected the same day, after the owner saw it live** (*"it still displayed caregivers
+that the client does not prefer! ... gender is a big factor as well, as well as
+language"*): the client's gender preference ("Male / Female preferred") and a
+Spanish-speaking client's language now **keep a non-fit off the calling list**
+(`covPrefDrop()`), instead of only marking the row. They are named under "not listed" and
+opening one asks first. Care needs still only mark the row.
+
 **Measured:** 13 of 173 active caregivers are recorded as Spanish speakers and 78 carry no
 tags, so a Spanish-only list is short. The fix is to record the language on the caregiver.
 
